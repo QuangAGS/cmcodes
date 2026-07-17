@@ -1,0 +1,73 @@
+/**
+ * VERSION: v1.0.0
+ * DATE: 29-03-2026 10:10
+ * PATH: tests/auth_api.http
+ * DESCRIPTION: File kịch bản để sử dụng với Extension "REST Client".
+ * HƯỚNG DẪN: Nhấn vào chữ "Send Request" hiện lên phía trên mỗi hàm để test.
+ */
+
+@baseUrl=https://gia-pha-backend.onrender.com/api
+
+### 1. ĐĂNG KÝ: TẠO DÒNG HỌ MỚI (VAI TRÒ CLAN_ADMIN)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "email": "xyz@gmail.com",
+  "password": "securepassword",
+  "name": "Nguyễn Đình Y",
+  "isNewClan": true,
+  "clanName": "Họ Nguyễn Đình Kỳ Anh Hà Tĩnh"
+}
+
+###
+
+### 2. ĐĂNG KÝ: XIN GIA NHẬP (VAI TRÒ USER - CHỜ DUYỆT)
+# Thay tenantId bằng ID thực tế bạn lấy từ DB sau khi chạy bước 1
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "phone": "0912312345",
+  "password": "userpassword",
+  "name": "Nguyễn Hữu B",
+  "isNewClan": false,
+  "tenantId": "b43739f3-25db-49d4-b3f8-512de1f29eb6",
+  "onboardingData": {
+    "fatherName": "Nguyễn Hữu A",
+    "birthYear": 1995,
+    "relationship": "CON_DE",
+    "note": "Tôi là con cả ông A"
+  }
+}
+
+###
+
+### 3. ĐĂNG NHẬP
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "identifier": "nguyenthanhq@gmail.com",
+  "password": "France1989"
+}
+###
+
+# ==========================================================
+# BƯỚC 3: CẬP NHẬT HỒ SƠ CÁ NHÂN
+# Yêu cầu: Phải có Token từ bước Đăng nhập phía trên.
+# Logic: Tự động lấy Token từ kết quả trả về của bước 'login'.
+# ==========================================================
+
+@authToken = {{login.response.body.token}}
+
+PUT {{baseUrl}}/auth/profile
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+    "phone": "0858586586",
+    "password": "France1989"
+}
+
+###
