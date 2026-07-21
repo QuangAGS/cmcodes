@@ -1,6 +1,6 @@
 /**
- * PATH: backend/src/controllers/baseController.js
- * DATETIME: 20-04-2026 09:45
+ * PATH: src/shared/controllers/base.controller.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 2.2.0
  * DESCRIPTION: 
  * - NÂNG CẤP: Hàm search thông minh, tự động đóng gói toàn bộ req.query thành bộ lọc.
@@ -8,7 +8,7 @@
  * - Q1: Bảo tồn cấu trúc flat controller. Q2: Ghi chú nghiệp vụ.
  */
 
-const commonService = require('../services/commonService');
+const commonService = require('../utils/common.utils.service');
 
 const baseController = (tableName) => {
   return {

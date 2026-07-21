@@ -1,5 +1,5 @@
 /**
- * PATH: backend/src/scripts/notificationRepoTest.js
+ * PATH: src/tests/notificationRepoTest.js
  * PURPOSE:
  * Quick sanity test for EGAL-25 repositories, policies, and orchestrator
  *
@@ -7,7 +7,7 @@
  * node src/scripts/notificationRepoTest.js
  */
 
-const { prisma } = require('../lib/prisma');
+const { prisma } = require('../lib/prisma.js');
 
 const communicationRepository = require(
   '../modules/notifications/repository/communication.repository'

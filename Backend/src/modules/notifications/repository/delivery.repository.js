@@ -1,5 +1,5 @@
 /**
- * PATH: backend/src/modules/notifications/repository/delivery.repository.js
+ * PATH: src/modules/notifications/repository/delivery.repository.js
  * PURPOSE:
  * - EGAL-25 Sprint 25.0
  * - Repository layer for notification_deliveries + inbound_messages
@@ -9,7 +9,7 @@
  * - No actual channel sending
  */
 
-const { prisma } = require('../../../lib/prisma');
+const { prisma } = require('../../../lib/prisma.js');
 
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
 

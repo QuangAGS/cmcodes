@@ -1,6 +1,6 @@
 /**
- * PATH: src/services/business-log-schemas.js
- * DATETIME: 2026-06-15 15:41:00
+ * PATH: src/services/businessLogSchemas.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 1.0.1
  * DESCRIPTION: Định nghĩa hợp đồng dữ liệu (Data Contract) và khuôn mẫu kiểm tra (Validation Schema)
  * cho cấu trúc JSON metadata của từng tiến trình nghiệp vụ (Business Process).
@@ -102,12 +102,13 @@ const BusinessLogSchemas = {
   /**
    * @dateTime 2026-06-15 15:44:50
    * @description Xử lý tiến trình cấm người dùng truy cập vĩnh viễn (Ban).
-   */
+   ****************
   USER_BAN: (payload) => {
     if (!payload.reason) throw new Error("USER_BAN requires a reason");
     return { reason: payload.reason };
   },
-
+  */
+ 
   /**
    * @dateTime 2026-06-15 15:45:10
    * @description Xử lý tiến trình gỡ cấm tài khoản (Unban).

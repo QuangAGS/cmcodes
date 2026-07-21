@@ -1,6 +1,6 @@
 /**
- * PATH       : backend/src/services/emailService.js
- * DATETIME   : 2026-05-12T00:00:00+07:00
+ * PATH       : src/services/email.service.js
+ * DATETIME   : 2026-07-16T12:15:00+07:00
  * VERSION    : 2.0.0
  * DESCRIPTION:
  * - Chuyển email service từ Nodemailer SMTP sang Brevo Transactional Email API.

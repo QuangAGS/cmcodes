@@ -1,13 +1,13 @@
 /**
  * PATH       : src/middlewares/securityGuard.middleware.js
- * DATETIME   : 2026-06-16T11:25:00+07:00
+ * DATETIME   : 2026-07-16T12:15:00+07:00
  * VERSION    : 1.0.0
  * DESCRIPTION: Bộ lọc cấu hình động (Factory Middleware) bọc ở tầng Route.
  * Tiếp nhận cấu hình cấu trúc ngưỡng chặn riêng biệt cho từng Business Process (BP) khác nhau.
  */
 
-const securityGuardService = require('../services/securityGuard.service');
-const { ipBlockList } = require('./ipBlockMiddleware'); // 🚀 BẢO TỒN: Nạp Map bộ nhớ đệm chứa danh sách IP bị khóa
+const securityGuardService = require('../services/security.service');
+const { ipBlockList } = require('./ipBlock.middleware'); // 🚀 BẢO TỒN: Nạp Map bộ nhớ đệm chứa danh sách IP bị khóa
 
 /**
  * @dateTime 2026-06-16T11:26:30+07:00

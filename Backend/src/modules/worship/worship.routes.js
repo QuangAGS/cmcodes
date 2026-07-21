@@ -1,6 +1,6 @@
 /**
- * PATH: backend/src/routes/worshipRoutes.js
- * DATETIME: 14-04-2026 17:30
+ * PATH: src/modules/worship/worship.routes.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 1.6.0
  * DESCRIPTION: Định tuyến quản lý dữ liệu thờ cúng (worships).
  * ĐẢM BẢO: Tuân thủ luồng router -> baseController -> commonService và bảo mật Multi-tenant.
@@ -8,11 +8,11 @@
 
 const express = require('express');
 const router = express.Router();
-const baseController = require('../controllers/baseController');
+const baseController = require('../../shared/controllers/base.controller');
 
 // IMPORT Middleware bảo mật (Luồng số 2 trong Flow)
-const { verifyToken, checkRole } = require('../middlewares/authMiddleware');
-const validateMiddleware = require('../middlewares/validateMiddleware');
+const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
+const validateMiddleware = require('../../middlewares/validate.middleware');
 
 // Khởi tạo bộ điều khiển tổng quát cho bảng worships
 const worshipCtrl = baseController('worships');

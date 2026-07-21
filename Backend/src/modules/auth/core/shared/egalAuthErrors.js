@@ -1,6 +1,6 @@
 /**
- * PATH       : src/services/auth/core/shared/egalAuthErrors.js
- * DATETIME   : 2026-06-27T12:30:00+07:00
+ * PATH       : src/modules/auth/core/shared/egalAuthErrors.js
+ * DATETIME   : 2026-07-16T12:15:00+07:00
  * VERSION    : EGAL-25.x-AUTH.ERRORS.V1
  * DESCRIPTION:
  * - Chuẩn hoá toàn bộ error domain cho Auth System

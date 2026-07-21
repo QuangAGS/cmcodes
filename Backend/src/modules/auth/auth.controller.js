@@ -1,6 +1,6 @@
 /**
- * PATH       : src/controllers/authController.js
- * DATETIME   : 2026-06-19T15:45:00+07:00
+ * PATH       : src/modules/auth/auth.controller.js
+ * DATETIME   : 2026-07-16T12:15:00+07:00
  * VERSION    : 23.2.9-PRISMA-NULL-POINTER-FIX
  * DESCRIPTION: 
  * - Khắc phục triệt để lỗi PrismaClientValidationError (Argument tenant_id must not be null).
@@ -10,16 +10,16 @@
  * - Tuân thủ định dạng JSDoc và thẻ thời gian thực thi nghiêm ngặt (Q2).
  */
 
-const authService = require('../../services/authService');
+const authService = require('./auth.service');
 const authLogService = require('./authLog.service');
-const { validateTurnstile } = require('../utils/turnstile');
+const { validateTurnstile } = require('../../shared/utils/turnstile.utils');
 const securityConfig = require('../../config/securityConfig');
 const { 
   ipBlockMiddleware, 
   isIPBlocked, 
   blockIP, 
   ipBlockList 
-} = require('../middlewares/ipBlockMiddleware');
+} = require('../../middlewares/ipBlock.middleware');
 
 if (securityConfig.NODE_ENV !== 'production') {
   console.log('🧪 [DEBUG] Route /debug/unblock-all đã được kích hoạt');

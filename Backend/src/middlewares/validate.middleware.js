@@ -1,5 +1,5 @@
-// file: src/middlewares/validateMiddleware.js
-const schemas = require('../validations/baseValidation'); // Bạn sẽ tạo file này sau
+// file: src/middlewares/validate.middleware.js
+const schemas = require('../shared/validations/base.validation'); // Bạn sẽ tạo file này sau
 
 const validateEntity = (entityName) => {
   return (req, res, next) => {

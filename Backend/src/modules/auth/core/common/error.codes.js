@@ -1,7 +1,7 @@
 /**
  * ============================================================================
- * PATH        : src/services/core/common/error.codes.js
- * DATETIME    : 2026-07-02T10:00:00+07:00
+ * PATH        : src/modules/auth/core/common/error.codes.js
+ * DATETIME    : 2026-07-16T12:15:00+07:00
  * VERSION     : EGAL-25.x.x-R1
  *
  * DESCRIPTION

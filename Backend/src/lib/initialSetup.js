@@ -1,8 +1,8 @@
 /**
  * ============================================================================
- * PATH: backend/src/lib/initialSetup.js
+ * PATH: src/lib/initialSetup.js
  * VERSION: EGAL-25.2.4-BOOTSTRAP-TENANT-FIRST
- * DATETIME: 2026-06-27T13:20:00+07:00
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * ============================================================================
  * DESCRIPTION: 
  * Khởi tạo môi trường gốc cho Hệ thống EGAL theo quy trình an toàn khóa ngoại.
@@ -13,7 +13,7 @@
  * ============================================================================
  */
 
-const prisma = require('./prisma'); // Điểm truy cập chuẩn độc nhất
+const prisma = require('./prisma.js'); // Điểm truy cập chuẩn độc nhất
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 

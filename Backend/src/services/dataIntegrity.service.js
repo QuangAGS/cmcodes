@@ -1,6 +1,6 @@
 /**
- * PATH: backend/src/services/dataIntegrityService.js
- * DATETIME: 14-04-2026 18:30
+ * PATH: src/services/dataIntegrity.service.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 1.1.0
  * DESCRIPTION: Quét và phát hiện lỗi logic phả hệ (Huyết thống, Đời, Hôn nhân).
  * RULE: Không truy vấn DB trực tiếp, nhận dữ liệu phẳng từ Service cha.

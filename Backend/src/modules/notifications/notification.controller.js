@@ -1,12 +1,12 @@
 /**
- * PATH: backend/src/controllers/notificationController.js
- * DATETIME: 14-04-2026 13:15
+ * PATH: src/modules/notifications/notification.controller.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 1.1.0
  * DESCRIPTION: Điều phối thông báo cá nhân.
  * SỬA LỖI: Đồng bộ thuộc tính userId từ req.user.
  */
 
-const notificationService = require('../services/notificationService');
+const notificationService = require('./notification.service');
 
 const notificationController = {
   // Lấy thông báo cá nhân

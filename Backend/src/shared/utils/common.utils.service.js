@@ -1,6 +1,6 @@
 /**
- * PATH: backend/src/services/commonService.js
- * DATETIME: 20-04-2026 16:45
+ * PATH: src/shared/utils/common.utils.service.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 2.3.7
  * DESCRIPTION: 
  * - FIX: Import exactMatchFields để giải quyết lỗi 500 khi Search. 
@@ -9,10 +9,11 @@
  * - Q1: Bảo tồn chức năng. Q2: Metadata đầy đủ.
  */
 
-// QUAN TRỌNG: Phải import exactMatchFields từ bản prisma.js v3.2.2 
-const { prisma, exactMatchFields } = require('../lib/prisma'); 
+// QUAN TRỌNG: Phải import exactMatchFields từ bản prisma.js 23.0.0-MERGED
+const { prisma, exactMatchFields } = require('../../lib/prisma.js'); 
+
 const { v4: uuidv4 } = require('uuid');
-const auditService = require('./auditService');
+const auditService = require('../../services/audit.service');
 
 const DEFAULT_ID = "00000000-0000-0000-0000-000000000000";
 
@@ -98,6 +99,7 @@ const commonService = {
   /**
    * SEARCH: Dynamic Search (Nâng cấp vét cạn toán tử) 
    */
+  /*
   search: async (tableName, fieldOrCriteria, query = null) => {
     try {
       let whereClause = {};
@@ -128,6 +130,52 @@ const commonService = {
       });
 
       // 3. TRUY VẤN (Sử dụng prisma client mở rộng từ lib) 
+      return await prisma[tableName].findMany({
+        where: whereClause,
+        orderBy: { created_at: 'desc' }
+      });
+    } catch (error) {
+      console.error(`[CommonService Search Error on ${tableName}]:`, error.message);
+      throw error;
+    }
+  }
+  */
+
+  /**
+   * SEARCH: Dynamic Search (Nâng cấp xử lý Enum + ID)
+   */
+  search: async (tableName, fieldOrCriteria, query = null) => {
+    try {
+      let whereClause = {};
+      let criteria = {};
+
+      // 1. CHUẨN HÓA ĐẦU VÀO
+      if (typeof fieldOrCriteria === 'object' && fieldOrCriteria !== null) {
+        criteria = fieldOrCriteria;
+      } else if (typeof fieldOrCriteria === 'string') {
+        criteria[fieldOrCriteria] = query;
+      }
+
+      // 2. XỬ LÝ TOÁN TỬ THEO KIỂU DỮ LIỆU
+      Object.keys(criteria).forEach(key => {
+        const val = criteria[key];
+        if (val === undefined || val === null) return;
+
+        const isExactMatch = exactMatchFields.includes(key) || 
+                            key.endsWith('_id') || 
+                            key === 'status' || key === 'role' || 
+                            key.endsWith('_type');   // Thêm các enum phổ biến
+
+        if (typeof val === 'string' && !isExactMatch) {
+          // Text fields → contains
+          whereClause[key] = { contains: val, mode: 'insensitive' };
+        } else {
+          // Enum, ID, Boolean → equals
+          whereClause[key] = { equals: val };
+        }
+      });
+
+      // 3. TRUY VẤN
       return await prisma[tableName].findMany({
         where: whereClause,
         orderBy: { created_at: 'desc' }

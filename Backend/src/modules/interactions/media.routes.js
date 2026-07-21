@@ -1,10 +1,10 @@
 /**
- * PATH: backend/src/routes/mediaRoutes.js
+ * PATH: src/modules/interactions/media.routes.js
  */
 const express = require('express');
 const router = express.Router();
-const mediaService = require('../services/mediaService');
-const { verifyToken } = require('../middlewares/authMiddleware');
+const mediaService = require('./media.service');
+const { verifyToken } = require('../../middlewares/auth.middleware');
 // Giả định bạn dùng multer để xử lý file upload
 // const upload = require('../middlewares/uploadMiddleware'); 
 

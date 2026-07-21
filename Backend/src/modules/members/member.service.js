@@ -1,6 +1,6 @@
 /**
- * PATH: backend/src/services/memberService.js
- * DATETIME   : 2026-06-16T21:15:00+07:00
+ * PATH: src/modules/members/member.service.js
+ * DATETIME   : 2026-07-16T12:15:00+07:00
  * VERSION    : 1.7.5
  * DESCRIPTION: 
  * - Rà soát và loại bỏ/comment toàn bộ việc sinh khóa chính (PK) thủ công `id: uuidv4()` ở tầng Backend.
@@ -9,10 +9,10 @@
  * - Tuân thủ cấu trúc format tài liệu hệ thống (Q2).
  */
 
-const { prisma } = require('../lib/prisma');
+const { prisma } = require('../../lib/prisma.js');
 // const { v4: uuidv4 } = require('uuid'); 🚫 KHÔNG DÙNG: Khóa chính PK đã được cấu hình tự sinh tự động ở tầng DB
-const auditService = require('./auditService');
-const dataIntegrityService = require('./dataIntegrityService');
+const auditService = require('../../services/audit.service');
+const dataIntegrityService = require('../../services/dataIntegrity.service');
 
 const memberService = {
   /**

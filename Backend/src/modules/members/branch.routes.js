@@ -1,13 +1,13 @@
 /**
- * PATH: backend/src/routes/branchRoutes.js
- * DATETIME: 14-04-2026 17:00
+ * PATH: src/modules/members/branch.routes.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 1.6.0
  */
 const express = require('express');
 const router = express.Router();
-const baseController = require('../controllers/baseController');
-const branchController = require('../controllers/branchController'); // Giữ lại cho các hàm đặc thù
-const { verifyToken, checkRole } = require('../middlewares/authMiddleware');
+const baseController = require('../../shared/controllers/base.controller');
+const branchController = require('./branch.controller'); // Giữ lại cho các hàm đặc thù
+const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
 
 // 1. Lấy bộ Controller chuẩn cho bảng branches
 const branchCtrl = baseController('branches');

@@ -1,13 +1,13 @@
 /**
- * PATH       : backend/src/services/auditService.js
- * DATETIME   : 2026-06-16T09:45:00+07:00
+ * PATH       : src/services/audit.service.js
+ * DATETIME   : 2026-07-16T12:15:00+07:00
  * VERSION    : 1.3.0
  * DESCRIPTION: Ghi nhật ký biến động chi tiết dữ liệu (Data Change Audit Trail). 
  * - Patch bổ sung hỗ trợ correlation_id nhằm đồng bộ mã vết request với business_process_logs.
  * - Bảo tồn 100% cơ chế tự động nhận diện tenant_id và xử lý lý do mặc định (Q1).
  * - Tuân thủ nghiêm ngặt chuẩn định dạng tài liệu hệ thống (Q2).
  */
-const { basePrisma } = require('../lib/prisma');
+const { basePrisma } = require('../lib/prisma.js');
 
 /**
  * @dateTime 2026-06-16T09:46:00+07:00
@@ -32,10 +32,11 @@ const logAction = async (
   userId,
   reason,
   tenantId,
-  correlation_id // 🚀 MỚI: Bổ sung tham số để thu nạp mã vết từ chuỗi 7 bước của BP
+  correlation_id, // 🚀 MỚI: Bổ sung tham số để thu nạp mã vết từ chuỗi 7 bước của BP
+  tx = null   // ← Thêm tham số tx (transaction) để hỗ trợ ghi log trong một transaction duy nhất khi cần thiết, theo quy định của prisma.js
 ) => {
   try {
-    
+    const client = tx || basePrisma;   // ← Ưu tiên tx
     /**
      * @dateTime 2026-06-16T09:47:15+07:00
      * @description [BẢO TỒN LOGIC BƯỚC 1]: Xác định Tenant ID an toàn.
@@ -75,7 +76,7 @@ const logAction = async (
      * Ghi nhận dữ liệu chi tiết. Trường ID được cấu hình bỏ qua vì Postgres đã tự động sinh (gen_random_uuid()).
      * Tách biệt cấu trúc JSON cũ và mới thông qua lệnh Deep Clone JSON để tránh xung đột tham chiếu bộ nhớ.
      */
-    return await basePrisma.audit_logs.create({
+    return await client.audit_logs.create({
       data: {
         action,
         table_name: tableName,

@@ -1,6 +1,6 @@
 /**
  * PATH       : src/config/validateEnv.js
- * DATETIME   : 2026-05-06T18:55:00+07:00
+ * DATETIME   : 2026-07-16T12:15:00+07:00
  * VERSION    : 21.5.3
  * DESCRIPTION: 
  * - Hoàn tất Bước 5: Production Hardening

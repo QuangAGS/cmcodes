@@ -1,6 +1,6 @@
 // /** Lưu ý không phải dùng file này nữ (được thay bằng baseController)
-// file: src/controllers/addressController.js
-const commonService = require('../services/commonService');
+// file: src/modules/interactions/address.controller.js
+const commonService = require('../../shared/utils/common.utils.service');
 
 // 1. Lấy danh sách (Khớp với addressCtrl.getAll trong Routes)
 const getAll = async (req, res) => {

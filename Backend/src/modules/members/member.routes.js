@@ -1,14 +1,14 @@
 
 /**
- * PATH: backend/src/routes/memberRoutes.js
- * DATETIME: 14-04-2026 21:00
+ * PATH: src/modules/members/member.routes.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 1.6.0
  * DESCRIPTION: Đồng bộ Routes thành viên, sửa lỗi Shadowing.
  */
 const express = require('express');
 const router = express.Router();
-const memberController = require('../controllers/memberController');
-const { verifyToken, checkRole } = require('../middlewares/authMiddleware');
+const memberController = require('./member.controller');
+const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
 
 // --- NHÓM 1: ROUTE TĨNH & ĐẶC THÙ (ƯU TIÊN CAO NHẤT) ---
 // Đưa các route này lên đầu để tránh bị nhầm với /:id
@@ -50,7 +50,7 @@ module.exports = router;
 const express = require('express');
 const router = express.Router();
 const memberController = require('../controllers/memberController');
-const { verifyToken, checkRole } = require('../middlewares/authMiddleware');
+const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
 
 // --- NHÓM 1: CÁC ROUTE TĨNH & ĐẶC THÙ (ƯU TIÊN CAO NHẤT) ---
 

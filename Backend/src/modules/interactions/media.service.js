@@ -1,14 +1,14 @@
 /**
- * PATH: backend/src/services/mediaService.js
- * DATETIME: 2026-06-16T21:15:00+07:00
+ * PATH: src/modules/interactions/media.service.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 1.0.1
  * DESCRIPTION: Quản lý Multimedia và Tài liệu. Hỗ trợ lưu trữ tập trung.
  * - Rà soát và loại bỏ/comment toàn bộ việc sinh khóa chính (PK) thủ công `id: uuidv4()` ở tầng Backend.
  */
 
-const { prisma } = require('../lib/prisma');
+const { prisma } = require('../../lib/prisma.js');
 const { v4: uuidv4 } = require('uuid');
-const auditService = require('./auditService');
+const auditService = require('../../services/audit.service');
 
 const mediaService = {
   /**

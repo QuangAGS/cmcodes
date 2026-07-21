@@ -1,5 +1,5 @@
 /**
- * PATH: backend/src/middlewares/uploadMiddleware.js
+ * PATH: src/middlewares/upload.middleware.js
  * VERSION: 1.0.0
  * DESCRIPTION: Cấu hình Multer để lọc và tiếp nhận file Multimedia.
  */
@@ -9,7 +9,7 @@ const path = require('path');
 // 1. Cấu hình lưu trữ vào bộ nhớ (Memory) để xử lý tiếp bằng Cloud SDK
 const storage = multer.memoryStorage();
 
-// 2. Bộ lọc File: Đảm bảo chỉ nhận các định dạng cho phép
+// 2. Bộ lọc File: src/middlewares/upload.middleware.js bảo chỉ nhận các định dạng cho phép
 const fileFilter = (req, file, cb) => {
   const allowedTypes = /jpeg|jpg|png|gif|pdf|doc|docx/;
   const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());

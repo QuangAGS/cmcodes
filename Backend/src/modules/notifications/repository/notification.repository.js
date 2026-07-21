@@ -1,5 +1,5 @@
 /**
- * PATH: backend/src/modules/notifications/repository/notification.repository.js
+ * PATH: src/modules/notifications/repository/notification.repository.js
  * PURPOSE:
  * - EGAL-25 Sprint 25.0
  * - Repository layer for notifications + notification_recipients
@@ -8,7 +8,7 @@
  * - No delivery logic
  */
 
-const { prisma } = require('../../../lib/prisma');
+const { prisma } = require('../../../lib/prisma.js');
 const crypto = require('crypto');
 
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';

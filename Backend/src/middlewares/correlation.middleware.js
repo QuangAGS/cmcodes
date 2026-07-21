@@ -1,6 +1,6 @@
 /**
  * PATH: src/middlewares/correlation.middleware.js
- * DATETIME: 2026-06-15 15:53:00
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 1.0.0
  * DESCRIPTION: Middleware gán mã liên vết Correlation ID tự động cho mọi Request đi vào hệ thống.
  * Đóng vai trò là điểm khởi đầu cho chuỗi kết vết Audit Log của toàn bộ dự án.

@@ -1,6 +1,6 @@
 /**
- * PATH       : src/middlewares/ipBlockMiddleware.js
- * DATETIME   : 2026-05-07T14:45:00+07:00
+ * PATH       : src/middlewares/ipBlock.middleware.js
+ * DATETIME   : 2026-07-16T12:15:00+07:00
  * VERSION    : 21.6.1
  * DESCRIPTION: 
  * - Middleware quản lý IP Blocking

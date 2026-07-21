@@ -1,13 +1,13 @@
 /**
- * PATH: backend/src/routes/eventRoutes.js
- * DATETIME: 14-04-2026 21:45
+ * PATH: src/modules/interactions/event.routes.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 1.0.0
  */
 
 const express = require('express');
 const router = express.Router();
-const baseController = require('../controllers/baseController');
-const { verifyToken, checkRole } = require('../middlewares/authMiddleware');
+const baseController = require('../../shared/controllers/base.controller');
+const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
 
 const eventCtrl = baseController('events');
 

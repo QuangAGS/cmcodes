@@ -1,10 +1,10 @@
 /**
- * PATH: backend/src/controllers/branchController.js
- * DATETIME: 14-04-2026 17:05
+ * PATH: src/modules/members/branch.controller.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 2.0.0
  * DESCRIPTION: Chỉ chứa các logic đặc thù cho Chi họ (Tree logic).
  */
-const branchService = require('../services/branchService');
+const branchService = require('./branch.service');
 
 const branchController = {
   // Logic lấy cây phả hệ (không nằm trong CRUD phẳng)

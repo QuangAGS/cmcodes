@@ -1,5 +1,5 @@
 /**
- * PATH: backend/src/modules/notifications/repository/communication.repository.js
+ * PATH: src/modules/notifications/repository/communication.repository.js
  * PURPOSE:
  * - EGAL-25 Sprint 25.0
  * - Repository layer for communication preferences, bindings, providers, web push subscriptions
@@ -8,7 +8,7 @@
  * - No delivery logic
  */
 
-const { prisma } = require('../../../lib/prisma');
+const { prisma } = require('../../../lib/prisma.js');
 
 const SYSTEM_USER_ID = '00000000-0000-0000-0000-000000000000';
 

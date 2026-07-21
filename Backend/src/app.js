@@ -1,50 +1,59 @@
 /**
  * PATH       : src/app.js
- * DATETIME   : 2026-05-13T00:00:00+07:00
- * VERSION    : 21.5.1
+ * DATETIME   : 2026-07-20T21:17:00+07:00
+ * VERSION    : 21.5.2
  * DESCRIPTION:
  * - Production Hardening: Security Headers & CORS.
  * - Patch Config Gateway:
  *   + Import securityConfig.
  *   + CORS origin đọc từ securityConfig.ALLOWED_ORIGINS.
  *   + Global Error Handler đọc NODE_ENV từ securityConfig.
+ * - [21.5.2] Mount onboarding.routes (OPD v1.1.0 / Phase 1–3).
+ *   + Thêm allowedHeaders: x-correlation-id.
  * - Bảo tồn toàn bộ logic cũ (Q1).
  * - Tuân thủ Q2.
+ *
+ * CHANGELOG:
+ * - 21.5.1 (2026-07-16): Production Hardening + securityConfig gateway.
+ * - 21.5.2 (2026-07-20): Add /api/onboarding + CORS header x-correlation-id.
  */
 
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 
-const { basePrisma, tenantContext } = require('./lib/prisma');
+const { basePrisma, tenantContext } = require('./lib/prisma.js');
 
 // === PRODUCTION HARDENING: VALIDATE ENV ===
 // const { validateEnv } = require('./config/validateEnv'); // đã được tích hợp vào securityConfig.js.
 const securityConfig = require('./config/securityConfig');
 
-// validateEnv(); // không sử dụng nữa. 
+// validateEnv(); // không sử dụng nữa.
 // ==========================================
 
 // IMPORT ROUTES & MIDDLEWARES
-const branchRoutes = require('./routes/branchRoutes');
-const memberRoutes = require('./routes/memberRoutes');
-const addressRoutes = require('./routes/addressRoutes');
-const worshipRoutes = require('./routes/worshipRoutes');
-const tenantRoutes = require('./routes/tenantRoutes');
-const authLogRoutes = require('./routes/authLogRoutes');
-const notificationRoutes = require('./routes/notificationRoutes');
-const { loginRateLimiter } = require('./middlewares/rateLimitMiddleware');
-const achievementRoutes = require('./routes/achievementRoutes');
-const assetRoutes = require('./routes/assetRoutes');
-const cemeteryRoutes = require('./routes/cemeteryRoutes');
-const graveRoutes = require('./routes/graveRoutes');
-const eventRoutes = require('./routes/eventRoutes');
-const fundRoutes = require('./routes/fundRoutes');
-const fundTransactionRoutes = require('./routes/fundTransactionRoutes');
-const suggestionRoutes = require('./routes/suggestionRoutes');
-const mediaRoutes = require('./routes/mediaRoutes');
+const branchRoutes = require('./modules/members/branch.routes');
+const memberRoutes = require('./modules/members/member.routes');
+const addressRoutes = require('./modules/interactions/address.routes');
+const worshipRoutes = require('./modules/worship/worship.routes');
+const tenantRoutes = require('./modules/tenants/tenant.routes');
+const authLogRoutes = require('./modules/auth/authLog.routes');
+const notificationRoutes = require('./modules/notifications/notification.routes');
+const { loginRateLimiter } = require('./middlewares/rateLimit.middleware');
+const achievementRoutes = require('./modules/tenants/achievement.routes');
+const assetRoutes = require('./modules/finance/asset.routes');
+const cemeteryRoutes = require('./modules/worship/cemetery.routes');
+const graveRoutes = require('./modules/worship/grave.routes');
+const eventRoutes = require('./modules/interactions/event.routes');
+const fundRoutes = require('./modules/finance/fund.routes');
+const fundTransactionRoutes = require('./modules/finance/fundTransaction.routes');
+const suggestionRoutes = require('./modules/interactions/suggestion.routes');
+const mediaRoutes = require('./modules/interactions/media.routes');
 
-const authRoutesRaw = require('./routes/authRoutes');
+// [21.5.2] Onboarding module (EGAL-25.x OPD v1.1.0)
+const onboardingRoutes = require('./modules/onboarding/onboarding.routes');
+
+const authRoutesRaw = require('./modules/auth/auth.routes');
 const authRoutes = authRoutesRaw.default || authRoutesRaw;
 
 const app = express();
@@ -80,11 +89,18 @@ app.use(
      * Config Gateway:
      * - ALLOWED_ORIGINS lấy từ .env qua securityConfig.
      * - Không hard-code domain tại app.js nữa.
+     * <2026-07-20T21:17:00+07:00>
+     * - Thêm x-correlation-id cho Onboarding traceability (OPD v1.1.0).
      */
     origin: securityConfig.ALLOWED_ORIGINS,
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-tenant-slug'],
+    allowedHeaders: [
+      'Content-Type',
+      'Authorization',
+      'x-tenant-slug',
+      'x-correlation-id',
+    ],
   })
 );
 
@@ -118,7 +134,7 @@ app.get('/', (req, res) =>
   res.json({
     status: 'Online',
     app: securityConfig.APP_NAME,
-    version: '21.5.1',
+    version: '21.5.2',
     environment: securityConfig.NODE_ENV,
   })
 );
@@ -148,6 +164,10 @@ app.use('/api/media', mediaRoutes);
 app.use('/api/suggestions', suggestionRoutes);
 app.use('/api/auth-logs', authLogRoutes);
 app.use('/api/notifications', notificationRoutes);
+
+// [21.5.2] Onboarding — EGAL-25.x OPD v1.1.0 (Phase 1–3)
+// Prefix nhất quán với các module hiện tại (/api/members, /api/branches, ...)
+app.use('/api/onboarding', onboardingRoutes);
 
 // Global Error Handler
 app.use((err, req, res, next) => {

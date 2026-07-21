@@ -1,13 +1,13 @@
 /**
- * PATH       : src/services/securityGuard.service.js
- * DATETIME   : 2026-06-16T11:15:00+07:00
+ * PATH       : src/services/security.service.js
+ * DATETIME   : 2026-07-16T12:15:00+07:00
  * VERSION    : 1.0.0
  * DESCRIPTION: Dịch vụ bảo an hệ thống dùng chung (Shared Security Guard). 
  * Chuyên phân tích tần suất hành vi dựa trên lịch sử dữ liệu an ninh auth_logs để chủ động phát lệnh khóa IP.
  */
 
-const authLogService = require('./authLogService'); // 🚀 BẢO TỒN: Sử dụng dịch vụ log an ninh sẵn có
-const { isIPBlocked, blockIP } = require('../middlewares/ipBlockMiddleware'); // 🚀 BẢO TỒN: Tận dụng bộ nhớ đệm và hàm khóa IP cũ
+const authLogService = require('../modules/auth/authLog.service'); // 🚀 BẢO TỒN: Sử dụng dịch vụ log an ninh sẵn có
+const { isIPBlocked, blockIP } = require('../middlewares/ipBlock.middleware'); // 🚀 BẢO TỒN: Tận dụng bộ nhớ đệm và hàm khóa IP cũ
 const securityConfig = require('../config/securityConfig'); // 🚀 BẢO TỒN: Nạp cấu hình an ninh tập trung
 
 class SecurityGuardService {

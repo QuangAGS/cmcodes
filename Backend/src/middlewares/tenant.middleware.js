@@ -1,6 +1,6 @@
 // Nạp basePrisma và tenantContext từ file cấu hình prisma.js
 // Lưu ý: Đảm bảo đường dẫn '../lib/prisma' là chính xác với cấu trúc thư mục của bạn
-const { basePrisma, tenantContext } = require('../lib/prisma');
+const { basePrisma, tenantContext } = require('../lib/prisma.js');
 
 /**
  * Middleware: tenantMiddleware

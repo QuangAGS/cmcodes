@@ -1,6 +1,6 @@
 /*
- * DATETIME: 09-04-2026 17:15
- * PATH: backend/controller/authLogController.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
+ * PATH: src/modules/auth/authLog.controller.js
  * VERSION: 1.0.0
  * Mục đích: Phục vụ onboarding process.
  */

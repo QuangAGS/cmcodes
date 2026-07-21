@@ -1,6 +1,6 @@
 /**
- * PATH       : src/services/authLogService.js
- * DATETIME   : 2026-06-22T21:15:00+07:00
+ * PATH       : src/modules/auth/authLog.service.js
+ * DATETIME   : 2026-07-16T12:15:00+07:00
  * VERSION    : 22.1.1-SPEED-OPTIMIZED
  * DESCRIPTION: 
  * - Dùng user_attempt_number với đúng unique constraint "idx_user_attempt_action"
@@ -9,7 +9,7 @@
  * - Bảo toàn 100% Q1/Q2
  */
 
-const { basePrisma } = require('../../lib/prisma');
+const { basePrisma } = require('../../lib/prisma.js');
 
 const LOCK_CONFIG = {
   MAX_ATTEMPTS: 5,

@@ -1,6 +1,6 @@
 /**
- * PATH       : src/services/authService.js
- * DATETIME   : 2026-06-21T15:10:00+07:00
+ * PATH       : src/modules/auth/auth.service.js
+ * DATETIME   : 2026-07-16T12:15:00+07:00
  * VERSION    : 20.2.2-DYNAMIC-ATTEMPT-LEDGER
  * DESCRIPTION:
  * - SỬA LỖI ĐÓNG BĂNG ATTEMPT: Tự động tính toán luỹ tiến attempt_no dựa trên số lần xử lý thực tế của một user_id.
@@ -24,26 +24,29 @@ const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 
 //const { basePrisma } = require('../lib/prisma');
-const { basePrisma, PRISMA_SELECTS } = require('../lib/prisma');
-const authLogService = require('./authLogService');
-const { cleanInput, formatNumericSlug } = require('../utils/slugUtils');
-const securityConfig = require('../config/securityConfig');
+const { basePrisma, PRISMA_SELECTS } = require('../../lib/prisma.js');
+const authLogService = require('./authLog.service');
+const { cleanInput, formatNumericSlug } = require('../../shared/utils/slug.utils');
+const securityConfig = require('../../config/securityConfig');
+
 // 🚀 ĐÃ SỬA CHUẨN XÁC: Nạp Class dịch vụ và khởi tạo đối tượng instance thực tế bằng từ khóa `new`
-const businessLogger = require('./business-logger.service'); 
+const businessLogger = require('../../services/ledger.service'); 
 // const businessLogger = new BusinessLoggerService();
 
-const auditService = require('./auditService'); //
-const emailService = require('./emailService');
-const {
-  propagateFromRegistration,
-} = require('../modules/notifications/services/communicationPropagation.service');
+const auditService = require('../../services/audit.service'); 
+const emailService = require('../../services/email.service');
 
-//EGAL-25.x R6.3
+const {
+  propagateFromRegistration, 
+} = require('../notifications/services/communicationPropagation.service'); // Tên tệp vật lý thực tế trên đĩa của bác
+
+
 const notificationOrchestrator = require(
-  '../modules/notifications/orchestrator/notificationOrchestrator'
-);
-// 🚀 MỚI: Nạp Builder chuẩn hóa truyền thông của hệ thống EGAL-25.x
-const notificationBuilder = require('../modules/notifications/services/notification-builder');
+  '../notifications/orchestrator/notificationOrchestrator'
+); 
+//const { sendOTP } = require('../notifications/services/notification-builder'); // Tên tệp vật lý thực tế trên đĩa của bác
+
+const notificationBuilder = require('../notifications/services/notification-builder');
 /**
  * <2026-05-13T00:00:00+07:00>
  * Helper hash cho password reset session security.
@@ -1419,20 +1422,21 @@ const authService = {
     }
   },
 
-  // Cách xử lý gộp: Approve or Reject 
+  /** 
+   * Cách xử lý gộp: Approve or Reject 
   // =========================================================================
   // CORE PROCESS: TIẾN TRÌNH DUYỆT ĐƠN (HỢP NHẤT 3 SỔ CÁI)
   // =========================================================================
-  /**
    * @dateTime 2026-06-17T11:32:00+07:00
    * @description Thực thi luồng xử lý quyết định phê duyệt tộc viên từ UI Admin gửi lên.
-   */
-  /*
+  */
+  /** 
     * VERSION    : 20.2.2-DYNAMIC-ATTEMPT-LEDGER
     * DESCRIPTION:
     * - SỬA LỖI ĐÓNG BĂNG ATTEMPT: Tự động tính toán luỹ tiến attempt_no dựa trên số lần xử lý thực tế của một user_id.
     * - Đồng bộ nạp biến attempt_no động vào cả Business Ledger (businessLogger) và Communication Ledger (notificationBuilder).
-    */
+  */
+/* 
   processUserApproval: async (payload) => {
     const { userId, newStatus, adminNote, actorId, role, actorTenantId, correlation_id } = payload;
 
@@ -1602,6 +1606,153 @@ const authService = {
 
     return resultUser;
   },
+*/
+
+processUserApproval: async (payload) => {
+    const { userId, newStatus, adminNote, actorId, role, actorTenantId, correlation_id } = payload;
+
+    if (!adminNote || adminNote.trim() === '') {
+      const error = new Error('Tiến trình bị hủy. Ghi chú phê duyệt không được phép để trống.');
+      error.status = 400;
+      throw error;
+    }
+
+    const pastAttemptsCount = await basePrisma.business_process_logs.count({
+      where: {
+        process_type: 'USER_APPROVAL',
+        metadata: { path: ['context', 'target_id'], equals: userId }
+      }
+    });
+    const currentAttemptNo = pastAttemptsCount + 1;
+
+    let securityLogIdentifier = 'unknown';
+    let resultUser = null;
+
+    // ====================== TRANSACTION ======================
+    resultUser = await basePrisma.$transaction(async (tx) => {
+      
+      const targetUser = await tx.users.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          tenant_id: true,
+          status: true,
+          phone: true,
+          email: true,
+          name: true,
+          temp_full_name: true,
+          tenants: { select: { id: true, status: true } }
+        }
+      });
+
+      if (!targetUser) throw new Error('Không tìm thấy tài khoản yêu cầu phê duyệt.');
+
+      if (role !== 'SYSTEM_ADMIN' && targetUser.tenant_id !== actorTenantId) {
+        throw new Error('DENIED');
+      }
+
+      securityLogIdentifier = targetUser.phone || targetUser.email || 'unknown';
+
+      const snapshotName = targetUser.temp_full_name || targetUser.name || 'Thành viên ẩn danh';
+      const oldUserStatus = targetUser.status;
+      const finalReason = adminNote || `Xử lý thay đổi trạng thái thành ${newStatus}`;
+
+      // Update User
+      await tx.users.update({
+        where: { id: userId },
+        data: { status: newStatus, changed_by: actorId }
+      });
+
+      // Update Tenant nếu cần
+      let updatedTenantData = null;
+      if (targetUser.tenants && targetUser.tenants.status === 'CHO_DUYET' && newStatus === 'DA_DUYET') {
+        updatedTenantData = await tx.tenants.update({
+          where: { id: targetUser.tenant_id },
+          data: { status: 'TAM_NGUNG', changed_by: actorId }
+        });
+      }
+
+      // === GHI LOG BÊN TRONG TRANSACTION (truyền tx nếu service hỗ trợ) ===
+      await businessLogger.createLog({
+        correlation_id,
+        attempt_no: currentAttemptNo,
+        process_type: 'USER_APPROVAL',
+        actor_type: 'USER',
+        actor_id: actorId,
+        tenant_id: targetUser.tenant_id,
+        process_status: 'SUCCESS',
+        context: { target_id: userId, target_name: snapshotName, attempt_no: currentAttemptNo },
+        payload: {
+          admin_note: adminNote || 'Phê duyệt tài khoản thành công',
+          status_before: oldUserStatus,
+          status_after: newStatus,
+          attempt_no: currentAttemptNo
+        }, tx
+      });
+
+      await auditService.logAction('CAP_NHAT', 'users', userId, { status: oldUserStatus }, { status: newStatus }, actorId, finalReason, targetUser.tenant_id, correlation_id, tx);
+      
+      if (updatedTenantData) {
+        await auditService.logAction('CAP_NHAT', 'tenants', targetUser.tenant_id, { status: 'CHO_DUYET' }, { status: updatedTenantData.status }, actorId, finalReason, targetUser.tenant_id, correlation_id, tx);
+      }
+
+      return targetUser;
+    }, { maxWait: 5000, timeout: 15000 });
+
+    // ====================== SAU TRANSACTION ======================
+    authLogService.logAttempt({
+      identifier: securityLogIdentifier,
+      ip_address: 'system_internal',
+      user_agent: 'server_orchestrator',
+      status: 'THANH_CONG',
+      failure_reason: `REVIEW_STATUS_CHANGED_TO_${newStatus}`
+    }).catch(err => console.error('⚠️ [AuthLog Error]:', err.message));
+
+    // Notification (sau transaction)
+    try {
+      const eventType = newStatus === 'DA_DUYET' ? 'USER_APPROVED' : 'USER_REJECTED';
+      let title = '';
+      let content = '';
+      let schemaPayload = {};
+
+      if (eventType === 'USER_APPROVED') {
+        title = `Yêu cầu gia nhập tộc hệ đã được chấp thuận (Lượt xét duyệt #${currentAttemptNo})`;
+        content = `Chúc mừng bạn đã được phê duyệt trở thành thành viên chính thức sau ${currentAttemptNo} lượt thẩm định. Lời nhắn: ${adminNote}`;
+        schemaPayload = { approved_role: resultUser.role || 'USER', approver_note: adminNote, attempt_no: currentAttemptNo, tenant_id: resultUser.tenant_id };
+      } else {
+        title = `Yêu cầu gia nhập tộc hệ bị từ chối (Lượt xét duyệt #${currentAttemptNo})`;
+        content = `Hồ sơ đăng ký của bạn không được thông qua tại lượt xét duyệt số ${currentAttemptNo}. Lý do từ ban quản trị: ${adminNote}`;
+        schemaPayload = { reason: adminNote, approver_note: adminNote, attempt_no: currentAttemptNo, tenant_id: resultUser.tenant_id };
+      }
+
+      const notificationPayload = notificationBuilder.build({
+        user_id: resultUser.id,
+        tenant_id: resultUser.tenant_id,
+        correlation_id: correlation_id,
+        event_type: eventType,
+        title,
+        content,
+        level: 'INFO',
+        reliability: 'LOW',
+        status: 'PENDING',
+        context: { target_id: resultUser.id, target_name: resultUser.temp_full_name || resultUser.name || 'Tộc viên tương lai', attempt_no: currentAttemptNo },
+        payload: schemaPayload
+      });
+
+      await basePrisma.notifications.create({
+        data: {
+          ...notificationPayload,
+          tenant_id: resultUser.tenant_id,
+          changed_by: actorId
+        }
+      });
+    } catch (commError) {
+      console.error('⚠️ [Communication Ledger Exception]:', commError.message);
+    }
+
+    return resultUser;
+  },
+
 };
 
 module.exports = authService;

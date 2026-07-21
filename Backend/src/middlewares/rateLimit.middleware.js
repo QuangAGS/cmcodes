@@ -1,6 +1,6 @@
 /**
- * PATH: src/middlewares/rateLimitMiddleware.js
- * DATETIME: 2026-05-13T00:00:00+07:00
+ * PATH: src/middlewares/rateLimit.middleware.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 20.2.0
  * DESCRIPTION:
  * - Đọc rate limit policy từ centralized securityConfig.

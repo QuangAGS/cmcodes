@@ -1,12 +1,12 @@
 /**
- * PATH: backend/src/controllers/mediaController.js
+ * PATH: src/modules/interactions/media.controller.js
  */
-const mediaService = require('../services/mediaService');
+const mediaService = require('./media.service');
 // Giả định bạn dùng Cloudinary làm dịch vụ lưu trữ
 // const cloudinary = require('../config/cloudinary'); 
 
 const mediaController = {
-  uploadFile: async (req, res) => {
+  uploadFile: src/modules/interactions/media.controller.js (req, res) => {
     try {
       if (!req.file) throw new Error("Không có file nào được tải lên.");
 

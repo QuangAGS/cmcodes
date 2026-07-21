@@ -1,11 +1,16 @@
 /**
  * ============================================================================
- * PATH: src/lib/prisma.js
- * VERSION: EGAL-25.2.0
- * DATETIME: 2026-06-25
+ * PATH       : src/lib/prisma.js
+ * DATETIME   : 2026-07-19T15:30:00+07:00
+ * VERSION    : 23.0.0-MERGED
+ * DESCRIPTION: 
+ * - Merge EGAL-25.2.0 + 3.2.2: Kết hợp infrastructure mạnh + middleware tenant/soft-delete tự động
+ * - Thêm PRISMA_SELECTS đầy đủ
+ * - Bảo toàn tenantContext và basePrisma cho các middleware cũ
+ * - Tuân thủ Q1 & Q2
  * ============================================================================
  *
- * DESCRIPTION
+ * OLD DESCRIPTION
  * ----------------------------------------------------------------------------
  * Prisma Infrastructure Layer cho hệ thống EGAL.
  *
@@ -95,6 +100,36 @@
 
 const { PrismaClient } = require('@prisma/client');
 const crypto = require('crypto');
+const { AsyncLocalStorage } = require('async_hooks');
+
+const tenantContext = new AsyncLocalStorage();
+
+/**
+ * DANH SÁCH TRƯỜNG SO KHỚP TUYỆT ĐỐI (EXACT MATCH)
+ * Vét cạn từ schema.prisma: Enum, UUID, ID, và định danh duy nhất.
+ */
+const exactMatchFields = [
+    // 1. Các trường ID & Khóa ngoại (UUID) 
+    'actor_id','address_id','branch_id','cemetery_id','correlation_id','current_address_id',
+    'entity_id','event_id','external_id','external_message_id','external_user_id','father_id',
+    'founder_id','fund_id','grave_address_id','headquarters_address_id','husband_id','id',
+    'manager_id','member_id','mother_id','notification_id','notification_recipient_id',
+    'onboarding_case_id','organizer_id','origin_address_id','parent_id','primary_branch_id',
+    'primary_member_id','record_id','target_id','tenant_id','transaction_id','user_id',
+    'wife_id','worship_id',
+
+    // 2. Các trường Enum (Quan trọng: Phải dùng equals) 
+    'action','actor_type','asset_type','binding_state','case_type','category','channel',
+    'child_type','condition_status','event_type','gender','level','pre_lock_status',
+    'process_status','process_type','provider','reliability','role','status',
+    'temp_relationship','transaction_type',
+
+    // 3. Các trường Định danh & Boolean 
+    'phone', 'email', 'slug', 'phone_number', 'cf_bot_verified','enabled','external_sent_status',
+    'is_clan', 'is_alive', 'is_birth_lunar', 'is_death_lunar', 'is_contact_public', 
+    'is_primary', 'is_read', 'is_death_lunar','is_default', 'is_lunar','is_primary',
+    'preferred','turnstile_success','verified'
+];
 
 /**
  * ============================================================================
@@ -106,26 +141,97 @@ const crypto = require('crypto');
  * Nếu mỗi lần reload tạo một PrismaClient mới:
  *
  * - tăng connection PostgreSQL
- * - gây "too many connections"
+ * - gây 'too many connections'
  * - gây lỗi Supabase connection pool
  *
  * Vì vậy PrismaClient được giữ trong global object.
  */
 
 const globalForPrisma = global;
-
-const prisma =
-  globalForPrisma.__egalPrisma ||
-  new PrismaClient({
-    log:
-      process.env.NODE_ENV === 'development'
-        ? ['warn', 'error']
-        : ['error']
-  });
+const basePrisma = globalForPrisma.__egalPrisma || new PrismaClient({
+  log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error']
+});
 
 if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.__egalPrisma = prisma;
+  globalForPrisma.__egalPrisma = basePrisma;
 }
+
+/* ====================== TENANT CONTEXT + SOFT DELETE MIDDLEWARE (từ v3.2.2) ====================== 
+*/
+const tenantModels = ['achievements', 'addresses', 'assets', 'audit_logs', 'biographies', 'branches', 
+  'business_process_logs', 'cemetery', 'data_suggestions', 'event_funds', 'events', 'fund_transactions', 'funds', 'graves',
+  'inbound_messages', 'marriages', 'media', 'members', 'notifications', 'onboarding_cases',
+  'tenant_communication_providers', 'tenant_social_spaces', 'users', 'worships'
+];
+
+const prisma = basePrisma.$extends({
+  query: {
+    $allModels: {
+      async $allOperations({ model, operation, args, query }) {
+        const modelName = model.toLowerCase();
+        const store = tenantContext.getStore();
+        const tenantId = store?.tenantId;
+
+        // Soft Delete tự động
+        if (['findMany', 'findFirst', 'count'].includes(operation)) {
+          args.where = { ...args.where, deleted_at: null };
+        }
+        if (operation === 'delete') {
+          return basePrisma[model].update({ ...args, data: { deleted_at: new Date() } });
+        }
+
+        // Tenant Isolation tự động
+        if (tenantModels.includes(modelName) && modelName !== 'tenants' && tenantId) {
+          if (['findMany', 'findFirst', 'findUnique', 'update', 'updateMany', 'delete', 'deleteMany', 'count'].includes(operation)) {
+            args.where = { ...args.where, tenant_id: tenantId };
+          }
+          if (operation === 'create') {
+            args.data = { ...args.data, tenant_id: tenantId };
+          }
+          if (operation === 'createMany' && args.data) {
+            args.data = Array.isArray(args.data) 
+              ? args.data.map(item => ({ ...item, tenant_id: tenantId }))
+              : { ...args.data, tenant_id: tenantId };
+          }
+        }
+
+        return query(args);
+      },
+    },
+  },
+});
+
+/* ====================== PRISMA_SELECTS (fix lỗi USER_REGISTRATION) ====================== */
+const PRISMA_SELECTS = {
+  USER_REGISTRATION: {
+    id: true, 
+    name: true, 
+    email: true, 
+    phone: true, 
+    status: true, 
+    role: true,
+    tenant_id: true, 
+    member_id: true,
+    temp_full_name: true, 
+    temp_father_name: true, 
+    temp_grandfather_name: true,
+    temp_birth_year: true, 
+    temp_address: true, 
+    temp_branch_name: true,
+    temp_relationship: true, 
+    temp_note: true, 
+    temp_social_profiles: true,
+    //registration_reason: true, 
+    created_at: true, 
+    updated_at: true,
+  },
+  TENANT_STANDARD: {
+    id: true, name: true, description: true, slug: true, status: true,
+  },
+  USER_BASIC: {
+    id: true, name: true, email: true, phone: true, status: true, role: true,
+  }
+};
 
 /**
  * ============================================================================
@@ -1183,7 +1289,12 @@ const egalPrisma = Object.assign(prisma, {
 */
 
 module.exports = {
+  prisma,
+  basePrisma,
+  tenantContext,
+  PRISMA_SELECTS,
+  exactMatchFields, // nếu cần lấy từ v3.2.2
   ...egalPrisma,
-  basePrisma: egalPrisma,
   egalPrisma
 };
+   

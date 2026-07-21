@@ -1,16 +1,16 @@
 /**
- * PATH: backend/src/routes/authLogRoutes.js
- * DATETIME: 14-04-2026 11:55
+ * PATH: src/modules/auth/authLog.routes.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 1.1.0
  * DESCRIPTION: Định tuyến log bảo mật. Chỉ dành cho SYSTEM_ADMIN.
  */
 
 const express = require('express');
 const router = express.Router();
-const authLogController = require('../controllers/authLogController');
+const authLogController = require('./authLog.controller');
 
 // Import Middleware từ đúng thư mục src
-const { verifyToken, checkRole } = require('../middlewares/authMiddleware');
+const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
 
 /**
  * TRUY VẤN NHẬT KÝ XÁC THỰC

@@ -18,7 +18,7 @@ module.exports = schemas;
 */
 
 // Verson mới
-// file: src/validations/baseValidation.js
+// file: src/shared/validations/base.validation.js
 const Joi = require('joi');
 
 const schemas = {

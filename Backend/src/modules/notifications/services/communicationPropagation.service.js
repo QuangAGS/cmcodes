@@ -1,6 +1,6 @@
 // ============================================================
 // PATH: src/modules/notifications/services/communicationPropagation.service.js
-// DATETIME: 2026-06-04T14:55:00+07:00
+// DATETIME: 2026-07-16T12:15:00+07:00
 // VERSION: EGAL-25.1-PHASE-6.2 Doctrine Pivot
 // DESCRIPTION:
 // - Propagate Register business capture data into canonical communication tables.

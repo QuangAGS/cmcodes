@@ -1,6 +1,6 @@
 /**
- * PATH       : backend/src/utils/slugUtils.js
- * DATETIME   : 23-04-2026 16:00
+ * PATH       : src/shared/utils/slug.utils.js
+ * DATETIME   : 2026-07-16T12:15:00+07:00
  * VERSION    : v5.1.0 (Identity Infrastructure Sync)
  * DESCRIPTION: 
  * - ĐỒNG BỘ: Cung cấp hàm định dạng Numeric Slug chuẩn YYYYNNNNNN.

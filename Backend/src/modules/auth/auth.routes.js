@@ -1,6 +1,6 @@
 /**
- * PATH       : src/routes/authRoutes.js
- * DATETIME   : 2026-06-16T11:32:00+07:00
+ * PATH       : src/modules/auth/auth.routes.js
+ * DATETIME   : 2026-07-16T12:15:00+07:00
  * VERSION    : 21.7.0
  * DESCRIPTION: 
  * - Áp dụng lưới lọc bảo an chủ động dùng chung (restrictSuspiciousActivity) cho tất cả các BP nhạy cảm.
@@ -11,16 +11,16 @@
 const express = require('express');
 const router = express.Router();
 
-const authController = require('../controllers/authController');
-const { verifyToken, checkRole } = require('../middlewares/authMiddleware');
-const correlationMiddleware = require('../middlewares/correlation.middleware'); // 🚀 MỚI: Nạp bộ sinh mã liên vết toàn cục
+const authController = require('./auth.controller');
+const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
+const correlationMiddleware = require('../../middlewares/correlation.middleware'); // 🚀 MỚI: Nạp bộ sinh mã liên vết toàn cục
 // 🚀 MỚI: Nạp bộ lọc Factory Middleware an ninh dùng chung vừa khởi tạo
-const { restrictSuspiciousActivity } = require('../middlewares/securityGuard.middleware');
+const { restrictSuspiciousActivity } = require('../../middlewares/securityGuard.middleware');
 const { 
   loginRateLimiter, 
   registerRateLimiter,     
   resetRateLimiter 
-} = require('../middlewares/rateLimitMiddleware');
+} = require('../../middlewares/rateLimit.middleware');
 
 // ==================== PUBLIC ROUTES ====================
 // 1. Kiểm tra định danh (Bảo tồn cũ)

@@ -1,6 +1,6 @@
 /**
- * FILE       : backend/src/middlewares/roleMiddleware.js
- * DATETIME   : 2026-06-18T16:20:00+07:00
+ * FILE       : src/middlewares/role.middleware.js
+ * DATETIME   : 2026-07-16T12:15:00+07:00
  * VERSION    : 20.1.0-SECURITY-STATUS-PATCH
  * MỤC ĐÍCH   : Phân quyền quản trị nghiệp vụ nâng cao (RBAC) kết hợp chốt chặn trạng thái an ninh.
  * DESCRIPTION: 

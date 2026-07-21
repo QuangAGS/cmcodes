@@ -1,6 +1,6 @@
 /**
- * PATH: backend/src/services/notificationService.js
- * DATETIME: 2026-06-21T22:25:00+07:00
+ * PATH: src/modules/notifications/notification.service.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 1.1.2
  * DESCRIPTION: Quản lý thông báo người dùng.
  * - Tích hợp Multi-tenant cô lập dữ liệu thông báo, chặn đứng rủi ro rò rỉ dữ liệu chéo giữa các dòng họ.
@@ -8,7 +8,7 @@
  * SỬA LỖI: Cập nhật đường dẫn import ../lib/prisma chính xác.
  */
 
-const { basePrisma } = require('../lib/prisma');
+const { basePrisma } = require('../../lib/prisma.js');
 //const { v4: uuidv4 } = require('uuid');
 
 const notificationService = {

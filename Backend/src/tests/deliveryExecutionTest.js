@@ -1,5 +1,5 @@
 /**
- * PATH: backend/src/scripts/deliveryExecutionTest.js
+ * PATH: src/tests/deliveryExecutionTest.js
  * RUN:
  * node src/scripts/deliveryExecutionTest.js
  */

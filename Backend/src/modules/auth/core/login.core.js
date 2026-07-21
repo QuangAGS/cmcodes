@@ -1,6 +1,6 @@
 /**
- * PATH       : src/services/auth/core/login.core.js
- * DATETIME   : 2026-06-27T12:00:00+07:00
+ * PATH       : src/modules/auth/core/login.core.js
+ * DATETIME   : 2026-07-16T12:15:00+07:00
  * VERSION    : EGAL-25.x-LOGIN.CORE-V1
  * DESCRIPTION:
  * - EGAL Phase 1 Refactor: Tách login logic từ authService sang core layer
@@ -15,7 +15,7 @@
 
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { basePrisma } = require('../../../lib/prisma');
+const { basePrisma } = require('../../../lib/prisma.js');
 
 const { AuthErrors } = require('./shared/egalAuthErrors');
 

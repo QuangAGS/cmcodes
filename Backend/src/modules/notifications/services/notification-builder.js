@@ -1,6 +1,6 @@
 /**
  * PATH: src/modules/notifications/services/notification-builder.js
- * DATETIME: 2026-06-21T22:15:00+07:00
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 1.0.1 (Vá lỗi thiếu tenant_id)
  * DESCRIPTION:
  * - Đưa tenant_id vào hợp đồng build dữ liệu để cô lập thông báo theo từng dòng họ.

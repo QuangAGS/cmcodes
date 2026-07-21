@@ -1,11 +1,11 @@
 /**
- * DATETIME: 13-04-2026 21:55
- * PATH: backend/src/controllers/memberController.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
+ * PATH: src/modules/members/member.controller.js
  * VERSION: 1.5.0
  * DESCRIPTION: Điều phối Thành viên. 
  * Đảm bảo đầy đủ các hàm getAll, getById, create, update, delete, getStats.
  */
-const memberService = require('../services/memberService');
+const memberService = require('./member.service');
 
 const memberController = {
   // Lấy danh sách toàn bộ thành viên trong Tenant

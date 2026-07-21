@@ -1,14 +1,14 @@
 /**
- * PATH: backend/src/routes/tenantRoutes.js
- * DATETIME: 14-04-2026 15:45
+ * PATH: src/modules/tenants/tenant.routes.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 1.6.6
  * DESCRIPTION: Sửa lỗi Shadowing và đồng bộ luồng Onboarding BR3.
  */
 const express = require('express');
 const router = express.Router();
-const baseController = require('../controllers/baseController');
-const { verifyToken, checkRole } = require('../middlewares/authMiddleware');
-const validateMiddleware = require('../middlewares/validateMiddleware');
+const baseController = require('../../shared/controllers/base.controller');
+const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
+const validateMiddleware = require('../../middlewares/validate.middleware');
 
 const tenantCtrl = baseController('tenants');
 

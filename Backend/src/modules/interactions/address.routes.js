@@ -1,13 +1,13 @@
 /**
- * PATH: backend/src/routes/addressRoutes.js
- * DATETIME: 14-04-2026 21:45
+ * PATH: src/modules/interactions/address.routes.js
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 1.6.2
  */
 const express = require('express');
 const router = express.Router();
-const baseController = require('../controllers/baseController');
-const { verifyToken, checkRole } = require('../middlewares/authMiddleware');
-const validateMiddleware = require('../middlewares/validateMiddleware'); // Thêm
+const baseController = require('../../shared/controllers/base.controller');
+const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
+const validateMiddleware = require('../../middlewares/validate.middleware'); // Thêm
 
 const addressCtrl = baseController('addresses');
 

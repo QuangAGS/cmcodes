@@ -1,6 +1,6 @@
 /**
  * PATH: src/modules/notifications/policy/notification-metadata-schemas.js
- * DATETIME: 2026-06-17 10:00:00
+ * DATETIME: 2026-07-16T12:15:00+07:00
  * VERSION: 1.0.0
  * DESCRIPTION:
  * Registry chuẩn hóa metadata của notifications.
