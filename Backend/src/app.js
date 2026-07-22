@@ -1,7 +1,7 @@
 /**
  * PATH       : src/app.js
- * DATETIME   : 2026-07-20T21:17:00+07:00
- * VERSION    : 21.5.2
+ * DATETIME   : 2026-07-22T09:30:00+07:00
+ * VERSION    : 21.6.0-W1
  * DESCRIPTION:
  * - Production Hardening: Security Headers & CORS.
  * - Patch Config Gateway:
@@ -10,12 +10,16 @@
  *   + Global Error Handler đọc NODE_ENV từ securityConfig.
  * - [21.5.2] Mount onboarding.routes (OPD v1.1.0 / Phase 1–3).
  *   + Thêm allowedHeaders: x-correlation-id.
+ * - [21.6.0-W1] Wave 1 PR-2: Correlation FIRST + CED Global Error Handler.
+ *   + Mount correlationMiddleware trước mọi middleware khác.
+ *   + Thay handler 500 mù bằng createGlobalErrorHandler({ legacy: true }).
  * - Bảo tồn toàn bộ logic cũ (Q1).
  * - Tuân thủ Q2.
  *
  * CHANGELOG:
  * - 21.5.1 (2026-07-16): Production Hardening + securityConfig gateway.
  * - 21.5.2 (2026-07-20): Add /api/onboarding + CORS header x-correlation-id.
+ * - 21.6.0-W1 (2026-07-22): Wave 1 PR-2 — Correlation FIRST + CED createGlobalErrorHandler({ legacy: true }).
  */
 
 const express = require('express');
@@ -30,6 +34,10 @@ const securityConfig = require('./config/securityConfig');
 
 // validateEnv(); // không sử dụng nữa.
 // ==========================================
+
+// === CED Kernel (Wave 0) ===
+const { createGlobalErrorHandler } = require('./shared/errors');
+const correlationMiddleware = require('./middlewares/correlation.middleware');
 
 // IMPORT ROUTES & MIDDLEWARES
 const branchRoutes = require('./modules/members/branch.routes');
@@ -60,6 +68,12 @@ const app = express();
 
 // === SECURITY CONFIG - PRODUCTION READY ===
 app.set('trust proxy', 1);
+
+// ─────────────────────────────────────────────────────────────
+// [21.6.0-W1] CORRELATION FIRST (CED E5 + Master Plan W1)
+// Phải đứng trước mọi middleware khác để mọi response lỗi đều có correlationId.
+// ─────────────────────────────────────────────────────────────
+app.use(correlationMiddleware);
 
 app.use(
   helmet({
@@ -118,8 +132,13 @@ app.use(async (req, res, next) => {
     });
 
     if (!tenant) {
+      // [21.6.0-W1] Gắn correlationId header ngay cả khi early 404
+      if (req.correlationId) {
+        res.setHeader('X-Correlation-Id', req.correlationId);
+      }
       return res.status(404).json({
         error: 'Không tìm thấy dòng họ này.',
+        correlationId: req.correlationId || undefined,
       });
     }
 
@@ -134,7 +153,7 @@ app.get('/', (req, res) =>
   res.json({
     status: 'Online',
     app: securityConfig.APP_NAME,
-    version: '21.5.2',
+    version: '21.6.0-W1',
     environment: securityConfig.NODE_ENV,
   })
 );
@@ -169,17 +188,23 @@ app.use('/api/notifications', notificationRoutes);
 // Prefix nhất quán với các module hiện tại (/api/members, /api/branches, ...)
 app.use('/api/onboarding', onboardingRoutes);
 
-// Global Error Handler
-app.use((err, req, res, next) => {
-  console.error('🔥 [SERVER ERROR]:', err.stack);
-
-  res.status(500).json({
-    error: 'Lỗi hệ thống nội bộ',
-    message:
-      securityConfig.NODE_ENV === 'production'
-        ? 'Đã xảy ra lỗi'
-        : err.message,
-  });
+// ─────────────────────────────────────────────────────────────
+// [21.6.0-W1] 404 Catcher → chuyển thành AppError để đi vào Global Handler
+// ─────────────────────────────────────────────────────────────
+app.use((req, res, next) => {
+  const err = new Error(`Cannot ${req.method} ${req.originalUrl}`);
+  err.code = 'NOT_FOUND';
+  err.statusCode = 404;
+  err.isOperational = true;
+  err.correlationId = req.correlationId;
+  next(err);
 });
+
+
+// ─────────────────────────────────────────────────────────────
+// [21.6.0-W1] CED Global Error Handler (legacy: true — dual-contract)
+// Thay thế handler 500 mù trước đây.
+// ─────────────────────────────────────────────────────────────
+app.use(createGlobalErrorHandler({ legacy: true }));
 
 module.exports = app;

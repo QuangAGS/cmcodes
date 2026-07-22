@@ -1,11 +1,17 @@
 /**
  * PATH       : src/middlewares/auth.middleware.js
- * DATETIME   : 2026-07-19T13:xx:00+07:00
- * VERSION    : 20.1.1-AUTH-TENANT-FIX
+ * DATETIME   : 2026-07-22T10:05:00+07:00
+ * VERSION    : 20.2.0-W1
  * DESCRIPTION: 
  * - Fix tenantContext undefined sau refactor Prisma
  * - Thêm safe-guard để tránh crash
+ * - [20.2.0-W1] Wave 1 PR-3: Chuẩn hóa dual req.user fields (id + userId, tenant_id + tenantId)
+ * - [20.2.0-W1] Wave 1 PR-4: checkRole re-export từ role.middleware (single source)
  * - Bảo toàn 100% logic cũ (Q1)
+ *
+ * CHANGELOG:
+ * - 20.1.1-AUTH-TENANT-FIX: Fix tenantContext + safe-guard
+ * - 20.2.0-W1 (2026-07-22): Dual fields + re-export checkRole từ role.middleware
  */
 
 const jwt = require('jsonwebtoken');
@@ -36,6 +42,14 @@ const verifyToken = (req, res, next) => {
             status: decoded.status
         };
 
+        // ────────────────────────────────────────────────
+        // [20.2.0-W1] Dual fields (Q1 backward + chuẩn hóa mới)
+        // id / tenant_id = alias mới
+        // userId / tenantId = giữ nguyên field cũ
+        // ────────────────────────────────────────────────
+        userData.id = userData.userId;
+        userData.tenant_id = userData.tenantId;
+
         req.user = userData;
 
         if (userData.role !== 'SYSTEM_ADMIN' && !userData.tenantId) {
@@ -59,18 +73,10 @@ const verifyToken = (req, res, next) => {
     }
 };
 
-const checkRole = (allowedRoles) => {
-    return (req, res, next) => {
-        const { role } = req.user || {};
-        if (role === 'SYSTEM_ADMIN') return next();
-
-        if (Array.isArray(allowedRoles) ? allowedRoles.includes(role) : allowedRoles === role) {
-            return next();
-        }
-
-        return res.status(403).json({ error: `Quyền truy cập bị từ chối.` });
-    };
-};
+// ────────────────────────────────────────────────
+// [20.2.0-W1] Re-export checkRole từ role.middleware (single source of truth)
+// ────────────────────────────────────────────────
+const { checkRole } = require('./role.middleware');
 
 module.exports = {
     verifyToken,

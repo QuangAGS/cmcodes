@@ -1,20 +1,23 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.controller.js
- * DATETIME   : 2026-07-21T09:10:00+07:00
- * VERSION    : 1.1.0-ONBOARDING-CONTROLLER-OPD-1.2
+ * DATETIME   : 2026-07-22T10:20:00+07:00
+ * VERSION    : 1.2.0-W1
  * DESCRIPTION:
  * - HTTP Adapter cho Onboarding Service (OPD v1.2.0 SEC-compliant).
+ * - [1.2.0-W1] Wave 1 PR-6: handleError → sendError (CED).
  * - Map MERGE_FAILED → HTTP 500 + code ổn định.
- * - Nhận request → validate input nhẹ → gọi service → map BusinessError → response chuẩn.
- * - Không chứa business logic (logic nằm hết trong onboarding.service.js).
- * - correlationId: lấy từ header X-Correlation-Id hoặc tự sinh.
- * - Q1/Q2: Header chuẩn, comment rõ, không break convention project.
+ * - Không chứa business logic.
+ *
+ * CHANGELOG:
+ * - 1.1.0-ONBOARDING-CONTROLLER-OPD-1.2: OPD v1.2 alignment.
+ * - 1.2.0-W1 (2026-07-22): sendError từ shared/errors.
  */
 
 'use strict';
 
 const crypto = require('crypto');
 const onboardingService = require('./onboarding.service.js');
+const { sendError } = require('../../shared/errors');
 
 // ─────────────────────────────────────────────────────────────
 // HELPERS
@@ -55,59 +58,6 @@ function ok(res, data, statusCode = 200) {
   });
 }
 
-/**
- * Map lỗi → HTTP response.
- * Ưu tiên BusinessError từ service.
- */
-function handleError(res, err, next) {
-  // BusinessError từ service
-  if (err && err.name === 'BusinessError') {
-    return res.status(err.statusCode || 400).json({
-      success: false,
-      error: {
-        code: err.code || 'BUSINESS_ERROR',
-        message: err.message,
-        details: err.details || undefined,
-      },
-    });
-  }
-
-  // Lỗi tự throw có statusCode
-  if (err && err.statusCode) {
-    return res.status(err.statusCode).json({
-      success: false,
-      error: {
-        code: err.code || 'ERROR',
-        message: err.message,
-      },
-    });
-  }
-
-  // Prisma known errors (best-effort)
-  if (err && err.code && String(err.code).startsWith('P')) {
-    return res.status(400).json({
-      success: false,
-      error: {
-        code: 'DATABASE_ERROR',
-        message: 'Lỗi dữ liệu. Vui lòng thử lại hoặc liên hệ hỗ trợ.',
-        details: process.env.NODE_ENV === 'development' ? { prismaCode: err.code } : undefined,
-      },
-    });
-  }
-
-  // Unknown → next (global error handler)
-  if (typeof next === 'function') {
-    return next(err);
-  }
-
-  return res.status(500).json({
-    success: false,
-    error: {
-      code: 'INTERNAL_ERROR',
-      message: 'Đã xảy ra lỗi hệ thống.',
-    },
-  });
-}
 
 /**
  * Lấy IP client.
@@ -150,7 +100,7 @@ async function createCase(req, res, next) {
     res.setHeader('X-Correlation-Id', correlationId);
     return ok(res, result, 201);
   } catch (err) {
-    return handleError(res, err, next);
+    return sendError(res, err);
   }
 }
 
@@ -185,7 +135,7 @@ async function completeProfile(req, res, next) {
     res.setHeader('X-Correlation-Id', correlationId);
     return ok(res, result);
   } catch (err) {
-    return handleError(res, err, next);
+    return sendError(res, err);
   }
 }
 
@@ -219,7 +169,7 @@ async function activateClan(req, res, next) {
     res.setHeader('X-Correlation-Id', correlationId);
     return ok(res, result);
   } catch (err) {
-    return handleError(res, err, next);
+    return sendError(res, err);
   }
 }
 
@@ -254,7 +204,7 @@ async function submitCase(req, res, next) {
     res.setHeader('X-Correlation-Id', correlationId);
     return ok(res, result);
   } catch (err) {
-    return handleError(res, err, next);
+    return sendError(res, err);
   }
 }
 
@@ -281,7 +231,7 @@ async function startReview(req, res, next) {
     res.setHeader('X-Correlation-Id', correlationId);
     return ok(res, result);
   } catch (err) {
-    return handleError(res, err, next);
+    return sendError(res, err);
   }
 }
 
@@ -315,7 +265,7 @@ async function requestRevision(req, res, next) {
     res.setHeader('X-Correlation-Id', correlationId);
     return ok(res, result);
   } catch (err) {
-    return handleError(res, err, next);
+    return sendError(res, err);
   }
 }
 
@@ -341,7 +291,7 @@ async function approveCase(req, res, next) {
     res.setHeader('X-Correlation-Id', correlationId);
     return ok(res, result);
   } catch (err) {
-    return handleError(res, err, next);
+    return sendError(res, err);
   }
 }
 
@@ -375,7 +325,7 @@ async function rejectCase(req, res, next) {
     res.setHeader('X-Correlation-Id', correlationId);
     return ok(res, result);
   } catch (err) {
-    return handleError(res, err, next);
+    return sendError(res, err);
   }
 }
 
@@ -401,7 +351,7 @@ async function cancelCase(req, res, next) {
     res.setHeader('X-Correlation-Id', correlationId);
     return ok(res, result);
   } catch (err) {
-    return handleError(res, err, next);
+    return sendError(res, err);
   }
 }
 
@@ -436,7 +386,7 @@ async function createBranch(req, res, next) {
     res.setHeader('X-Correlation-Id', correlationId);
     return ok(res, result, 201);
   } catch (err) {
-    return handleError(res, err, next);
+    return sendError(res, err);
   }
 }
 
@@ -470,7 +420,7 @@ async function updateBranch(req, res, next) {
     res.setHeader('X-Correlation-Id', correlationId);
     return ok(res, result);
   } catch (err) {
-    return handleError(res, err, next);
+    return sendError(res, err);
   }
 }
 
@@ -526,7 +476,7 @@ async function mergeBranch(req, res, next) {
 
     return ok(res, result);
   } catch (err) {
-    return handleError(res, err, next);
+    return sendError(res, err);
   }
 }
 
