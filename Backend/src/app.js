@@ -1,8 +1,10 @@
 /**
  * PATH       : src/app.js
  * DATETIME   : 2026-07-22T09:30:00+07:00
- * VERSION    : 21.6.0-W1
+ * VERSION    : 21.7.0-W2
  * DESCRIPTION:
+ * - [21.7.0-W2] Wave 2 PR-W2-3: Early tenant 404 → next(err) dual-contract CED.
+ * 
  * - Production Hardening: Security Headers & CORS.
  * - Patch Config Gateway:
  *   + Import securityConfig.
@@ -20,6 +22,8 @@
  * - 21.5.1 (2026-07-16): Production Hardening + securityConfig gateway.
  * - 21.5.2 (2026-07-20): Add /api/onboarding + CORS header x-correlation-id.
  * - 21.6.0-W1 (2026-07-22): Wave 1 PR-2 — Correlation FIRST + CED createGlobalErrorHandler({ legacy: true }).
+ * - 21.6.0-W1 (2026-07-22): Correlation FIRST + CED Global Handler.
+ * - 21.7.0-W2 (2026-07-25): Early tenant 404 dual-contract (PR-W2-3).
  */
 
 const express = require('express');
@@ -131,16 +135,15 @@ app.use(async (req, res, next) => {
       where: { slug },
     });
 
-    if (!tenant) {
-      // [21.6.0-W1] Gắn correlationId header ngay cả khi early 404
-      if (req.correlationId) {
-        res.setHeader('X-Correlation-Id', req.correlationId);
-      }
-      return res.status(404).json({
-        error: 'Không tìm thấy dòng họ này.',
-        correlationId: req.correlationId || undefined,
-      });
-    }
+        if (!tenant) {
+          // [21.7.0-W2] PR-W2-3: Đưa vào Global Handler → dual-contract CED
+          const err = new Error('Không tìm thấy dòng họ này.');
+          err.code = 'TENANT_NOT_FOUND';
+          err.statusCode = 404;
+          err.isOperational = true;
+          err.correlationId = req.correlationId;
+          return next(err);
+        }
 
     tenantContext.run({ tenantId: tenant.id }, () => next());
   } catch (err) {

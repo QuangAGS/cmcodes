@@ -29,10 +29,12 @@ const tenantMiddleware = async (req, res, next) => {
 
     // 4. Nếu mã slug không tồn tại trong hệ thống, báo lỗi 404
     if (!tenant) {
-      return res.status(404).json({ 
-        error: "Dòng họ không tồn tại",
-        message: `Không tìm thấy dòng họ nào với mã định danh: '${slug}'` 
-      });
+      const err = new Error(`Không tìm thấy dòng họ nào với mã định danh: '${slug}'`);
+      err.code = 'TENANT_NOT_FOUND';
+      err.statusCode = 404;
+      err.isOperational = true;
+      err.correlationId = req.correlationId;
+      return next(err);
     }
 
     // 5. "Gói" toàn bộ các xử lý tiếp theo (next) vào trong ngữ cảnh của Tenant này.

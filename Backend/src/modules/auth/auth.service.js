@@ -141,98 +141,138 @@ const authService = {
    * @param {string} password - Mật khẩu thô chưa mã hóa
    * @param {Object} extraData - Dữ liệu bổ sung (thiết bị, IP, anti-bot...) phục vụ phân tích log
    */
+  /**
+   * @dateTime 2026-07-22T11:10:00+07:00
+   * @description Tiến trình xác thực đăng nhập + Assert Order (SEC Wave 2).
+   * Thứ tự bắt buộc:
+   *   1. Credential (password)
+   *   2. User status / Lock (checkLockStatus)
+   *   3. Tenant status / activation
+   *   4. Cấp token
+   * @param {string} identifier - Email hoặc SĐT
+   * @param {string} password
+   * @param {Object} extraData
+   */
   loginUser: async (identifier, password, extraData) => {
-    // Truy vấn thực thể người dùng từ Database qua Prisma, nạp kèm (include) bảng liên kết dòng họ (tenants)
-    const user = await basePrisma.users.findFirst({ 
-      where: { 
-        OR: [ { email: identifier }, { phone: identifier } ], 
-        deleted_at: null 
+    // ─── Bước 0: Tìm user ─────────────────────────────────────
+    const user = await basePrisma.users.findFirst({
+      where: {
+        OR: [{ email: identifier }, { phone: identifier }],
+        deleted_at: null,
       },
-      include: { tenants: true } // 🚀 QUAN TRỌNG: Tải thông tin Dòng họ lên để kiểm tra chéo trạng thái
+      include: { tenants: true },
     });
-    
-    // Chốt chặn 1: Xác thực tài khoản tồn tại
+
     if (!user) {
       const error = new Error('Thông tin tài khoản đăng nhập hoặc mật khẩu không chính xác.');
       error.status = 401;
+      error.code = 'INVALID_CREDENTIALS';
       throw error;
     }
 
-    // Chốt chặn 2: Kiểm tra tính hợp lệ của mật khẩu thông qua thư viện bcrypt
+    // ─── Bước 1: Credential (Assert Order — PHẢI làm trước status/lock) ───
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       const error = new Error('Thông tin tài khoản đăng nhập hoặc mật khẩu không chính xác.');
       error.status = 401;
+      error.code = 'INVALID_CREDENTIALS';
       throw error;
     }
 
-    /**
-     * 🚨 CHỐT CHẶN AN NINH MỚI TẦNG SÂU (VÁ LỖ HỔNG)
-     * @dateTime 2026-06-18T16:55:00+07:00
-     * 💡 CHÚ THÍCH HỌC TẬP:
-     * Trực tiếp kiểm tra trạng thái vòng đời của thực thể tài khoản ngay tại đây. 
-     * Nếu trạng thái chưa phải là 'DA_DUYET', ta chủ động NGĂN CHẶN tiễn trình, KHÔNG KÝ SỐ TOKEN,
-     * và ném ra một mã lỗi trạng thái cụ thể (HTTP 423 Locked hoặc HTTP 403 Forbidden).
-     */
-    
-    // Tình huống A: Tài khoản cá nhân đang nằm trong hàng đợi xét duyệt của Ban quản trị
+    // ─── Bước 2: User status / Lock ───────────────────────────
+    // 2a. Permanent / temporary lock (BI_CAM, BI_KHOA)
+    const lockInfo = await authService.checkLockStatus(user);
+    if (lockInfo.isLocked) {
+      const error = new Error(
+        lockInfo.isPermanent
+          ? 'Tài khoản đã bị cấm hoặc khóa vĩnh viễn. Vui lòng liên hệ hỗ trợ.'
+          : `Tài khoản tạm khóa. Vui lòng thử lại sau ${lockInfo.minutesLeft || 1} phút.`
+      );
+      error.status = 423;
+      error.code = lockInfo.isPermanent ? 'ACCOUNT_BANNED' : 'ACCOUNT_LOCKED';
+      error.isPermanent = lockInfo.isPermanent;
+      error.minutesLeft = lockInfo.minutesLeft || 0;
+      error.lockType = lockInfo.lockType;
+      error.reasonCode = lockInfo.reasonCode;
+      throw error;
+    }
+
+    // 2b. Lifecycle status (CHO_DUYET, TAM_NGUNG, TU_CHOI…)
     if (user.status === 'CHO_DUYET') {
       const error = new Error('Hồ sơ của bác đang chờ Ban Quản trị phê duyệt. Vui lòng quay lại sau.');
-      error.status = 423; // Mã lỗi 423: Thực thể bị khóa tạm thời (Locked)
-      error.code = 'ACCOUNT_CHO_DUYET'; // Mã định danh nghiệp vụ phục vụ Frontend rẽ nhánh hiển thị UX
+      error.status = 423;
+      error.code = 'ACCOUNT_CHO_DUYET';
       throw error;
     }
 
-    // Tình huống B: Tài khoản cá nhân vi phạm kỷ luật hoặc quy định dòng họ (Bị khóa/Tạm ngưng)
-    if (user.status === 'TAM_NGUNG' || user.status === 'BI_KHOA') {
-      const error = new Error('Tài khoản này hiện tại đã bị khóa hoặc tạm ngưng truy cập bởi Hệ thống Trung tâm.');
-      error.status = 403; // Mã lỗi 403: Bị cấm truy cập (Forbidden)
+    if (user.status === 'TAM_NGUNG' || user.status === 'TU_CHOI') {
+      const error = new Error('Tài khoản này hiện tại đã bị tạm ngưng hoặc từ chối truy cập.');
+      error.status = 403;
       error.code = 'ACCOUNT_DISABLED';
       throw error;
     }
 
-    // Tình huống C: Kiểm tra trạng thái của cả tổ chức Dòng họ (Tenant)
-    // Nếu dòng họ mới khởi tạo chưa đóng phí dịch vụ hoặc chưa được duyệt, thành viên liên kết (trừ SYSTEM_ADMIN) cũng bị chặn.
-    if (user.tenants && user.tenants.status === 'CHO_DUYET' && user.role !== 'SYSTEM_ADMIN') {
-      const error = new Error('Dòng họ họ của bác hiện đang chờ Hệ thống Trung tâm phê duyệt kích hoạt dịch vụ.');
-      error.status = 423;
-      error.code = 'TENANT_CHO_DUYET';
-      throw error;
+    // ─── Bước 3: Tenant status / activation ───────────────────
+    // SYSTEM_ADMIN bypass tenant check
+    // TAM_NGUNG: CHO PHÉP login (CLAN_ADMIN cần vào để hoàn thiện tenant/profile)
+    // Chỉ chặn tenant bị khóa nặng (BI_KHOA) hoặc tương đương
+    if (user.role !== 'SYSTEM_ADMIN' && user.tenants) {
+      const tenantStatus = user.tenants.status;
+
+      if (tenantStatus === 'CHO_DUYET') {
+        // Edge case hiếm (data lệch) — vẫn giữ defensive
+        const error = new Error(
+          'Dòng họ của bác hiện đang chờ Hệ thống Trung tâm phê duyệt kích hoạt dịch vụ.'
+        );
+        error.status = 423;
+        error.code = 'TENANT_PENDING_ACTIVATION';
+        throw error;
+      }
+
+      // TAM_NGUNG → cho phép login (không chặn)
+      // BI_KHOA tenant → chặn
+      if (tenantStatus === 'BI_KHOA') {
+        const error = new Error(
+          'Dòng họ hiện đang bị khóa. Vui lòng liên hệ Ban quản trị.'
+        );
+        error.status = 403;
+        error.code = 'TENANT_DISABLED';
+        throw error;
+      }
     }
 
-    /**
-     * @dateTime 2026-06-18T17:00:00+07:00
-     * BẢO TỒN LOGIC CŨ (Q1): Chỉ cấp phát Token khi tài khoản đã vượt qua toàn bộ lưới lọc an ninh phía trên.
-     */
+    // ─── Bước 4: Cấp token (chỉ khi đã pass toàn bộ) ─────────
     const secret = process.env.JWT_SECRET;
     if (!secret) {
-        throw new Error('Cấu hình thiếu JWT_SECRET tại tệp môi trường .env.');
+      throw new Error('Cấu hình thiếu JWT_SECRET tại tệp môi trường .env.');
     }
 
-    // Tiến hành ký số mã hóa JWT Token
+    const tenantStatus = user.tenants ? user.tenants.status : null;
+
     const token = jwt.sign(
-      { 
-        userId: user.id, 
-        email: user.email, 
-        role: user.role, 
-        tenantId: user.tenant_id, 
-        status: user.status // Ép thông tin status vào token phục vụ các middleware giải mã phía sau
-      }, 
-      secret, 
+      {
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+        tenantId: user.tenant_id,
+        status: user.status,
+        tenantStatus, // [20.3.0-W2] phục vụ requireActiveTenant + FE routing
+      },
+      secret,
       { expiresIn: '24h' }
     );
 
-    // Trả về đúng cấu trúc hợp đồng dữ liệu cũ để tránh gãy kết nối với Controller và Frontend
-    return { 
-      token, 
-      user: { 
-        id: user.id, 
-        name: user.name, 
-        email: user.email, 
-        role: user.role, 
-        tenant_id: user.tenant_id, 
-        status: user.status 
-      } 
+    return {
+      token,
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        tenant_id: user.tenant_id,
+        status: user.status,
+        tenantStatus, // FE dùng để quyết định redirect
+      },
     };
   },
 

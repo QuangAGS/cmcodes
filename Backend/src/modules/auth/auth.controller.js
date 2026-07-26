@@ -324,6 +324,9 @@ const authController = {
         return res.status(403).json({ error: 'Hành vi đáng ngờ.' });
       }
 
+      /* TEMP smoke — xóa sau khi test
+      const turnstileResult = { success: true };
+      */
       if (!turnstileToken) {
         return res.status(403).json({ error: 'Vui lòng hoàn thành CAPTCHA' });
       }
@@ -340,7 +343,7 @@ const authController = {
         });
         return res.status(403).json({ error: 'CAPTCHA không hợp lệ.' });
       }
-
+      
       // Kiểm tra suspicious IP
       const suspicious = await authLogService.getSuspiciousAttempts(
         ip, 
@@ -355,32 +358,16 @@ const authController = {
 
       const result = await authService.loginUser(identifier, password, extraData);
       
-      const userStatus = result?.user?.status;
-
-      if (userStatus === 'CHO_DUYET') {
-        const pendingError = new Error('Hồ sơ của bác đang chờ Ban Quản trị phê duyệt. Vui lòng quay lại sau.');
-        pendingError.status = 403;
-        pendingError.code = 'USER_PENDING_APPROVAL';
-        throw pendingError;
-      }
-
-      if (['TU_CHOI', 'BI_KHOA', 'BI_CAM', 'TAM_NGUNG'].includes(userStatus)) {
-        const disabledError = new Error('Tài khoản Không thể truy cập. Xin vui lòng liên hệ với Quản trị viên để được hỗ trợ trực tiếp.');
-        disabledError.status = 403;
-        disabledError.code = 'ACCOUNT_DISABLED';
-        throw disabledError;
-      }
-
-      // LOGIN THÀNH CÔNG
+      // LOGIN THÀNH CÔNG (service đã Assert Order + status/tenant)
       await authLogService.logAttempt({
         identifier: identifier || result?.user?.email || result?.user?.phone || 'unknown',
         ip_address: ip,
         user_agent: userAgent,
         status: 'THANH_CONG',
-        failure_reason: 'LOGIN_SUCCESS'
+        failure_reason: 'LOGIN_SUCCESS',
       });
 
-      res.status(200).json({ status: 'success', data: result });
+      return res.status(200).json({ status: 'success', data: result });
 
     } catch (error) {
       const ip = req.headers['cf-connecting-ip'] || req.ip || 'unknown';
@@ -390,49 +377,69 @@ const authController = {
       const errCode = error.code || '';
       const errMessage = error.message || '';
 
-      // ====================== FIX CHÍNH: GHI LOG SAI MẬT KHẨU ======================
-      if (errStatus === 401 || errCode === 'INVALID_AUTH' || errMessage.toLowerCase().includes('không chính xác')) {
+      // ─── 401: Sai credential (Assert Order bước 1) ─────────────
+      if (
+        errStatus === 401 ||
+        errCode === 'INVALID_AUTH' ||
+        errCode === 'INVALID_CREDENTIALS' ||
+        errMessage.toLowerCase().includes('không chính xác')
+      ) {
         await authLogService.logAttempt({
           identifier: req.body.identifier || 'unknown',
           ip_address: ip,
           user_agent: userAgent,
           status: 'THAT_BAI',
-          failure_reason: 'WRONG_PASSWORD'
+          failure_reason: 'WRONG_PASSWORD',
         });
 
-        // Sau khi log, có thể trả về remainingAttempts từ metadata
         return res.status(401).json({
           status: 'error',
           code: 'INVALID_AUTH',
           message: 'Thông tin đăng nhập không chính xác.',
-          remainingAttempts: error.metadata?.remainingAttempts || 0
+          remainingAttempts: error.metadata?.remainingAttempts || 0,
         });
       }
-      // ============================================================================
 
-      if (errCode === 'USER_PENDING_APPROVAL' || errCode === 'ACCOUNT_CHO_DUYET' || errCode === 'TENANT_CHO_DUYET' || errMessage.includes('chờ Ban Quản trị')) {
+      // ─── 423: Lifecycle / Locked (Assert Order bước 2–3) ───────
+      // ACCOUNT_CHO_DUYET | TENANT_PENDING_ACTIVATION | ACCOUNT_LOCKED | ACCOUNT_BANNED
+      if (
+        errStatus === 423 ||
+        errCode === 'ACCOUNT_CHO_DUYET' ||
+        errCode === 'TENANT_PENDING_ACTIVATION' ||
+        errCode === 'TENANT_CHO_DUYET' ||
+        errCode === 'ACCOUNT_LOCKED' ||
+        errCode === 'ACCOUNT_BANNED' ||
+        errMessage.includes('chờ Ban Quản trị') ||
+        errMessage.includes('chờ Hệ thống Trung tâm')
+      ) {
         await authLogService.logAttempt({
           identifier: req.body.identifier || 'unknown',
           ip_address: ip,
           user_agent: userAgent,
           status: 'THAT_BAI',
-          failure_reason: `LOGIN_REJECTED_${errCode || 'PENDING'}`
+          failure_reason: `LOGIN_REJECTED_${errCode || 'PENDING_OR_LOCKED'}`,
         });
 
-        return res.status(403).json({
+        return res.status(423).json({
           status: 'error',
-          code: 'USER_PENDING_APPROVAL',
-          message: error.message || 'Hồ sơ của bác đang chờ Ban Quản trị phê duyệt. Vui lòng quay lại sau.'
+          code: errCode || 'ACCOUNT_CHO_DUYET',
+          message: error.message,
+          minutesLeft: error.minutesLeft || undefined,
+          isPermanent: error.isPermanent || undefined,
+          lockType: error.lockType || undefined,
+          reasonCode: error.reasonCode || undefined,
         });
       }
 
+      // ─── 403: Disabled / Forbidden ────────────────────────────
       if (
-        errStatus === 403 || 
-        errCode === 'USER_REJECTED' || 
+        errStatus === 403 ||
+        errCode === 'USER_REJECTED' ||
         errCode === 'ACCOUNT_DISABLED' ||
+        errCode === 'TENANT_DISABLED' ||
         ['TU_CHOI', 'BI_KHOA', 'BI_CAM', 'TAM_NGUNG'].includes(errCode) ||
-        errMessage.includes('Từ chối') || 
-        errMessage.includes('bị khóa') || 
+        errMessage.includes('Từ chối') ||
+        errMessage.includes('bị khóa') ||
         errMessage.includes('Bị cấm') ||
         errMessage.includes('Tạm ngưng')
       ) {
@@ -441,37 +448,22 @@ const authController = {
           ip_address: ip,
           user_agent: userAgent,
           status: 'THAT_BAI',
-          failure_reason: `LOGIN_REJECTED_STATUS_${errCode || 'DISABLED'}`
+          failure_reason: `LOGIN_REJECTED_STATUS_${errCode || 'DISABLED'}`,
         });
 
         return res.status(403).json({
           status: 'error',
           code: 'ACCOUNT_DISABLED',
-          message: 'Tài khoản bị Từ chối hoặc Tạm khoá hoặc Bị cấm. Xin vui lòng liên hệ với Quản trị viên để được hỗ trợ trực tiếp.'
-        });
-      }
-
-      if (error.status === 423) {
-        const isPermanent = error.isPermanent || false;
-        const minutesLeft = error.minutesLeft || 0;
-
-        let message = isPermanent 
-          ? 'Tài khoản đã bị cấm vĩnh viễn. Xin liên hệ hỗ trợ trực tiếp.' 
-          : `Tài khoản tạm khóa. Vui lòng thử lại sau ${minutesLeft} phút.`;
-
-        return res.status(423).json({
-          status: 'error',
-          code: 'ACCOUNT_LOCKED',
-          message,
-          minutesLeft,
-          isPermanent,
-          lockType: error.lockType || 'UNKNOWN',
-          reasonCode: error.reasonCode || 'UNKNOWN_LOCK_REASON'
+          message:
+            'Tài khoản bị Từ chối hoặc Tạm khoá hoặc Bị cấm. Xin vui lòng liên hệ với Quản trị viên để được hỗ trợ trực tiếp.',
         });
       }
 
       console.error('[Login Error]:', error);
-      res.status(500).json({ status: 'error', message: error.message || 'Lỗi server.' });
+      return res.status(500).json({
+        status: 'error',
+        message: error.message || 'Lỗi server.',
+      });
     }
   },
 
