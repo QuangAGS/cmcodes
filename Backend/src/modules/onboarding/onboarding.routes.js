@@ -1,20 +1,14 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.routes.js
- * DATETIME   : 2026-07-22T10:15:00+07:00
- * VERSION    : 1.1.0-W1
+ * DATETIME   : 2026-07-26T15:30:00+07:00
+ * VERSION    : 1.2.0-W3
  * DESCRIPTION:
- * - Express Router cho phân hệ Onboarding (OPD v1.2.0).
- * - [1.1.0-W1] Wave 1 PR-5: Inject middleware thật + asyncHandler.
- * - Mount tại: app.use('/api/onboarding', onboardingRoutes)
- *
- * QUY ƯỚC:
- * - Mọi route đều yêu cầu verifyToken (req.user).
- * - Route Admin: thêm checkRole(...ADMIN_ROLES).
- * - Mọi handler bọc asyncHandler (CED VIII.2).
+ * - [1.2.0-W3] PR-W3-2: tenantStatusHeavy trên admin review/approve/merge.
+ * - Whitelist: /clan/activate KHÔNG gắn Heavy (CLAN_ADMIN + TAM_NGUNG được kích hoạt).
  *
  * CHANGELOG:
- * - 1.0.0-ONBOARDING-ROUTES: Skeleton + placeholder middleware.
- * - 1.1.0-W1 (2026-07-22): Thay placeholder bằng verifyToken/checkRole + asyncHandler.
+ * - 1.1.0-W1: verifyToken + asyncHandler.
+ * - 1.2.0-W3 (2026-07-26): tenant gate heavy trên admin OPD; activate exempt.
  */
 
 'use strict';
@@ -23,135 +17,87 @@ const express = require('express');
 const router = express.Router();
 
 const ctrl = require('./onboarding.controller.js');
-const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
+const {
+  verifyToken,
+  checkRole,
+  tenantStatusHeavy,
+} = require('../../middlewares/auth.middleware');
 const { asyncHandler } = require('../../shared/errors');
 
-// Role groups
-const ADMIN_ROLES = ['CLAN_ADMIN', 'SYSTEM_ADMIN', 'TRUONG_HO', 'TRUONG_TOC', 'TRUONG_NGANH', 'TRUONG_CHI'];
+const ADMIN_ROLES = [
+  'CLAN_ADMIN',
+  'SYSTEM_ADMIN',
+  'TRUONG_HO',
+  'TRUONG_TOC',
+  'TRUONG_NGANH',
+  'TRUONG_CHI',
+];
 
-// ─────────────────────────────────────────────────────────────
-// ROUTES — PHASE 1 (User tự thao tác)
-// ─────────────────────────────────────────────────────────────
-
-/**
- * @route   POST /api/onboarding/cases
- * @desc    Tạo hồ sơ onboarding mới (DRAFT)
- * @access  Private (authenticated user)
- */
+// ── PHASE 1 (User) — không Heavy ─────────────────────────────
 router.post('/cases', verifyToken, asyncHandler(ctrl.createCase));
-
-/**
- * @route   POST /api/onboarding/profile
- * @desc    Hoàn thiện hồ sơ cá nhân + tạo Member DU_BI
- * @access  Private
- */
 router.post('/profile', verifyToken, asyncHandler(ctrl.completeProfile));
 
-/**
- * @route   POST /api/onboarding/clan/activate
- * @desc    Kích hoạt không gian dòng họ (Clan Admin)
- * @access  Private (CLAN_ADMIN hoặc user đang setup clan)
- */
+// WHITELIST: activate khi tenant TAM_NGUNG — chỉ verifyToken (+ optional checkRole sau)
 router.post('/clan/activate', verifyToken, asyncHandler(ctrl.activateClan));
 
-// ─────────────────────────────────────────────────────────────
-// ROUTES — PHASE 2 (Submit / Review / Approve / Reject / Cancel)
-// ─────────────────────────────────────────────────────────────
+// ── PHASE 2 ──────────────────────────────────────────────────
+router.post(
+  '/cases/:caseId/submit',
+  verifyToken,
+  asyncHandler(ctrl.submitCase)
+);
+router.post(
+  '/cases/:caseId/cancel',
+  verifyToken,
+  asyncHandler(ctrl.cancelCase)
+);
 
-/**
- * @route   POST /api/onboarding/cases/:caseId/submit
- * @desc    User gửi hồ sơ (→ SUBMITTED)
- * @access  Private (chủ hồ sơ)
- */
-router.post('/cases/:caseId/submit', verifyToken, asyncHandler(ctrl.submitCase));
-
-/**
- * @route   POST /api/onboarding/cases/:caseId/cancel
- * @desc    User hủy hồ sơ (→ CANCELLED)
- * @access  Private (chủ hồ sơ)
- */
-router.post('/cases/:caseId/cancel', verifyToken, asyncHandler(ctrl.cancelCase));
-
-/**
- * @route   POST /api/onboarding/cases/:caseId/review/start
- * @desc    Admin bắt đầu review (→ UNDER_REVIEW)
- * @access  Private (Admin roles)
- */
 router.post(
   '/cases/:caseId/review/start',
   verifyToken,
   checkRole(...ADMIN_ROLES),
+  tenantStatusHeavy,
   asyncHandler(ctrl.startReview)
 );
-
-/**
- * @route   POST /api/onboarding/cases/:caseId/revision
- * @desc    Admin yêu cầu bổ sung (→ NEEDS_REVISION)
- * @access  Private (Admin roles)
- */
 router.post(
   '/cases/:caseId/revision',
   verifyToken,
   checkRole(...ADMIN_ROLES),
+  tenantStatusHeavy,
   asyncHandler(ctrl.requestRevision)
 );
-
-/**
- * @route   POST /api/onboarding/cases/:caseId/approve
- * @desc    Admin phê duyệt (→ APPROVED)
- * @access  Private (Admin roles)
- */
 router.post(
   '/cases/:caseId/approve',
   verifyToken,
   checkRole(...ADMIN_ROLES),
+  tenantStatusHeavy,
   asyncHandler(ctrl.approveCase)
 );
-
-/**
- * @route   POST /api/onboarding/cases/:caseId/reject
- * @desc    Admin từ chối (→ REJECTED)
- * @access  Private (Admin roles)
- */
 router.post(
   '/cases/:caseId/reject',
   verifyToken,
   checkRole(...ADMIN_ROLES),
+  tenantStatusHeavy,
   asyncHandler(ctrl.rejectCase)
 );
 
-// ─────────────────────────────────────────────────────────────
-// ROUTES — PHASE 3 (Branch + Merge)
-// ─────────────────────────────────────────────────────────────
-
-/**
- * @route   POST /api/onboarding/cases/:caseId/branch
- * @desc    Tạo Provisional Branch + members dự bị
- * @access  Private (chủ hồ sơ, case editable)
- */
-router.post('/cases/:caseId/branch', verifyToken, asyncHandler(ctrl.createBranch));
-
-/**
- * @route   PATCH /api/onboarding/cases/:caseId/branch
- * @desc    Cập nhật Provisional Branch (add/update/remove members)
- * @access  Private (chủ hồ sơ, case editable)
- */
-router.patch('/cases/:caseId/branch', verifyToken, asyncHandler(ctrl.updateBranch));
-
-/**
- * @route   POST /api/onboarding/cases/:caseId/merge
- * @desc    Admin ghép nhánh vào cây chính (→ MERGING → MERGED)
- * @access  Private (Admin roles)
- */
+// ── PHASE 3 ──────────────────────────────────────────────────
+router.post(
+  '/cases/:caseId/branch',
+  verifyToken,
+  asyncHandler(ctrl.createBranch)
+);
+router.patch(
+  '/cases/:caseId/branch',
+  verifyToken,
+  asyncHandler(ctrl.updateBranch)
+);
 router.post(
   '/cases/:caseId/merge',
   verifyToken,
   checkRole(...ADMIN_ROLES),
+  tenantStatusHeavy,
   asyncHandler(ctrl.mergeBranch)
 );
-
-// ─────────────────────────────────────────────────────────────
-// EXPORT
-// ─────────────────────────────────────────────────────────────
 
 module.exports = router;

@@ -1,22 +1,28 @@
 /**
  * PATH       : src/middlewares/auth.middleware.js
- * DATETIME   : 2026-07-26T11:30:00+07:00
- * VERSION    : 20.4.0-W2
+ * DATETIME   : 2026-07-26T15:45:00+07:00
+ * VERSION    : 20.5.0-W3
  * DESCRIPTION:
- * - Dual req.user fields + tenantStatus.
- * - [20.4.0-W2] PR-W2-2: res.status().json → next(err) dual-contract CED.
- * - Re-export checkRole, requireActiveTenant.
- * - Q1 bảo toàn logic.
+ * - Dual req.user + tenantStatus.
+ * - [20.5.0-W3] PR-W3-2: re-export tenantStatus Light/Heavy + requireActiveTenant alias.
+ * - Q1 bảo toàn verifyToken.
  *
  * CHANGELOG:
- * - 20.3.0-W2: tenantStatus + requireActiveTenant.
- * - 20.4.0-W2 (2026-07-26): next(err) CED shape (PR-W2-2).
+ * - 20.4.0-W2: next(err) CED.
+ * - 20.5.0-W3 (2026-07-26): re-export tenantStatus*; bỏ require trùng.
  */
 
 'use strict';
 
 const jwt = require('jsonwebtoken');
 const prismaModule = require('../lib/prisma.js');
+const {
+  checkRole,
+  requireActiveTenant,
+  tenantStatus,
+  tenantStatusLight,
+  tenantStatusHeavy,
+} = require('./role.middleware');
 
 const verifyToken = (req, res, next) => {
   const authHeader = req.headers.authorization;
@@ -27,6 +33,7 @@ const verifyToken = (req, res, next) => {
     err.statusCode = 401;
     err.code = 'UNAUTHORIZED';
     err.isOperational = true;
+    err.correlationId = req.correlationId;
     return next(err);
   }
 
@@ -57,13 +64,16 @@ const verifyToken = (req, res, next) => {
       err.statusCode = 403;
       err.code = 'FORBIDDEN';
       err.isOperational = true;
+      err.correlationId = req.correlationId;
       return next(err);
     }
 
     const tenantContext = prismaModule.tenantContext;
 
     if (!tenantContext) {
-      console.error('[Auth Middleware] tenantContext is undefined! Fallback to next()');
+      console.error(
+        '[Auth Middleware] tenantContext is undefined! Fallback to next()'
+      );
       return next();
     }
 
@@ -74,14 +84,18 @@ const verifyToken = (req, res, next) => {
     err.statusCode = 403;
     err.code = 'INVALID_TOKEN';
     err.isOperational = true;
+    err.correlationId = req.correlationId;
     return next(err);
   }
 };
 
-const { checkRole, requireActiveTenant } = require('./role.middleware');
+// KHÔNG require lại role.middleware ở đây
 
 module.exports = {
   verifyToken,
   checkRole,
   requireActiveTenant,
+  tenantStatus,
+  tenantStatusLight,
+  tenantStatusHeavy,
 };
