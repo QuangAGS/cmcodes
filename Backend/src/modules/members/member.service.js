@@ -185,7 +185,46 @@ const memberService = {
     });
 
     return roots;
+  },
+
+  getAllMembers(tenantId, filters = {}) {
+    if (!tenantId) {
+      const err = new Error('Thiếu tenantId.');
+      err.statusCode = 400;
+      err.code = 'VALIDATION_ERROR';
+      err.isOperational = true;
+      throw err;
+    }
+
+    const where = {
+      tenant_id: tenantId,
+      deleted_at: null,
+    };
+
+    const includePending =
+      filters.includePending === true ||
+      filters.includePending === 'true' ||
+      filters.includePending === '1';
+
+    const status = filters.status ? String(filters.status).toUpperCase() : null;
+
+    if (includePending || status === 'ALL') {
+      // no status filter
+    } else if (status) {
+      where.status = status;
+    } else {
+      where.status = 'CHINH_THUC';
+    }
+
+    console.log('[getAllMembers]', JSON.stringify({ tenantId, where, filters }));
+    
+    return prisma.members.findMany({
+      where,
+      orderBy: [{ full_name: 'asc' }],
+      
+    });
   }
+
 };
 
 module.exports = memberService;

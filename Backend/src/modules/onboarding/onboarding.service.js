@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.service.js
  * DATETIME   : 2026-07-21T09:05:00+07:00
- * VERSION    : 1.4.0-ONBOARDING-SERVICE-OPD-1.2-SEC
+ * VERSION    : 1.5.0-W3
  * DESCRIPTION:
  * - TRÁI TIM NGHIỆP VỤ Onboarding theo EGAL-25.x OPD v1.2.0 (SEC-compliant) + EGAL-SEC v1.1.0.
  * - onboarding_cases = Aggregate Root (L5). SEC L2/L3 guards trên Heavy path; tenant isolation.
@@ -14,11 +14,14 @@
  * CHANGELOG:
  * - 1.0.0–1.3.0: Phase 1–3 / OPD v1.1.0.
  * - 1.4.0 (2026-07-21): OPD v1.2.0 + SEC A–E alignment.
+ * - 1.5.0-W3 function BusinessError local, chỉ cần wrapper Q1
  */
 
 'use strict';
 
 const { prisma } = require('../../lib/prisma.js');
+//1.5.0-W3
+const { createBusinessError } = require('../../shared/errors');
 
 // ─────────────────────────────────────────────────────────────
 // CONSTANTS — OPD v1.2.0 + Prisma enum + SEC criticality
@@ -102,13 +105,17 @@ const BLOCKED_USER_STATUSES = Object.freeze([
  * @param {string} message
  * @param {object} [details]
  */
+/**  1.5.0-W3
+ * Q1 adapter — giữ chữ ký cũ:
+ *   throw BusinessError(code, message, { statusCode, ...details })
+ * → shared createBusinessError
+ */
 function BusinessError(code, message, details = {}) {
-  const err = new Error(message);
-  err.name = 'BusinessError';
-  err.statusCode = details.statusCode || 400;
-  err.code = code;
-  err.details = details;
-  return err;
+  const { statusCode, ...rest } = details || {};
+  return createBusinessError(code, message, {
+    statusCode: statusCode || undefined,
+    details: Object.keys(rest).length > 0 ? rest : undefined,
+  });
 }
 
 // ─────────────────────────────────────────────────────────────

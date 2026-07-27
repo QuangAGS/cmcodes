@@ -11,12 +11,24 @@ const memberController = {
   // Lấy danh sách toàn bộ thành viên trong Tenant
   getAll: async (req, res) => {
     try {
-      const tenantId = req.user?.tenantId;
-      // Giả định memberService đã có hàm getAllMembers
-      const result = await memberService.getAllMembers(tenantId);
+      const tenantId = req.user?.tenantId || req.user?.tenant_id;
+
+      const filters = {
+        status: req.query?.status,
+        includePending: req.query?.includePending,
+      };
+
+      console.log('[getAll controller]', { tenantId, query: req.query, filters });
+
+      const result = await memberService.getAllMembers(tenantId, filters);
       res.status(200).json({ status: 'success', data: result });
     } catch (error) {
-      res.status(500).json({ status: 'error', message: error.message });
+      const statusCode = error.statusCode || 500;
+      res.status(statusCode).json({
+        status: 'error',
+        code: error.code || 'INTERNAL_ERROR',
+        message: error.message || 'Lỗi server',
+      });
     }
   },
 

@@ -324,9 +324,9 @@ const authController = {
         return res.status(403).json({ error: 'Hành vi đáng ngờ.' });
       }
 
-      /* TEMP smoke — xóa sau khi test
-      const turnstileResult = { success: true };
-      */
+      // TEMP smoke — xóa sau khi test
+      //const turnstileResult = { success: true };
+
       if (!turnstileToken) {
         return res.status(403).json({ error: 'Vui lòng hoàn thành CAPTCHA' });
       }
@@ -343,6 +343,8 @@ const authController = {
         });
         return res.status(403).json({ error: 'CAPTCHA không hợp lệ.' });
       }
+
+ 
       
       // Kiểm tra suspicious IP
       const suspicious = await authLogService.getSuspiciousAttempts(
