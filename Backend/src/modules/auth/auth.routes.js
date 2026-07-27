@@ -1,8 +1,9 @@
 /**
  * PATH       : src/modules/auth/auth.routes.js
  * DATETIME   : 2026-07-25T15:45:00+07:00
- * VERSION    : 21.8.0-W2
+ * VERSION    : 21.9.0-W4
  * DESCRIPTION:
+ * - [21.9.0-W4] PR-W4-1: rate limit login/register/reset + securityGuard.
  * - Lưới lọc bảo an chủ động (restrictSuspiciousActivity).
  * - [21.8.0-W2] Gắn requireActiveTenant cho admin routes (TENANT_NOT_ACTIVATED).
  * - Q1 bảo tồn rate limiter / cấu trúc route cũ.
@@ -25,14 +26,19 @@ const {
 } = require('../../middlewares/auth.middleware');
 const correlationMiddleware = require('../../middlewares/correlation.middleware');
 const { restrictSuspiciousActivity } = require('../../middlewares/securityGuard.middleware');
+//21.9.0-W4
 const {
   loginRateLimiter,
   registerRateLimiter,
   resetRateLimiter,
+  checkIdentityRateLimiter,
 } = require('../../middlewares/rateLimit.middleware');
 
 // ==================== PUBLIC ROUTES ====================
-router.get('/check-identity', authController.checkIdentity);
+//router.get('/check-identity', authController.checkIdentity);
+//21.9.0-W4
+router.get('/check-identity', checkIdentityRateLimiter, authController.checkIdentity);
+
 router.post('/register', registerRateLimiter, authController.register);
 router.post('/login', loginRateLimiter, authController.login);
 router.post('/forgot-password', resetRateLimiter, authController.forgotPassword);

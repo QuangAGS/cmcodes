@@ -1,14 +1,14 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.routes.js
- * DATETIME   : 2026-07-26T15:30:00+07:00
- * VERSION    : 1.2.0-W3
+ * DATETIME   : 2026-07-27T14:50:00+07:00
+ * VERSION    : 1.3.0-W4
  * DESCRIPTION:
- * - [1.2.0-W3] PR-W3-2: tenantStatusHeavy trên admin review/approve/merge.
- * - Whitelist: /clan/activate KHÔNG gắn Heavy (CLAN_ADMIN + TAM_NGUNG được kích hoạt).
+ * - [1.3.0-W4] PR-W4-1: rate limit write/admin + restrictSuspiciousActivity admin.
+ * - Whitelist activate: write limiter only, no abuse guard nặng.
  *
  * CHANGELOG:
- * - 1.1.0-W1: verifyToken + asyncHandler.
- * - 1.2.0-W3 (2026-07-26): tenant gate heavy trên admin OPD; activate exempt.
+ * - 1.2.0-W3: tenantStatusHeavy admin; activate exempt Heavy.
+ * - 1.3.0-W4 (2026-07-27): onboarding rate + guard.
  */
 
 'use strict';
@@ -23,6 +23,13 @@ const {
   tenantStatusHeavy,
 } = require('../../middlewares/auth.middleware');
 const { asyncHandler } = require('../../shared/errors');
+const {
+  onboardingWriteRateLimiter,
+  onboardingAdminRateLimiter,
+} = require('../../middlewares/rateLimit.middleware');
+const {
+  restrictSuspiciousActivity,
+} = require('../../middlewares/securityGuard.middleware');
 
 const ADMIN_ROLES = [
   'CLAN_ADMIN',
@@ -33,70 +40,105 @@ const ADMIN_ROLES = [
   'TRUONG_CHI',
 ];
 
-// ── PHASE 1 (User) — không Heavy ─────────────────────────────
-router.post('/cases', verifyToken, asyncHandler(ctrl.createCase));
-router.post('/profile', verifyToken, asyncHandler(ctrl.completeProfile));
+const onboardingAdminGuard = restrictSuspiciousActivity({
+  maxThreshold: 60,
+  windowMinutes: 5,
+  reasonCode: 'ONBOARDING_ADMIN_ABUSE',
+});
 
-// WHITELIST: activate khi tenant TAM_NGUNG — chỉ verifyToken (+ optional checkRole sau)
-router.post('/clan/activate', verifyToken, asyncHandler(ctrl.activateClan));
+// ── PHASE 1 (User) ───────────────────────────────────────────
+router.post(
+  '/cases',
+  onboardingWriteRateLimiter,
+  verifyToken,
+  asyncHandler(ctrl.createCase)
+);
+router.post(
+  '/profile',
+  onboardingWriteRateLimiter,
+  verifyToken,
+  asyncHandler(ctrl.completeProfile)
+);
+
+// Whitelist Heavy: chỉ write limiter
+router.post(
+  '/clan/activate',
+  onboardingWriteRateLimiter,
+  verifyToken,
+  asyncHandler(ctrl.activateClan)
+);
 
 // ── PHASE 2 ──────────────────────────────────────────────────
 router.post(
   '/cases/:caseId/submit',
+  onboardingWriteRateLimiter,
   verifyToken,
   asyncHandler(ctrl.submitCase)
 );
 router.post(
   '/cases/:caseId/cancel',
+  onboardingWriteRateLimiter,
   verifyToken,
   asyncHandler(ctrl.cancelCase)
 );
 
 router.post(
   '/cases/:caseId/review/start',
+  onboardingAdminRateLimiter,
   verifyToken,
   checkRole(...ADMIN_ROLES),
   tenantStatusHeavy,
+  onboardingAdminGuard,
   asyncHandler(ctrl.startReview)
 );
 router.post(
   '/cases/:caseId/revision',
+  onboardingAdminRateLimiter,
   verifyToken,
   checkRole(...ADMIN_ROLES),
   tenantStatusHeavy,
+  onboardingAdminGuard,
   asyncHandler(ctrl.requestRevision)
 );
 router.post(
   '/cases/:caseId/approve',
+  onboardingAdminRateLimiter,
   verifyToken,
   checkRole(...ADMIN_ROLES),
   tenantStatusHeavy,
+  onboardingAdminGuard,
   asyncHandler(ctrl.approveCase)
 );
 router.post(
   '/cases/:caseId/reject',
+  onboardingAdminRateLimiter,
   verifyToken,
   checkRole(...ADMIN_ROLES),
   tenantStatusHeavy,
+  onboardingAdminGuard,
   asyncHandler(ctrl.rejectCase)
 );
 
 // ── PHASE 3 ──────────────────────────────────────────────────
 router.post(
   '/cases/:caseId/branch',
+  onboardingWriteRateLimiter,
   verifyToken,
   asyncHandler(ctrl.createBranch)
 );
 router.patch(
   '/cases/:caseId/branch',
+  onboardingWriteRateLimiter,
   verifyToken,
   asyncHandler(ctrl.updateBranch)
 );
 router.post(
   '/cases/:caseId/merge',
+  onboardingAdminRateLimiter,
   verifyToken,
   checkRole(...ADMIN_ROLES),
   tenantStatusHeavy,
+  onboardingAdminGuard,
   asyncHandler(ctrl.mergeBranch)
 );
 
