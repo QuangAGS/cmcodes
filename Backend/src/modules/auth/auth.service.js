@@ -1391,7 +1391,7 @@ const authService = {
       }));
       ******************************************************* */
       
-      /*
+      /* 
        * PATH       : src/services/authService.js (Hàm queryReviewableUsers - Đoạn enrichedData)
        * DATETIME   : 2026-06-20T16:45:00+07:00
        * DESCRIPTION: Tối ưu hóa truy vấn dựa trên bản chất Khóa ngoại (FK) member_id.
@@ -1414,7 +1414,15 @@ const authService = {
               generation: true,
               gender: true,
               is_alive: true,
-              branch_name: true // Đảm bảo lấy chi cành nuôi Khung 3 Frontend
+              branch_id: true,
+              status: true,
+              role: true,
+              branch: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
             }
           });
         }
