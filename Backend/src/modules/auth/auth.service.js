@@ -441,32 +441,23 @@ const authService = {
        * - No delivery execution
        * - Must NOT break register flow
        */
-      try {
-        //EGAL-25.x R6.3A For test the Failure isolation only
-        //throw new Error('TEST_SILENT_EMIT_FAILURE');
-
+            try {
         await notificationOrchestrator.emit(
           'USER_REGISTERED',
           {
             userId: transactionResult.userId,
-
+            correlationId: extraData.correlationId || null,
             metadata: {
               tenantId: transactionResult.tenantId,
-
               registrationType: isNewClan ? 'NEW_CLAN' : 'JOIN_CLAN',
-
               status: transactionResult.status,
             },
-
             executeImmediately: false,
           },
           null,
         );
       } catch (emitError) {
         console.error('[EGAL-25][SilentEmit][USER_REGISTERED]', emitError);
-
-        // Q1:
-        // registration must survive notification failure
       }
 
       return transactionResult;
@@ -1409,21 +1400,21 @@ const authService = {
               deleted_at: null
             },
             select: {
-              id: true,
-              full_name: true,
-              generation: true,
-              gender: true,
-              is_alive: true,
-              branch_id: true,
-              status: true,
-              role: true,
-              branch: {
-                select: {
-                  id: true,
-                  name: true,
-                },
+            id: true,
+            full_name: true,
+            generation: true,
+            gender: true,
+            is_alive: true,
+            branch_id: true,
+            status: true,
+            role: true,
+            branch: {
+              select: {
+                id: true,
+                name: true,
               },
-            }
+            },
+          }
           });
         }
        

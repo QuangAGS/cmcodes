@@ -40,32 +40,43 @@ const deliveryRepository = {
     notificationId,
     notificationRecipientId = null,
     channel,
-    provider = null,
-    status = 'PENDING',
     recipient = null,
-    externalId = null,
-    manualNote = null,
-    rawResponse = {},
-    //metadata = {},
+    status = 'PENDING',
+    rawResponse = null,
     currentUser = null,
+    // optional: actor thật khi silent system emit
+    actorUserId = null,
   }) => {
     if (!notificationId || !channel) {
-      throw new Error('[deliveryRepository.createDelivery]: notificationId and channel are required');
+      throw new Error(
+        '[deliveryRepository.createDelivery]: notificationId and channel are required'
+      );
+    }
+
+    const actorId =
+      currentUser?.userId ||
+      currentUser?.id ||
+      actorUserId ||
+      null;
+
+    // Nếu schema bắt buộc changed_by NOT NULL + FK users:
+    // bắt buộc có actorId hợp (userId người nhận / đăng ký)
+    if (!actorId) {
+      throw new Error(
+        '[deliveryRepository.createDelivery]: changed_by requires a real user id'
+      );
     }
 
     return prisma.notification_deliveries.create({
       data: {
+        id: crypto.randomUUID(),
         notification_id: notificationId,
         notification_recipient_id: notificationRecipientId,
         channel,
-        provider,
-        status,
         recipient,
-        external_id: externalId,
-        manual_note: manualNote,
+        status,
         raw_response: rawResponse,
-        //metadata,
-        changed_by: getActorId(currentUser),
+        changed_by: actorId, // KHÔNG dùng 00000000-...
       },
     });
   },

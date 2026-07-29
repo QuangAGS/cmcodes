@@ -1,7 +1,8 @@
 /**
  * PATH:
  * backend/src/modules/notifications/orchestrator/notificationOrchestrator.js
- *
+ * DATETIME: 2026-07-29 10:15:00
+ * VERSION: 1.0.0-PR-OP-1a
  * PURPOSE:
  * - EGAL-25 Sprint 25.0
  * - Notification orchestration skeleton
@@ -22,6 +23,10 @@
  * Orchestrator persists.
  * Policy decides.
  * Adapters deliver later.
+ * 
+ * CHANG_LOG:
+ * - 2026-07-29 10:15AM PR-OP-1a apply to CED
+ *   - Add correlationId to notification creation
  */
 
 const deliveryExecutionService = require(
@@ -251,6 +256,12 @@ class NotificationOrchestrator {
     // Create canonical notification + recipient
     // =====================================================
 
+    // PR-OP-1a
+    const correlationId =
+      payload.correlationId ||
+      payload.correlation_id ||
+      null;
+
     const {
       notification,
       recipient,
@@ -264,6 +275,7 @@ class NotificationOrchestrator {
         reliability,
         metadata: payload.metadata || {},
         currentUser,
+        correlationId, // 29-07-2026 10:15AM PR-OP-1a apply to CED
       });
 
     // =====================================================
@@ -322,38 +334,23 @@ class NotificationOrchestrator {
           binding,
         });
 
-      const delivery =
-        await deliveryRepository.createDelivery({
-          notificationId:
-            notification.id,
-
-          notificationRecipientId:
-            recipient.id,
-
-          channel:
-            route.channel,
-
-          recipient:
-            deliveryRecipient,
-
-          status:
-            route.status,
-
-          rawResponse: {
-            source: 'ORCHESTRATOR',
-            eventType,
-            manualRequired:
-              route.manualRequired,
-            bindingState:
-              route.bindingState,
-            connected:
-              route.connected,
-            suggested:
-              route.suggested,
-          },
-
-          currentUser,
-        });
+      const delivery = await deliveryRepository.createDelivery({
+        notificationId: notification.id,
+        notificationRecipientId: recipient.id,
+        channel: route.channel,
+        recipient: deliveryRecipient,
+        status: route.status,
+        rawResponse: {
+          source: 'ORCHESTRATOR',
+          eventType,
+          manualRequired: route.manualRequired,
+          bindingState: route.bindingState,
+          connected: route.connected,
+          suggested: route.suggested,
+        },
+        currentUser,
+        actorUserId: userId, // ← bắt buộc: payload.userId (user vừa đăng ký)
+      });
 
       deliveries.push(delivery);
     }

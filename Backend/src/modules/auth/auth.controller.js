@@ -1,16 +1,10 @@
 /**
  * PATH       : src/modules/auth/auth.controller.js
- * DATETIME   : 2026-07-27T16:25:00+07:00
- * VERSION    : 23.3.0-W4
+ * DATETIME   : 2026-07-29T10:50:00+07:00
+ * VERSION    : 23.3.1-OP1a
  * DESCRIPTION:
- * - Khắc phục Prisma tenant_id null (query-reviewable).
- * - [23.3.0-W4] PR-W4-2: Turnstile theo securityConfig.TURNSTILE_REQUIRED;
- *   xóa TEMP bypass; secret/verify qua validateTurnstile utils.
- * - Q1: honeypot, logAttempt, Assert Order login, admin helpers.
- *
- * CHANGELOG:
- * - 23.2.9: Prisma null filter tenant.
- * - 23.3.0-W4 (2026-07-27): TURNSTILE_REQUIRED gate; strip TEMP.
+ * - [23.3.1-OP1a] Register: truyền correlationId vào extraData (CED / notifications).
+ * - [23.3.0-W4] Turnstile theo TURNSTILE_REQUIRED; Q1 honeypot, Assert Order login.
  */
 
 'use strict';
@@ -93,7 +87,14 @@ const authController = {
         blockIP(ip, securityConfig.IP_BLOCK_MINUTES, 'REPEATED_SUSPICIOUS_ACTIVITY');
       }
 
-      const extraData = { ip_address: ip, user_agent: userAgent };
+      const extraData = {
+        ip_address: ip,
+        user_agent: userAgent,
+        correlationId:
+          req.correlationId ||
+          req.headers['x-correlation-id'] ||
+          null,
+      };
       const result = await authService.registerUser(payload, extraData);
 
       res.status(201).json({

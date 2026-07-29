@@ -17,6 +17,8 @@
 
 const express = require('express');
 const router = express.Router();
+const { asyncHandler, createError } = require('../../shared/errors');
+const { prisma } = require('../../lib/prisma.js');
 
 const authController = require('./auth.controller');
 const {
@@ -63,9 +65,54 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // ==================== PROTECTED ROUTES ====================
-router.get('/me', verifyToken, (req, res) => {
-  res.status(200).json({ status: 'success', user: req.user });
-});
+router.get(
+  '/me',
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    const userId = req.user.userId || req.user.id || req.user.sub;
+    if (!userId) {
+      throw createError('UNAUTHORIZED', 'Thiếu thông tin xác thực.');
+    }
+
+    const row = await prisma.users.findFirst({
+      where: { id: userId, deleted_at: null },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        phone: true,
+        role: true,
+        status: true,
+        tenant_id: true,
+        member_id: true,
+      },
+    });
+
+    if (!row) {
+      throw createError('UNAUTHORIZED', 'Không tìm thấy tài khoản.');
+    }
+
+    // tenantStatus: lấy kèm nếu FE cần (optional)
+    let tenantStatus = null;
+    if (row.tenant_id) {
+      const t = await prisma.tenants.findFirst({
+        where: { id: row.tenant_id },
+        select: { status: true },
+      });
+      tenantStatus = t?.status ?? null;
+    }
+
+    res.status(200).json({
+      status: 'success',
+      user: {
+        ...row,
+        userId: row.id,
+        tenantId: row.tenant_id,
+        tenantStatus,
+      },
+    });
+  })
+);
 
 router.get(
   '/pending-users',

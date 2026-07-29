@@ -42,6 +42,7 @@ const notificationRepository = {
     type = 'HE_THONG',
     metadata = {},
     currentUser = null,
+    correlationId = null, // 29-07-2026 10:15AM PR-OP-1a apply to CED  
   }) => {
     if (!userId) {
       throw new Error('[notificationRepository.createNotification]: userId is required');
@@ -63,6 +64,7 @@ const notificationRepository = {
         type,
         metadata,
         changed_by: getActorId(currentUser),
+        correlation_id: correlationId || crypto.randomUUID(), // bắt buộc; fallback nếu thiếu
       },
     });
   },
@@ -93,6 +95,7 @@ const notificationRepository = {
    * Create notification and recipient together.
    * Useful for Sprint 25.0 silent persistence.
    */
+  //29-07-2026 10:15AM PR-OP-1a apply to CED  
   createNotificationForUser: async ({
     userId,
     eventType = null,
@@ -103,15 +106,17 @@ const notificationRepository = {
     type = 'HE_THONG',
     metadata = {},
     currentUser = null,
+    correlationId = null,
   }) => {
     return prisma.$transaction(async (tx) => {
-      const notificationId =
-        crypto.randomUUID();
+      const notificationId = crypto.randomUUID();
+      // Actor thật: user đăng ký khi không có admin/session
+      const actorId =
+        (currentUser?.userId || currentUser?.id) || userId;
 
-      const notification =
-        await tx.notifications.create({
-          data: {
-            id: notificationId,
+      const notification = await tx.notifications.create({
+        data: {
+          id: notificationId,
           user_id: userId,
           event_type: eventType,
           title,
@@ -120,24 +125,21 @@ const notificationRepository = {
           reliability,
           type,
           metadata,
-          changed_by: getActorId(currentUser),
+          changed_by: actorId,
+          correlation_id: correlationId || crypto.randomUUID(),
         },
       });
 
-      const recipient =
-        await tx.notification_recipients.create({
-          data: {
-            id: crypto.randomUUID(),
-            notification_id: notification.id,
-            user_id: userId,
-            changed_by: getActorId(currentUser),
-          },
-        });
+      const recipient = await tx.notification_recipients.create({
+        data: {
+          id: crypto.randomUUID(),
+          notification_id: notification.id,
+          user_id: userId,
+          changed_by: actorId, // cùng actor — tránh SYSTEM uuid ảo
+        },
+      });
 
-      return {
-        notification,
-        recipient,
-      };
+      return { notification, recipient };
     });
   },
 
