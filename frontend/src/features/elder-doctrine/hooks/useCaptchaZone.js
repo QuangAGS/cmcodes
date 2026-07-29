@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/a11y/captcha/useCaptchaZone.js
+ * PATH       : src/features/elder-doctrine/hooks/useCaptchaZone.js
+ * OLD PATH   : src/features/a11y/captcha/useCaptchaZone.js
  * DATETIME   : 2026-05-23T00:00:00+07:00
  * VERSION    : EGAL-24.6.7.R3.3.1-CAPTCHA-HOOK
  * DESCRIPTION:
@@ -23,7 +24,7 @@ import {
   completeCaptchaZone,
   markCaptchaConsumed,
   blockCaptchaSubmit,
-} from './captchaZone.service.js';
+} from '../services/captchaZone.service.js';
 
 export default function useCaptchaZone({
   zoneId = 'captcha',

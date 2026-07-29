@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/auth/components/JoinClanForm.jsx
+ * PATH: src/features/register-wizard/components/JoinClanForm.jsx
+ * OLD PATH       : src/features/auth/components/JoinClanForm.jsx
  * DATETIME   : <2026-05-28T09:55:00+07:00>
  * VERSION    : EGAL-25.X. R6.2.2A
  * DESCRIPTION:
@@ -73,33 +74,33 @@ import {
 } from 'lucide-react';
 
 // Shared captcha zone (R3.3 doctrine). giữ context, bỏ legacy noise
-import AudioHelpButton from '../../a11y/tts/AudioHelpButton.jsx';
-import { ttsMessages } from '../../a11y/tts/ttsMessages.js';
+import AudioHelpButton from '../../elder-doctrine/components/AudioHelpButton.jsx';
+import { ttsMessages } from '../../../features/elder-doctrine/constants/ttsMessages.js';
 
-import GuidedFieldWrapper from '../../a11y/guided/GuidedFieldWrapper.jsx';
-import useGuidedFlow from '../../a11y/guided/useGuidedFlow.js';
+import GuidedFieldWrapper from '../../elder-doctrine/components/GuidedFieldWrapper.jsx';
+import useGuidedFlow from '../../../shared/hooks/useGuidedFlow.js';
 
 import {
   runValidationGate,
   buildValidationAttentionTarget,
-} from '../../a11y/validation/validationGate.service.js';
+} from '../../elder-doctrine/services/validationGate.service.js';
 
 import {
   createInvalidationPlan,
   shouldClearOnlineValidation,
   shouldClearCompletedField,
-} from '../../a11y/runtime/runtimeInvalidation.service.js';
+} from '../../elder-doctrine/services/runtimeInvalidation.service.js';
 
-import AttentionZone from '../../a11y/attention/AttentionZone.jsx';
+import AttentionZone from '../../../components/AttentionZone.jsx';
 
-import apiClient from '../../../lib/axios.js';
+import apiClient from '../../../lib/apiClient.js';
 import { joinClanSchema } from '../utils/joinClanValidation.js';
-import { useTts } from '../../a11y/tts/useTts.js';
-import ZoneVoiceButton from '../../a11y/voice/ZoneVoiceButton.jsx';
+import { useTts } from '../../../shared/hooks/useTts.js';
+import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx';
 // Dùng shared captcha zone thay vì Turnstile component riêng. ------------------
-import useCaptchaZone from '../../a11y/captcha/useCaptchaZone.js';
-import CaptchaAttentionField from '../../a11y/captcha/CaptchaAttentionField.jsx';
-// --------------------------------------------------------------------------------
+import useCaptchaZone from '../../elder-doctrine/hooks/useCaptchaZone.js';
+import CaptchaAttentionField from '../../elder-doctrine/components/CaptchaAttentionField.jsx';
+// -------------------------------------------------------------------------------------------
 
 /**
  * Static option maps

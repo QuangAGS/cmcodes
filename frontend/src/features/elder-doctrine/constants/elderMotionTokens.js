@@ -1,5 +1,5 @@
 /**
- * PATH       : src/features/a11y/guided/elderMotionTokens.js
+ * PATH       :   src/features/elder-doctrine/constants/elderMotionTokens.js
  * DATETIME   : 2026-05-14T00:00:00+07:00
  * VERSION    : 24.0.0
  * DESCRIPTION:

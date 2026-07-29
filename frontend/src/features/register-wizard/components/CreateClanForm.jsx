@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/auth/components/CreateClanForm.jsx
+ * PATH       : src/features/register-wizard/components/CreateClanForm.jsx
+ * OLD PATH   : src/features/auth/components/CreateClanForm.jsx
  * DATETIME   : <2026-05-17T10:00:00+07:00>
  * VERSION    : 24.6.7.R1.9
  * DESCRIPTION:
@@ -41,35 +42,35 @@ import {
   AlertCircle,
 } from 'lucide-react';
 
-import AudioHelpButton from '../../a11y/tts/AudioHelpButton.jsx';
-import { ttsMessages } from '../../a11y/tts/ttsMessages.js';
-import { useTts } from '../../a11y/tts/useTts.js';
-import ZoneVoiceButton from '../../a11y/voice/ZoneVoiceButton.jsx';
+import AudioHelpButton from '../../elder-doctrine/components/AudioHelpButton.jsx';
+import { ttsMessages } from '../../../features/elder-doctrine/constants/ttsMessages.js';
+import { useTts } from '../../../shared/hooks/useTts.js';
+import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx';
 
-import GuidedFieldWrapper from '../../a11y/guided/GuidedFieldWrapper.jsx';
+import GuidedFieldWrapper from '../../elder-doctrine/components/GuidedFieldWrapper.jsx';
 //import StepCoachBar from '../../a11y/guided/StepCoachBar.jsx';
-import useGuidedFlow from '../../a11y/guided/useGuidedFlow.js';
-import useProactiveVoiceGuidance from '../../a11y/guided/useProactiveVoiceGuidance.js';
+import useGuidedFlow from '../../../shared/hooks/useGuidedFlow.js';
+import useProactiveVoiceGuidance from '../../elder-doctrine/hooks/useProactiveVoiceGuidance.js';
 
 import {
   determineNextAttentionTarget,
   buildAttentionInstruction,
-} from '../../a11y/guided/guidedProgression.service.js';
+} from '../../elder-doctrine/services/guidedProgression.service.js';
 
 import {
   runValidationGate,
   buildValidationAttentionTarget,
-} from '../../a11y/validation/validationGate.service.js';
+} from '../../elder-doctrine/services/validationGate.service.js';
 
 import {
   createInvalidationPlan,
   shouldClearOnlineValidation,
   shouldClearCompletedField,
-} from '../../a11y/runtime/runtimeInvalidation.service.js';
+} from '../../elder-doctrine/services/runtimeInvalidation.service.js';
 
-import AttentionZone from '../../a11y/attention/AttentionZone.jsx';
+import AttentionZone from  '../../../components/AttentionZone.jsx';
 
-import apiClient from '../../../lib/axios.js';
+import apiClient from '../../../lib/apiClient.js';
 import { createClanSchema } from '../utils/createClanValidation.js';
 /**
  * Shared captcha runtime
@@ -77,9 +78,9 @@ import { createClanSchema } from '../utils/createClanValidation.js';
  * - Validation occurs at nextStep()
  * - Token consumed only after safe transition
  */
-import useCaptchaZone from '../../a11y/captcha/useCaptchaZone.js';
-import CaptchaAttentionField from '../../a11y/captcha/CaptchaAttentionField.jsx';
-import { CAPTCHA_RESET_REASONS } from '../../a11y/captcha/captchaZone.service.js';
+import useCaptchaZone from '../../elder-doctrine/hooks/useCaptchaZone.js';
+import CaptchaAttentionField from '../../elder-doctrine/components/CaptchaAttentionField.jsx';
+import { CAPTCHA_RESET_REASONS } from '../../elder-doctrine/services/captchaZone.service.js';
 // --------------------------------------------------------------------------------
 
 /**

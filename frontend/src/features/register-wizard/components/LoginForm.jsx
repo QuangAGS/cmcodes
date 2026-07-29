@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/auth/components/LoginForm.jsx
+ * PATH: src/features/register-wizard/components/LoginForm.jsx
+ * OLD PATH       : src/features/auth/components/LoginForm.jsx
  * DATETIME   : 2026-05-25T00:00:00+07:00
  * VERSION    : EGAL-24.6.7.R3.3.3-LOGIN-LOCK-COUNTDOWN
  * DESCRIPTION:
@@ -44,20 +45,20 @@ import Turnstile from 'react-turnstile';
 
 import { emailRule, phoneRule } from '../../../shared/utils/validationRules.js';
 
-import AudioHelpButton from '../../a11y/tts/AudioHelpButton.jsx';
-import { ttsMessages } from '../../a11y/tts/ttsMessages.js';
-import { useTts } from '../../a11y/tts/useTts.js';
-import ZoneVoiceButton from '../../a11y/voice/ZoneVoiceButton.jsx';
+import AudioHelpButton from '../../elder-doctrine/components/AudioHelpButton.jsx';
+import { ttsMessages } from '../../elder-doctrine/constants/ttsMessages.js';
+import { useTts } from '../../../shared/hooks/useTts.js';
+import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx';
 
-import AttentionZone from '../../a11y/attention/AttentionZone.jsx';
-import GuidedFieldWrapper from '../../a11y/guided/GuidedFieldWrapper.jsx';
+import AttentionZone from '../../../components/AttentionZone.jsx';
+import GuidedFieldWrapper from '../../elder-doctrine/components/GuidedFieldWrapper.jsx';
 
 import {
   CAPTCHA_ZONE_STATUS,
   buildCaptchaPayloadSnapshot,
   validateCaptchaBeforeSubmit,
   shouldResetCaptcha,
-} from '../../a11y/captcha/captchaZone.service.js';
+} from '../../elder-doctrine/services/captchaZone.service.js';
 
 const GENERIC_PAYLOAD_ERROR = 'Thông tin đưa vào chưa chính xác.';
 const PASSWORD_REQUIRED_ERROR = 'Bác vui lòng nhập mật khẩu.';

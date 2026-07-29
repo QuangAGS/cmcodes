@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/a11y/guided/GuidedFieldWrapper.jsx
+ * PATH       : src/features/elder-doctrine/components/GuidedFieldWrapper.jsx
+ * OLD PATH   : src/features/a11y/guided/GuidedFieldWrapper.jsx
  * DATETIME   : 2026-05-14T00:00:00+07:00
  * VERSION    : 24.0.0
  * DESCRIPTION:
@@ -17,7 +18,7 @@ import {
   guidedFieldBaseClass,
   guidedFieldActiveClass,
   guidedHelperClass,
-} from './elderMotionTokens.js';
+} from '../constants/elderMotionTokens.js';
 
 /**
  * ============================================================

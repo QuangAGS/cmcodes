@@ -1,6 +1,7 @@
 /**
  * ============================================================
- * PATH:
+ * PATH     :src/features/elder-doctrine/services/focusGuardian.service.js
+ * OLD PATH:
  * src/features/a11y/focusGuardian/focusGuardian.service.js
  *
  * DATETIME:

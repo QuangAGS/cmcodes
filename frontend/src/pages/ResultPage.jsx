@@ -19,10 +19,10 @@ import {
   MessageCircle,
 } from 'lucide-react';
 
-import AudioHelpButton from '../features/a11y/tts/AudioHelpButton.jsx';
-import { ttsMessages } from '../features/a11y/tts/ttsMessages.js';
+import AudioHelpButton from '../features/elder-doctrine/components/AudioHelpButton.jsx';
+import { ttsMessages } from '../features/elder-doctrine/constants/ttsMessages.js';
 
-import StepCoachBar from '../features/a11y/guided/StepCoachBar.jsx';
+import StepCoachBar from '../features/elder-doctrine/components/StepCoachBar.jsx';
 
 /**
  * <2026-05-14T00:00:00+07:00>
@@ -30,7 +30,7 @@ import StepCoachBar from '../features/a11y/guided/StepCoachBar.jsx';
  * AttentionZone dùng để đưa success result vào trung tâm chú ý khi page render.
  * Không thay đổi navigation hoặc result flow.
  */
-import AttentionZone from '../features/a11y/attention/AttentionZone.jsx';
+import AttentionZone from '../components/AttentionZone.jsx';
 
 const ResultPage = ({ formData }) => {
   const data = formData || {};

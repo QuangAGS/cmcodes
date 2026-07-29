@@ -1,16 +1,14 @@
 /**
  * ============================================================
- * PATH:
- * src/features/a11y/voice/useLocalVoiceGuidance.js
+ * PATH     : src/features/elder-doctrine/hooks/useLocalVoiceGuidance.js
+ * OLD PATH : src/features/a11y/voice/useLocalVoiceGuidance.js
  *
- * DATETIME:
- * 2026-05-21 21:15 ICT
+ * DATETIME: 2026-05-21 21:15 ICT
  *
- * VERSION:
- * EGAL-24.6.7.R3.2
+ * VERSION: EGAL-24.6.7.R3.2
  *
  * DESCRIPTION:
- * Local Voice Guidance State
+ *    Local Voice Guidance State
  *
  * Purpose:
  * - Manage form/page-level override
@@ -35,7 +33,7 @@
  */
 
 import { useCallback, useState } from "react";
-import { useVoiceGuidance } from "./VoiceGuidanceContext";
+import { useVoiceGuidance } from "../../../context/TtsContext";
 
 /**
  * ============================================================

@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/a11y/guided/StepCoachBar.jsx
+ * PATH:      : src/features/elder-doctrine/components/StepCoachBar.jsx
+ * OLD PATH   : src/features/a11y/guided/StepCoachBar.jsx
  * DATETIME   : 2026-05-14T00:00:00+07:00
  * VERSION    : 24.0.0
  * DESCRIPTION:

@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/a11y/captcha/captchaZone.service.js
+ * PATH:      : src/features/elder-doctrine/services/captchaZone.service.js
+ * OLD PATH   : src/features/a11y/captcha/captchaZone.service.js
  * DATETIME   : 2026-05-23T00:00:00+07:00
  * VERSION    : EGAL-24.6.7.R3.3.1-CAPTCHA-DOCTRINE
  * DESCRIPTION:

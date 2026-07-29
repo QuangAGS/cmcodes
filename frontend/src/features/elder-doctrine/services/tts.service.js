@@ -1,5 +1,5 @@
 /**
- * PATH       : src/features/a11y/tts/tts.service.js
+ * PATH      : src/features/elder-doctrine/services/tts.service.js
  * DATETIME   : 2026-05-23T00:00:00+07:00
  * VERSION    : 1.0.0-ROLLBACK-CLEAN
  * DESCRIPTION:

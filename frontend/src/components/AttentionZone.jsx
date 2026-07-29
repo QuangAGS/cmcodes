@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/a11y/attention/AttentionZone.jsx
+ * PATH       : src/components/AttentionZone.jsx 
+ * OLD PATH   : src/features/a11y/attention/AttentionZone.jsx
  * DATETIME   : 2026-05-15T00:00:00+07:00
  * VERSION    : 24.1.0
  * DESCRIPTION:

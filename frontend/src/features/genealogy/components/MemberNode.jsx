@@ -1,9 +1,9 @@
 /**
- * DATETIME: 07-04-2026 15:30
- * THƯ MỤC: src/features/genealogy/components/
- * PHIÊN BẢN: 12.8.5
- * MÔ TẢ: Thành phần hiển thị nút (Node) thành viên trên sơ đồ.
- * FIX: Sử dụng tham chiếu từ window object để khắc phục lỗi "Could not resolve" trong Canvas Preview.
+ * PATH     : src/features/genealogy/components/MemberNode.jsx
+ * DATETIME : 07-04-2026 15:30
+ * PHIÊN BẢN : 12.8.5
+ * MÔ TẢ : Thành phần hiển thị nút (Node) thành viên trên sơ đồ.
+ * FIX : Sử dụng tham chiếu từ window object để khắc phục lỗi "Could not resolve" trong Canvas Preview.
  */
 
 import React from 'react';

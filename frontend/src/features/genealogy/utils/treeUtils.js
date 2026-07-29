@@ -1,6 +1,6 @@
 /**
+ * PATH: src/features/genealogy/utils/treeUtils.js
  * DATETIME: 07-04-2026 13:10
- * THƯ MỤC: src/features/genealogy/utils/
  * PHIÊN BẢN: 12.8.4
  * MÔ TẢ: Logic tính toán vị trí Node và Edge cho sơ đồ phả hệ ReactFlow.
  */

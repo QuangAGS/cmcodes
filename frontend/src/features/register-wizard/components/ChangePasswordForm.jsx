@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/auth/components/ChangePasswordForm.jsx
+ * PATH       : src/features/register-wizard/components/ChangePasswordForm.jsx
+ * OLD PATH   : src/features/auth/components/ChangePasswordForm.jsx
  * DATETIME   : 2026-05-14T00:00:00+07:00
  * VERSION    : 24.6.7
  * DESCRIPTION:
@@ -25,11 +26,11 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 
-import AudioHelpButton from '../../a11y/tts/AudioHelpButton.jsx';
-import { ttsMessages } from '../../a11y/tts/ttsMessages.js';
-import { useTts } from '../../a11y/tts/useTts.js';
-import ZoneVoiceButton from '../../a11y/voice/ZoneVoiceButton.jsx';
-import GuidedFieldWrapper from '../../a11y/guided/GuidedFieldWrapper.jsx';
+import AudioHelpButton from '../../../features/elder-doctrine/components/AudioHelpButton.jsx';
+import { ttsMessages } from '../../../features/elder-doctrine/constants/ttsMessages.js';
+import { useTts } from '../../../shared/hooks/useTts.js';
+import ZoneVoiceButton from '../../../features/elder-doctrine/components/ZoneVoiceButton.jsx';
+import GuidedFieldWrapper from '../../../features/elder-doctrine/components/GuidedFieldWrapper.jsx';
 /* Không con dùng nữa --------------------------------------------------------------
 import StepCoachBar from '../../a11y/guided/StepCoachBar.jsx';
 import useGuidedFlow from '../../a11y/guided/useGuidedFlow.js';

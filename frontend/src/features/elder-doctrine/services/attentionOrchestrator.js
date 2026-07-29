@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/a11y/attention/attentionOrchestrator.js
+ * PATH       : src/features/elder-doctrine/services/attentionOrchestrator.js
+ * OLD PATH   : src/features/a11y/attention/attentionOrchestrator.js
  * DATETIME   : 2026-05-15T00:00:00+07:00
  * VERSION    : 24.1.0
  * DESCRIPTION:

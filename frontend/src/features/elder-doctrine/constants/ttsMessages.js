@@ -1,5 +1,5 @@
 /**
- * PATH: src/features/a11y/tts/ttsMessages.js
+ * PATH    : gia-pha-frontend/src/features/elder-doctrine/constants/ttsMessages.js
  * DATETIME: 2026-05-16 15:30 GMT+7
  * VERSION: 24.6.7
  * DESCRIPTION:
@@ -10,8 +10,8 @@
  * Q1-BẢO TỒN:
  * - Không thay đổi business flow.
  * - Không thay đổi UI/UX ngoài phạm vi spoken guidance.
- * - Không đổi tên hàm/thủ tục/biến toàn cục đang có, ngoại trừ việc chuẩn hóa export message nếu file này đã dùng export const TTS_MESSAGES.
- *
+ * - Không đổi tên hàm/thủ tục/biến toàn cục đang có, ngoại trừ việc chuẩn hóa export message nếu file này đã dùng export const TTS_MESSAGES.     
+ * 
  * Q2-CODE FORMAT:
  * - File có PATH, DATETIME, VERSION, DESCRIPTION.
  * - Mỗi cụm message có <dateTime> và mô tả mục đích.

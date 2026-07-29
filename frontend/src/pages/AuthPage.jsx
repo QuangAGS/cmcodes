@@ -1,19 +1,20 @@
 /**
  * PATH       : src/pages/AuthPage.jsx
- * DATETIME   : 2026-06-18T23:05:00+07:00
- * VERSION    : 24.6.7.R3.3.4-AUTH-EXHAUSTIVE-FIX
+ * DATETIME   : 2026-07-26T12:45:00+07:00
+ * VERSION    : 24.6.8.R3.3.5-W2-TENANT-STATUS
  * DESCRIPTION:
  * - VÁ TOÀN DIỆN CHỐT CHẶN FRONTEND THEO QUY HOẠCH VẾT CẠN.
- * - Đón đầu mã lỗi `ACCOUNT_DISABLED` (gộp chung các trạng thái TU_CHOI, BI_KHOA, BI_CAM, TAM_NGUNG) từ Backend gửi về.
- * - Thực thi lệnh ngắt luồng sớm (Early Return) triệt để trong khối catch, khóa chặt 100% kẽ hở điều hướng sang trang AdminUserApprovalPage.jsx.
- * - Bảo tồn nguyên vẹn các prop, cấu trúc view và dịch vụ Audio/Voice phát thanh của Elder Doctrine (Q1).
- * - Tuân thủ nghiêm ngặt định dạng quy chuẩn thông tin định danh và thẻ thời gian thực thi (Q2).
+ * - Đón đầu mã lỗi ACCOUNT_DISABLED / ACCOUNT_CHO_DUYET / TENANT_*.
+ * - [24.6.8-W2] Residual Wave 2:
+ *   + 423 lifecycle (ACCOUNT_CHO_DUYET) ≠ security lock.
+ *   + TENANT_PENDING_ACTIVATION trong block chờ duyệt.
+ *   + Ưu tiên err.code từ normalizeAuthError.
+ * - Q1: Không đổi tên hàm, cấu trúc view, LoginForm contract.
+ * - Q2: Header + changelog.
  *
- * - CỨU NGUY HỆ THỐNG AUDIO/VOICE: Dọn dẹp triệt để xung đột State giữa successMessage và loginMessage.
- * - Giải phóng hoàn toàn điều kiện chặn `if (successMessage) return` trong LoginForm để phục hồi 100% dịch vụ âm thanh UAT (Q1).
- * - Chặn đứng tuyệt đối không cho tài khoản 'CHO_DUYET' vượt rào sang trang AdminUserApprovalPage.jsx.
- * - Q1-Bảo tồn: Không đổi tên hàm, cấu trúc view, giữ nguyên vẹn file LoginForm cũ (EGAL-24.6.7.R3.3.3).
- * - Q2-Code Format: Ghi chú đầy đủ thông tin định danh hệ thống, thẻ thời gian thực thi rõ ràng.
+ * CHANGELOG:
+ * - 24.6.7.R3.3.4: Exhaustive ACCOUNT_DISABLED / CHO_DUYET early return.
+ * - 24.6.8.R3.3.5-W2 (2026-07-26): tenant lifecycle vs lock + tenant pending codes.
  */
 
 import { useState } from 'react';
@@ -22,37 +23,40 @@ import { toast } from 'sonner';
 
 import { useAuth } from '../context/AuthContext.jsx';
 
-import LoginForm from '../features/auth/components/LoginForm.jsx';
-import RegisterForm from '../features/auth/components/RegisterForm.jsx';
-import ForgotPasswordForm from '../features/auth/components/ForgotPasswordForm.jsx';
-import ResetPasswordForm from '../features/auth/components/ResetPasswordForm.jsx';
+import LoginForm from '../features/register-wizard/components/LoginForm.jsx';
+import RegisterForm from '../features/register-wizard/components/RegisterForm.jsx';
+import ForgotPasswordForm from '../features/register-wizard/components/ForgotPasswordForm.jsx';
+import ResetPasswordForm from '../features/register-wizard/components/ResetPasswordForm.jsx';
 
-import VerifyResetCodeForm from '../features/auth/components/VerifyResetCodeForm.jsx';
-import ChangePasswordForm from '../features/auth/components/ChangePasswordForm.jsx';
+import VerifyResetCodeForm from '../features/register-wizard/components/VerifyResetCodeForm.jsx';
+import ChangePasswordForm from '../features/register-wizard/components/ChangePasswordForm.jsx';
 
 import WaitingPage from './WaitingPage.jsx';
 import ResultPage from './ResultPage.jsx';
 
-import { useTts } from '../features/a11y/tts/useTts.js';
+import { useTts } from '../shared/hooks/useTts.js';
 
 import {
   createTransitionSnapshot,
   resolveReentryType,
   resolveReentryPolicy,
   reconstructRuntimeState,
-} from '../features/a11y/navigation/navigationLifecycle.service.js';
+} from '../features/elder-doctrine/services/navigationLifecycle.service.js';
 
 import {
   createFullRuntimeResetPlan,
   incrementRuntimeVersion,
-} from '../features/a11y/runtime/runtimeInvalidation.service.js';
+} from '../features/elder-doctrine/services/runtimeInvalidation.service.js';
 
 const extractBackendMessage = (err) => {
   return (
     err?.message ||
     err?.error ||
     err?.response?.data?.message ||
-    err?.response?.data?.error ||
+    err?.response?.data?.error?.message ||
+    (typeof err?.response?.data?.error === 'string'
+      ? err.response.data.error
+      : '') ||
     ''
   );
 };
@@ -61,6 +65,7 @@ const extractBackendCode = (err) => {
   return (
     err?.code ||
     err?.response?.data?.code ||
+    err?.response?.data?.error?.code ||
     'UNKNOWN_ERROR'
   );
 };
@@ -93,20 +98,36 @@ const extractMinutesLeft = (err) => {
   return null;
 };
 
+/**
+ * Security lock ≠ lifecycle chờ duyệt.
+ * ACCOUNT_CHO_DUYET / TENANT_* không được map thành "tạm khoá".
+ */
 const isSecurityLockSignal = (err) => {
   const code = extractBackendCode(err);
   const message = extractBackendMessage(err);
   const status = err?.status || err?.response?.status;
 
+  if (
+    code === 'ACCOUNT_CHO_DUYET' ||
+    code === 'USER_PENDING_APPROVAL' ||
+    code === 'TENANT_CHO_DUYET' ||
+    code === 'TENANT_PENDING_ACTIVATION'
+  ) {
+    return false;
+  }
+
   return (
     code === 'ACCOUNT_LOCKED' ||
+    code === 'ACCOUNT_BANNED' ||
     code === 'IP_BLOCKED' ||
     code === 'LOGIN_RATE_LIMITED' ||
     code === 'RATE_LIMITED' ||
-    status === 423 ||
-    message.includes('IP của bạn đang bị tạm khóa') ||
-    message.includes('Quá nhiều lần thử đăng nhập') ||
-    message.includes('Tài khoản tạm khóa')
+    (status === 423 &&
+      (code === 'ACCOUNT_LOCKED' ||
+        code === 'ACCOUNT_BANNED' ||
+        message.includes('IP của bạn đang bị tạm khóa') ||
+        message.includes('Quá nhiều lần thử đăng nhập') ||
+        message.includes('Tài khoản tạm khóa')))
   );
 };
 
@@ -162,9 +183,7 @@ const WAITING_CAPTCHA_EXPIRED_MESSAGE =
 
 const isWaitingCaptchaExpiredError = (err) => {
   const code = String(
-    err?.code ||
-      err?.response?.data?.code ||
-      ''
+    err?.code || err?.response?.data?.code || ''
   ).toUpperCase();
 
   const message = String(
@@ -246,7 +265,9 @@ const AuthPage = () => {
 
       default:
         return {
-          msg: extractBackendMessage(err) || 'Hệ thống đang bận, vui lòng thử lại sau.',
+          msg:
+            extractBackendMessage(err) ||
+            'Hệ thống đang bận, vui lòng thử lại sau.',
           type: 'error',
           code,
           meta: {},
@@ -260,7 +281,10 @@ const AuthPage = () => {
     return snapshot;
   };
 
-  const reconstructRuntimeForReentry = (context = {}, draftData = pendingFormData) => {
+  const reconstructRuntimeForReentry = (
+    context = {},
+    draftData = pendingFormData
+  ) => {
     const reentryType = resolveReentryType(context);
     const policy = resolveReentryPolicy(reentryType);
     const resetPlan = createFullRuntimeResetPlan(reentryType);
@@ -317,6 +341,7 @@ const AuthPage = () => {
     try {
       const user = await login(loginData);
 
+      // AuthContext thường đã window.location.href — khối này là safety net
       if (user) {
         if (user.status === 'CHO_DUYET') {
           const pendingMessage =
@@ -331,7 +356,6 @@ const AuthPage = () => {
               speak(pendingMessage, { rate: 0.82 });
               return;
             }
-
             speakError?.(pendingMessage);
           });
 
@@ -345,58 +369,58 @@ const AuthPage = () => {
         } else {
           speakError?.(successMessage);
         }
+
         navigate('/tree');
       }
     } catch (err) {
       console.error('[Login error:]', err);
 
       const backendError = err.response?.data;
-      const errorCode = backendError?.code;
-      const serverMessage = backendError?.message;
+      const errorCode =
+        err?.code || backendError?.code || extractBackendCode(err);
+      const serverMessage =
+        err?.message || backendError?.message || extractBackendMessage(err);
 
-      // TRẠNG THÁI CHỜ DUYỆT (CHO_DUYET) - Bảo tồn nguyên bản luồng cũ
-      if (errorCode === 'USER_PENDING_APPROVAL' || errorCode === 'ACCOUNT_CHO_DUYET' || errorCode === 'TENANT_CHO_DUYET') {
-        const standardPendingNotice = serverMessage || 'Hồ sơ của bác đang chờ Ban Quản trị phê duyệt.';
-        
+      // Lifecycle chờ duyệt / tenant pending — KHÔNG map thành lock
+      if (
+        errorCode === 'USER_PENDING_APPROVAL' ||
+        errorCode === 'ACCOUNT_CHO_DUYET' ||
+        errorCode === 'TENANT_CHO_DUYET' ||
+        errorCode === 'TENANT_PENDING_ACTIVATION'
+      ) {
+        const standardPendingNotice =
+          serverMessage ||
+          'Hồ sơ của bác đang chờ Ban Quản trị phê duyệt.';
+
         setLoginSuccessMessage('');
         setLoginUserStatus('');
-        
         setLoginMessage(standardPendingNotice);
-        setLoginMessageType('error'); 
+        setLoginMessageType('error');
 
         requestAnimationFrame(() => {
           speakError(standardPendingNotice);
         });
-        
-        // toast.error(standardPendingNotice);
-        return; 
+
+        return;
       }
 
-      /**
-       * 🚨 KHỐI MÃ LỆNH BỔ SUNG MỚI THEO QUY HOẠCH VẾT CẠN <2026-06-18T23:10:00+07:00>
-       * LÝ DO: Chặn đứng tuyệt đối tài khoản có trạng thái vi phạm (TU_CHOI, BI_KHOA, BI_CAM, TAM_NGUNG) vượt rào sang trang quản trị.
-       * CHỨC NĂNG: Khi nhận mã lỗi ACCOUNT_DISABLED, dọn sạch successMessage/loginUserStatus để giải phóng mạch voice,
-       * thiết lập nội dung lỗi tiêu chuẩn cũ, thực thi phát thanh bản địa qua speakError và LẬP TỨC NGẮT LUỒNG bằng lệnh return.
-       */
       if (errorCode === 'ACCOUNT_DISABLED' || errorCode === 'USER_REJECTED') {
-        const standardDisabledNotice = serverMessage || 'Tài khoản không thể truy cập. Xin vui lòng liên hệ với Quản trị viên để được hỗ trợ trực tiếp.';
-        
-        // Dọn sạch cấu trúc thành công để kích hoạt dịch vụ Voice của LoginForm gốc
+        const standardDisabledNotice =
+          serverMessage ||
+          'Tài khoản không thể truy cập. Xin vui lòng liên hệ với Quản trị viên để được hỗ trợ trực tiếp.';
+
         setLoginSuccessMessage('');
         setLoginUserStatus('');
-        
         setLoginMessage(standardDisabledNotice);
-        setLoginMessageType('error'); 
+        setLoginMessageType('error');
 
         requestAnimationFrame(() => {
-          speakError(standardDisabledNotice); // Khôi phục dịch vụ âm thanh độc lập trình duyệt
+          speakError(standardDisabledNotice);
         });
-        
-        //toast.error(standardDisabledNotice);
-        return; // NGẮT LUỒNG TỐI CAO: Khóa chặt, không cho phép trôi xuống bất kỳ logic chuyển tuyến nào
+
+        return;
       }
 
-      // 🚀 BẢO TỒN NGUYÊN VẸN LOGIC HẠ TẦNG CỦA v24.6.7.R3.3.2 PHÍA DƯỚI
       const feedback = mapLoginErrorToFeedback(err);
 
       setLoginMessage(feedback.msg);
@@ -406,11 +430,6 @@ const AuthPage = () => {
       requestAnimationFrame(() => {
         speakError(feedback.msg);
       });
-      /** 19-6-2026 Không sử dụng toast nữa.
-      if (feedback.code !== 'ACCOUNT_LOCKED') {
-        toast.error(feedback.msg);
-      }
-        **************************************** */
     } finally {
       setIsSubmitting(false);
     }
@@ -515,7 +534,6 @@ const AuthPage = () => {
             speak(WAITING_CAPTCHA_EXPIRED_MESSAGE, { rate: 0.82 });
             return;
           }
-
           speakError?.(WAITING_CAPTCHA_EXPIRED_MESSAGE);
         });
 
@@ -532,7 +550,6 @@ const AuthPage = () => {
           speak(safeMessage, { rate: 0.82 });
           return;
         }
-
         speakError?.(safeMessage);
       });
     } finally {
@@ -642,10 +659,9 @@ const AuthPage = () => {
 
       setView('change-password');
     } catch (err) {
-        console.error('[AuthPage] VerifyResetCode error:', err);
-
-        throw err;
-      } finally {
+      console.error('[AuthPage] VerifyResetCode error:', err);
+      throw err;
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -699,8 +715,9 @@ const AuthPage = () => {
       }, 1800);
     } catch (err) {
       console.error('[AuthPage] ChangePasswordAfterReset error:', err);
-
-      toast.error(err.message || 'Không thể đặt lại mật khẩu. Vui lòng thử lại.');
+      toast.error(
+        err.message || 'Không thể đặt lại mật khẩu. Vui lòng thử lại.'
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -726,11 +743,9 @@ const AuthPage = () => {
       const safeMessage =
         err?.code === 'FORBIDDEN'
           ? 'Không thể gửi lại mã xác nhận. Vui lòng thử lại sau.'
-          : err?.message ||
-            'Không thể gửi lại mã xác nhận.';
+          : err?.message || 'Không thể gửi lại mã xác nhận.';
 
       toast.error(safeMessage);
-
       throw err;
     }
   };

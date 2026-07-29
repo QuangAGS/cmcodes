@@ -24,15 +24,15 @@ import {
 //Xoá để sử dụng dịch vụ captcha zone dùng chung
 // import Turnstile from 'react-turnstile';
 
-import useCaptchaZone from '../../a11y/captcha/useCaptchaZone.js';
-import CaptchaAttentionField from '../../a11y/captcha/CaptchaAttentionField.jsx';
+import useCaptchaZone from '../../elder-doctrine/hooks/useCaptchaZone.js';
+import CaptchaAttentionField from '../../elder-doctrine/components/CaptchaAttentionField.jsx';
 
-import AudioHelpButton from '../../a11y/tts/AudioHelpButton.jsx';
-import { ttsMessages } from '../../a11y/tts/ttsMessages.js';
-import { useTts } from '../../a11y/tts/useTts.js';
-import ZoneVoiceButton from '../../a11y/voice/ZoneVoiceButton.jsx';
+import AudioHelpButton from '../../elder-doctrine/components/AudioHelpButton.jsx';
+import { ttsMessages } from  '../../../features/elder-doctrine/constants/ttsMessages.js';
+import { useTts } from '../../../shared/hooks/useTts.js';
+import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx';
 
-import GuidedFieldWrapper from '../../a11y/guided/GuidedFieldWrapper.jsx';
+import GuidedFieldWrapper from '../../elder-doctrine/components/GuidedFieldWrapper.jsx';
 //import AttentionZone from '../../a11y/attention/AttentionZone.jsx';
 
 const VerifyResetCodeForm = ({

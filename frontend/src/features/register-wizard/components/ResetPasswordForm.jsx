@@ -12,10 +12,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, KeyRound, CheckCircle2, Loader2, AlertCircle, Phone, Mail } from 'lucide-react';
-import { useAuth } from '../../../context/AuthContext';
+import { useAuth } from '../../../context/AuthContext.jsx'; 
 import Turnstile from 'react-turnstile';
-import { useTts } from '../../a11y/tts/useTts.js';
-import AttentionZone from '../../a11y/attention/AttentionZone.jsx';
+import { useTts } from '../../../shared/hooks/useTts.js'
+import AttentionZone from '../../../components/AttentionZone.jsx';
 
 const ResetPasswordForm = ({ email }) => {
   const navigate = useNavigate();

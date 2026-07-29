@@ -1,16 +1,12 @@
 /**
  * ============================================================
- * PATH:
- * src/features/a11y/voice/ZoneVoiceButton.jsx
+ * PATH      : src/features/elder-doctrine/components/ZoneVoiceButton.jsx
  *
- * DATETIME:
- * 2026-05-21 21:20 ICT
+ * DATETIME  :2026-05-21 21:20 ICT
  *
- * VERSION:
- * EGAL-24.6.7.R3.2
+ * VERSION   :EGAL-24.6.7.R3.2
  *
- * DESCRIPTION:
- * User-Controlled AZ Voice Button
+ * DESCRIPTION: User-Controlled AZ Voice Button
  *
  * Purpose:
  * - Render optional "🔊 Nghe" button for active Attention Zone
@@ -32,7 +28,7 @@
  */
 
 import React, { useCallback } from "react";
-import { useTts } from "../tts/useTts";
+import { useTts } from '../../../shared/hooks/useTts';
 
 /**
  * ============================================================

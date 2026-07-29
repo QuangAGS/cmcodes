@@ -11,7 +11,7 @@
  */
 
 import { Volume2, Square } from 'lucide-react';
-import { useTts } from './useTts';
+import { useTts } from  '../../../shared/hooks/useTts';
 
 /**
  * <2026-05-11T00:00:00+07:00>

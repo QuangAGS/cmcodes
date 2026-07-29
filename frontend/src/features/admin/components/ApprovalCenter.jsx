@@ -1,7 +1,8 @@
 /**
- * PATH: src/features/management/components/ApprovalCenter.jsx
- * DATETIME: 14-04-2026 20:45
- * VERSION: 1.0.0
+ * PATH     : src/features/admin/components/ApprovalCenter.jsx
+ * OLD PATH : src/features/management/components/ApprovalCenter.jsx
+ * DATETIME : 14-04-2026 20:45
+ * VERSION  : 1.0.0
  * DESCRIPTION: Trung tâm duyệt thành viên (BR3). 
  * Thiết kế Mobile-first theo dạng thẻ so sánh dữ liệu "Vét cạn" (temp_ fields) 
  * giúp Clan Admin đối soát nhân thân trước khi nối vào cây.
@@ -12,7 +13,7 @@ import {
   Check, X, UserSearch, MapPin, 
   Calendar, Info, ChevronRight, AlertCircle, Search 
 } from 'lucide-react';
-import apiClient from '../../../lib/axios';
+import apiClient from '../../../lib/apiClient';
 
 const ApprovalCenter = ({ pendingUsers, onActionSuccess }) => {
   const [processingId, setProcessingId] = useState(null);

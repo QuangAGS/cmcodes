@@ -20,7 +20,7 @@ import './index.css';
  * - Provider frontend-only cho Text-to-Speech.
  * - Không phụ thuộc backend, database, Prisma hay Supabase.
  */
-import { TtsProvider } from './features/a11y/tts/TtsProvider.jsx';
+import { TtsProvider } from './features/elder-doctrine/components/TtsProvider.jsx';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

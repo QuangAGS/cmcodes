@@ -7,7 +7,7 @@
  */
 
 import { z } from 'zod';
-import { safeString, optionalEmailRule, phoneRule, birthYearRule } from '@/utils/validationRules.js';
+import { safeString, optionalEmailRule, phoneRule, birthYearRule } from '../../../shared/utils/validationRules.js';
 
 export const joinClanSchema = z.object({
   tenantId: z.string().min(1, 'Bạn bắt buộc phải chọn một dòng họ từ danh sách'),

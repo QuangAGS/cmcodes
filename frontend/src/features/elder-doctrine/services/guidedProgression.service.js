@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/a11y/guided/guidedProgression.service.js
+ * PATH       : src/features/elder-doctrine/services/guidedProgression.service.js
+ * OLD PATH   : src/features/a11y/guided/guidedProgression.service.js
  * DATETIME   : 2026-05-15T00:00:00+07:00
  * VERSION    : 24.0.0
  * DESCRIPTION:

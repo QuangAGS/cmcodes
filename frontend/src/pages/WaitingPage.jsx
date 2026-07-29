@@ -26,8 +26,8 @@ import {
   Users,
 } from 'lucide-react';
 
-import AttentionZone from '../features/a11y/attention/AttentionZone.jsx';
-import ZoneVoiceButton from '../features/a11y/voice/ZoneVoiceButton.jsx';
+import AttentionZone from '../components/AttentionZone.jsx';
+import ZoneVoiceButton from  '../features/elder-doctrine/components/ZoneVoiceButton.jsx';
 
 const RELATIONSHIP_LABELS = {
   CON_DE: 'Con đẻ',

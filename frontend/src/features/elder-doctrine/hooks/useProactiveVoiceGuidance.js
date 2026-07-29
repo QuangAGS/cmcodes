@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/a11y/guided/useProactiveVoiceGuidance.js
+ * PATH       : src/features/elder-doctrine/hooks/useProactiveVoiceGuidance.js
+ * OLD PATH   : src/features/a11y/guided/useProactiveVoiceGuidance.js
  * DATETIME   : 2026-05-23T05:32:00+07:00
  * VERSION    : 24.6.7 - PatchedPipeline
  * DESCRIPTION:

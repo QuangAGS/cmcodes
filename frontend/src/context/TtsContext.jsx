@@ -1,6 +1,7 @@
 /**
  * ============================================================
- * PATH: src/features/a11y/voice/VoiceGuidanceContext.jsx
+ *  PATH    : src/context/TtsContext.jsx
+ * OLD PATH : src/features/a11y/voice/VoiceGuidanceContext.jsx
  * EGAL — VoiceGuidanceContext
  * Version : EGAL-24.6.7.R3.2
  * Purpose :

@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/auth/components/ForgotPasswordForm.jsx
+ * PATH: src/features/register-wizard/components/ForgotPasswordForm.jsx
+ * OLD PATH       : src/features/auth/components/ForgotPasswordForm.jsx
  * DATETIME   : 2026-05-26T00:00:00+07:00
  * VERSION    : EGAL-24.6.7.R3.3.2.2-GOLDEN-CLEAN-LOGIN-PATTERN
  * DESCRIPTION:
@@ -38,20 +39,19 @@ import {
 } from 'lucide-react';
 import { z } from 'zod';
 
-import { useAuth } from '../../../context/AuthContext';
+import { useAuth } from '../../../context/AuthContext.jsx';
 import { emailRule, phoneRule } from '../../../shared/utils/validationRules.js';
 
-import AudioHelpButton from '../../a11y/tts/AudioHelpButton.jsx';
-import { ttsMessages } from '../../a11y/tts/ttsMessages.js';
-import { useTts } from '../../a11y/tts/useTts.js';
+import AudioHelpButton from '../../elder-doctrine/components/AudioHelpButton.jsx';
+import { ttsMessages } from '../../../features/elder-doctrine/constants/ttsMessages.js';
+import { useTts } from '../../../shared/hooks/useTts.js';
 
-import AttentionZone from '../../a11y/attention/AttentionZone.jsx';
-import GuidedFieldWrapper from '../../a11y/guided/GuidedFieldWrapper.jsx';
-import ZoneVoiceButton from '../../a11y/voice/ZoneVoiceButton.jsx';
+import AttentionZone from '../../../components/AttentionZone.jsx';
+import GuidedFieldWrapper from '../../elder-doctrine/components/GuidedFieldWrapper.jsx';
+import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx';
 
-import useCaptchaZone from '../../a11y/captcha/useCaptchaZone.js';
-import CaptchaAttentionField from '../../a11y/captcha/CaptchaAttentionField.jsx';
-import { CAPTCHA_RESET_REASONS } from '../../a11y/captcha/captchaZone.service.js';
+import useCaptchaZone from '../../elder-doctrine/hooks/useCaptchaZone.js';
+import CaptchaAttentionField from '../../elder-doctrine/components/CaptchaAttentionField.jsx';
 
 const forgotPasswordIdentifierSchema = z.union([emailRule, phoneRule], {
   errorMap: () => ({

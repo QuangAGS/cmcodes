@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/a11y/elder/ElderAssistButton.jsx
+ * PATH       : src/components/ElderAssistButton.jsx
+ * OLD PATH   : src/features/a11y/elder/ElderAssistButton.jsx
  * DATETIME   : 2026-05-14T00:00:00+07:00
  * VERSION    : 24.0.0
  * DESCRIPTION:
@@ -12,8 +13,8 @@
  */
 
 import { Accessibility, Volume2, CheckCircle2 } from 'lucide-react';
-
-import { useTts } from '../tts/useTts.js';
+import { useTts } from '../shared/hooks/useTts.js';
+//import { useTts } from '../tts/useTts.js';
 
 const ElderAssistButton = ({
   className = '',

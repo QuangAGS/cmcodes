@@ -1,5 +1,5 @@
 /**
- * FILE       : src/pages/HomePage.jsx
+ * PATH       : src/pages/HomePage.jsx
  * DATETIME   : 2026-05-18T00:00:00+07:00
  * VERSION    : 24.6.7.B0.3
  * DESCRIPTION:
@@ -25,7 +25,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 
-//import ElderAssistButton from '../features/a11y/elder/ElderAssistButton.jsx';
+//import ElderAssistButton from '../components/ElderAssistButton.jsx';
 
 const featuredEvents = [
   {

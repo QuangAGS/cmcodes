@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/a11y/captcha/CaptchaAttentionField.jsx
+ * PATH       : src/features/elder-doctrine/components/CaptchaAttentionField.jsx
+ * OLD PATH   : src/features/a11y/captcha/CaptchaAttentionField.jsx
  * DATETIME   : 2026-05-23T00:00:00+07:00
  * VERSION    : EGAL-24.6.7.R3.3.1-CAPTCHA-FIELD
  * DESCRIPTION:
@@ -15,9 +16,9 @@
 
 import Turnstile from 'react-turnstile';
 
-import GuidedFieldWrapper from '../guided/GuidedFieldWrapper.jsx';
-import ZoneVoiceButton from '../voice/ZoneVoiceButton.jsx';
-import { ttsMessages } from '../tts/ttsMessages.js';
+import GuidedFieldWrapper from  './GuidedFieldWrapper.jsx';
+import ZoneVoiceButton from './ZoneVoiceButton.jsx';
+import { ttsMessages } from './TtsMessage.jsx';
 
 export default function CaptchaAttentionField({
   captchaZone,

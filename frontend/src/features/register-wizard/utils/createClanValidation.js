@@ -9,7 +9,7 @@
  */
 
 import { z } from 'zod';
-import { safeString, emailRule, phoneRule, birthYearRule } from '@/utils/validationRules.js';
+import { safeString, emailRule, phoneRule, birthYearRule } from  '../../../shared/utils/validationRules.js';
 
 export const createClanSchema = z.object({
   // --- KHỐI 1: THÔNG TIN DÒNG HỌ ---

@@ -1,5 +1,5 @@
 /**
- * FILE: src/pages/TreePage.jsx
+ * PATH: src/pages/TreePage.jsx
  * DATETIME: 07-04-2026 17:40
  * VERSION: 1.0.0
  * DESCRIPTION: Trang hiển thị Sơ đồ Phả hệ chính thức.

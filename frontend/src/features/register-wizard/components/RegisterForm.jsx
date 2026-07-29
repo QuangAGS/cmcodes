@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/auth/components/RegisterForm.jsx
+ * PATH: src/features/register-wizard/components/RegisterForm.jsx
+ * OLD PATH       : src/features/auth/components/RegisterForm.jsx
  * DATETIME   : <2026-05-17T10:00:00+07:00>
  * VERSION    : 24.6.7.R1.9
  * DESCRIPTION:
@@ -29,9 +30,9 @@ import {
 import JoinClanForm from './JoinClanForm.jsx';
 import CreateClanForm from './CreateClanForm.jsx';
 
-import AttentionZone from '../../a11y/attention/AttentionZone.jsx';
-import AudioHelpButton from '../../a11y/tts/AudioHelpButton.jsx';
-import { ttsMessages } from '../../a11y/tts/ttsMessages.js';
+import AttentionZone from '../../../components/AttentionZone.jsx';
+import AudioHelpButton from '../../elder-doctrine/components/AudioHelpButton.jsx';
+import { ttsMessages } from  '../../../features/elder-doctrine/constants/ttsMessages.js';
 
 const REGISTER_MODES = {
   JOIN: 'join',

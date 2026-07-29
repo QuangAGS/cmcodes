@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/a11y/guided/useGuidedFlow.js
+ * PATH: src/shared/hooks/useGuidedFlow.js
+ * OLD PATH       : src/features/a11y/guided/useGuidedFlow.js
  * DATETIME   : 2026-05-15T00:00:00+07:00
  * VERSION    : 24.1.0
  * DESCRIPTION:
@@ -38,7 +39,7 @@ import {
   loadRecoveryState,
   saveRecoveryState,
   clearRecoveryState,
-} from '../features/a11y/recovery/guidedRecovery.service.js';
+} from  '../../features/elder-doctrine/services/guidedRecovery.service.js';
 
 const DEFAULT_RECOVERY_PREFIX = 'guided-flow';
 

@@ -1,5 +1,6 @@
 /**
- * PATH       : src/features/a11y/tts/useTts.js
+ * PATH: src/shared/hooks/useTts.js
+ * OLD PATH       : src/features/a11y/tts/useTts.js
  * DATETIME   : 2026-05-11T00:00:00+07:00
  * VERSION    : 1.0.0
  * DESCRIPTION:
@@ -9,7 +10,7 @@
  * - Tuân thủ Q1 & Q2.
  */
 
-import { useTtsContext } from './TtsProvider';
+import { useTtsContext } from '../../features/elder-doctrine/components/TtsProvider';
 
 /**
  * <2026-05-11T00:00:00+07:00>

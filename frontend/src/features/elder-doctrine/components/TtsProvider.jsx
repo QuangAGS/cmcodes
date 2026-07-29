@@ -1,5 +1,5 @@
 /**
- * PATH       : src/features/a11y/tts/TtsProvider.jsx
+ * PATH       : src/features/elder-doctrine/components/TtsProvider.jsx
  * DATETIME   : 2026-05-14T00:00:00+07:00
  * VERSION    : 24.2.0
  * DESCRIPTION:
@@ -26,7 +26,7 @@ import {
   speakText,
   stopSpeaking,
   preloadTtsVoices,
-} from './tts.service.js';
+} from '../services/tts.service.js';
 
 const TtsContext = createContext(null);
 

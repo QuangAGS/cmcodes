@@ -23,7 +23,7 @@ import {
   RefreshCw 
 } from 'lucide-react';
 import UserApprovalForm from '../features/admin/components/UserApprovalForm.jsx';
-import apiClient from '../lib/axios.js';
+import apiClient from  '../lib/apiClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 
 const STATUS_BADGES = {
@@ -159,7 +159,25 @@ const AdminUserApprovalPage = () => {
 
     } catch (err) {
       console.error('❌ [Fetch Users Error]:', err);
-      toast.error('Không thể tải danh sách tài khoản theo bộ lọc.');
+
+      const code = err?.response?.data?.code || err?.code;
+      const msg =
+        err?.response?.data?.message ||
+        err?.message ||
+        'Không thể tải danh sách tài khoản theo bộ lọc.';
+
+      if (code === 'TENANT_NOT_ACTIVATED') {
+        toast.error(
+          msg ||
+            'Dòng họ đang tạm ngưng hoặc chưa kích hoạt. Vui lòng hoàn thiện thông tin dòng họ trước khi duyệt thành viên.'
+        );
+        // Optional: đưa CLAN_ADMIN về trang chính thay vì kẹt màn hình trống
+        // navigate('/tree');
+        setUsersList([]);
+        return;
+      }
+
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
