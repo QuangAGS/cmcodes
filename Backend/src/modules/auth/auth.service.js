@@ -1,8 +1,9 @@
 /**
  * PATH       : src/modules/auth/auth.service.js
- * DATETIME   : 2026-08-01T16:00:00+07:00
- * VERSION    : 20.2.5-PR-OP-3B
+ * DATETIME   : 2026-08-04
+ * VERSION    : PR-OP-4-R1
  * DESCRIPTION:
+ * - Admin trả về sửa: giữ CHO_DUYET; case → NEEDS_REVISION + review_note.
  * - B1: isRevision không JWT; xác thực phone/password.
  * - PR-OP-3:getMyOnboardingCase + revision submit
  * - Bước 2: TU_CHOI → CHO_DUYET + case mới (correlation mới).
@@ -42,6 +43,9 @@
    * - B1: isRevision không JWT; xác thực phone/password.
    * - Chỉ CHO_DUYET; khóa phone/email; cập nhật temp_*.
    * - Case NEEDS_REVISION → SUBMITTED. Không tạo user/tenant/member.
+ * PR-OP-4-R1:
+   * - Admin trả về sửa: giữ CHO_DUYET; case → NEEDS_REVISION + review_note.
+   * - Không tạo member, không đổi tenant, không đổi users.status.
 */
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -236,6 +240,11 @@ const authService = {
      * <2026-06-18T17:00:00+07:00>: PR-OP-3A: 423 kèm reviewNote + canEdit + tempSnapshot (fail-open nếu không có case) 
      */
     // PR-OP-3A: 423 kèm reviewNote + canEdit + tempSnapshot (fail-open nếu không có case)
+        // 2b. Lifecycle — CHO_DUYET
+    // PR-OP-3A / PR-OP-4:
+    // - Luôn 423, không cấp JWT.
+    // - canEdit = true chỉ khi case NEEDS_REVISION và có review_note (QTV trả về sửa).
+    // - Đăng ký lần đầu (SUBMITTED, chưa bút phê) → canEdit = false (chỉ chờ duyệt).
     if (user.status === 'CHO_DUYET') {
       let reviewNote = null;
       let caseStatus = null;
@@ -264,8 +273,11 @@ const authService = {
             review_note: true,
           },
         });
+
         if (openCase) {
-          reviewNote = openCase.review_note || null;
+          reviewNote = openCase.review_note
+            ? String(openCase.review_note).trim() || null
+            : null;
           caseStatus = openCase.status;
           caseId = openCase.id;
         }
@@ -273,15 +285,20 @@ const authService = {
         console.error('[LOGIN][CHO_DUYET][CASE]', caseErr.message || caseErr);
       }
 
+      // Chỉ cho sửa hồ sơ khi QTV đã trả về sửa (có bút phê trên case NEEDS_REVISION)
+      const canEdit =
+        caseStatus === 'NEEDS_REVISION' &&
+        !!reviewNote;
+
       const error = new Error(
-        reviewNote
+        canEdit
           ? 'Ban Quản trị có góp ý. Bác vui lòng xem và bổ sung hồ sơ.'
           : 'Hồ sơ của bác đang chờ Ban Quản trị phê duyệt. Vui lòng quay lại sau.'
       );
       error.status = 423;
       error.code = 'ACCOUNT_CHO_DUYET';
       error.reviewNote = reviewNote;
-      error.canEdit = true;
+      error.canEdit = canEdit;
       error.caseStatus = caseStatus;
       error.caseId = caseId;
       error.tempSnapshot = {
@@ -294,6 +311,13 @@ const authService = {
         temp_branch_name: user.temp_branch_name || null,
         temp_note: user.temp_note || null,
         temp_social_profiles: user.temp_social_profiles || {},
+        // PR-OP-4: identity + tenant để prefill revision
+        phone: user.phone || null,
+        email: user.email || null,
+        tenant_id: user.tenant_id || null,
+        tenantId: user.tenant_id || null,
+        clanName: user.tenants?.name || null,
+        tenantSlug: user.tenants?.slug || null,
       };
       throw error;
     }
@@ -1694,17 +1718,20 @@ const authService = {
    * - Q1: không đụng flow Register / 1a; return object đầy đủ status + member_id.
    */
   processUserApproval: async (payload) => {
-    const {
+        const {
       userId,
       newStatus,
       adminNote,
       actorId,
       role,
       actorTenantId,
-      actorStatus,                 // ← cần controller truyền req.user.status
+      actorStatus,
       correlation_id,
       correlationId: correlationIdCamel,
+      isFinalRejection, // PR-OP-4R2
     } = payload;
+
+    const finalRejection = isFinalRejection === true;
 
     // --- Validate input ---
     
@@ -1712,6 +1739,26 @@ const authService = {
       const error = new Error('Tiến trình bị hủy. Ghi chú phê duyệt không được phép để trống.');
       error.status = 400;
       throw error;
+    }
+
+    // Bridge: TU_CHOI → CHO_DUYET = reopen (không vào TX approve)
+    const sourceUser = await basePrisma.users.findUnique({
+      where: { id: userId },
+      select: { id: true, status: true },
+    });
+    if (!sourceUser) {
+      throw new Error('Không tìm thấy tài khoản yêu cầu phê duyệt.');
+    }
+    if (sourceUser.status === 'TU_CHOI' && newStatus === 'CHO_DUYET') {
+      return authService.reopenRejectedUser({
+        userId,
+        adminNote,
+        actorId,
+        role,
+        actorTenantId,
+        actorStatus,
+        correlation_id: correlation_id || correlationIdCamel || undefined,
+      });
     }
 
     // --- Attempt No (ngoài TX, đọc-only) ---
@@ -1769,33 +1816,10 @@ const authService = {
         if (targetUser.status === 'DA_DUYET') {
           throw new Error('DENIED');
         }
-        /** Tạm thời dùng để test
+        
         if (targetUser.status !== 'CHO_DUYET') {
           throw new Error('DENIED');
         }
-        */
-        // CHỈ DÙNG TẠM THỜI ĐỂ TEST 1b-BƯỚC 2
-            if (targetUser.status === 'TU_CHOI' && newStatus === 'CHO_DUYET') {
-              // ủy quyền — không xử lý approve tại đây
-              return authService.reopenRejectedUser({
-                userId,
-                adminNote,
-                actorId,
-                role,
-                actorTenantId,
-                actorStatus,
-                correlation_id: C, // hoặc để reopen tự tạo C
-              });
-            }
-
-            if (targetUser.status === 'DA_DUYET') {
-              throw new Error('DENIED');
-            }
-            if (targetUser.status !== 'CHO_DUYET') {
-              throw new Error('DENIED');
-            }
-            // ... newStatus chỉ DA_DUYET | TU_CHOI như đã siết
-        
 
         // 2) newStatus chỉ khi nguồn = CHO_DUYET
         if (!['DA_DUYET', 'TU_CHOI'].includes(newStatus)) {
@@ -1915,6 +1939,7 @@ const authService = {
                 client: tx,
               });
             } else {
+              // TU_CHOI
               await onboardingService.updateCaseStatus({
                 caseId: openCase.id,
                 status: 'REJECTED',
@@ -1922,6 +1947,24 @@ const authService = {
                 reviewedBy: actorId,
                 rejectionReason: adminNote,
                 client: tx,
+              });
+
+              // R2: cờ từ chối lần cuối trên metadata case
+              const prevMeta =
+                openCase.metadata && typeof openCase.metadata === 'object'
+                  ? openCase.metadata
+                  : {};
+
+              await tx.onboarding_cases.update({
+                where: { id: openCase.id },
+                data: {
+                  metadata: {
+                    ...prevMeta,
+                    is_final_rejection: finalRejection,
+                    rejected_at: new Date().toISOString(),
+                    rejected_by: actorId,
+                  },
+                },
               });
             }
           }
@@ -1950,6 +1993,14 @@ const authService = {
               status_before: oldUserStatus,
               status_after: newStatus,
               attempt_no: currentAttemptNo,
+              //PR-OP-4R2: cờ từ chối lần cuối (final rejection) → metadata case + BPL
+              is_final: newStatus === 'TU_CHOI' ? finalRejection : false,
+              action:
+                newStatus === 'DA_DUYET'
+                  ? 'APPROVE'
+                  : finalRejection
+                    ? 'FINAL_REJECT'
+                    : 'REJECT',
             },
           },
           tx
@@ -2093,6 +2144,8 @@ const authService = {
       error.status = 400;
       throw error;
     }
+
+
 
     const C =
       correlation_id ||
@@ -2286,6 +2339,212 @@ const authService = {
       );
     } catch (emitError) {
       console.error('[EGAL][SilentEmit][USER_REOPENED]', emitError.message || emitError);
+    }
+
+    return result;
+  },
+
+  /**
+   * DATETIME   : 2026-08-04 PR-OP-4-R1
+   * DESCRIPTION:
+   * - Admin trả về sửa: giữ CHO_DUYET; case → NEEDS_REVISION + review_note.
+   * - Không tạo member, không đổi tenant, không đổi users.status.
+   */
+  returnForRevision: async (payload) => {
+    const {
+      userId,
+      adminNote,
+      actorId,
+      role,
+      actorTenantId,
+      actorStatus,
+      correlation_id,
+      correlationId: correlationIdCamel,
+    } = payload;
+
+    if (!userId) {
+      const error = new Error('Thiếu userId.');
+      error.status = 400;
+      throw error;
+    }
+    if (!adminNote || adminNote.trim() === '') {
+      const error = new Error('Ghi chú yêu cầu bổ sung không được để trống.');
+      error.status = 400;
+      throw error;
+    }
+
+    const C =
+      correlation_id ||
+      correlationIdCamel ||
+      prisma.correlation.create();
+
+    const pastAttemptsCount = await basePrisma.business_process_logs.count({
+      where: {
+        process_type: 'USER_APPROVAL',
+        metadata: { path: ['context', 'target_id'], equals: userId },
+      },
+    });
+    const currentAttemptNo = pastAttemptsCount + 1;
+
+    const result = await basePrisma.$transaction(
+      async (tx) => {
+        const targetUser = await tx.users.findUnique({
+          where: { id: userId },
+          select: {
+            id: true,
+            tenant_id: true,
+            status: true,
+            phone: true,
+            email: true,
+            name: true,
+            temp_full_name: true,
+            role: true,
+          },
+        });
+
+        if (!targetUser) {
+          throw new Error('Không tìm thấy tài khoản.');
+        }
+
+        // Chỉ CHO_DUYET mới trả về sửa
+        if (targetUser.status !== 'CHO_DUYET') {
+          throw new Error('DENIED');
+        }
+
+        // Authz (cùng approve)
+        if (actorId === userId) {
+          throw new Error('DENIED');
+        }
+        if (role === 'CLAN_ADMIN' && actorStatus !== 'DA_DUYET') {
+          throw new Error('DENIED');
+        }
+        if (targetUser.role === 'CLAN_ADMIN' && role !== 'SYSTEM_ADMIN') {
+          throw new Error('DENIED');
+        }
+        if (role !== 'SYSTEM_ADMIN' && targetUser.tenant_id !== actorTenantId) {
+          throw new Error('DENIED');
+        }
+
+        const finalReason = adminNote.trim();
+        const snapshotName =
+          targetUser.temp_full_name || targetUser.name || 'Thành viên ẩn danh';
+
+        // Case open → NEEDS_REVISION
+        const openCase = await tx.onboarding_cases.findFirst({
+          where: {
+            user_id: userId,
+            deleted_at: null,
+            status: {
+              in: [
+                'SUBMITTED',
+                'UNDER_REVIEW',
+                'NEEDS_REVISION',
+                'DRAFT',
+                'PROFILE_COMPLETED',
+                'FAMILY_TREE_DRAFT',
+              ],
+            },
+          },
+          orderBy: { created_at: 'desc' },
+        });
+
+        if (!openCase) {
+          const error = new Error(
+            'Không tìm thấy hồ sơ onboarding đang mở để yêu cầu bổ sung.'
+          );
+          error.status = 400;
+          throw error;
+        }
+
+        await onboardingService.updateCaseStatus({
+          caseId: openCase.id,
+          status: 'NEEDS_REVISION',
+          changedBy: actorId,
+          reviewedBy: actorId,
+          reviewNote: finalReason,
+          client: tx,
+        });
+
+        // users.status GIỮ CHO_DUYET — không update status
+        // (optional: chỉ changed_by)
+        await tx.users.update({
+          where: { id: userId },
+          data: { changed_by: actorId },
+        });
+
+        await businessLogger.createLog(
+          {
+            correlation_id: C,
+            attempt_no: currentAttemptNo,
+            process_type: 'USER_APPROVAL',
+            actor_type: 'USER',
+            actor_id: actorId,
+            tenant_id: targetUser.tenant_id,
+            process_status: 'SUCCESS',
+            context: {
+              target_id: userId,
+              target_name: snapshotName,
+              attempt_no: currentAttemptNo,
+            },
+            payload: {
+              action: 'RETURN_FOR_REVISION',
+              admin_note: finalReason,
+              status_before: 'CHO_DUYET',
+              status_after: 'CHO_DUYET',
+              case_id: openCase.id,
+              case_status_after: 'NEEDS_REVISION',
+              attempt_no: currentAttemptNo,
+            },
+          },
+          tx
+        );
+
+        await auditService.logAction(
+          'CAP_NHAT',
+          'users',
+          userId,
+          { status: 'CHO_DUYET', note: 'RETURN_FOR_REVISION' },
+          { status: 'CHO_DUYET', review_note: finalReason },
+          actorId,
+          finalReason,
+          targetUser.tenant_id,
+          C,
+          tx
+        );
+
+        return {
+          id: targetUser.id,
+          status: 'CHO_DUYET',
+          caseId: openCase.id,
+          caseStatus: 'NEEDS_REVISION',
+          correlationId: C,
+        };
+      },
+      { maxWait: 5000, timeout: 15000 }
+    );
+
+    // Notif fail-open
+    try {
+      await notificationOrchestrator.emit(
+        'ONBOARDING_REVISION_REQUESTED',
+        {
+          userId: result.id,
+          correlationId: C,
+          metadata: {
+            tenantId: result.tenant_id,
+            caseId: result.caseId,
+            action: 'RETURN_FOR_REVISION',
+            adminNote: adminNote.trim(),
+          },
+          executeImmediately: false,
+        },
+        null
+      );
+    } catch (emitError) {
+      console.error(
+        '[EGAL][SilentEmit][ONBOARDING_REVISION_REQUESTED]',
+        emitError.message || emitError
+      );
     }
 
     return result;

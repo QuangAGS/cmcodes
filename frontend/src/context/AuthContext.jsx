@@ -1,8 +1,9 @@
 /**
  * PATH: src/context/AuthContext.jsx
- * DATETIME: 2026-07-26T12:40:00+07:00
- * VERSION: 20.3.0-W2
+ * DATETIME: 2026-008-01T09:00:00+07:00
+ * VERSION: 20.3.0-PR-OP-4
  * DESCRIPTION:
+ * - FE: xem bút phê + chỉnh sửa hồ sơ khi CHO_DUYET
  * - Phase 20.2.1: Redirect sau login cho Admin.
  * - [20.3.0-W2] Residual Wave 2:
  *   + Giữ nguyên code backend (ACCOUNT_CHO_DUYET, TENANT_NOT_ACTIVATED…).
@@ -13,6 +14,13 @@
  * CHANGELOG:
  * - 20.2.1: Redirect Admin sau login.
  * - 20.3.0-W2 (2026-07-26): tenantStatus gate + preserve backend error codes.
+ * CHANGE LOGS:
+ * 20.3.0-PR-OP-4: FE: AuthPage / LoginForm — hiện note + nút sửa → RegisterForm prefill → submit isRevision.
+ * 1) Login nhận 423 ACCOUNT_CHO_DUYET + canEdit: true + reviewNote
+ * 2) Hiện góp ý + nút “Chỉnh sửa hồ sơ”
+ * 3) Mở RegisterForm prefill tempSnapshot (khóa phone/email)
+ * 4) Submit { isRevision: true, phone, password, temp_*, ... }
+ * 5) Waiting / Result như đăng ký mới
  */
 
 import { createContext, useContext, useEffect, useState } from 'react';
@@ -58,6 +66,13 @@ const normalizeAuthError = (err) => {
   customError.tenantStatus = serverError.tenantStatus;
   // Giữ response để AuthPage extractBackendCode vẫn đọc được
   customError.response = err.response;
+
+  // PR-OP-4: CHO_DUYET revision surface (3A body)
+  customError.reviewNote = serverError.reviewNote ?? null;
+  customError.canEdit = serverError.canEdit === true;
+  customError.caseStatus = serverError.caseStatus ?? null;
+  customError.caseId = serverError.caseId ?? null;
+  customError.tempSnapshot = serverError.tempSnapshot ?? null;
 
   return customError;
 };

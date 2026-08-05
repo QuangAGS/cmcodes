@@ -150,6 +150,21 @@ router.post(
   authController.processApproval
 );
 
+//PR-OP-4-R1: Admin trả về sửa: giữ CHO_DUYET; case → NEEDS_REVISION + review_note.
+router.post(
+  '/return-for-revision',
+  verifyToken,
+  checkRole('CLAN_ADMIN', 'SYSTEM_ADMIN'),
+  requireActiveTenant,
+  restrictSuspiciousActivity({
+    maxThreshold: 50,
+    windowMinutes: 5,
+    reasonCode: 'ADMIN_RETURN_FOR_REVISION_SPAM',
+  }),
+  correlationMiddleware,
+  authController.returnForRevision
+);
+
 router.post(
   '/reopen-rejected-user',
   verifyToken,

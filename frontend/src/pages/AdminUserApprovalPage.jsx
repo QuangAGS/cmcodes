@@ -206,19 +206,37 @@ const AdminUserApprovalPage = () => {
   const handleApprovalSubmit = async (formData) => {
     setSubmitting(true);
     try {
-      await apiClient.post('/auth/process-approval', {
-        userId: selectedUser.id,
-        newStatus: formData.newStatus,
-        adminNote: formData.adminNote
-      });
+      const userId = selectedUser.id;
+      const adminNote = (formData.adminNote || '').trim();
 
-      toast.success(`Cập nhật trạng thái tài khoản thành công!`);
+      if (!adminNote) {
+        toast.error('Vui lòng nhập bút phê / ghi chú.');
+        return;
+      }
+
+      // PR-OP-4 R1: trả về sửa — không đổi users.status
+      if (formData.newStatus === 'RETURN_FOR_REVISION') {
+        await apiClient.post('/auth/return-for-revision', {
+          userId,
+          adminNote,
+        });
+        toast.success('Đã yêu cầu bổ sung hồ sơ (trả về sửa).');
+      } else {
+        await apiClient.post('/auth/process-approval', {
+          userId,
+          newStatus: formData.newStatus,
+          adminNote,
+        });
+        toast.success('Cập nhật trạng thái tài khoản thành công!');
+      }
+
       setSelectedUser(null);
-      // Tải lại dữ liệu tại trang hiện tại để cập nhật bảng
       fetchReviewableUsers(filters);
     } catch (err) {
       console.error('❌ [Submit Approval Error]:', err);
-      toast.error(err.response?.data?.message || 'Thao tác xử lý hồ sơ thất bại.');
+      toast.error(
+        err.response?.data?.message || 'Thao tác xử lý hồ sơ thất bại.'
+      );
     } finally {
       setSubmitting(false);
     }

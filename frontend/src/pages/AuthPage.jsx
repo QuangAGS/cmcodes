@@ -188,10 +188,10 @@ const isWaitingCaptchaExpiredError = (err) => {
 
   const message = String(
     err?.message ||
-      err?.error ||
-      err?.response?.data?.message ||
-      err?.response?.data?.error ||
-      ''
+    err?.error ||
+    err?.response?.data?.message ||
+    err?.response?.data?.error ||
+    ''
   ).toLowerCase();
 
   return (
@@ -237,6 +237,11 @@ const AuthPage = () => {
   const [loginSuccessMessage, setLoginSuccessMessage] = useState('');
   const [loginUserStatus, setLoginUserStatus] = useState('');
 
+  //PR-OP-4: CHO_DUYET revision 
+  const [revisionContext, setRevisionContext] = useState(null);
+  // { identifier, reviewNote, tempSnapshot, caseStatus, caseId }
+  const [registerRevisionMode, setRegisterRevisionMode] = useState(false);
+
   const mapLoginErrorToFeedback = (err) => {
     if (isSecurityLockSignal(err)) {
       return buildNeutralSecurityLockFeedback(err);
@@ -265,9 +270,7 @@ const AuthPage = () => {
 
       default:
         return {
-          msg:
-            extractBackendMessage(err) ||
-            'Hệ thống đang bận, vui lòng thử lại sau.',
+          msg: extractBackendMessage(err) || 'Hệ thống đang bận, vui lòng thử lại sau.',
           type: 'error',
           code,
           meta: {},
@@ -281,10 +284,7 @@ const AuthPage = () => {
     return snapshot;
   };
 
-  const reconstructRuntimeForReentry = (
-    context = {},
-    draftData = pendingFormData
-  ) => {
+  const reconstructRuntimeForReentry = (context = {}, draftData = pendingFormData) => {
     const reentryType = resolveReentryType(context);
     const policy = resolveReentryPolicy(reentryType);
     const resetPlan = createFullRuntimeResetPlan(reentryType);
@@ -382,12 +382,43 @@ const AuthPage = () => {
         err?.message || backendError?.message || extractBackendMessage(err);
 
       // Lifecycle chờ duyệt / tenant pending — KHÔNG map thành lock
+      // PR-OP-4: ACCOUNT_CHO_DUYET + canEdit → màn revision-notice
       if (
         errorCode === 'USER_PENDING_APPROVAL' ||
         errorCode === 'ACCOUNT_CHO_DUYET' ||
         errorCode === 'TENANT_CHO_DUYET' ||
         errorCode === 'TENANT_PENDING_ACTIVATION'
       ) {
+        const serverData = err?.response?.data || {};
+        const canEdit =
+          err?.canEdit === true || serverData.canEdit === true;
+        const reviewNote =
+          err?.reviewNote ?? serverData.reviewNote ?? null;
+        const tempSnapshot =
+          err?.tempSnapshot ?? serverData.tempSnapshot ?? null;
+
+        if (errorCode === 'ACCOUNT_CHO_DUYET' && canEdit) {
+          setRevisionContext({
+            identifier: loginData?.identifier || '',
+            reviewNote,
+            tempSnapshot,
+            caseStatus: err?.caseStatus ?? serverData.caseStatus ?? null,
+            caseId: err?.caseId ?? serverData.caseId ?? null,
+          });
+          setView('revision-notice');
+
+          const msg =
+            serverMessage ||
+            (reviewNote
+              ? 'Ban Quản trị có góp ý. Bác vui lòng xem và bổ sung hồ sơ.'
+              : 'Hồ sơ của bác đang chờ Ban Quản trị phê duyệt.');
+
+          requestAnimationFrame(() => {
+            speakError(msg);
+          });
+          return;
+        }
+
         const standardPendingNotice =
           serverMessage ||
           'Hồ sơ của bác đang chờ Ban Quản trị phê duyệt.';
@@ -400,7 +431,6 @@ const AuthPage = () => {
         requestAnimationFrame(() => {
           speakError(standardPendingNotice);
         });
-
         return;
       }
 
@@ -436,23 +466,34 @@ const AuthPage = () => {
   };
 
   const handleRegisterSubmit = async (data) => {
-    console.log('[AuthPage] handleRegisterSubmit data:', {
-      fullData: data,
-    });
+    console.log('[AuthPage] handleRegisterSubmit data:', { fullData: data });
 
-    setPendingFormData(data);
+    const merged = {
+      ...data,
+      ...(registerRevisionMode || data?.isRevision
+        ? {
+            isRevision: true,
+            phone: data.phone || revisionContext?.identifier || '',
+          }
+        : {}),
+    };
+
+    setPendingFormData(merged);
     setIsSubmitting(true);
 
     try {
       recordTransition({
         from: 'RegisterForm',
         to: 'WaitingPage',
-        intent: 'review-registration',
+        intent: registerRevisionMode
+          ? 'review-registration-revision'
+          : 'review-registration',
         source: 'RegisterForm',
         target: 'WaitingPage',
         metadata: {
           runtimeVersion,
-          hasDraft: !!data,
+          hasDraft: !!merged,
+          isRevision: !!merged.isRevision,
         },
       });
 
@@ -517,11 +558,27 @@ const AuthPage = () => {
         ...confirmedData,
         turnstileToken: confirmedData.turnstileToken,
         hp_field: confirmedData.hp_field || '',
+        ...(registerRevisionMode || confirmedData.isRevision
+          ? {
+              isRevision: true,
+              phone:
+                confirmedData.phone ||
+                revisionContext?.identifier ||
+                '',
+            }
+          : {}),
       };
 
       await register(finalPayload);
 
-      toast.success('Hồ sơ đã được gửi thành công!');
+      toast.success(
+        registerRevisionMode || confirmedData.isRevision
+          ? 'Hồ sơ bổ sung đã được gửi lại!'
+          : 'Hồ sơ đã được gửi thành công!'
+      );
+      //PR-OP-4: clear cờ revision sau khi gửi thành công
+      setRegisterRevisionMode(false);
+      // setRevisionContext(null); // optional — xóa note/context; có thể giữ nếu Result còn cần
       setView('result');
     } catch (err) {
       console.error('[AuthPage] Register error:', err);
@@ -779,13 +836,77 @@ const AuthPage = () => {
             />
           )}
 
+          {/* PR-OP-4: CHO_DUYET revision notice */}
+          {view === 'revision-notice' && (
+            <div className="w-full max-w-[480px] mx-auto space-y-4 p-1">
+              <h2 className="text-lg font-semibold text-slate-800">
+                Hồ sơ đang chờ bổ sung
+              </h2>
+
+              {revisionContext?.reviewNote ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-slate-800">
+                  <p className="font-medium mb-2">Góp ý từ Ban Quản trị:</p>
+                  <p className="whitespace-pre-wrap leading-relaxed">
+                    {revisionContext.reviewNote}
+                  </p>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-600">
+                  Hồ sơ của bác đang chờ Ban Quản trị phê duyệt.
+                </p>
+              )}
+
+              <button
+                type="button"
+                className="w-full rounded-lg bg-indigo-600 px-4 py-3 text-sm font-semibold text-white hover:bg-indigo-700"
+                onClick={() => {
+                  const id = revisionContext?.identifier || '';
+                  const snap = revisionContext?.tempSnapshot || {};
+                  const looksLikeEmail = id.includes('@');
+
+                  setPendingFormData({
+                    ...snap,
+                    phone: snap.phone || (looksLikeEmail ? '' : id),
+                    email: snap.email || (looksLikeEmail ? id : ''),
+                    tenantId: snap.tenantId || snap.tenant_id || '',
+                    clanName: snap.clanName || '',
+                    tenantSlug: snap.tenantSlug || '',
+                    isRevision: true,
+                    isNewClan: false,
+                  });
+                  setRegisterRevisionMode(true);
+                  setView('register');
+                }}
+              >
+                Chỉnh sửa hồ sơ
+              </button>
+
+              <button
+                type="button"
+                className="w-full rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                onClick={() => {
+                  setRevisionContext(null);
+                  setRegisterRevisionMode(false);
+                  setView('login');
+                }}
+              >
+                Để sau / Quay lại đăng nhập
+              </button>
+            </div>
+          )}
+
           {view === 'register' && (
             <RegisterForm
-              key={`register-${runtimeVersion}-${view}`}
               onRegisterSubmit={handleRegisterSubmit}
-              toggleAuthMode={handleSwitchToLogin}
+              toggleAuthMode={() => {
+                setRegisterRevisionMode(false);
+                setRevisionContext(null);
+                setView('login');
+              }}
               isSubmitting={isSubmitting}
               initialData={pendingFormData}
+              isRevision={registerRevisionMode}
+              lockedIdentifier={revisionContext?.identifier || ''}
               reentryContext={reentryContext}
               runtimeVersion={runtimeVersion}
               runtimeReconstruction={runtimeReconstruction}

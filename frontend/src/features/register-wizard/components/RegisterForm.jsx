@@ -1,9 +1,10 @@
 /**
  * PATH: src/features/register-wizard/components/RegisterForm.jsx
  * OLD PATH       : src/features/auth/components/RegisterForm.jsx
- * DATETIME   : <2026-05-17T10:00:00+07:00>
- * VERSION    : 24.6.7.R1.9
+ * DATETIME   : <2026-08-01T16:37:00+07:00>
+ * VERSION    : 24.6.7.R1.9 - PR-OP4
  * DESCRIPTION:
+ * 24.6.7.R1.9 - PR-OP4:NEEDS_REVISION
  * - PURPOSE 24.6.7.R1.9:
  *    - Chỉ WaitingPage/Edit mới được truyền draft initialData xuống form con.
  *    - Fresh RegisterForm -> Join/Create phải là fresh session.
@@ -69,6 +70,12 @@ const RegisterForm = ({
   initialData = null,
 
   /**
+   * PR-OP-4: bổ sung hồ sơ sau NEEDS_REVISION
+   */
+  isRevision = false,
+  lockedIdentifier = '',
+
+  /**
    * EGAL-6.5.1+
    * Lifecycle context from AuthPage.
    */
@@ -77,16 +84,26 @@ const RegisterForm = ({
   runtimeReconstruction = null,
   transitionSnapshot = null,
 }) => {
+
+  const [registerMode, setRegisterMode] = useState(() => {
+    // PR-OP-4: revision → thẳng form con (mặc định JOIN)
+    if (isRevision) {
+      if (initialData?.isNewClan === true) return REGISTER_MODES.CREATE;
+      return REGISTER_MODES.JOIN;
+    }
+    return resolveInitialRegisterMode(initialData);
+  });
+
   /**
-   * <2026-05-16T18:30:00+07:00>
-   * PURPOSE:
-   * - Local UI state only.
-   * - null = show selector.
-   * - join/create = mount selected child form.
+   * - Mỗi lần chọn Join/Create từ selector tạo một runtime session mới.
+   * - Tránh restore activeField cũ như submit/captcha khi quay lại form con.
    */
-  const [registerMode, setRegisterMode] = useState(() =>
-    resolveInitialRegisterMode(initialData)
-  );
+  const [registerSessionId, setRegisterSessionId] = useState(0);
+
+  const [registerOpenSource, setRegisterOpenSource] = useState(() => {
+    if (isRevision) return 'revision';
+    return resolveInitialRegisterMode(initialData) ? 'draft' : 'selector';
+  });
   /**
    * <2026-05-16T21:30:00+07:00>
    * VERSION: 24.6.7.R1.6
@@ -94,10 +111,10 @@ const RegisterForm = ({
    * - Mỗi lần chọn Join/Create từ selector tạo một runtime session mới.
    * - Tránh restore activeField cũ như submit/captcha khi quay lại form con.
    */
-  const [registerSessionId, setRegisterSessionId] = useState(0);
-  const [registerOpenSource, setRegisterOpenSource] = useState(() =>
-    resolveInitialRegisterMode(initialData) ? 'draft' : 'selector'
-  );
+  //const [registerSessionId, setRegisterSessionId] = useState(0);
+  //const [registerOpenSource, setRegisterOpenSource] = useState(() =>
+  //  resolveInitialRegisterMode(initialData) ? 'draft' : 'selector'
+  //);
 
   const previousRuntimeVersionRef = useRef(runtimeVersion);
   const [reentryDetected, setReentryDetected] = useState(false);
@@ -169,8 +186,10 @@ const RegisterForm = ({
     reentryContext?.from === 'WaitingPage' &&
     reentryContext?.action === 'edit';
 
+  //PR-OP-4: revision → thẳng form con (mặc định JOIN)
   const childInitialData =
-    isEditFromWaiting && registerOpenSource === 'draft'
+    isRevision ||
+    (isEditFromWaiting && registerOpenSource === 'draft')
       ? initialData
       : null;
 
@@ -212,9 +231,15 @@ const RegisterForm = ({
     if (!onRegisterSubmit) return;
 
     onRegisterSubmit({
-      ...payload,
-      isNewClan: false,
-    });
+        ...payload,
+        isNewClan: false,
+        ...(isRevision
+          ? {
+              isRevision: true,
+              phone: lockedIdentifier || payload.phone || initialData?.phone,
+            }
+          : {}),
+      });
   };
 
   /**
@@ -229,6 +254,12 @@ const RegisterForm = ({
     onRegisterSubmit({
       ...payload,
       isNewClan: true,
+      ...(isRevision
+        ? {
+            isRevision: true,
+            phone: lockedIdentifier || payload.phone || initialData?.phone,
+          }
+        : {}),
     });
   };
 
@@ -358,9 +389,11 @@ const RegisterForm = ({
    */
   return (
     <div className="space-y-6">
-      {!registerMode && renderIntentSelector()}
+      {/* Intent selector: chỉ đăng ký mới */}
+      {!registerMode && !isRevision && renderIntentSelector()}
 
-      {registerMode && (
+      {/* Back to selector: ẩn khi revision */}
+      {registerMode && !isRevision && (
         <button
           type="button"
           onClick={handleBackToSelector}
@@ -378,9 +411,11 @@ const RegisterForm = ({
           runtimeSessionId={registerSessionId}
           initialData={childInitialData}
           onSubmit={handleJoinSubmit}
-          onBackToRegister={handleBackToSelector}
+          onBackToRegister={isRevision ? toggleAuthMode : handleBackToSelector}
           isSubmitting={isSubmitting}
           lifecycleContext={lifecycleContext}
+          isRevision={isRevision}
+          lockedIdentifier={lockedIdentifier || initialData?.phone || ''}
         />
       )}
 
@@ -390,9 +425,11 @@ const RegisterForm = ({
           runtimeSessionId={registerSessionId}
           initialData={childInitialData}
           onSubmit={handleCreateSubmit}
-          onBackToRegister={handleBackToSelector}
+          onBackToRegister={isRevision ? toggleAuthMode : handleBackToSelector}
           isSubmitting={isSubmitting}
           lifecycleContext={lifecycleContext}
+          isRevision={isRevision}
+          lockedIdentifier={lockedIdentifier || initialData?.phone || ''}
         />
       )}
     </div>

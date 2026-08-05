@@ -121,6 +121,34 @@ const RELATIONSHIP_OPTIONS = [
  * Default visual system for JoinClanForm.
  * Parent có thể override qua uiSystem nhưng flow/validation không phụ thuộc UI class.
  */
+
+/**
+ * PR-OP-4: chuẩn hóa draft revision / Waiting edit
+ * - BE thường trả temp_birth_year dạng number → .trim() fail trong nextStep
+ */
+const normalizeJoinDraft = (data) => {
+  if (!data || typeof data !== 'object') return data || {};
+  return {
+    ...data,
+    temp_full_name:
+      data.temp_full_name != null ? String(data.temp_full_name) : '',
+    temp_father_name:
+      data.temp_father_name != null ? String(data.temp_father_name) : '',
+    temp_birth_year:
+      data.temp_birth_year != null && data.temp_birth_year !== ''
+        ? String(data.temp_birth_year)
+        : '',
+    temp_relationship:
+      data.temp_relationship != null ? String(data.temp_relationship) : '',
+    temp_note: data.temp_note != null ? String(data.temp_note) : '',
+    phone: data.phone != null ? String(data.phone) : '',
+    email: data.email != null ? String(data.email) : '',
+    tenantId: data.tenantId || data.tenant_id || '',
+    clanName: data.clanName || '',
+    tenantSlug: data.tenantSlug || '',
+  };
+};
+
 const DEFAULT_UI_SYSTEM = {
   container: 'w-full space-y-6',
   section: 'space-y-4 rounded-3xl border border-slate-100 bg-white p-4 shadow-sm',
@@ -144,6 +172,9 @@ const JoinClanForm = ({
   initialData = null,
   lifecycleContext = null,
   runtimeSessionId = 0,
+  // PR-OP-4
+  isRevision = false,
+  lockedIdentifier = '',
 }) => {
   const uiSystem = uiSystemProp || DEFAULT_UI_SYSTEM;
   const effectiveLoading = loading || isSubmitting;
@@ -157,18 +188,16 @@ const JoinClanForm = ({
    */
   //const [step, setStep] = useState(1);
   const step = 1;
-  const [searchKeyword, setSearchKeyword] = useState(
-    initialData?.clanName || ''
-  );
+  const [searchKeyword, setSearchKeyword] = useState(initialData?.clanName || '');
   const [tenantResults, setTenantResults] = useState([]);
   const [tenantLoading, setTenantLoading] = useState(false);
   const [selectedTenant, setSelectedTenant] = useState(
     initialData?.tenantId
       ? {
-          id: initialData.tenantId,
-          name: initialData.clanName,
-        }
-      : null
+        id: initialData.tenantId,
+        name: initialData.clanName,
+      }
+      : null,
   );
 
   const [phoneRemoteError, setPhoneRemoteError] = useState('');
@@ -200,7 +229,7 @@ const JoinClanForm = ({
         ...options,
       });
     },
-    [speak]
+    [speak],
   );
   /**
    * Shared captcha runtime
@@ -236,7 +265,7 @@ const JoinClanForm = ({
         speakMandatoryError(message);
       });
     },
-    [speakMandatoryError]
+    [speakMandatoryError],
   );
 
   /**
@@ -259,9 +288,7 @@ const JoinClanForm = ({
   const emailRef = useRef(null); // EGAL-25.X. R6.2.2A: thêm ref cho email optional field.
   const passwordRef = useRef(null);
 
-  const lastLifecycleVersionRef = useRef(
-    lifecycleContext?.runtimeVersion || 0
-  );
+  const lastLifecycleVersionRef = useRef(lifecycleContext?.runtimeVersion || 0);
 
   /**
    * Fresh default values
@@ -325,7 +352,7 @@ const JoinClanForm = ({
     reValidateMode: 'onChange',
     defaultValues: {
       ...JOIN_CLAN_EMPTY_VALUES,
-      ...(initialData || {}),
+      ...normalizeJoinDraft(initialData || {}),
     },
   });
 
@@ -368,9 +395,7 @@ const JoinClanForm = ({
    */
   const zoneHelpText = useMemo(
     () => ({
-      clanSearch:
-        ttsMessages?.joinClan?.clanSearch ||
-        'Bác nhập tên dòng họ cần tìm.',
+      clanSearch: ttsMessages?.joinClan?.clanSearch || 'Bác nhập tên dòng họ cần tìm.',
       personalInfo:
         ttsMessages?.joinClan?.personalInfo ||
         'Bác nhập thông tin cá nhân để Ban quản trị xác minh.',
@@ -386,10 +411,9 @@ const JoinClanForm = ({
         ttsMessages?.joinClan?.captcha ||
         'Bác hãy bấm vào ô vuông. Khi thấy dấu tích màu xanh là đã xác nhận xong.',
       submit:
-        ttsMessages?.joinClan?.submit ||
-        'Bác bấm nút tiếp tục rà soát để kiểm tra lại hồ sơ.',
+        ttsMessages?.joinClan?.submit || 'Bác bấm nút tiếp tục rà soát để kiểm tra lại hồ sơ.',
     }),
-    []
+    [],
   );
 
   /**
@@ -402,9 +426,7 @@ const JoinClanForm = ({
       {
         fieldKey: 'clanSearch',
         title: 'Tìm dòng họ cần gia nhập',
-        description:
-          ttsMessages?.joinClan?.clanSearch ||
-          'Bác nhập tên dòng họ cần tìm.',
+        description: ttsMessages?.joinClan?.clanSearch || 'Bác nhập tên dòng họ cần tìm.',
         nextLabel: 'Tiếp theo: chọn đúng dòng họ.',
       },
       {
@@ -453,12 +475,11 @@ const JoinClanForm = ({
         fieldKey: 'submit',
         title: 'Rà soát hồ sơ',
         description:
-          ttsMessages?.joinClan?.submit ||
-          'Bác bấm nút tiếp tục rà soát để kiểm tra lại hồ sơ.',
+          ttsMessages?.joinClan?.submit || 'Bác bấm nút tiếp tục rà soát để kiểm tra lại hồ sơ.',
         nextLabel: '',
       },
     ],
-    []
+    [],
   );
 
   const guidedFlow = useGuidedFlow(guidedSteps, {
@@ -475,7 +496,7 @@ const JoinClanForm = ({
      */
     persistRecovery: false,
   });
-  
+
   /**
    * <2026-05-15T15:00:00+07:00>
    * EGAL-6.6:
@@ -573,35 +594,38 @@ const JoinClanForm = ({
   }, [lifecycleContext?.runtimeVersion]);
 
   useEffect(() => {
-    if (initialData) {
-      if (initialData.tenantId && initialData.clanName) {
-        setSelectedTenant({
-          id: initialData.tenantId,
-          name: initialData.clanName,
-          slug: initialData.tenantSlug || '',
-        });
-        setValue('tenantId', initialData.tenantId, { shouldValidate: true });
-        setValue('clanName', initialData.clanName, { shouldValidate: true });
-      }
-      /* -----  EGAL-25.X. R6.2.2A
-        if (initialData.preferredChannel) {
-          setSelectedChannel(initialData.preferredChannel);
-          setValue('preferredChannel', initialData.preferredChannel, {
-            shouldValidate: true,
-          });
-          setValue(
-            'temp_social_profiles',
-            { channel: initialData.preferredChannel },
-            { shouldValidate: true }
-          );
-        }
-        -------------------------------------------------- */
-        
+    if (!initialData) return;
+
+    const n = normalizeJoinDraft(initialData);
+
+    if (n.tenantId && n.clanName) {
+      setSelectedTenant({
+        id: n.tenantId,
+        name: n.clanName,
+        slug: n.tenantSlug || '',
+      });
+      setValue('tenantId', n.tenantId, { shouldValidate: false });
+      setValue('clanName', n.clanName, { shouldValidate: false });
+      setSearchKeyword(n.clanName || '');
     }
+
+    [
+      'temp_full_name',
+      'temp_father_name',
+      'temp_birth_year',
+      'temp_relationship',
+      'temp_note',
+      'phone',
+      'email',
+    ].forEach((key) => {
+      if (n[key] !== undefined && n[key] !== '') {
+        setValue(key, n[key], { shouldValidate: false, shouldDirty: false });
+      }
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialData, setValue]);
 
-/* -----  EGAL-25.X. R6.2.2A
+  /* -----  EGAL-25.X. R6.2.2A
   useEffect(() => {
     setValue('preferredChannel', selectedChannel, {
       shouldValidate: true,
@@ -625,19 +649,17 @@ const JoinClanForm = ({
         setPhoneChecking(false);
       }
 
-      ['clanSearch', 'personalInfo', 'accountInfo', 'captcha'].forEach(
-        (fieldKey) => {
-          if (shouldClearCompletedField(plan, fieldKey)) {
-            guidedFlow.unmarkCompleted(fieldKey);
-          }
+      ['clanSearch', 'personalInfo', 'accountInfo', 'captcha'].forEach((fieldKey) => {
+        if (shouldClearCompletedField(plan, fieldKey)) {
+          guidedFlow.unmarkCompleted(fieldKey);
         }
-      );
+      });
 
       if (plan.affectedZones?.[0]) {
         guidedFlow.goToField(plan.affectedZones[0]);
       }
     },
-    [guidedFlow]
+    [guidedFlow],
   );
 
   const invalidateRuntimeForField = useCallback(
@@ -645,7 +667,7 @@ const JoinClanForm = ({
       const plan = createInvalidationPlan([fieldKey]);
       applyInvalidationPlan(plan);
     },
-    [applyInvalidationPlan]
+    [applyInvalidationPlan],
   );
 
   /**   Helper
@@ -668,7 +690,7 @@ const JoinClanForm = ({
 
       invalidateRuntimeForField(options.invalidateField || fieldName);
     },
-    [clearErrors, invalidateRuntimeForField]
+    [clearErrors, invalidateRuntimeForField],
   );
 
   /**
@@ -715,8 +737,7 @@ const JoinClanForm = ({
   const routeFieldError = useCallback(
     (fieldName, message, attentionField) => {
       const finalMessage =
-        message ||
-        'Thông tin hồ sơ chưa đầy đủ hoặc chưa đúng. Bác vui lòng kiểm tra lại.';
+        message || 'Thông tin hồ sơ chưa đầy đủ hoặc chưa đúng. Bác vui lòng kiểm tra lại.';
 
       setAttentionMessage('');
 
@@ -734,7 +755,7 @@ const JoinClanForm = ({
         }, 250);
       });
     },
-    [focusFieldByName, guidedFlow, speakMandatoryError]
+    [focusFieldByName, guidedFlow, speakMandatoryError],
   );
 
   /**
@@ -962,12 +983,9 @@ const JoinClanForm = ({
       return 'clanSearch';
     }
     if (
-      [
-        'temp_full_name',
-        'temp_father_name',
-        'temp_relationship',
-        'temp_note',
-      ].includes(gateTarget?.field)
+      ['temp_full_name', 'temp_father_name', 'temp_relationship', 'temp_note'].includes(
+        gateTarget?.field,
+      )
     ) {
       return 'personalInfo';
     }
@@ -1033,7 +1051,6 @@ const JoinClanForm = ({
       );
     ------------------------------------------------ */
 
-
     setValue('hp_field', formValues.hp_field || '', {
       shouldValidate: true,
       shouldDirty: false,
@@ -1049,22 +1066,63 @@ const JoinClanForm = ({
         */
       hp_field: formValues.hp_field || '',
     };
+    // PR-OP-4: ép string trước validate (tránh number.prefill fail .trim)
+    latestValues.temp_birth_year =
+      latestValues.temp_birth_year != null && latestValues.temp_birth_year !== ''
+        ? String(latestValues.temp_birth_year).trim()
+        : '';
+    latestValues.temp_full_name = String(latestValues.temp_full_name || '').trim();
+    latestValues.temp_father_name = String(latestValues.temp_father_name || '').trim();
+    latestValues.temp_note = String(latestValues.temp_note || '').trim();
+    latestValues.temp_relationship = String(latestValues.temp_relationship || '').trim();
+    latestValues.phone = String(latestValues.phone || '').trim();
+    latestValues.email =
+      latestValues.email != null && latestValues.email !== ''
+        ? String(latestValues.email).trim()
+        : '';
+
+    if (isRevision) {
+      const phoneFromLock =
+        lockedIdentifier || initialData?.phone || latestValues.phone || '';
+      if (phoneFromLock) {
+        latestValues.phone = String(phoneFromLock).trim();
+        setValue('phone', latestValues.phone, { shouldValidate: false });
+      }
+      if (initialData?.email) {
+        latestValues.email = String(initialData.email).trim();
+        setValue('email', latestValues.email, { shouldValidate: false });
+      }
+    }
+
+
+    // PR-OP-4: RHF có thể thiếu field nếu từng bị disabled — ép từ draft
+    if (isRevision) {
+      const phoneFromLock = lockedIdentifier || initialData?.phone || latestValues.phone || '';
+      if (phoneFromLock) {
+        latestValues.phone = phoneFromLock;
+        setValue('phone', phoneFromLock, { shouldValidate: false });
+      }
+      if (initialData?.email != null && initialData.email !== '') {
+        latestValues.email = initialData.email;
+        setValue('email', initialData.email, { shouldValidate: false });
+      }
+      if (!selectedTenant?.id && initialData?.tenantId) {
+        // fallback nếu state tenant chưa kịp set
+        setSelectedTenant({
+          id: initialData.tenantId,
+          name: initialData.clanName || '',
+          slug: initialData.tenantSlug || '',
+        });
+      }
+    }
 
     if (!selectedTenant?.id) {
-      routeFieldError(
-        'clanSearch',
-        'Bác vui lòng chọn đúng dòng họ cần gia nhập.',
-        'clanSearch'
-      );
+      routeFieldError('clanSearch', 'Bác vui lòng chọn đúng dòng họ cần gia nhập.', 'clanSearch');
       return;
     }
 
     if (!latestValues?.temp_full_name?.trim?.()) {
-      routeFieldError(
-        'temp_full_name',
-        'Bác vui lòng nhập họ và tên của mình.',
-        'personalInfo'
-      );
+      routeFieldError('temp_full_name', 'Bác vui lòng nhập họ và tên của mình.', 'personalInfo');
       return;
     }
 
@@ -1072,29 +1130,21 @@ const JoinClanForm = ({
       routeFieldError(
         'temp_father_name',
         'Bác vui lòng nhập tên cha hoặc mẹ để Ban quản trị đối chiếu.',
-        'personalInfo'
+        'personalInfo',
       );
       return;
     }
 
     if (!latestValues?.temp_birth_year?.trim()) {
-      routeFieldError(
-        'temp_birth_year',
-        'Bác vui lòng nhập năm sinh của bác.',
-        'personalInfo'
-      );
+      routeFieldError('temp_birth_year', 'Bác vui lòng nhập năm sinh của bác.', 'personalInfo');
       return;
     }
 
-    if (
-      !/^\d{4}$/.test(
-        String(latestValues.temp_birth_year).trim()
-      )
-    ) {
+    if (!/^\d{4}$/.test(String(latestValues.temp_birth_year).trim())) {
       routeFieldError(
         'temp_birth_year',
         'Bác vui lòng nhập năm sinh gồm bốn chữ số, ví dụ một chín sáu mươi lăm.',
-        'personalInfo'
+        'personalInfo',
       );
       return;
     }
@@ -1103,35 +1153,23 @@ const JoinClanForm = ({
       routeFieldError(
         'temp_relationship',
         'Bác vui lòng chọn quan hệ với dòng họ.',
-        'personalInfo'
+        'personalInfo',
       );
       return;
     }
 
     if (!latestValues?.temp_note?.trim?.()) {
-      routeFieldError(
-        'temp_note',
-        'Bác vui lòng nhập lời nhắn tới Ban quản trị.',
-        'personalInfo'
-      );
+      routeFieldError('temp_note', 'Bác vui lòng nhập lời nhắn tới Ban quản trị.', 'personalInfo');
       return;
     }
 
     if (!latestValues?.phone?.trim?.()) {
-      routeFieldError(
-        'phone',
-        'Bác vui lòng nhập số điện thoại đăng nhập.',
-        'accountInfo'
-      );
+      routeFieldError('phone', 'Bác vui lòng nhập số điện thoại đăng nhập.', 'accountInfo');
       return;
     }
 
     if (!latestValues?.password?.trim?.()) {
-      routeFieldError(
-        'password',
-        'Bác vui lòng nhập mật khẩu đăng nhập.',
-        'accountInfo'
-      );
+      routeFieldError('password', 'Bác vui lòng nhập mật khẩu đăng nhập.', 'accountInfo');
       return;
     }
 
@@ -1140,7 +1178,7 @@ const JoinClanForm = ({
      * EGAL-6.5.3:
      * Fresh online re-check trước transition.
      * Không tin phoneRemoteError cũ.
-     */
+     
     const phoneCheck = await checkPhoneAvailability(latestValues.phone);
 
     if (!phoneCheck.valid) {
@@ -1163,6 +1201,34 @@ const JoinClanForm = ({
       );
       guidedFlow.unmarkCompleted('accountInfo');
       return;
+    }
+    */
+
+    // PR-OP-4: revision — phone/email đã thuộc user, không check uniqueness
+    if (!isRevision) {
+      const phoneCheck = await checkPhoneAvailability(latestValues.phone);
+
+      if (!phoneCheck.valid) {
+        routeFieldError(
+          'phone',
+          phoneCheck.message || 'Số điện thoại cần được kiểm tra lại.',
+          'accountInfo',
+        );
+        guidedFlow.unmarkCompleted('accountInfo');
+        return;
+      }
+
+      const emailCheck = await checkEmailAvailability(latestValues.email);
+
+      if (!emailCheck.valid) {
+        routeFieldError(
+          'email',
+          emailCheck.message || 'Email cần được kiểm tra lại.',
+          'accountInfo',
+        );
+        guidedFlow.unmarkCompleted('accountInfo');
+        return;
+      }
     }
 
     const captchaCheck = captchaZone.validateBeforeSubmit();
@@ -1229,16 +1295,14 @@ const JoinClanForm = ({
       const targetField = target.field || attentionField;
 
       const fieldSpecificMessage =
-        targetField && errors?.[targetField]?.message
-          ? errors[targetField].message
-          : '';
+        targetField && errors?.[targetField]?.message ? errors[targetField].message : '';
 
       routeFieldError(
         targetField,
         target.message ||
-          fieldSpecificMessage ||
-          'Thông tin hồ sơ chưa đầy đủ hoặc chưa đúng. Bác vui lòng kiểm tra lại các mục được báo lỗi trên màn hình.',
-        attentionField
+        fieldSpecificMessage ||
+        'Thông tin hồ sơ chưa đầy đủ hoặc chưa đúng. Bác vui lòng kiểm tra lại các mục được báo lỗi trên màn hình.',
+        attentionField,
       );
 
       return;
@@ -1248,25 +1312,37 @@ const JoinClanForm = ({
       routeFieldError(
         'submit',
         'Thông tin hồ sơ chưa đầy đủ hoặc chưa đúng. Bác vui lòng kiểm tra lại các mục được báo lỗi trên màn hình.',
-        'submit'
+        'submit',
       );
 
       return;
     }
     setAttentionMessage('');
 
+    // PR-OP-4: ép phone/email/tenant từ draft khi revision (không phụ thuộc field editable)
+    const resolvedPhone = isRevision
+      ? lockedIdentifier || initialData?.phone || latestValues.phone || ''
+      : latestValues.phone || '';
+
+    const resolvedEmail = isRevision
+      ? initialData?.email || latestValues.email || null
+      : latestValues.email || null;
+
     const finalPayload = {
       ...latestValues,
       tenantId: selectedTenant.id,
       clanName: selectedTenant.name,
       tenantSlug: selectedTenant.slug || '',
-      /* preferredChannel: selectedChannel, // EGAL-25.X. R6.2.2A
-        preferredChannel: selectedChannel,
-        temp_social_profiles: { channel: selectedChannel },
-        */
+      phone: resolvedPhone,
+      email: resolvedEmail,
       turnstileToken: captchaCheck.token || captchaZone.getToken(),
       hp_field: latestValues.hp_field || '',
       isNewClan: false,
+      ...(isRevision
+        ? {
+            isRevision: true,
+          }
+        : {}),
     };
 
     if (onGoToWaiting) {
@@ -1346,8 +1422,7 @@ const JoinClanForm = ({
           fieldKey="submit"
           activeField={guidedFlow.activeField}
           helperText={
-            ttsMessages?.joinClan?.submit ||
-            'Bác bấm nút tiếp tục rà soát để kiểm tra lại hồ sơ.'
+            ttsMessages?.joinClan?.submit || 'Bác bấm nút tiếp tục rà soát để kiểm tra lại hồ sơ.'
           }
           completed={false}
           voiceAction={
@@ -1363,11 +1438,10 @@ const JoinClanForm = ({
             type="button"
             onClick={nextStep}
             disabled={effectiveLoading || phoneChecking || emailChecking}
-            className={`w-full py-4 rounded-3xl font-bold transition-all ${
-              effectiveLoading || phoneChecking || emailChecking
+            className={`w-full py-4 rounded-3xl font-bold transition-all ${effectiveLoading || phoneChecking || emailChecking
                 ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
                 : 'bg-emerald-600 text-white hover:bg-emerald-700'
-            }`}
+              }`}
           >
             {phoneChecking || emailChecking ? 'Đang kiểm tra...' : 'Tiếp tục rà soát →'}
           </button>
@@ -1425,11 +1499,7 @@ const JoinClanForm = ({
         `}
       </style>
 
-      <form
-        noValidate
-        onSubmit={handleSubmit(() => {})}
-        className="space-y-6"
-      >
+      <form noValidate onSubmit={handleSubmit(() => {})} className="space-y-6">
         <section className="rounded-3xl border border-emerald-100 bg-emerald-50/80 p-5 text-center shadow-sm">
           <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-600">
             Hồ sơ đăng ký
@@ -1440,8 +1510,8 @@ const JoinClanForm = ({
           </h2>
 
           <p className="mx-auto mt-2 max-w-xl text-sm font-semibold leading-relaxed text-slate-600">
-            Bác vui lòng tìm đúng dòng họ, nhập thông tin cá nhân, nhập số điện thoại, email nếu có, và tạo tài khoản
-            để gửi hồ sơ xin gia nhập.
+            Bác vui lòng tìm đúng dòng họ, nhập thông tin cá nhân, nhập số điện thoại, email nếu có,
+            và tạo tài khoản để gửi hồ sơ xin gia nhập.
           </p>
 
           <div className="mt-4 flex justify-center">
@@ -1471,9 +1541,7 @@ const JoinClanForm = ({
             data-testid="join-clan-attention-message"
           >
             <AlertCircle size={20} className="mt-0.5 shrink-0" />
-            <span className="text-sm font-bold leading-relaxed">
-              {attentionMessage}
-            </span>
+            <span className="text-sm font-bold leading-relaxed">{attentionMessage}</span>
           </AttentionZone>
         )}
 
@@ -1496,8 +1564,7 @@ const JoinClanForm = ({
               <div className={uiSystem.section}>
                 <div className="space-y-1">
                   <label className={uiSystem.label}>
-                    Tìm dòng họ gia nhập{' '}
-                    <span className="text-rose-500">*</span>
+                    Tìm dòng họ gia nhập <span className="text-rose-500">*</span>
                   </label>
 
                   <div className="relative">
@@ -1506,20 +1573,27 @@ const JoinClanForm = ({
                       size={18}
                     />
 
-                    <input
-                      ref={tenantSearchRef}
-                      type="text"
-                      value={searchKeyword}
-                      onChange={(e) => {
-                        setSearchKeyword(e.target.value);
-                        setAttentionMessage('');
-                        invalidateRuntimeForField('tenantId');
-                        guidedFlow.goToField('clanSearch');
-                      }}
-                      onFocus={() => guidedFlow.goToField('clanSearch')}
-                      className={`pl-11 ${uiSystem.input}`}
-                      placeholder="Gõ tên dòng họ hoặc định danh."
-                    />
+                    {isRevision && selectedTenant ? (
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                        Dòng họ: <span className="font-semibold">{selectedTenant.name}</span>
+                        <input type="hidden" {...register('tenantId')} />
+                      </div>
+                    ) : (
+                      <input
+                        ref={tenantSearchRef}
+                        type="text"
+                        value={searchKeyword}
+                        onChange={(e) => {
+                          setSearchKeyword(e.target.value);
+                          setAttentionMessage('');
+                          invalidateRuntimeForField('tenantId');
+                          guidedFlow.goToField('clanSearch');
+                        }}
+                        onFocus={() => guidedFlow.goToField('clanSearch')}
+                        className={`pl-11 ${uiSystem.input}`}
+                        placeholder="Gõ tên dòng họ hoặc định danh."
+                      />
+                    )}
 
                     {tenantLoading && (
                       <Loader2
@@ -1545,12 +1619,8 @@ const JoinClanForm = ({
                           </div>
 
                           <div>
-                            <p className="font-black text-slate-900">
-                              {tenant.name}
-                            </p>
-                            <p className="mt-1 text-xs text-slate-500">
-                              Bấm để chọn dòng họ này
-                            </p>
+                            <p className="font-black text-slate-900">{tenant.name}</p>
+                            <p className="mt-1 text-xs text-slate-500">Bấm để chọn dòng họ này</p>
                           </div>
                         </div>
                       </button>
@@ -1560,27 +1630,25 @@ const JoinClanForm = ({
 
                 {selectedTenant && (
                   <div className="mt-3 rounded-3xl border border-emerald-100 bg-emerald-50 p-4 text-emerald-800">
-                    <p className="text-xs font-black uppercase tracking-widest">
-                      Đã chọn dòng họ
-                    </p>
-                    <p className="mt-1 text-lg font-black">
-                      {selectedTenant.name}
-                    </p>
+                    <p className="text-xs font-black uppercase tracking-widest">Đã chọn dòng họ</p>
+                    <p className="mt-1 text-lg font-black">{selectedTenant.name}</p>
 
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSelectedTenant(null);
-                        setValue('tenantId', '', { shouldValidate: true });
-                        setValue('clanName', '', { shouldValidate: true });
-                        setAttentionMessage('');
-                        invalidateRuntimeForField('tenantId');
-                        guidedFlow.goToField('clanSearch');
-                      }}
-                      className="mt-3 text-sm font-bold text-emerald-700 underline"
-                    >
-                      Chọn lại dòng họ
-                    </button>
+                    {!isRevision && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedTenant(null);
+                          setValue('tenantId', '', { shouldValidate: true });
+                          setValue('clanName', '', { shouldValidate: true });
+                          setAttentionMessage('');
+                          invalidateRuntimeForField('tenantId');
+                          guidedFlow.goToField('clanSearch');
+                        }}
+                        className="mt-3 text-sm font-bold text-emerald-700 underline"
+                      >
+                        Chọn lại dòng họ
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
@@ -1673,8 +1741,7 @@ const JoinClanForm = ({
 
                   <div className="space-y-1">
                     <label className={uiSystem.label}>
-                      Quan hệ với dòng họ{' '}
-                      <span className="text-rose-500">*</span>
+                      Quan hệ với dòng họ <span className="text-rose-500">*</span>
                     </label>
                     <select
                       {...relationshipRegister}
@@ -1700,8 +1767,7 @@ const JoinClanForm = ({
 
                   <div className="space-y-1">
                     <label className={uiSystem.label}>
-                      Lời nhắn cho quản trị viên{' '}
-                      <span className="text-rose-500">*</span>
+                      Lời nhắn cho quản trị viên <span className="text-rose-500">*</span>
                     </label>
                     <textarea
                       {...noteRegister}
@@ -1714,9 +1780,7 @@ const JoinClanForm = ({
                       placeholder="Thông tin bổ sung để Ban quản trị xác minh..."
                     />
                     {errors.temp_note && (
-                      <p className="text-xs font-bold text-rose-600">
-                        {errors.temp_note.message}
-                      </p>
+                      <p className="text-xs font-bold text-rose-600">{errors.temp_note.message}</p>
                     )}
                   </div>
                 </div>
@@ -1744,8 +1808,7 @@ const JoinClanForm = ({
                 <div className="space-y-5">
                   <div className="space-y-1">
                     <label className={uiSystem.label}>
-                      Số điện thoại đăng nhập{' '}
-                      <span className="text-rose-500">*</span>
+                      Số điện thoại đăng nhập <span className="text-rose-500">*</span>
                     </label>
 
                     <div className="relative">
@@ -1762,9 +1825,14 @@ const JoinClanForm = ({
                         }}
                         onFocus={() => guidedFlow.goToField('accountInfo')}
                         onBlur={async (e) => {
+                          if (isRevision) return;
                           await checkPhoneAvailability(e.target.value);
                         }}
-                        className={`pl-11 ${uiSystem.input}`}
+                        readOnly={isRevision}
+                        // KHÔNG dùng disabled={isRevision}
+                        className={`pl-11 ${uiSystem.input} ${
+                          isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
+                        }`}
                         placeholder="Số điện thoại chính (10 số)"
                       />
 
@@ -1777,18 +1845,14 @@ const JoinClanForm = ({
                     </div>
 
                     {errors.phone && (
-                      <p className="text-xs font-bold text-rose-600">
-                        {errors.phone.message}
-                      </p>
+                      <p className="text-xs font-bold text-rose-600">{errors.phone.message}</p>
                     )}
 
                     {phoneRemoteError && (
-                      <p className="text-rose-600 text-xs mt-1">
-                        {phoneRemoteError}
-                      </p>
+                      <p className="text-rose-600 text-xs mt-1">{phoneRemoteError}</p>
                     )}
                   </div>
-                  
+
                   {/* EGAL-25.X. R6.2.2A */}
                   <div className="space-y-1">
                     <label className={uiSystem.label}>
@@ -1808,25 +1872,25 @@ const JoinClanForm = ({
                           emailRef.current = el;
                         }}
                         type="email"
-                        onFocus={() => guidedFlow.goToField('accountInfo')}
                         onBlur={async (e) => {
+                          if (isRevision) return;
                           await checkEmailAvailability(e.target.value);
                         }}
-                        className={`pl-11 ${uiSystem.input}`}
-                        placeholder="email@example.com"
+                        readOnly={isRevision}
+                        //disabled={isRevision}
+                        className={`${uiSystem.input} ${
+                          isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
+                        }`}
+                        placeholder="Email (không bắt buộc)"
                       />
                     </div>
 
                     {errors.email && (
-                      <p className="text-xs font-bold text-rose-600">
-                        {errors.email.message}
-                      </p>
+                      <p className="text-xs font-bold text-rose-600">{errors.email.message}</p>
                     )}
 
                     {emailRemoteError && (
-                      <p className="text-xs font-bold text-rose-600">
-                        {emailRemoteError}
-                      </p>
+                      <p className="text-xs font-bold text-rose-600">{emailRemoteError}</p>
                     )}
                   </div>
 
@@ -1863,9 +1927,7 @@ const JoinClanForm = ({
                     </div>
 
                     {errors.password && (
-                      <p className="text-xs font-bold text-rose-600">
-                        {errors.password.message}
-                      </p>
+                      <p className="text-xs font-bold text-rose-600">{errors.password.message}</p>
                     )}
                   </div>
 

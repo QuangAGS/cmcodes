@@ -615,7 +615,7 @@ const authController = {
 
   processApproval: async (req, res) => {
     try {
-      const { userId, newStatus, adminNote } = req.body;
+      const { userId, newStatus, adminNote, isFinalRejection } = req.body;
       const actorId = req.user.userId;
       const { role, tenantId: actorTenantId } = req.user;
       const correlationId = req.correlationId;
@@ -636,7 +636,9 @@ const authController = {
         actorTenantId,
         actorStatus: req.user.status,
         correlation_id: correlationId,
+        isFinalRejection: isFinalRejection === true,
       });
+
       res.status(200).json({ status: 'success', data: result });
     } catch (error) {
       console.error('[processApproval Error]:', error);
@@ -646,9 +648,66 @@ const authController = {
           message: 'Bạn không có quyền thao tác trên hồ sơ này.',
         });
       }
-      res.status(500).json({
+      if (error.status === 400) {
+        return res.status(400).json({
+          status: 'error',
+          message: error.message,
+        });
+      }
+      res.status(error.status || 500).json({
         status: 'error',
         message: error.message || 'Lỗi xử lý phê duyệt đơn.',
+      });
+    }
+  },
+
+  //PR-OP-4-R1: Admin trả về sửa (NEEDS_REVISION) → giữ CHO_DUYET; case → NEEDS_REVISION + review_note.
+  returnForRevision: async (req, res) => {
+    try {
+      const { userId, adminNote } = req.body;
+      const actorId = req.user.userId;
+      const { role, tenantId: actorTenantId } = req.user;
+      const correlationId = req.correlationId;
+
+      if (!userId || !adminNote) {
+        return res.status(400).json({
+          status: 'error',
+          message: 'Thiếu userId hoặc adminNote.',
+        });
+      }
+
+      const result = await authService.returnForRevision({
+        userId,
+        adminNote,
+        actorId,
+        role,
+        actorTenantId,
+        actorStatus: req.user.status,
+        correlation_id: correlationId,
+      });
+
+      return res.status(200).json({
+        status: 'success',
+        data: result,
+        message: 'Đã yêu cầu bổ sung hồ sơ (trả về sửa).',
+      });
+    } catch (error) {
+      console.error('[returnForRevision Error]:', error);
+      if (error.message === 'DENIED') {
+        return res.status(403).json({
+          status: 'error',
+          message: 'Bạn không có quyền thao tác trên hồ sơ này.',
+        });
+      }
+      if (error.status === 400) {
+        return res.status(400).json({
+          status: 'error',
+          message: error.message,
+        });
+      }
+      return res.status(500).json({
+        status: 'error',
+        message: error.message || 'Lỗi yêu cầu bổ sung hồ sơ.',
       });
     }
   },
@@ -750,19 +809,32 @@ const authController = {
       res.status(200).json({ status: 'success', data: result });
     } catch (error) {
       console.error('[reopenRejectedUser Error]:', error);
+
+      if (error.code === 'FINAL_REJECTION') {
+        return res.status(403).json({
+          status: 'error',
+          code: 'FINAL_REJECTION',
+          message:
+            error.message ||
+            'Hồ sơ đã bị từ chối lần cuối. Không thể mở lại.',
+        });
+      }
+
       if (error.message === 'DENIED') {
         return res.status(403).json({
           status: 'error',
           message: 'Bạn không có quyền thao tác trên hồ sơ này.',
         });
       }
+
       if (error.status === 400) {
         return res.status(400).json({
           status: 'error',
           message: error.message,
         });
       }
-      res.status(500).json({
+
+      res.status(error.status || 500).json({
         status: 'error',
         message: error.message || 'Lỗi mở lại hồ sơ bị từ chối.',
       });
