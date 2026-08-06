@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/AuthPage.jsx
- * DATETIME   : 2026-07-26T12:45:00+07:00
- * VERSION    : 24.6.8.R3.3.5-W2-TENANT-STATUS
+ * DATETIME   : 2026-08-05T21:35:00+07:00
+ * VERSION    : 24.6.8.R3.3.5-W2-PR-OP-4-identity
  * DESCRIPTION:
  * - VÁ TOÀN DIỆN CHỐT CHẶN FRONTEND THEO QUY HOẠCH VẾT CẠN.
  * - Đón đầu mã lỗi ACCOUNT_DISABLED / ACCOUNT_CHO_DUYET / TENANT_*.
@@ -22,7 +22,10 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
 import { useAuth } from '../context/AuthContext.jsx';
-
+import {
+  resolveRevisionPhone,
+  resolveRevisionEmail,
+} from '../features/register-wizard/utils/identityHelpers.js';
 import LoginForm from '../features/register-wizard/components/LoginForm.jsx';
 import RegisterForm from '../features/register-wizard/components/RegisterForm.jsx';
 import ForgotPasswordForm from '../features/register-wizard/components/ForgotPasswordForm.jsx';
@@ -468,12 +471,32 @@ const AuthPage = () => {
   const handleRegisterSubmit = async (data) => {
     console.log('[AuthPage] handleRegisterSubmit data:', { fullData: data });
 
+    const snap = revisionContext?.tempSnapshot || {};
+    const identitySeed = {
+      phone: data.phone || snap.phone || '',
+      email: data.email || snap.email || '',
+    };
+
     const merged = {
       ...data,
       ...(registerRevisionMode || data?.isRevision
         ? {
             isRevision: true,
-            phone: data.phone || revisionContext?.identifier || '',
+            phone: resolveRevisionPhone(
+              revisionContext?.identifier,
+              identitySeed,
+              data.phone
+            ),
+            email:
+              resolveRevisionEmail(
+                revisionContext?.identifier,
+                identitySeed,
+                data.email
+              ) || null,
+            isNewClan:
+              data.isNewClan === true ||
+              snap.isNewClan === true ||
+              snap.role === 'CLAN_ADMIN',
           }
         : {}),
     };
@@ -554,6 +577,12 @@ const AuthPage = () => {
         },
       });
 
+      const snap = revisionContext?.tempSnapshot || {};
+      const identitySeed = {
+        phone: confirmedData.phone || snap.phone || '',
+        email: confirmedData.email || snap.email || '',
+      };
+
       const finalPayload = {
         ...confirmedData,
         turnstileToken: confirmedData.turnstileToken,
@@ -561,10 +590,21 @@ const AuthPage = () => {
         ...(registerRevisionMode || confirmedData.isRevision
           ? {
               isRevision: true,
-              phone:
-                confirmedData.phone ||
-                revisionContext?.identifier ||
-                '',
+              phone: resolveRevisionPhone(
+                revisionContext?.identifier,
+                identitySeed,
+                confirmedData.phone
+              ),
+              email:
+                resolveRevisionEmail(
+                  revisionContext?.identifier,
+                  identitySeed,
+                  confirmedData.email
+                ) || null,
+              isNewClan:
+                confirmedData.isNewClan === true ||
+                snap.isNewClan === true ||
+                snap.role === 'CLAN_ADMIN',
             }
           : {}),
       };
@@ -862,17 +902,22 @@ const AuthPage = () => {
                 onClick={() => {
                   const id = revisionContext?.identifier || '';
                   const snap = revisionContext?.tempSnapshot || {};
-                  const looksLikeEmail = id.includes('@');
+
+                  const isNewClan =
+                    snap.isNewClan === true ||
+                    snap.role === 'CLAN_ADMIN' ||
+                    snap.caseType === 'CLAN_SETUP';
 
                   setPendingFormData({
                     ...snap,
-                    phone: snap.phone || (looksLikeEmail ? '' : id),
-                    email: snap.email || (looksLikeEmail ? id : ''),
+                    phone: resolveRevisionPhone(id, snap, snap.phone),
+                    email: resolveRevisionEmail(id, snap, snap.email) || '',
                     tenantId: snap.tenantId || snap.tenant_id || '',
                     clanName: snap.clanName || '',
+                    description: snap.description || '',
                     tenantSlug: snap.tenantSlug || '',
                     isRevision: true,
-                    isNewClan: false,
+                    isNewClan,
                   });
                   setRegisterRevisionMode(true);
                   setView('register');

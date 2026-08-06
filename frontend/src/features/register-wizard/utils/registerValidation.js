@@ -1,5 +1,5 @@
 /**
- * PATH: src/features/auth/utils/registerValidation.js
+ * PATH: src/features/register-wizard/utils/registerValidation.js
  * DATETIME: 15-04-2026 11:15
  * VERSION: 1.3.0
  * DESCRIPTION: Schema "ép" điều kiện nghiêm ngặt: 

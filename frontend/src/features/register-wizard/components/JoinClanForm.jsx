@@ -2,7 +2,7 @@
  * PATH: src/features/register-wizard/components/JoinClanForm.jsx
  * OLD PATH       : src/features/auth/components/JoinClanForm.jsx
  * DATETIME   : <2026-05-28T09:55:00+07:00>
- * VERSION    : EGAL-25.X. R6.2.2A
+ * VERSION    : EGAL-25.X. R6.2.2A-PR-OP-4-identity
  * DESCRIPTION:
  * - PURPOSE EGAL-25.X. R6.2.2A: 
  *    chỉ gỡ social preferred-channel khỏi JoinClanForm, thêm email optional, 
@@ -95,6 +95,10 @@ import AttentionZone from '../../../components/AttentionZone.jsx';
 
 import apiClient from '../../../lib/apiClient.js';
 import { joinClanSchema } from '../utils/joinClanValidation.js';
+import {
+  resolveRevisionPhone,
+  resolveRevisionEmail,
+} from '../utils/identityHelpers.js';
 import { useTts } from '../../../shared/hooks/useTts.js';
 import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx';
 // Dùng shared captcha zone thay vì Turnstile component riêng. ------------------
@@ -1081,33 +1085,23 @@ const JoinClanForm = ({
         ? String(latestValues.email).trim()
         : '';
 
+    // PR-OP-4: identity — không gán email vào phone khi login bằng email
     if (isRevision) {
-      const phoneFromLock =
-        lockedIdentifier || initialData?.phone || latestValues.phone || '';
-      if (phoneFromLock) {
-        latestValues.phone = String(phoneFromLock).trim();
-        setValue('phone', latestValues.phone, { shouldValidate: false });
-      }
-      if (initialData?.email) {
-        latestValues.email = String(initialData.email).trim();
+      latestValues.phone = resolveRevisionPhone(
+        lockedIdentifier,
+        initialData,
+        latestValues.phone
+      );
+      latestValues.email = resolveRevisionEmail(
+        lockedIdentifier,
+        initialData,
+        latestValues.email
+      );
+      setValue('phone', latestValues.phone, { shouldValidate: false });
+      if (latestValues.email) {
         setValue('email', latestValues.email, { shouldValidate: false });
       }
-    }
-
-
-    // PR-OP-4: RHF có thể thiếu field nếu từng bị disabled — ép từ draft
-    if (isRevision) {
-      const phoneFromLock = lockedIdentifier || initialData?.phone || latestValues.phone || '';
-      if (phoneFromLock) {
-        latestValues.phone = phoneFromLock;
-        setValue('phone', phoneFromLock, { shouldValidate: false });
-      }
-      if (initialData?.email != null && initialData.email !== '') {
-        latestValues.email = initialData.email;
-        setValue('email', initialData.email, { shouldValidate: false });
-      }
       if (!selectedTenant?.id && initialData?.tenantId) {
-        // fallback nếu state tenant chưa kịp set
         setSelectedTenant({
           id: initialData.tenantId,
           name: initialData.clanName || '',
@@ -1320,12 +1314,12 @@ const JoinClanForm = ({
     setAttentionMessage('');
 
     // PR-OP-4: ép phone/email/tenant từ draft khi revision (không phụ thuộc field editable)
-    const resolvedPhone = isRevision
-      ? lockedIdentifier || initialData?.phone || latestValues.phone || ''
+        const resolvedPhone = isRevision
+      ? resolveRevisionPhone(lockedIdentifier, initialData, latestValues.phone)
       : latestValues.phone || '';
 
     const resolvedEmail = isRevision
-      ? initialData?.email || latestValues.email || null
+      ? resolveRevisionEmail(lockedIdentifier, initialData, latestValues.email) || null
       : latestValues.email || null;
 
     const finalPayload = {

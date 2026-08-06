@@ -318,6 +318,9 @@ const authService = {
         tenantId: user.tenant_id || null,
         clanName: user.tenants?.name || null,
         tenantSlug: user.tenants?.slug || null,
+        // Phân luồng Join vs Create (PR-OP-4 CLAN_SETUP)
+        role: user.role || null,
+        isNewClan: user.role === 'CLAN_ADMIN',
       };
       throw error;
     }

@@ -1,8 +1,8 @@
 /**
  * PATH       : src/features/register-wizard/components/CreateClanForm.jsx
  * OLD PATH   : src/features/auth/components/CreateClanForm.jsx
- * DATETIME   : <2026-05-17T10:00:00+07:00>
- * VERSION    : 24.6.7.R1.9
+ * DATETIME   : <2026-08-05T15:00:00+07:00>
+ * VERSION    : 24.6.7.R1.9 - PR-OP-4
  * DESCRIPTION:
  * PURPOSE
  * - Create a new clan registration flow.
@@ -24,6 +24,8 @@
  * - Q1: Do not break working business flow
  * - Q2: Preserve UX/UI
  * - Q3: Prefer anchor-level patch
+ * CHANG LOGS:
+ * PR-OP-4: reopen TU_CHOI; cycle CHO_DUYET -> TU_CHOI -> CHO_DUYET; Final rejection handling
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -72,6 +74,10 @@ import AttentionZone from  '../../../components/AttentionZone.jsx';
 
 import apiClient from '../../../lib/apiClient.js';
 import { createClanSchema } from '../utils/createClanValidation.js';
+import {
+  resolveRevisionPhone,
+  resolveRevisionEmail,
+} from '../utils/identityHelpers.js';
 /**
  * Shared captcha runtime
  * - No local Turnstile state
@@ -159,6 +165,36 @@ const DEFAULT_UI_SYSTEM = {
   footer: 'pt-8',
 };
 
+/**
+ * PR-OP-4 C2: chuẩn hóa draft revision (tránh number.prefill fail .trim)
+ */
+const normalizeCreateDraft = (data) => {
+  if (!data || typeof data !== 'object') return data || {};
+  return {
+    ...data,
+    clanName: data.clanName != null ? String(data.clanName) : '',
+    description:
+      data.description != null
+        ? String(data.description)
+        : data.clanDescription != null
+          ? String(data.clanDescription)
+          : '',
+    temp_full_name:
+      data.temp_full_name != null ? String(data.temp_full_name) : '',
+    temp_father_name:
+      data.temp_father_name != null ? String(data.temp_father_name) : '',
+    temp_birth_year:
+      data.temp_birth_year != null && data.temp_birth_year !== ''
+        ? String(data.temp_birth_year)
+        : '',
+    temp_relationship:
+      data.temp_relationship != null ? String(data.temp_relationship) : '',
+    temp_note: data.temp_note != null ? String(data.temp_note) : '',
+    phone: data.phone != null ? String(data.phone) : '',
+    email: data.email != null ? String(data.email) : '',
+  };
+};
+
 const CreateClanForm = ({
   onGoToWaiting,
   onSubmit,
@@ -169,6 +205,9 @@ const CreateClanForm = ({
   lifecycleContext = null,
   runtimeSessionId = 0,
   onBackToRegister,
+  // PR-OP-4 C1
+  isRevision = false,
+  lockedIdentifier = '',
 }) => {
   const uiSystem = uiSystemProp || DEFAULT_UI_SYSTEM;
 
@@ -302,7 +341,7 @@ const CreateClanForm = ({
     defaultValues: {
       temp_relationship: '',
       hp_field: '',
-      ...(initialData || {}),
+      ...normalizeCreateDraft(initialData || {}), //PR-OP-4 C2: normalize draft data
     },
   });
 
@@ -592,18 +631,25 @@ const CreateClanForm = ({
       lifecycleContext?.reentryContext?.from === 'WaitingPage' &&
       lifecycleContext?.reentryContext?.action === 'edit';
 
-    if (isEditFromWaiting && initialData) {
+    // Revision hoặc back từ Waiting → giữ draft
+    const shouldRestoreDraft =
+      (isRevision && initialData) || (isEditFromWaiting && initialData);
+
+    if (shouldRestoreDraft) {
       const mappedInitialData = Object.keys(initialData).reduce((acc, key) => {
         const mappedKey = key === 'clanDescription' ? 'description' : key;
         acc[mappedKey] = initialData[key];
         return acc;
       }, {});
 
+      // C2: normalize string (temp_birth_year number, …)
+      const normalized = normalizeCreateDraft(mappedInitialData);
+
       reset(
         {
           temp_relationship: '',
           hp_field: '',
-          ...mappedInitialData,
+          ...normalized,
         },
         {
           keepErrors: false,
@@ -611,10 +657,10 @@ const CreateClanForm = ({
           keepTouched: false,
         }
       );
-
       return;
     }
 
+    // Fresh CreateClan
     reset(
       {
         temp_relationship: '',
@@ -628,11 +674,13 @@ const CreateClanForm = ({
     );
   }, [
     initialData,
+    isRevision,
     lifecycleContext?.reentryContext?.from,
     lifecycleContext?.reentryContext?.action,
     reset,
   ]);
 
+  //PR-OP-4 C2: runtime invalidation plan
   const applyInvalidationPlan = useCallback(
     (plan) => {
       if (!plan?.invalidated) return;
@@ -1024,6 +1072,39 @@ const CreateClanForm = ({
       hp_field: formValues.hp_field || '',
     };
 
+   // PR-OP-4C2: ép string
+    latestValues.clanName = String(latestValues.clanName || '').trim();
+    latestValues.description = String(latestValues.description || '').trim();
+    latestValues.temp_full_name = String(latestValues.temp_full_name || '').trim();
+    latestValues.temp_father_name = String(
+      latestValues.temp_father_name || ''
+    ).trim();
+    latestValues.temp_birth_year =
+      latestValues.temp_birth_year != null && latestValues.temp_birth_year !== ''
+        ? String(latestValues.temp_birth_year).trim()
+        : '';
+    latestValues.temp_note = String(latestValues.temp_note || '').trim();
+    latestValues.phone = String(latestValues.phone || '').trim();
+    latestValues.email = String(latestValues.email || '').trim();
+
+    // C1: revision — ép identity từ draft/lock
+        if (isRevision) {
+      latestValues.phone = resolveRevisionPhone(
+        lockedIdentifier,
+        initialData,
+        latestValues.phone
+      );
+      latestValues.email = resolveRevisionEmail(
+        lockedIdentifier,
+        initialData,
+        latestValues.email
+      );
+      setValue('phone', latestValues.phone, { shouldValidate: false });
+      if (latestValues.email) {
+        setValue('email', latestValues.email, { shouldValidate: false });
+      }
+    }
+
     if (!latestValues?.clanName?.trim?.()) {
       routeFieldError(
         'clanName',
@@ -1096,6 +1177,7 @@ const CreateClanForm = ({
       return;
     }
 
+    /*
     const phoneCheck = await checkIdentityOnline('phone', latestValues.phone);
 
     if (!phoneCheck.valid) {
@@ -1120,6 +1202,31 @@ const CreateClanForm = ({
       //guidedFlow.unmarkCompleted('contactInfo');
       //guidedFlow.goToField('contactInfo');
       return;
+    }
+   ******* */
+
+
+    // C1: revision — phone/email đã thuộc user, không check uniqueness
+    if (!isRevision) {
+      const phoneCheck = await checkIdentityOnline('phone', latestValues.phone);
+      if (!phoneCheck.valid) {
+        routeFieldError(
+          'phone',
+          phoneCheck.message || 'Số điện thoại cần được kiểm tra lại.',
+          'contactInfo'
+        );
+        return;
+      }
+
+      const emailCheck = await checkIdentityOnline('email', latestValues.email);
+      if (!emailCheck.valid) {
+        routeFieldError(
+          'email',
+          emailCheck.message || 'Email cần được kiểm tra lại.',
+          'contactInfo'
+        );
+        return;
+      }
     }
 
     if (!latestValues?.password?.trim?.()) {
@@ -1218,6 +1325,22 @@ const CreateClanForm = ({
       description: latestValues.description,
       turnstileToken: captchaCheck.token || captchaZone.getToken(),
       hp_field: latestValues.hp_field || '',
+      ...(isRevision
+        ? {
+            isRevision: true,
+            phone: resolveRevisionPhone(
+              lockedIdentifier,
+              initialData,
+              latestValues.phone
+            ),
+            email:
+              resolveRevisionEmail(
+                lockedIdentifier,
+                initialData,
+                latestValues.email
+              ) || null,
+          }
+        : {}),
     };
 
     if (onGoToWaiting) {
@@ -1667,13 +1790,17 @@ const CreateClanForm = ({
                         })}
                         onFocus={() => guidedFlow.goToField('contactInfo')}
                         onBlur={async (e) => {
+                          if(isRevision) return; // KHÔNG check uniqueness khi đang revision
                           const result = await checkIdentityOnline('phone', e.target.value);
 
                           if (!result.valid && result.message) {
                             routeFieldError('phone', result.message);
                           }
                         }}
-                        className={`pl-11 ${uiSystem.input}`}
+                        readOnly={isRevision}  // KHÔNG dùng disabled={isRevision}
+                        className={`pl-11 ${uiSystem.input} ${
+                          isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
+                        }`}
                         placeholder="Số điện thoại chính"
                       />
 
@@ -1718,13 +1845,17 @@ const CreateClanForm = ({
                         })}
                         onFocus={() => guidedFlow.goToField('contactInfo')}
                         onBlur={async (e) => {
+                          if (isRevision) return; // KHÔNG check uniqueness khi đang revision
                           const result = await checkIdentityOnline('email', e.target.value);
-
                           if (!result.valid && result.message) {
                             routeFieldError('email', result.message);
                           }
+                          
                         }}
-                        className={`pl-11 ${uiSystem.input}`}
+                        readOnly={isRevision} // KHÔNG dùng disabled={isRevision}
+                        className={`${uiSystem.input} ${
+                          isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
+                        }`}
                         placeholder="email@example.com"
                       />
 
