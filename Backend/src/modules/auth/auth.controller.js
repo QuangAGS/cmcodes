@@ -161,6 +161,12 @@ const authController = {
         });
       }
 
+      console.log('[login lock]', {
+        identifier,
+        attemptCount: lockMetadata.attemptCount,
+        linked: lockMetadata.linkedIdentifiers,
+      });
+      
       if (isIPBlocked(ip)) {
         const record = ipBlockList.get(ip);
         const minutesLeft = Math.ceil((record.blockedUntil - Date.now()) / 60000);
@@ -636,7 +642,10 @@ const authController = {
         actorTenantId,
         actorStatus: req.user.status,
         correlation_id: correlationId,
-        isFinalRejection: isFinalRejection === true,
+        isFinalRejection:
+          isFinalRejection === true ||
+          isFinalRejection === 'true' ||
+          isFinalRejection === 1,
       });
 
       res.status(200).json({ status: 'success', data: result });

@@ -473,8 +473,8 @@ const AuthPage = () => {
 
     const snap = revisionContext?.tempSnapshot || {};
     const identitySeed = {
-      phone: data.phone || snap.phone || '',
-      email: data.email || snap.email || '',
+      phone: snap.phone || data.phone || '',
+      email: snap.email || data.email || '',
     };
 
     const merged = {
@@ -579,8 +579,8 @@ const AuthPage = () => {
 
       const snap = revisionContext?.tempSnapshot || {};
       const identitySeed = {
-        phone: confirmedData.phone || snap.phone || '',
-        email: confirmedData.email || snap.email || '',
+        phone: snap.phone || confirmedData.phone || '',
+        email: snap.email || confirmedData.email || '',
       };
 
       const finalPayload = {

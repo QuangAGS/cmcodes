@@ -40,6 +40,21 @@ const STATUS_LABELS = {
   BI_KHOA: 'Đang bị khóa',
 };
 
+// PR-OP-4 helper trong component hoặc ngoài file
+const getStatusLabel = (item) => {
+  if (item.status === 'TU_CHOI' && item.isFinalRejection) {
+    return 'Từ chối lần cuối';
+  }
+  return STATUS_LABELS[item.status] || item.status;
+};
+
+const getStatusBadgeClass = (item) => {
+  if (item.status === 'TU_CHOI' && item.isFinalRejection) {
+    return 'bg-rose-100 text-rose-900 border-rose-400';
+  }
+  return STATUS_BADGES[item.status] || 'bg-slate-50';
+};
+
 const AdminUserApprovalPage = () => {
   const { user: currentUser } = useAuth();
   const navigate = useNavigate();
@@ -109,6 +124,10 @@ const AdminUserApprovalPage = () => {
             email: actualUser.email || item.email || 'Chưa có email',
             status: actualUser.status || item.status || 'CHO_DUYET',
             role: actualUser.role || item.role || 'MEMBER',
+            // PR-OP-4: từ chối lần cuối (từ BE queryReviewableUsers)
+            isFinalRejection:
+              actualUser.isFinalRejection === true ||
+              item.isFinalRejection === true,
 
             // 🏛️ LỚP 2: Các trường bổ sung đặc hiệu để Admin đối chiếu hồ sơ (Vừa bổ sung)
             birth_year: registrationBirthYear,
@@ -226,8 +245,13 @@ const AdminUserApprovalPage = () => {
           userId,
           newStatus: formData.newStatus,
           adminNote,
+          isFinalRejection: formData.isFinalRejection === true,
         });
-        toast.success('Cập nhật trạng thái tài khoản thành công!');
+        toast.success(
+          formData.isFinalRejection
+            ? 'Đã gắn từ chối lần cuối.'
+            : 'Cập nhật trạng thái tài khoản thành công!'
+        );
       }
 
       setSelectedUser(null);
@@ -366,8 +390,15 @@ const AdminUserApprovalPage = () => {
                     <span className="text-base font-black tracking-tight text-slate-900">
                       {item.temp_full_name}
                     </span>
+                    {/* ***************
                     <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider ${STATUS_BADGES[item.status] || 'bg-slate-50'}`}>
-                      {STATUS_LABELS[item.status] || item.status}
+                        {STATUS_LABELS[item.status] || item.status}
+                    </span>
+                    *****************  */}
+                    <span
+                      className={`rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider ${getStatusBadgeClass(item)}`}
+                    >
+                      {getStatusLabel(item)}
                     </span>
                   </div>
                   

@@ -1,7 +1,7 @@
 /**
  * PATH       : src/features/admin/components/UserApprovalForm.jsx
  * DATETIME   : 2026-08-04T17:20:00+07:00
- * VERSION    : 14.4.2-PR-OP-4-R1
+ * VERSION    : 14.4.3-PR-OP-4-FINAL-LABEL
  * DESCRIPTION:
  * - TỐI ƯU UX MOBILE SCREEN: Label nhử động (Xem chi tiết / Thu gọn) trên 3 Khung.
  * - [14.4.2-R1] Option trạng thái theo nguồn user:
@@ -25,9 +25,14 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
 
   const currentUserStatus = userCore.status || raw.status || 'CHO_DUYET';
 
-  const resolveDefaultNewStatus = (status) => {
+  // PR-OP-4: từ BE query / list normalize
+  const isFinalRejectionRecord =
+    userCore.isFinalRejection === true ||
+    raw.isFinalRejection === true;
+
+  const resolveDefaultNewStatus = (status, isFinal) => {
     if (status === 'CHO_DUYET') return 'DA_DUYET';
-    if (status === 'TU_CHOI') return 'CHO_DUYET';
+    if (status === 'TU_CHOI' && !isFinal) return 'CHO_DUYET';
     return '';
   };
 
@@ -55,11 +60,14 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
   // PR-OP-4R2: Add isFinalRejection to formState for final rejection handling
   const [formState, setFormState] = useState({
     userId: userCore.id || raw.id,
-    newStatus: resolveDefaultNewStatus(currentUserStatus),
+    newStatus: resolveDefaultNewStatus(
+      currentUserStatus,
+      isFinalRejectionRecord
+    ),
     adminNote: userCore.adminNote || '',
     tenantId: tenant?.id || null,
     newTenantStatus: tenant?.status || 'CHO_DUYET',
-    isFinalRejection: false, // R2
+    isFinalRejection: false,
   });
 
   const handleToggleJson = (key, e) => {
@@ -71,18 +79,32 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
     setOpenBlocks((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const handleLocalSubmit = (e) => {
-    e.preventDefault();
-    if (!formState.adminNote || formState.adminNote.trim() === '') {
-      alert('Vui lòng nhập Bút phê / Ghi chú của Admin trước khi lưu Sổ Cái.');
-      return;
-    }
-    if (!formState.newStatus) {
-      alert('Trạng thái hiện tại không cho phép thao tác tại form này.');
-      return;
-    }
-    onSubmit(formState);
-  };
+    const handleLocalSubmit = (e) => {
+      e.preventDefault();
+      if (!formState.adminNote || formState.adminNote.trim() === '') {
+        alert('Vui lòng nhập Bút phê / Ghi chú của Admin trước khi lưu Sổ Cái.');
+        return;
+      }
+      if (!formState.newStatus) {
+        alert('Trạng thái hiện tại không cho phép thao tác tại form này.');
+        return;
+      }
+
+      let newStatus = formState.newStatus;
+      let isFinalRejection = formState.isFinalRejection === true;
+
+      // Không bao giờ gửi FINAL_REJECT lên API
+      if (newStatus === 'FINAL_REJECT') {
+        newStatus = 'TU_CHOI';
+        isFinalRejection = true;
+      }
+
+      onSubmit({
+        ...formState,
+        newStatus,
+        isFinalRejection,
+      });
+    };
 
   const renderPrettyJson = (obj) => {
     if (!obj) {
@@ -206,9 +228,18 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
                 Trạng thái hiện tại:
               </span>
               <span className="font-bold text-slate-800">
-                {currentUserStatus}
+                {isFinalRejectionRecord
+                  ? 'TU_CHOI · Từ chối lần cuối'
+                  : currentUserStatus}
               </span>
             </div>
+
+            {isFinalRejectionRecord && (
+              <p className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800">
+                Hồ sơ đã từ chối lần cuối. Không thể mở lại qua quy trình
+                reopen.
+              </p>
+            )}
 
             <div className="bg-indigo-50/40 rounded-xl p-3.5 border border-indigo-100/60 grid grid-cols-1 gap-3">
               <div>
@@ -236,10 +267,16 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
                       ...p,
                       newStatus: v,
                       isFinalRejection:
-                        v === 'TU_CHOI' ? p.isFinalRejection : false,
+                        currentUserStatus === 'TU_CHOI' && v === 'TU_CHOI'
+                          ? true
+                          : v === 'TU_CHOI'
+                            ? p.isFinalRejection
+                            : false,
                     }));
                   }}
-                  disabled={currentUserStatus === 'DA_DUYET'}
+                  disabled={
+                    currentUserStatus === 'DA_DUYET' || isFinalRejectionRecord
+                  }
                 >
                   {currentUserStatus === 'CHO_DUYET' && (
                     <>
@@ -248,9 +285,17 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
                       <option value="RETURN_FOR_REVISION">[BỔ SUNG] Yêu cầu bổ sung hồ sơ (trả về sửa)</option>
                     </>
                   )}
-                  {currentUserStatus === 'TU_CHOI' && (
-                    <option value="CHO_DUYET">
-                      [CHO_DUYET] Mở lại hồ sơ
+                  {currentUserStatus === 'TU_CHOI' &&
+                    !isFinalRejectionRecord && (
+                    <>
+                      <option value="CHO_DUYET">[CHO_DUYET] Mở lại hồ sơ</option>
+                      <option value="TU_CHOI">[TU_CHOI] Từ chối lần cuối</option>
+                    </>
+                  )}
+                  {currentUserStatus === 'TU_CHOI' &&
+                    isFinalRejectionRecord && (
+                    <option value="">
+                      Đã từ chối lần cuối — không mở lại tại form này
                     </option>
                   )}
                   {currentUserStatus === 'DA_DUYET' && (
@@ -274,6 +319,8 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
                     type="checkbox"
                     className="mt-0.5 shrink-0"
                     checked={formState.isFinalRejection === true}
+                    // Bỏ disabled — cho tick/bỏ tick khi CHO_DUYET → Từ chối
+                    // Khi nguồn TU_CHOI + option Từ chối lần cuối: vẫn có thể giữ checked nhờ onChange select
                     onChange={(e) =>
                       setFormState((p) => ({
                         ...p,
@@ -282,8 +329,7 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
                     }
                   />
                   <span className="font-bold text-rose-800 leading-relaxed">
-                    Từ chối lần cuối — không cho mở lại hồ sơ qua quy trình
-                    reopen.
+                    Từ chối lần cuối — không cho mở lại hồ sơ qua quy trình reopen.
                   </span>
                 </label>
               )}
@@ -562,7 +608,11 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
         </button>
         <button
           type="submit"
-          disabled={loading || currentUserStatus === 'DA_DUYET'}
+          disabled={
+            loading ||
+            currentUserStatus === 'DA_DUYET' ||
+            isFinalRejectionRecord
+          }
           className="rounded-xl bg-slate-900 px-6 py-2.5 text-xs font-black text-white shadow-md hover:bg-slate-800 transition disabled:opacity-50 inline-flex items-center gap-1.5"
         >
           <Save size={14} />{' '}

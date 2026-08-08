@@ -1,8 +1,9 @@
 /**
  * PATH       : src/modules/auth/auth.service.js
  * DATETIME   : 2026-08-04
- * VERSION    : PR-OP-4-R1
+ * VERSION    : 20.2.5-PR-OP-4-Enhancement
  * DESCRIPTION:
+ * - PR-OP-4-Enhancement: Cờ từ chối lần cuối (UI list/form) — không đổi users.status
  * - Admin trả về sửa: giữ CHO_DUYET; case → NEEDS_REVISION + review_note.
  * - B1: isRevision không JWT; xác thực phone/password.
  * - PR-OP-3:getMyOnboardingCase + revision submit
@@ -43,9 +44,11 @@
    * - B1: isRevision không JWT; xác thực phone/password.
    * - Chỉ CHO_DUYET; khóa phone/email; cập nhật temp_*.
    * - Case NEEDS_REVISION → SUBMITTED. Không tạo user/tenant/member.
- * PR-OP-4-R1:
+ * 20.2.5-PR-OP-4-R1:
    * - Admin trả về sửa: giữ CHO_DUYET; case → NEEDS_REVISION + review_note.
    * - Không tạo member, không đổi tenant, không đổi users.status.
+ * 20.2.5-PR-OP-4-Enhancement:
+   * - Trong enrichedData, với mỗi user, trước return { ... }: cờ từ chối lần cuối (UI list/form) — không đổi users.status
 */
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -318,6 +321,7 @@ const authService = {
         tenantId: user.tenant_id || null,
         clanName: user.tenants?.name || null,
         tenantSlug: user.tenants?.slug || null,
+        description: user.tenants?.description || null,
         // Phân luồng Join vs Create (PR-OP-4 CLAN_SETUP)
         role: user.role || null,
         isNewClan: user.role === 'CLAN_ADMIN',
@@ -1655,6 +1659,30 @@ const authService = {
           });
         }
        
+        // PR-OP-4-Enhancement: cờ từ chối lần cuối (UI list/form) — không đổi users.status
+        let isFinalRejection = false;
+        if (user.status === 'TU_CHOI') {
+          try {
+            const rejectedCase = await basePrisma.onboarding_cases.findFirst({
+              where: {
+                user_id: user.id,
+                status: 'REJECTED',
+                deleted_at: null,
+              },
+              orderBy: { created_at: 'desc' },
+              select: { metadata: true },
+            });
+            const meta =
+              rejectedCase?.metadata &&
+              typeof rejectedCase.metadata === 'object'
+                ? rejectedCase.metadata
+                : {};
+            isFinalRejection = meta.is_final_rejection === true;
+          } catch (e) {
+            console.error('[queryReviewableUsers][isFinal]', e.message || e);
+          }
+        }
+
         return {
           id: user.id,
           name: user.name,
@@ -1662,6 +1690,7 @@ const authService = {
           phone: user.phone,
           status: user.status, 
           role: user.role,
+          isFinalRejection, // ← thêm cờ từ chối lần cuối (UI list/form) — không đổi users.status
           created_at: user.created_at,
           updated_at: user.updated_at,
           temp_snapshot: {
@@ -1734,7 +1763,11 @@ const authService = {
       isFinalRejection, // PR-OP-4R2
     } = payload;
 
-    const finalRejection = isFinalRejection === true;
+    //const finalRejection = isFinalRejection === true;
+    const finalRejection =
+      isFinalRejection === true ||
+      isFinalRejection === 'true' ||
+      isFinalRejection === 1;
 
     // --- Validate input ---
     
@@ -1754,6 +1787,31 @@ const authService = {
     }
     if (sourceUser.status === 'TU_CHOI' && newStatus === 'CHO_DUYET') {
       return authService.reopenRejectedUser({
+        userId,
+        adminNote,
+        actorId,
+        role,
+        actorTenantId,
+        actorStatus,
+        correlation_id: correlation_id || correlationIdCamel || undefined,
+      });
+    }
+
+    // DEBUG tạm (xóa sau)
+    console.log('[processUserApproval bridge]', {
+      sourceStatus: sourceUser.status,
+      newStatus,
+      isFinalRejection,
+      finalRejection,
+    });
+
+    // Bridge: TU_CHOI → TU_CHOI + final = chỉ gắn cờ final (không đổi status user)
+    if (
+      sourceUser.status === 'TU_CHOI' &&
+      newStatus === 'TU_CHOI' &&
+      finalRejection // đã = isFinalRejection === true
+    ) {
+      return authService.markFinalRejection({
         userId,
         adminNote,
         actorId,
@@ -1911,6 +1969,25 @@ const authService = {
           });
         }
 
+        // --- CLAN_SETUP: Reject → tenant TU_CHOI ---
+        // Chỉ founder CLAN_ADMIN; tenant còn trong vòng onboarding (CHO_DUYET).
+        // Final / không final: cùng status tenant TU_CHOI.
+        if (
+          newStatus === 'TU_CHOI' &&
+          targetUser.role === 'CLAN_ADMIN' &&
+          targetUser.tenant_id &&
+          targetUser.tenants &&
+          targetUser.tenants.status === 'CHO_DUYET'
+        ) {
+          updatedTenantData = await tx.tenants.update({
+            where: { id: targetUser.tenant_id },
+            data: {
+              status: 'TU_CHOI',
+              changed_by: actorId,
+            },
+          });
+        }
+
         // --- Case open → APPROVED | REJECTED ---
         try {
           const openCase = await tx.onboarding_cases.findFirst({
@@ -2027,17 +2104,22 @@ const authService = {
         );
 
         // --- Audit tenant (nếu có) ---
+        // PR-OP-4 CLAN_SETUP: DA_DUYET → TAM_NGUNG | TU_CHOI → TU_CHOI
         if (updatedTenantData) {
+          const statusBefore =
+            targetUser.tenants?.status ||
+            null;
+
           await auditService.logAction(
             'CAP_NHAT',
             'tenants',
             targetUser.tenant_id,
-            { status: 'CHO_DUYET' },
+            { status: statusBefore },
             { status: updatedTenantData.status },
             actorId,
             finalReason,
             targetUser.tenant_id,
-            C, // ← dùng C, không correlation_id cũ
+            C,
             tx
           );
         }
@@ -2148,8 +2230,6 @@ const authService = {
       throw error;
     }
 
-
-
     const C =
       correlation_id ||
       correlationIdCamel ||
@@ -2163,10 +2243,7 @@ const authService = {
     });
     const currentAttemptNo = pastAttemptsCount + 1;
 
-    let securityLogIdentifier = 'unknown';
-    let result = null;
-
-    result = await basePrisma.$transaction(
+    const result = await basePrisma.$transaction(
       async (tx) => {
         const targetUser = await tx.users.findUnique({
           where: { id: userId },
@@ -2199,7 +2276,6 @@ const authService = {
         if (role === 'CLAN_ADMIN' && actorStatus !== 'DA_DUYET') {
           throw new Error('DENIED');
         }
-        // Từng CreateClan (CLAN_ADMIN) → chỉ SYSTEM_ADMIN reopen
         if (targetUser.role === 'CLAN_ADMIN' && role !== 'SYSTEM_ADMIN') {
           throw new Error('DENIED');
         }
@@ -2207,11 +2283,47 @@ const authService = {
           throw new Error('DENIED');
         }
 
-        securityLogIdentifier = targetUser.phone || targetUser.email || 'unknown';
         const snapshotName =
           targetUser.temp_full_name || targetUser.name || 'Thành viên ẩn danh';
         const oldUserStatus = targetUser.status;
         const finalReason = adminNote.trim();
+
+        // Case REJECTED gần nhất + metadata (TRƯỚC khi check final)
+        let caseType =
+          targetUser.role === 'CLAN_ADMIN' ? 'CLAN_SETUP' : 'MEMBER_JOIN';
+
+        const lastRejectedCase = await tx.onboarding_cases.findFirst({
+          where: {
+            user_id: userId,
+            status: 'REJECTED',
+            deleted_at: null,
+          },
+          orderBy: { created_at: 'desc' },
+          select: {
+            id: true,
+            case_type: true,
+            metadata: true,
+          },
+        });
+
+        if (lastRejectedCase?.case_type) {
+          caseType = lastRejectedCase.case_type;
+        }
+
+        const lastRejectedMeta =
+          lastRejectedCase?.metadata &&
+          typeof lastRejectedCase.metadata === 'object'
+            ? lastRejectedCase.metadata
+            : {};
+
+        if (lastRejectedMeta.is_final_rejection === true) {
+          const error = new Error(
+            'Hồ sơ đã bị từ chối lần cuối. Không thể mở lại.'
+          );
+          error.status = 403;
+          error.code = 'FINAL_REJECTION';
+          throw error;
+        }
 
         // users → CHO_DUYET
         await tx.users.update({
@@ -2222,22 +2334,45 @@ const authService = {
           },
         });
 
-        // caseType: từ case REJECTED gần nhất hoặc theo role
-        let caseType = targetUser.role === 'CLAN_ADMIN' ? 'CLAN_SETUP' : 'MEMBER_JOIN';
-        const lastRejectedCase = await tx.onboarding_cases.findFirst({
-          where: {
-            user_id: userId,
-            status: 'REJECTED',
-            deleted_at: null,
-          },
-          orderBy: { created_at: 'desc' },
-          select: { id: true, case_type: true },
-        });
-        if (lastRejectedCase?.case_type) {
-          caseType = lastRejectedCase.case_type;
+        // CLAN_SETUP: tenant TU_CHOI → CHO_DUYET
+        if (targetUser.role === 'CLAN_ADMIN' && targetUser.tenant_id) {
+          const tenantRow = await tx.tenants.findUnique({
+            where: { id: targetUser.tenant_id },
+            select: { id: true, status: true },
+          });
+
+          if (tenantRow && tenantRow.status === 'TU_CHOI') {
+            await tx.tenants.update({
+              where: { id: tenantRow.id },
+              data: {
+                status: 'CHO_DUYET',
+                changed_by: actorId,
+              },
+            });
+
+            try {
+              await auditService.logAction(
+                'CAP_NHAT',
+                'tenants',
+                tenantRow.id,
+                { status: 'TU_CHOI' },
+                { status: 'CHO_DUYET' },
+                actorId,
+                finalReason,
+                targetUser.tenant_id,
+                C,
+                tx
+              );
+            } catch (auditErr) {
+              console.error(
+                '[reopen][tenant audit]',
+                auditErr.message || auditErr
+              );
+            }
+          }
         }
 
-        // Case mới: create (SUBMITTED) → update NEEDS_REVISION + review_note
+        // Case mới
         const newCase = await onboardingService.createCaseFromRegister({
           correlationId: C,
           caseType,
@@ -2260,7 +2395,6 @@ const authService = {
           client: tx,
         });
 
-        // BPL
         await businessLogger.createLog(
           {
             correlation_id: C,
@@ -2287,7 +2421,6 @@ const authService = {
           tx
         );
 
-        // Audit
         await auditService.logAction(
           'CAP_NHAT',
           'users',
@@ -2311,21 +2444,10 @@ const authService = {
       { maxWait: 5000, timeout: 15000 }
     );
 
-      /* Auth log (fail-open): Bỏ do không hợp lý về nghiệp vụ reopen
-       await authLogService.logAttempt({
-        identifier: targetUser.phone || targetUser.email || targetUser.id,
-        ip_address: 'system_internal',
-        user_agent: 'server_orchestrator',
-        status: 'THANH_CONG',
-        failure_reason: 'REOPEN_REJECTED_TO_CHO_DUYET',
-        action_type: 'REOPEN_REJECTED', // ← bắt buộc nếu giữ log
-      });
-      */
-
-    // Notif orchestrator (fail-open, C mới)
+    // Notif orchestrator (fail-open)
     try {
       await notificationOrchestrator.emit(
-        'ONBOARDING_REVISION_REQUESTED', // hoặc 'USER_APPROVAL_PENDING'
+        'ONBOARDING_REVISION_REQUESTED',
         {
           userId: result.id,
           correlationId: C,
@@ -2341,8 +2463,211 @@ const authService = {
         null
       );
     } catch (emitError) {
-      console.error('[EGAL][SilentEmit][USER_REOPENED]', emitError.message || emitError);
+      console.error(
+        '[EGAL][SilentEmit][USER_REOPENED]',
+        emitError.message || emitError
+      );
     }
+
+    return result;
+  },
+
+  /**
+   * PR-OP-4: User đã TU_CHOI → gắn từ chối lần cuối (không đổi users.status).
+   * Không cho reopen sau đó.
+   */
+  markFinalRejection: async (payload) => {
+    const {
+      userId,
+      adminNote,
+      actorId,
+      role,
+      actorTenantId,
+      actorStatus,
+      correlation_id,
+      correlationId: correlationIdCamel,
+    } = payload;
+
+    if (!userId) {
+      const error = new Error('Thiếu userId.');
+      error.status = 400;
+      throw error;
+    }
+    if (!adminNote || adminNote.trim() === '') {
+      const error = new Error('Ghi chú từ chối lần cuối không được để trống.');
+      error.status = 400;
+      throw error;
+    }
+
+    const C =
+      correlation_id ||
+      correlationIdCamel ||
+      prisma.correlation.create();
+
+    const pastAttemptsCount = await basePrisma.business_process_logs.count({
+      where: {
+        process_type: 'USER_APPROVAL',
+        metadata: { path: ['context', 'target_id'], equals: userId },
+      },
+    });
+    const currentAttemptNo = pastAttemptsCount + 1;
+
+    const result = await basePrisma.$transaction(
+      async (tx) => {
+        const targetUser = await tx.users.findUnique({
+          where: { id: userId },
+          select: {
+            id: true,
+            tenant_id: true,
+            status: true,
+            phone: true,
+            email: true,
+            name: true,
+            temp_full_name: true,
+            role: true,
+          },
+        });
+
+        if (!targetUser) {
+          throw new Error('Không tìm thấy tài khoản.');
+        }
+
+        // Chỉ user đang TU_CHOI
+        if (targetUser.status !== 'TU_CHOI') {
+          throw new Error('DENIED');
+        }
+
+        // Authz (cùng reopen)
+        if (actorId === userId) {
+          throw new Error('DENIED');
+        }
+        if (role === 'CLAN_ADMIN' && actorStatus !== 'DA_DUYET') {
+          throw new Error('DENIED');
+        }
+        if (targetUser.role === 'CLAN_ADMIN' && role !== 'SYSTEM_ADMIN') {
+          throw new Error('DENIED');
+        }
+        if (role !== 'SYSTEM_ADMIN' && targetUser.tenant_id !== actorTenantId) {
+          throw new Error('DENIED');
+        }
+
+        const finalReason = adminNote.trim();
+        const snapshotName =
+          targetUser.temp_full_name || targetUser.name || 'Thành viên ẩn danh';
+
+        // Case REJECTED gần nhất
+        const rejectedCase = await tx.onboarding_cases.findFirst({
+          where: {
+            user_id: userId,
+            status: 'REJECTED',
+            deleted_at: null,
+          },
+          orderBy: { created_at: 'desc' },
+        });
+
+        if (!rejectedCase) {
+          const error = new Error(
+            'Không tìm thấy hồ sơ từ chối để gắn cờ từ chối lần cuối.'
+          );
+          error.status = 400;
+          throw error;
+        }
+
+        const prevMeta =
+          rejectedCase.metadata && typeof rejectedCase.metadata === 'object'
+            ? rejectedCase.metadata
+            : {};
+
+        if (prevMeta.is_final_rejection === true) {
+          const error = new Error(
+            'Hồ sơ đã được từ chối lần cuối. Không thể thao tác lại.'
+          );
+          error.status = 400;
+          error.code = 'FINAL_REJECTION';
+          throw error;
+        }
+
+        await tx.onboarding_cases.update({
+          where: { id: rejectedCase.id },
+          data: {
+            metadata: {
+              ...prevMeta,
+              is_final_rejection: true,
+              final_rejected_at: new Date().toISOString(),
+              final_rejected_by: actorId,
+              final_note: finalReason,
+            },
+            review_note: finalReason,
+            changed_by: actorId,
+          },
+        });
+
+        // users.status GIỮ TU_CHOI — không update status
+
+        // CLAN_SETUP: tenant onboarding → TU_CHOI (nếu còn CHO_DUYET)
+        if (targetUser.role === 'CLAN_ADMIN' && targetUser.tenant_id) {
+          const tenantRow = await tx.tenants.findUnique({
+            where: { id: targetUser.tenant_id },
+            select: { id: true, status: true },
+          });
+          if (tenantRow && tenantRow.status === 'CHO_DUYET') {
+            await tx.tenants.update({
+              where: { id: tenantRow.id },
+              data: { status: 'TU_CHOI', changed_by: actorId },
+            });
+          }
+        }
+
+        await businessLogger.createLog(
+          {
+            correlation_id: C,
+            attempt_no: currentAttemptNo,
+            process_type: 'USER_APPROVAL',
+            actor_type: 'USER',
+            actor_id: actorId,
+            tenant_id: targetUser.tenant_id,
+            process_status: 'SUCCESS',
+            context: {
+              target_id: userId,
+              target_name: snapshotName,
+              attempt_no: currentAttemptNo,
+            },
+            payload: {
+              action: 'FINAL_REJECT',
+              is_final: true,
+              admin_note: finalReason,
+              status_before: 'TU_CHOI',
+              status_after: 'TU_CHOI',
+              case_id: rejectedCase.id,
+              attempt_no: currentAttemptNo,
+            },
+          },
+          tx
+        );
+
+        await auditService.logAction(
+          'CAP_NHAT',
+          'onboarding_cases',
+          rejectedCase.id,
+          { is_final_rejection: false },
+          { is_final_rejection: true, final_note: finalReason },
+          actorId,
+          finalReason,
+          targetUser.tenant_id,
+          C,
+          tx
+        );
+
+        return {
+          id: targetUser.id,
+          status: 'TU_CHOI',
+          isFinalRejection: true,
+          caseId: rejectedCase.id,
+          correlationId: C,
+        };
+      },
+      { maxWait: 5000, timeout: 15000 }
+    );
 
     return result;
   },

@@ -859,20 +859,28 @@ const CreateClanForm = ({
   }, []);
 
   useEffect(() => {
+    if (isRevision) {
+      setOnlineErrors((prev) => ({ ...prev, phone: '' }));
+      return;
+    }
     if (formValues.phone && !errors.phone) {
       checkIdentityOnline('phone', formValues.phone);
     } else {
       setOnlineErrors((prev) => ({ ...prev, phone: '' }));
     }
-  }, [formValues.phone, errors.phone, checkIdentityOnline]);
+  }, [formValues.phone, errors.phone, checkIdentityOnline, isRevision]);
 
   useEffect(() => {
+    if (isRevision) {
+      setOnlineErrors((prev) => ({ ...prev, email: '' }));
+      return;
+    }
     if (formValues.email && !errors.email) {
       checkIdentityOnline('email', formValues.email);
     } else {
       setOnlineErrors((prev) => ({ ...prev, email: '' }));
     }
-  }, [formValues.email, errors.email, checkIdentityOnline]);
+  }, [formValues.email, errors.email, checkIdentityOnline, isRevision]);
 
   const getProgressionValidationState = useCallback(
     (values = getValues()) => {
@@ -885,18 +893,19 @@ const CreateClanForm = ({
         !!values?.temp_relationship &&
         !!values?.temp_note?.trim?.();
 
+      // PR-OP-4: revision — phone/email đã thuộc user, không bắt uniqueness
       const contactInfoOk =
         !!values?.phone?.trim?.() &&
         !!values?.email?.trim?.() &&
-        !onlineErrors.phone &&
-        !onlineErrors.email &&
-        !isChecking.phone &&
-        !isChecking.email;
+        (isRevision ||
+          (!onlineErrors.phone &&
+            !onlineErrors.email &&
+            !isChecking.phone &&
+            !isChecking.email));
 
       const securityInfoOk =
         !!values?.password?.trim?.() &&
-        !isChecking.phone &&
-        !isChecking.email;
+        (isRevision || (!isChecking.phone && !isChecking.email));
 
       return {
         validFields: {
@@ -919,7 +928,7 @@ const CreateClanForm = ({
         },
       };
     },
-    [getValues, guidedFlow, isChecking, onlineErrors]
+    [getValues, guidedFlow, isChecking, onlineErrors, isRevision]
   );
 
   const advanceAttentionByProgression = useCallback(

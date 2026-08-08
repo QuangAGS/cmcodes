@@ -11,16 +11,26 @@ export const looksLikePhone = (v) => {
 };
 
 export const resolveRevisionPhone = (lockedIdentifier, initialData, currentPhone) => {
-  if (initialData?.phone) return String(initialData.phone).trim();
-  if (looksLikePhone(lockedIdentifier)) return String(lockedIdentifier).trim();
-  if (currentPhone && looksLikePhone(currentPhone))
+  if (initialData?.phone && looksLikePhone(initialData.phone)) {
+    return String(initialData.phone).trim();
+  }
+  if (looksLikePhone(lockedIdentifier)) {
+    return String(lockedIdentifier).trim();
+  }
+  if (currentPhone && looksLikePhone(currentPhone)) {
     return String(currentPhone).trim();
-  return String(currentPhone || '').trim();
+  }
+  return '';
 };
 
 export const resolveRevisionEmail = (lockedIdentifier, initialData, currentEmail) => {
-  if (initialData?.email) return String(initialData.email).trim();
+  if (initialData?.email && String(initialData.email).includes('@')) {
+    return String(initialData.email).trim();
+  }
   const id = String(lockedIdentifier || '').trim();
   if (id.includes('@')) return id;
-  return String(currentEmail || '').trim();
+  if (currentEmail && String(currentEmail).includes('@')) {
+    return String(currentEmail).trim();
+  }
+  return '';
 };
