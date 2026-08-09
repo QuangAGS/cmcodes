@@ -583,11 +583,31 @@ const AuthPage = () => {
         email: snap.email || confirmedData.email || '',
       };
 
+      const isRevisionFlow =
+        registerRevisionMode === true || confirmedData.isRevision === true;
+
+      const isNewClan =
+        confirmedData.isNewClan === true ||
+        snap.isNewClan === true ||
+        snap.role === 'CLAN_ADMIN' ||
+        confirmedData.role === 'CLAN_ADMIN';
+
+      // PR-OP-4 2.2: mô tả / tên dòng họ — ưu tiên form, fallback snapshot
+      const descriptionRaw =
+        confirmedData.description ??
+        confirmedData.clanDescription ??
+        snap.description ??
+        snap.clanDescription ??
+        null;
+
+      const clanNameRaw =
+        confirmedData.clanName ?? snap.clanName ?? null;
+
       const finalPayload = {
         ...confirmedData,
         turnstileToken: confirmedData.turnstileToken,
         hp_field: confirmedData.hp_field || '',
-        ...(registerRevisionMode || confirmedData.isRevision
+        ...(isRevisionFlow
           ? {
               isRevision: true,
               phone: resolveRevisionPhone(
@@ -601,10 +621,21 @@ const AuthPage = () => {
                   identitySeed,
                   confirmedData.email
                 ) || null,
-              isNewClan:
-                confirmedData.isNewClan === true ||
-                snap.isNewClan === true ||
-                snap.role === 'CLAN_ADMIN',
+              isNewClan,
+              // CLAN_SETUP revision → BE submitRegistrationRevision cập nhật tenants
+              ...(isNewClan
+                ? {
+                    description:
+                      descriptionRaw != null
+                        ? String(descriptionRaw).trim()
+                        : undefined,
+                    clanName:
+                      clanNameRaw != null &&
+                      String(clanNameRaw).trim() !== ''
+                        ? String(clanNameRaw).trim()
+                        : undefined,
+                  }
+                : {}),
             }
           : {}),
       };
@@ -612,13 +643,12 @@ const AuthPage = () => {
       await register(finalPayload);
 
       toast.success(
-        registerRevisionMode || confirmedData.isRevision
+        isRevisionFlow
           ? 'Hồ sơ bổ sung đã được gửi lại!'
           : 'Hồ sơ đã được gửi thành công!'
       );
-      //PR-OP-4: clear cờ revision sau khi gửi thành công
+
       setRegisterRevisionMode(false);
-      // setRevisionContext(null); // optional — xóa note/context; có thể giữ nếu Result còn cần
       setView('result');
     } catch (err) {
       console.error('[AuthPage] Register error:', err);
@@ -647,7 +677,7 @@ const AuthPage = () => {
           speak(safeMessage, { rate: 0.82 });
           return;
         }
-        speakError?.(safeMessage);
+        speakError?.(safeError?.(safeMessage));
       });
     } finally {
       setIsSubmitting(false);

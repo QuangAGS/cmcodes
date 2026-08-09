@@ -798,6 +798,11 @@ const CreateClanForm = ({
    * Fail-safe:
    * network error does not block transition.
    */
+    /**
+   * Online uniqueness validation
+   * - phone / email
+   * - network error: KHÔNG fail-open (chặn sang Waiting)
+   */
   const checkIdentityOnline = useCallback(async (type, value) => {
     const normalizedValue = String(value || '').trim();
 
@@ -817,9 +822,9 @@ const CreateClanForm = ({
       });
 
       if (res.data?.available === false) {
-        const message = `${
-          type === 'phone' ? 'Số điện thoại' : 'Email'
-        } này đã được sử dụng.`;
+        const message =
+          res.data?.message ||
+          `${type === 'phone' ? 'Số điện thoại' : 'Email'} này đã được sử dụng.`;
 
         setOnlineErrors((prev) => ({
           ...prev,
@@ -842,16 +847,20 @@ const CreateClanForm = ({
         message: '',
       };
     } catch (err) {
-      console.error(`Lỗi check ${type}:`, err);
+      console.error(`[CreateClan][checkIdentityOnline][${type}]`, err);
+      const message =
+        type === 'phone'
+          ? 'Không kiểm tra được số điện thoại lúc này. Bác vui lòng thử lại.'
+          : 'Không kiểm tra được email lúc này. Bác vui lòng thử lại.';
 
       setOnlineErrors((prev) => ({
         ...prev,
-        [type]: '',
+        [type]: message,
       }));
 
       return {
-        valid: true,
-        message: '',
+        valid: false,
+        message,
       };
     } finally {
       setIsChecking((prev) => ({ ...prev, [type]: false }));
@@ -1862,7 +1871,7 @@ const CreateClanForm = ({
                           
                         }}
                         readOnly={isRevision} // KHÔNG dùng disabled={isRevision}
-                        className={`${uiSystem.input} ${
+                        className={`pl-11 ${uiSystem.input} ${
                           isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
                         }`}
                         placeholder="email@example.com"

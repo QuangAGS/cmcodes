@@ -802,7 +802,7 @@ const JoinClanForm = ({
    * - Re-check khi blur và trước transition.
    * - Nếu trùng, đọc lỗi và route về accountInfo.
    */
-  const checkPhoneAvailability = async (phone) => {
+    const checkPhoneAvailability = async (phone) => {
     const normalizedPhone = String(phone || '').trim();
 
     if (!normalizedPhone || normalizedPhone.length < 10) {
@@ -821,7 +821,8 @@ const JoinClanForm = ({
       });
 
       if (res.data?.available === false) {
-        const message = 'Số điện thoại này đã được sử dụng.';
+        const message =
+          res.data?.message || 'Số điện thoại này đã được sử dụng.';
         setPhoneRemoteError(message);
         setAttentionMessage(message);
 
@@ -853,11 +854,14 @@ const JoinClanForm = ({
         message: '',
       };
     } catch (err) {
-      setPhoneRemoteError('');
-
+      console.error('[JoinClan][checkPhoneAvailability]', err);
+      const message =
+        'Không kiểm tra được số điện thoại lúc này. Bác vui lòng thử lại.';
+      setPhoneRemoteError(message);
+      setAttentionMessage(message);
       return {
-        valid: true,
-        message: '',
+        valid: false,
+        message,
       };
     } finally {
       setPhoneChecking(false);
@@ -917,11 +921,14 @@ const JoinClanForm = ({
         message: '',
       };
     } catch (err) {
-      setEmailRemoteError('');
-
+      console.error('[JoinClan][checkEmailAvailability]', err);
+      const message =
+        'Không kiểm tra được email lúc này. Bác vui lòng thử lại.';
+      setEmailRemoteError(message);
+      setAttentionMessage(message);
       return {
-        valid: true,
-        message: '',
+        valid: false,
+        message,
       };
     } finally {
       setEmailChecking(false);
@@ -1872,7 +1879,7 @@ const JoinClanForm = ({
                         }}
                         readOnly={isRevision}
                         //disabled={isRevision}
-                        className={`${uiSystem.input} ${
+                        className={`pl-11 ${uiSystem.input} ${
                           isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
                         }`}
                         placeholder="Email (không bắt buộc)"

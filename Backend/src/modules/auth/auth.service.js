@@ -715,6 +715,7 @@ const authService = {
     }
   },
 
+  //UAT PR-OP-4:Đổi findUnique → findFirst + deleted_at: null cho khớp login/register.
   checkIdentity: async (type, value) => {
     const cleanedValue = cleanInput(value, type);
 
@@ -729,20 +730,20 @@ const authService = {
 
     switch (type) {
       case 'slug':
-        existing = await basePrisma.tenants.findUnique({
-          where: { slug: cleanedValue },
+        existing = await basePrisma.tenants.findFirst({
+          where: { slug: cleanedValue, deleted_at: null },
         });
         break;
 
       case 'email':
-        existing = await basePrisma.users.findUnique({
-          where: { email: cleanedValue },
+        existing = await basePrisma.users.findFirst({
+          where: { email: cleanedValue, deleted_at: null },
         });
         break;
 
       case 'phone':
-        existing = await basePrisma.users.findUnique({
-          where: { phone: cleanedValue },
+        existing = await basePrisma.users.findFirst({
+          where: { phone: cleanedValue, deleted_at: null },
         });
         break;
 
@@ -750,7 +751,16 @@ const authService = {
         throw new Error('INVALID_TYPE');
     }
 
-    return { available: !existing };
+    return {
+      available: !existing,
+      message: existing
+        ? type === 'phone'
+          ? 'Số điện thoại này đã được sử dụng.'
+          : type === 'email'
+            ? 'Email này đã được sử dụng.'
+            : 'Giá trị này đã được sử dụng.'
+        : undefined,
+    };
   },
   
   /**
@@ -2899,6 +2909,9 @@ const authService = {
       temp_branch_name,
       temp_note,
       temp_social_profiles,
+      // PR-OP-4 2.2 CLAN_SETUP revision
+      description,
+      clanName,
     } = payload;
 
     const { ip_address, user_agent, correlationId: incomingCorrelationId } = extraData;
@@ -3011,6 +3024,80 @@ const authService = {
           temp_full_name: true,
         },
       });
+
+      // PR-OP-4 2.2: CLAN_SETUP — cập nhật mô tả (và tên nếu gửi) khi tenant còn onboarding
+      if (
+        user.role === 'CLAN_ADMIN' &&
+        user.tenant_id &&
+        (description !== undefined || clanName !== undefined)
+      ) {
+        const tenantRow = await tx.tenants.findFirst({
+          where: {
+            id: user.tenant_id,
+            deleted_at: null,
+          },
+          select: { id: true, status: true, name: true, description: true },
+        });
+
+        // Chỉ khi tenant chưa kích hoạt dịch vụ
+        const onboardingTenant =
+          tenantRow &&
+          ['CHO_DUYET', 'TU_CHOI', 'TAM_NGUNG'].includes(tenantRow.status);
+
+          if (onboardingTenant) {
+          const tenantData = {
+            changed_by: user.id,
+            ...(description !== undefined
+              ? { description: String(description || '').trim() || null }
+              : {}),
+            // Tên dòng họ: chỉ update nếu client gửi chuỗi không rỗng
+            ...(clanName !== undefined &&
+            String(clanName || '').trim() !== ''
+              ? { name: String(clanName).trim() }
+              : {}),
+          };
+
+          if (Object.keys(tenantData).length > 1) {
+            // >1 vì luôn có changed_by
+            await tx.tenants.update({
+              where: { id: tenantRow.id },
+              data: tenantData,
+            });
+
+            try {
+              await auditService.logAction(
+                'CAP_NHAT',
+                'tenants',
+                tenantRow.id,
+                {
+                  name: tenantRow.name,
+                  description: tenantRow.description,
+                },
+                {
+                  ...(tenantData.name !== undefined
+                    ? { name: tenantData.name }
+                    : {}),
+                  ...(tenantData.description !== undefined
+                    ? { description: tenantData.description }
+                    : {}),
+                },
+                user.id,
+                'REVISION_SUBMIT_TENANT',
+                user.tenant_id,
+                C,
+                tx
+              );
+            } catch (auditTenantErr) {
+              console.error(
+                '[REVISION][AUDIT][TENANT]',
+                auditTenantErr.message || auditTenantErr
+              );
+            }
+          }
+          }
+      }
+
+
 
       let caseId = null;
       const openCase = await tx.onboarding_cases.findFirst({
