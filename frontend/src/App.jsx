@@ -17,6 +17,8 @@ const AuthPage = lazy(() => import('./pages/AuthPage.jsx'));
 const TreePage = lazy(() => import('./pages/TreePage.jsx'));
 const WaitingPage = lazy(() => import('./pages/WaitingPage.jsx'));
 const AdminUserApprovalPage = lazy(() => import('./pages/AdminUserApprovalPage.jsx'));
+const AdminWorkSelectorPage = lazy(() => import('./pages/AdminWorkSelectorPage.jsx'));
+const AdminTenantActivatePage = lazy(() => import('./pages/AdminTenantActivatePage.jsx'));
 
 const ProtectedRoute = ({ children, allowedStatus = 'DA_DUYET' }) => {
   const { user, loading } = useAuth();
@@ -67,6 +69,19 @@ const AppRouter = () => {
           <ProtectedRoute allowedStatus="CHO_DUYET">
             <WaitingPage />
           </ProtectedRoute>
+        } />
+
+        // OP2
+        <Route path="/admin" element={
+          <AdminProtectedRoute>
+            <AdminWorkSelectorPage />
+          </AdminProtectedRoute>
+        } />
+
+        <Route path="/admin/tenant/activate" element={
+          <AdminProtectedRoute>
+            <AdminTenantActivatePage />
+          </AdminProtectedRoute>
         } />
 
         {/* ADMIN APPROVAL - Cho phép cả SYSTEM_ADMIN và CLAN_ADMIN */}

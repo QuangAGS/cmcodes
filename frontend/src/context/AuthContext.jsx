@@ -85,8 +85,8 @@ const resolvePostLoginRedirect = (userData) => {
     return savedRedirect;
   }
 
-  if (userData?.role === 'SYSTEM_ADMIN') {
-    return '/admin/approval';
+  if (userData?.role === 'SYSTEM_ADMIN' || userData?.role === 'CLAN_ADMIN') {
+    return '/admin';
   }
 
   if (userData?.role === 'CLAN_ADMIN') {
