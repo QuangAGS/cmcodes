@@ -1312,6 +1312,7 @@ enum business_process_type {
   USER_REJECTION
   PASSWORD_RESET_REQUESTED
   CLAN_CREATE
+  TENANT_ACTIVATE ///Chuyển tenant sang trạng thái HOAT_DONG
   CLAN_JOIN
   MEMBER_ADD
   MEMBER_REMOVE
