@@ -1,134 +1,280 @@
 /**
  * PATH       : src/pages/AdminWorkSelectorPage.jsx
- * DATETIME   : 2026-08-09T20:15:00+07:00
- * VERSION    : 1.0.0-OP-2
+ * DATETIME   : 2026-08-10T12:05:00+07:00
+ * VERSION    : 1.3.2-OP-2-Logout
  * DESCRIPTION:
- * - OP-2: Trang trung gian (Work Selector) cho SYSTEM_ADMIN / CLAN_ADMIN.
- * - Nếu tenantStatus === TAM_NGUNG → ưu tiên card Kích hoạt dòng họ, khóa các card nặng.
- * - Nếu HOAT_DONG → hiện đầy đủ lựa chọn.
- * - Q1: Không đụng logic Approval / Register hiện có.
+ * - OP-2: Work Selector mobile-first, config-driven.
+ * - Work items từ src/features/admin/constants/adminWorkItems.js.
+ * - SYSTEM_ADMIN: list tenant TAM_NGUNG + quick work items.
+ * - CLAN_ADMIN: filter work items theo tenantStatus.
+ * - Câu chào: phone → email → name.
+ * - Nút Đăng xuất ở 2 vị trí (dưới chào + cuối trang).
+ * - Q1: Không đụng Approval / Register.
  */
 
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext.jsx';
+import { toast } from 'sonner';
 import {
   ShieldCheck,
   Users,
   Building2,
   ChevronRight,
   AlertCircle,
+  Loader2,
+  RefreshCw,
 } from 'lucide-react';
+import { useAuth } from '../context/AuthContext.jsx';
+import apiClient from '../lib/apiClient.js';
+import {
+  SYSTEM_ADMIN_WORK_ITEMS,
+  CLAN_ADMIN_WORK_ITEMS,
+} from '../features/admin/constants/adminWorkItems.js';
+
+const ICON_MAP = {
+  Users,
+  Building2,
+  ShieldCheck,
+};
+
+function getDisplayIdentity(user) {
+  return user?.phone || user?.email || user?.name || 'Quản trị viên';
+}
+
+function LogoutLink({ onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="text-sm font-semibold text-slate-400 underline-offset-2 hover:text-slate-600 hover:underline"
+    >
+      Đăng xuất
+    </button>
+  );
+}
+
+function WorkCard({ item, onClick }) {
+  const Icon = ICON_MAP[item.icon] || Building2;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`
+        flex w-full items-center gap-4 rounded-3xl border p-5 text-left shadow-sm transition active:scale-[0.98]
+        ${
+          item.primary
+            ? 'border-indigo-300 bg-indigo-50 shadow-indigo-100'
+            : 'border-slate-200 bg-white'
+        }
+      `}
+    >
+      <div
+        className={`
+          flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl
+          ${item.primary ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}
+        `}
+      >
+        <Icon className="h-6 w-6" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="font-bold text-slate-800">{item.title}</div>
+        <div className="mt-0.5 text-sm text-slate-500 line-clamp-2">
+          {item.description}
+        </div>
+      </div>
+      <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" />
+    </button>
+  );
+}
 
 const AdminWorkSelectorPage = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const navigate = useNavigate();
 
-  const tenantStatus = user?.tenantStatus || user?.tenant_status || null;
-  const isTamNgung = tenantStatus === 'TAM_NGUNG';
-  const isHoatDong = tenantStatus === 'HOAT_DONG';
   const isSystemAdmin = user?.role === 'SYSTEM_ADMIN';
+  const tenantStatus = user?.tenantStatus || user?.tenant_status || null;
+  const displayIdentity = getDisplayIdentity(user);
 
-  const cards = [
-    {
-      id: 'activate',
-      title: 'Kích hoạt dòng họ',
-      description: 'Chuyển dòng họ từ tạm ngưng sang hoạt động để bắt đầu sử dụng đầy đủ.',
-      icon: Building2,
-      path: '/admin/tenant/activate',
-      visible: isTamNgung || isSystemAdmin,
-      primary: isTamNgung,
-      disabled: !isTamNgung && !isSystemAdmin,
-    },
-    {
-      id: 'approval',
-      title: 'Phê duyệt thành viên',
-      description: 'Duyệt, từ chối hoặc yêu cầu bổ sung hồ sơ đăng ký.',
-      icon: Users,
-      path: '/admin/approval',
-      visible: true,
-      primary: false,
-      disabled: isTamNgung && !isSystemAdmin,
-    },
-    {
-      id: 'dashboard',
-      title: 'Tổng quan quản trị',
-      description: 'Xem thông tin tổng quan dòng họ và các chức năng quản trị khác.',
-      icon: ShieldCheck,
-      path: '/tree',
-      visible: true,
-      primary: false,
-      disabled: isTamNgung && !isSystemAdmin,
-    },
-  ];
+  const handleLogout = () => {
+    logout();
+    navigate('/auth', { replace: true });
+  };
 
+  // ── SYSTEM_ADMIN: tenant list ───────────────────────────────
+  const [tenants, setTenants] = useState([]);
+  const [loadingList, setLoadingList] = useState(false);
+
+  const fetchTenants = useCallback(async () => {
+    if (!isSystemAdmin) return;
+    setLoadingList(true);
+    try {
+      const res = await apiClient.get('/tenants');
+      const list = res.data?.data || res.data || [];
+      setTenants(
+        (Array.isArray(list) ? list : []).filter((t) => t.status === 'TAM_NGUNG')
+      );
+    } catch {
+      toast.error('Không tải được danh sách dòng họ.');
+      setTenants([]);
+    } finally {
+      setLoadingList(false);
+    }
+  }, [isSystemAdmin]);
+
+  useEffect(() => {
+    fetchTenants();
+  }, [fetchTenants]);
+
+  // ── CLAN_ADMIN: filter theo tenantStatus ────────────────────
+  const clanItems = CLAN_ADMIN_WORK_ITEMS.filter((item) => {
+    if (!item.when || item.when.length === 0) return true;
+    return item.when.includes(tenantStatus);
+  });
+
+  // ═══════════════════════════════════════════════════════════
+  // RENDER: SYSTEM_ADMIN
+  // ═══════════════════════════════════════════════════════════
+  if (isSystemAdmin) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white px-4 py-8 sm:px-6">
+        <div className="mx-auto w-full max-w-[480px]">
+          {/* Header */}
+          <div className="mb-8 text-center">
+            <h1 className="text-2xl font-black tracking-tight text-slate-800">
+              Quản trị hệ thống
+            </h1>
+            <p className="mt-2 text-sm text-slate-500">
+              Xin chào,{' '}
+              <span className="font-semibold text-slate-700">{displayIdentity}</span>
+            </p>
+            <div className="mt-2">
+              <LogoutLink onClick={handleLogout} />
+            </div>
+          </div>
+
+          {/* Work items */}
+          <div className="mb-6 space-y-3">
+            {SYSTEM_ADMIN_WORK_ITEMS.map((item) => (
+              <WorkCard
+                key={item.id}
+                item={item}
+                onClick={() => navigate(item.path)}
+              />
+            ))}
+          </div>
+
+          {/* Tenant list — chỉ TAM_NGUNG */}
+          <div className="mb-3 flex items-center justify-between px-1">
+            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400">
+              Dòng họ chờ kích hoạt
+            </h2>
+            <button
+              type="button"
+              onClick={fetchTenants}
+              disabled={loadingList}
+              className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loadingList ? 'animate-spin' : ''}`} />
+              Làm mới
+            </button>
+          </div>
+
+          {loadingList ? (
+            <div className="flex items-center justify-center gap-2 rounded-3xl border border-slate-200 bg-white py-16 text-slate-400">
+              <Loader2 className="h-5 w-5 animate-spin" />
+              <span className="text-sm font-medium">Đang tải...</span>
+            </div>
+          ) : tenants.length === 0 ? (
+            <div className="rounded-3xl border border-slate-200 bg-white py-16 text-center">
+              <Building2 className="mx-auto h-10 w-10 text-slate-300" />
+              <p className="mt-3 text-sm font-medium text-slate-400">
+                Không có dòng họ nào đang tạm ngưng
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {tenants.map((t) => (
+                <div
+                  key={t.id}
+                  className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
+                >
+                  <div className="font-bold text-slate-800">{t.name}</div>
+                  {t.description && (
+                    <p className="mt-1 line-clamp-2 text-sm text-slate-500">
+                      {t.description}
+                    </p>
+                  )}
+                  {t.slug && (
+                    <p className="mt-1 text-xs text-slate-400">{t.slug}</p>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigate(`/admin/tenant/activate?tenantId=${t.id}`)
+                    }
+                    className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-200 transition active:scale-[0.98]"
+                  >
+                    <Building2 className="h-4 w-4" />
+                    Kích hoạt
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Logout cuối trang */}
+          <div className="mt-10 pb-6 text-center">
+            <LogoutLink onClick={handleLogout} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  // RENDER: CLAN_ADMIN
+  // ═══════════════════════════════════════════════════════════
   return (
-    <div className="min-h-screen bg-slate-50 px-4 py-8 sm:px-6">
-      <div className="mx-auto max-w-lg">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white px-4 py-8 sm:px-6">
+      <div className="mx-auto w-full max-w-[480px]">
         {/* Header */}
         <div className="mb-8 text-center">
-          <h1 className="text-2xl font-black text-slate-800">
+          <h1 className="text-2xl font-black tracking-tight text-slate-800">
             Chọn công việc
           </h1>
           <p className="mt-2 text-sm text-slate-500">
-            Xin chào, <span className="font-semibold text-slate-700">{user?.name || 'Quản trị viên'}</span>
+            Xin chào,{' '}
+            <span className="font-semibold text-slate-700">{displayIdentity}</span>
           </p>
-          {isTamNgung && (
-            <div className="mt-4 flex items-start gap-2 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-sm text-amber-800">
+          <div className="mt-2">
+            <LogoutLink onClick={handleLogout} />
+          </div>
+
+          {tenantStatus === 'TAM_NGUNG' && (
+            <div className="mt-4 flex items-start gap-2 rounded-3xl border border-amber-200 bg-amber-50 px-4 py-3 text-left text-sm text-amber-800">
               <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
               <span>
-                Dòng họ đang ở trạng thái <strong>Tạm ngưng</strong>. 
-                Vui lòng kích hoạt trước khi sử dụng các chức năng quản trị khác.
+                Dòng họ đang ở trạng thái <strong>Tạm ngưng</strong>. Vui lòng
+                kích hoạt trước khi dùng chức năng quản trị.
               </span>
             </div>
           )}
         </div>
 
-        {/* Cards */}
+        {/* Work cards */}
         <div className="space-y-3">
-          {cards
-            .filter((c) => c.visible)
-            .map((card) => {
-              const Icon = card.icon;
-              const isDisabled = card.disabled;
+          {clanItems.map((item) => (
+            <WorkCard
+              key={item.id}
+              item={item}
+              onClick={() => navigate(item.path)}
+            />
+          ))}
+        </div>
 
-              return (
-                <button
-                  key={card.id}
-                  type="button"
-                  disabled={isDisabled}
-                  onClick={() => !isDisabled && navigate(card.path)}
-                  className={`
-                    flex w-full items-center gap-4 rounded-3xl border p-5 text-left transition
-                    ${card.primary
-                      ? 'border-indigo-300 bg-indigo-50 shadow-md shadow-indigo-100'
-                      : 'border-slate-200 bg-white shadow-sm'}
-                    ${isDisabled
-                      ? 'cursor-not-allowed opacity-50'
-                      : 'hover:border-indigo-300 hover:bg-indigo-50/50 active:scale-[0.98]'}
-                  `}
-                >
-                  <div
-                    className={`
-                      flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl
-                      ${card.primary ? 'bg-indigo-600 text-white' : 'bg-slate-100 text-slate-600'}
-                    `}
-                  >
-                    <Icon className="h-6 w-6" />
-                  </div>
-
-                  <div className="min-w-0 flex-1">
-                    <div className="font-bold text-slate-800">{card.title}</div>
-                    <div className="mt-0.5 text-sm text-slate-500 line-clamp-2">
-                      {card.description}
-                    </div>
-                  </div>
-
-                  {!isDisabled && (
-                    <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" />
-                  )}
-                </button>
-              );
-            })}
+        {/* Logout cuối trang */}
+        <div className="mt-10 pb-6 text-center">
+          <LogoutLink onClick={handleLogout} />
         </div>
       </div>
     </div>

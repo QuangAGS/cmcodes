@@ -182,6 +182,18 @@ const BusinessLogSchemas = {
   },
 
   /**
+   * @dateTime 2026-08-10T09:55:00+07:00
+   * @description OP-2: Kích hoạt tenant (TAM_NGUNG → HOAT_DONG).
+   */
+  TENANT_ACTIVATE: (payload) => {
+    return {
+      action: payload.action || 'ACTIVATE',
+      status_before: payload.status_before || null,
+      status_after: payload.status_after || null,
+    };
+  },
+
+  /**
    * @dateTime 2026-06-24T08:16:00+07:00
    * @description Chuẩn hóa dữ liệu thô đặc thù cho toàn bộ vòng đời Onboarding của hệ thống.
    * @note [DOCTRINE 25xX]: Sàng lọc sạch sẽ các trường rác trước khi chạm xuống ổ đĩa Supabase[cite: 12, 17].

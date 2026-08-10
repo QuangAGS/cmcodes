@@ -65,9 +65,8 @@ async function activateTenant(tenantId, actor) {
 
   // --- Transaction ---
   return prisma.$transaction(async (tx) => {
-    // 1. Correlation
-    const correlation = await prisma.correlation.create();
-    const C = correlation.id;
+    // 1. Correlation (factory tập trung — trả về string UUID)
+    const C = prisma.correlation.create();
 
     // 2. Load tenant (trong TX)
     const tenant = await tx.tenants.findFirst({
