@@ -1,45 +1,46 @@
 /**
  * PATH       : backend/src/shared/frameworks/srpf/guards/ContextGuard.js
- * DATETIME   : 2026-08-11T14:40:00+07:00
- * VERSION    : 0.1.0-skeleton
- * DESCRIPTION: Context Guard — checks role + contextual conditions before an Action.
- *              Roles may include SYSTEM_ADMIN, CLAN_ADMIN, MEMBER, etc.
- *
- * NOTE: Skeleton only. Real CED throw to be wired in Phase 3.
+ * DATETIME   : 2026-08-13T11:40:00+07:00
+ * VERSION    : 0.6.0-phase3.3
+ * DESCRIPTION: Context Guard — CED throws (Phase 3.3).
  */
 
 'use strict';
 
-const { SRPF_ERROR_CODES } = require('../errors/srpf.codes');
+const { srpfError, SRPF_ERROR_CODES } = require('../errors/srpfCreateError');
 
 /**
- * Assert that the actor is allowed to perform the action on the instance.
- *
- * @param {object} definition - Process Definition
+ * @param {object} definition
  * @param {string} action
- * @param {object} actorContext - { role, actor_id, tenant_id, ... }
- * @param {object} instance - current process instance
- * @returns {Promise<void>}
- * @throws when not allowed
+ * @param {object} actorContext
+ * @param {object} instance
  */
 async function assertAllowed(definition, action, actorContext, instance) {
   const allowedRoles = definition.contextGuards && definition.contextGuards[action];
 
   if (!allowedRoles) {
-    // TODO: throw createError(SRPF_ERROR_CODES.ACTION_NOT_SUPPORTED, ...)
-    throw new Error(`[SRPF Skeleton] Action not supported: ${action}`);
+    throw srpfError(
+      SRPF_ERROR_CODES.ACTION_NOT_SUPPORTED,
+      `Action not supported: ${action}`,
+      { details: { action, processType: definition.processType } }
+    );
   }
 
   const role = actorContext && actorContext.role;
   if (!allowedRoles.includes(role) && !allowedRoles.includes('ANY')) {
-    // TODO: throw createError(SRPF_ERROR_CODES.FORBIDDEN, ...)
-    throw new Error(`[SRPF Skeleton] Forbidden for role: ${role}`);
+    throw srpfError(
+      SRPF_ERROR_CODES.FORBIDDEN,
+      `Forbidden for role: ${role}`,
+      {
+        details: {
+          role,
+          action,
+          allowedRoles,
+          instanceId: instance && instance.id,
+        },
+      }
+    );
   }
-
-  // TODO: additional instance-level checks
-  // - tenant ownership for CLAN_ADMIN
-  // - entryCondition already passed
-  // - etc.
 }
 
 module.exports = {

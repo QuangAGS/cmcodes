@@ -13,6 +13,7 @@ const COMMON = require('./common.codes');
 const ONBOARDING = require('./onboarding.codes');
 const SECURITY = require('./security.codes');
 const TENANT = require('./tenant.codes');
+const SRPF = require('./srpf.codes');
 
 const ERROR_CODES = Object.freeze({
   AUTH,
@@ -20,6 +21,7 @@ const ERROR_CODES = Object.freeze({
   ONBOARDING,
   SECURITY,
   TENANT,
+  SRPF,
 });
 
 module.exports = {
@@ -29,4 +31,5 @@ module.exports = {
   ONBOARDING,
   SECURITY,
   TENANT,
+  SRPF,
 };

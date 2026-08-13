@@ -1,90 +1,92 @@
 /**
  * PATH       : backend/src/shared/frameworks/srpf/engine/ActionExecutor.js
- * DATETIME   : 2026-08-11T14:40:00+07:00
- * VERSION    : 0.1.0-skeleton
- * DESCRIPTION: Core Action Executor of SRPF.
- *              Orchestrates Guard → Transition → Side-effect → BPL+audit → Communication.
- *
- * Policies (Architecture v1.1):
- * - 1 important Action = 1 Correlation (except SAVE_DRAFT → no Correlation)
- * - Side-effects are synchronous inside one transaction (no saga in v1)
- * - Communication runs after commit
- *
- * NOTE: Skeleton only — loadInstance / prisma wiring left for Phase 3.
+ * DATETIME   : 2026-08-13T11:40:00+07:00
+ * VERSION    : 0.6.0-phase3.3
+ * DESCRIPTION: Core Action Executor of SRPF — CED-aware throws (Phase 3.3).
  */
 
 'use strict';
 
+const { prisma } = require('../../../../lib/prisma.js');
 const registry = require('../registry/ProcessDefinitionRegistry');
 const contextGuard = require('../guards/ContextGuard');
 const stateMachine = require('./StateMachineRunner');
 const correlationFactory = require('./CorrelationFactory');
 const bplWriter = require('../ledger/BusinessLedgerWriter');
 const communicationHook = require('../communication/CommunicationHook');
+const processInstanceLoader = require('../storage/ProcessInstanceLoader');
 const { isTerminalState } = require('../constants/states');
-const { requiresCorrelation } = require('../constants/actions');
+const { srpfError, SRPF_ERROR_CODES } = require('../errors/srpfCreateError');
 
 /**
- * Execute an SRPF action.
- *
  * @param {object} params
  * @param {string} params.processType
  * @param {string} params.instanceId
  * @param {string} params.action
  * @param {object} [params.payload]
  * @param {object} params.actorContext
- * @returns {Promise<{ instance: object, correlationId: string|null }>}
  */
 async function executeAction({
   processType,
   instanceId,
   action,
   payload = {},
-  actorContext,
+  actorContext = {},
 }) {
   const definition = registry.get(processType);
   if (!definition) {
-    // TODO: throw CED SRPF.PROCESS_NOT_REGISTERED
-    throw new Error(`[SRPF Skeleton] Process not registered: ${processType}`);
+    throw srpfError(
+      SRPF_ERROR_CODES.PROCESS_NOT_REGISTERED,
+      `Process not registered: ${processType}`,
+      { details: { processType } }
+    );
   }
 
-  // TODO (Phase 3): load instance from storage
-  // Temporary strategy: onboarding_cases (+ metadata)
-  // Long-term note: dedicated process_instances model recommended
-  const instance = await loadInstanceStub(instanceId);
+  const instance = await processInstanceLoader.load(instanceId);
 
-  // 1. Context Guard
+  if (typeof definition.entryCondition === 'function') {
+    await definition.entryCondition({
+      instance,
+      actorContext,
+      action,
+      payload,
+      tx: null,
+    });
+  }
+
   await contextGuard.assertAllowed(definition, action, actorContext, instance);
 
-  // 2. Resolve transition
-  const nextState = stateMachine.resolve(definition, instance.currentState || instance.status, action);
+  const currentState = instance.currentState || instance.status;
+  const nextState = stateMachine.resolve(definition, currentState, action);
   if (!nextState) {
-    // TODO: throw CED SRPF.INVALID_TRANSITION
-    throw new Error(`[SRPF Skeleton] Invalid transition: ${instance.currentState} + ${action}`);
+    throw srpfError(
+      SRPF_ERROR_CODES.INVALID_TRANSITION,
+      `Invalid transition: ${currentState} + ${action}`,
+      { details: { currentState, action, processType } }
+    );
   }
 
-  // 3. Profile validation (if defined for this action)
   if (definition.profileValidation && typeof definition.profileValidation[action] === 'function') {
     await definition.profileValidation[action](instance, payload);
   }
 
-  // 4. Transaction boundary (side-effect + ledger inside TX)
-  // TODO (Phase 3): replace with real prisma.$transaction
-  const result = await runInTransactionStub(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const correlationId = await correlationFactory.create({
       action,
       actorContext,
       tx,
     });
 
-    const updated = await stateMachine.apply(tx, instance, nextState, action, payload);
+    const actorWithPayload = { ...actorContext, _payload: payload };
 
-    // Side-effect only on terminal states, synchronous inside TX
+    const updated = await stateMachine.apply(tx, instance, nextState, action, payload, {
+      actorContext: actorWithPayload,
+    });
+
     if (isTerminalState(nextState) && definition.sideEffects && definition.sideEffects[nextState]) {
-      await definition.sideEffects[nextState](updated, tx, actorContext);
+      await definition.sideEffects[nextState](updated, tx, actorWithPayload);
     }
 
-    // BPL + audit_logs (skipped when no correlationId, e.g. SAVE_DRAFT)
     if (correlationId) {
       const concreteProcessType =
         (definition.actionToProcessType && definition.actionToProcessType[action]) || processType;
@@ -94,10 +96,10 @@ async function executeAction({
         correlationId,
         processType: concreteProcessType,
         action,
-        actorContext,
+        actorContext: actorWithPayload,
         instance: updated,
         metadata: {
-          from: instance.currentState || instance.status,
+          from: currentState,
           to: nextState,
           payload,
         },
@@ -107,7 +109,6 @@ async function executeAction({
     return { instance: updated, correlationId };
   });
 
-  // 5. After-commit communication
   if (result.correlationId) {
     await communicationHook.emit({
       event: `${processType}_${action}`,
@@ -118,25 +119,6 @@ async function executeAction({
   }
 
   return result;
-}
-
-/**
- * Stub — replace with real loader in Phase 3.
- * @param {string} instanceId
- */
-async function loadInstanceStub(instanceId) {
-  // TODO: load from onboarding_cases (temporary) or process_instances (preferred long-term)
-  throw new Error(`[SRPF Skeleton] loadInstance not implemented for id=${instanceId}`);
-}
-
-/**
- * Stub transaction runner — replace with prisma.$transaction in Phase 3.
- * @param {function} fn
- */
-async function runInTransactionStub(fn) {
-  // No real TX in skeleton
-  const fakeTx = {};
-  return fn(fakeTx);
 }
 
 module.exports = {
