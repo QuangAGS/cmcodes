@@ -1,8 +1,9 @@
 /**
  * PATH       : src/modules/auth/auth.service.js
  * DATETIME   : 2026-08-04
- * VERSION    : 20.2.5-PR-OP-4-Enhancement
+ * VERSION    : 20.2.5-C3
  * DESCRIPTION:
+ * - Promote member after Register Approved. 
  * - PR-OP-4-Enhancement: Cờ từ chối lần cuối (UI list/form) — không đổi users.status
  * - Admin trả về sửa: giữ CHO_DUYET; case → NEEDS_REVISION + review_note.
  * - B1: isRevision không JWT; xác thực phone/password.
@@ -49,6 +50,9 @@
    * - Không tạo member, không đổi tenant, không đổi users.status.
  * 20.2.5-PR-OP-4-Enhancement:
    * - Trong enrichedData, với mỗi user, trước return { ... }: cờ từ chối lần cuối (UI list/form) — không đổi users.status
+ * 20.2.5 - C3:
+   * - 2026-08-13: processUserApproval DA_DUYET → openMemberPromoteInstance (OP DRAFT, C mới).
+   * - SSOT: Register-to-OP-Handoff-Contract-2026-08-13 v1.0. Q1: không đổi luồng Approve/Reject cốt lõi.
 */
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -62,6 +66,8 @@ const { cleanInput, formatNumericSlug } = require('../../shared/utils/slug.utils
 const securityConfig = require('../../config/securityConfig');
 
 const onboardingService = require('../../services/onboarding.service');
+//20.2.5 -C3
+const { openMemberPromoteInstance } = require('../onboarding/srpf/services/openMemberPromoteInstance.js');
 // 🚀 ĐÃ SỬA CHUẨN XÁC: Nạp Class dịch vụ và khởi tạo đối tượng instance thực tế bằng từ khóa `new`
 const businessLogger = require('../../services/ledger.service'); 
 // const businessLogger = new BusinessLoggerService();
@@ -1760,7 +1766,7 @@ const authService = {
    * - Q1: không đụng flow Register / 1a; return object đầy đủ status + member_id.
    */
   processUserApproval: async (payload) => {
-        const {
+    const {
       userId,
       newStatus,
       adminNote,
@@ -2061,6 +2067,64 @@ const authService = {
         } catch (caseErr) {
           console.error('[APPROVAL][CASE]', caseErr.message || caseErr);
           throw caseErr; // fail-closed trong TX
+        }
+
+        // --- C3: OP handoff — mở MEMBER_PROMOTE DRAFT (Register-to-OP Contract v1.0) ---
+        // Chỉ khi DA_DUYET + đã có member DU_BI. Không đụng case RP APPROVED.
+        // Cùng TX Approve → fail-closed nếu open OP lỗi.
+        if (newStatus === 'DA_DUYET') {
+          const promoteMemberId = newMemberId || targetUser.member_id || null;
+          if (promoteMemberId && targetUser.tenant_id) {
+            let sourceRegisterCaseId = null;
+            let sourceRegisterCorrelationId = null;
+            let opCaseType = 'MEMBER_JOIN';
+
+            try {
+              // openCase có thể đã đóng trong block trên; đọc lại case vừa APPROVED (nếu có)
+              const rpCase = await tx.onboarding_cases.findFirst({
+                where: {
+                  user_id: userId,
+                  deleted_at: null,
+                  status: 'APPROVED',
+                },
+                orderBy: { approved_at: 'desc' },
+                select: {
+                  id: true,
+                  correlation_id: true,
+                  case_type: true,
+                },
+              });
+              if (rpCase) {
+                sourceRegisterCaseId = rpCase.id;
+                sourceRegisterCorrelationId = rpCase.correlation_id || C || null;
+                if (rpCase.case_type === 'CLAN_SETUP' || rpCase.case_type === 'MEMBER_JOIN') {
+                  opCaseType = rpCase.case_type;
+                }
+              } else if (targetUser.role === 'CLAN_ADMIN') {
+                // Fallback: founder CreateClan thường là CLAN_SETUP
+                opCaseType = 'CLAN_SETUP';
+              }
+            } catch (lookupErr) {
+              console.warn('[APPROVAL][OP-HANDOFF][LOOKUP]', lookupErr.message || lookupErr);
+            }
+
+            await openMemberPromoteInstance({
+              userId,
+              memberId: promoteMemberId,
+              tenantId: targetUser.tenant_id,
+              caseType: opCaseType,
+              sourceRegisterCaseId,
+              sourceRegisterCorrelationId: sourceRegisterCorrelationId || C || null,
+              actorId,
+              tx,
+            });
+          } else {
+            console.warn('[APPROVAL][OP-HANDOFF] skip — missing memberId or tenant_id', {
+              userId,
+              promoteMemberId,
+              tenantId: targetUser.tenant_id,
+            });
+          }
         }
 
         // --- BPL (correlation_id: C, tx) ---

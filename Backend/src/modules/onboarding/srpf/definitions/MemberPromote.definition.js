@@ -18,9 +18,9 @@
 
 'use strict';
 
-const { srpfError, SRPF_ERROR_CODES } = require('../errors/srpfCreateError');
-const { SRPF_STATES } = require('../constants/states');
-const { SRPF_ACTIONS } = require('../constants/actions');
+const { srpfError, SRPF_ERROR_CODES } = require('../../../../shared/frameworks/srpf/errors/srpfCreateError');
+const { SRPF_STATES } = require('../../../../shared/frameworks/srpf/constants/states');
+const { SRPF_ACTIONS } = require('../../../../shared/frameworks/srpf/constants/actions');
 
 const PROCESS_TYPE = 'MEMBER_PROMOTE';
 
@@ -64,7 +64,7 @@ async function loadPrimaryMember(instance, client) {
   }
 
   // Lazy require to avoid circular deps at load time
-  const { prisma } = require('../../../../lib/prisma.js');
+  const { prisma } = require('../../../../lib/prisma');
   const db = client || prisma;
 
   const member = await db.members.findFirst({

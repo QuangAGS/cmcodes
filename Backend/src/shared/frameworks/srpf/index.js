@@ -23,8 +23,8 @@ const { SRPF_ACTIONS, requiresCorrelation } = require('./constants/actions');
 const { SRPF_ERROR_CODES } = require('./errors/srpf.codes');
 
 // Auto-register built-in process definitions
-const { registerMemberPromoteDefinition } = require('./definitions/MemberPromote.definition');
-registerMemberPromoteDefinition(registry);
+//const { registerMemberPromoteDefinition } = require('./definitions/MemberPromote.definition');
+//registerMemberPromoteDefinition(registry);
 
 module.exports = {
   // Core API
