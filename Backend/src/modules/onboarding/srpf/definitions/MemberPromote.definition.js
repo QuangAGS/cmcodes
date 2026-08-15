@@ -265,7 +265,7 @@ const MemberPromoteDefinition = {
  * Register MEMBER_PROMOTE into the SRPF registry (idempotent overwrite).
  */
 function registerMemberPromoteDefinition(registry) {
-  const reg = registry || require('../registry/ProcessDefinitionRegistry');
+  const reg = registry || require('../../../../shared/frameworks/srpf/registry/ProcessDefinitionRegistry');
   reg.register(PROCESS_TYPE, MemberPromoteDefinition);
   return MemberPromoteDefinition;
 }

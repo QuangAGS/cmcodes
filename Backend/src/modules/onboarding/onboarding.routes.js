@@ -13,6 +13,8 @@
 
 'use strict';
 
+require('./srpf').registerMemberPromote();
+
 const express = require('express');
 const router = express.Router();
 

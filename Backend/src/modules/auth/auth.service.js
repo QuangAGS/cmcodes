@@ -67,7 +67,7 @@ const securityConfig = require('../../config/securityConfig');
 
 const onboardingService = require('../../services/onboarding.service');
 //20.2.5 -C3
-const { openMemberPromoteInstance } = require('../onboarding/srpf/services/openMemberPromoteInstance.js');
+const { openMemberPromoteInstance } = require('../onboarding/srpf');
 // 🚀 ĐÃ SỬA CHUẨN XÁC: Nạp Class dịch vụ và khởi tạo đối tượng instance thực tế bằng từ khóa `new`
 const businessLogger = require('../../services/ledger.service'); 
 // const businessLogger = new BusinessLoggerService();
