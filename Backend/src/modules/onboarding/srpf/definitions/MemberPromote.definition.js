@@ -1,8 +1,9 @@
 /**
- * PATH       : backend/src/shared/frameworks/srpf/definitions/MemberPromote.definition.js
- * DATETIME   : 2026-08-13T11:40:00+07:00
- * VERSION    : 0.6.0-phase3.3
+ * PATH       : backend/src/modules/onboarding/srpf/definitions/MemberPromote.definition.js
+ * DATETIME   : 2026-08-15T11:50:00+07:00
+ * VERSION    : 1.0.1-C6-polish
  * DESCRIPTION: Process Definition for MEMBER_PROMOTE (OP-A: DU_BI → CHINH_THUC).
+ *              C6 polish: PATH header corrected (moved from shared); CED — replace remaining throw new Error → srpfError.
  *
  * SSOT decisions (conversation + Architecture v1.1):
  * - Entry: member.status = DU_BI; optional user.status = DA_DUYET when user linked
@@ -58,9 +59,11 @@ function missingFields(member, fields) {
 async function loadPrimaryMember(instance, client) {
   const memberId = instance.primary_member_id;
   if (!memberId) {
-    const err = new Error('[SRPF] MEMBER_PROMOTE: instance missing primary_member_id');
-    err.code = 'SRPF.PROFILE_INCOMPLETE';
-    throw err;
+    throw srpfError(
+      SRPF_ERROR_CODES.PROFILE_INCOMPLETE,
+      '[SRPF] MEMBER_PROMOTE: instance missing primary_member_id',
+      { details: { field: 'primary_member_id' } }
+    );
   }
 
   // Lazy require to avoid circular deps at load time
@@ -125,7 +128,11 @@ const MemberPromoteDefinition = {
   entryCondition: async (ctx) => {
     const instance = ctx.instance;
     if (!instance) {
-      throw new Error('[SRPF] MEMBER_PROMOTE entryCondition: missing instance');
+      throw srpfError(
+        SRPF_ERROR_CODES.ENTRY_CONDITION_FAILED,
+        '[SRPF] MEMBER_PROMOTE entryCondition: missing instance',
+        { details: { field: 'instance' } }
+      );
     }
 
     const member = await loadPrimaryMember(instance, ctx.tx);
@@ -214,7 +221,11 @@ const MemberPromoteDefinition = {
     APPROVED: async (instance, tx, actorContext) => {
       const memberId = instance.primary_member_id;
       if (!memberId) {
-        throw new Error('[SRPF] MEMBER_PROMOTE sideEffect APPROVED: missing primary_member_id');
+        throw srpfError(
+          SRPF_ERROR_CODES.PROFILE_INCOMPLETE,
+          '[SRPF] MEMBER_PROMOTE sideEffect APPROVED: missing primary_member_id',
+          { details: { field: 'primary_member_id' } }
+        );
       }
 
       const actorId = actorContext?.actor_id || actorContext?.user_id || null;

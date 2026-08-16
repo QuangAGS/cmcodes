@@ -1,8 +1,9 @@
 /**
  * PATH       : src/modules/auth/auth.service.js
- * DATETIME   : 2026-08-04
- * VERSION    : 20.2.5-C3
- * DESCRIPTION:
+ * DATETIME   : 2026-08-15T18:30:00+07:00
+ * VERSION    : 20.2.5-PR-2: BPL USER_APPROVAL semantic (schema + revision submit không dùng USER_REGISTER).
+ * DESCRIPTION: Revision submit: đổi USER_REGISTER → USER_APPROVAL + action: REVISION_SUBMIT
+ * (+ PR-1) process_kind REGISTER khi createCaseFromRegister; findOpenCaseByUser chỉ RP (process_kind REGISTER).
  * - Promote member after Register Approved. 
  * - PR-OP-4-Enhancement: Cờ từ chối lần cuối (UI list/form) — không đổi users.status
  * - Admin trả về sửa: giữ CHO_DUYET; case → NEEDS_REVISION + review_note.
@@ -264,6 +265,7 @@ const authService = {
           where: {
             user_id: user.id,
             deleted_at: null,
+            process_kind: 'REGISTER', // PR-1
             status: {
               in: [
                 'SUBMITTED',
@@ -274,12 +276,6 @@ const authService = {
                 'FAMILY_TREE_DRAFT',
               ],
             },
-          },
-          orderBy: { created_at: 'desc' },
-          select: {
-            id: true,
-            status: true,
-            review_note: true,
           },
         });
 
@@ -1684,9 +1680,8 @@ const authService = {
                 user_id: user.id,
                 status: 'REJECTED',
                 deleted_at: null,
+                process_kind: 'REGISTER', // PR-1
               },
-              orderBy: { created_at: 'desc' },
-              select: { metadata: true },
             });
             const meta =
               rejectedCase?.metadata &&
@@ -2005,11 +2000,16 @@ const authService = {
         }
 
         // --- Case open → APPROVED | REJECTED ---
+        // PR-2.1: giữ case_id để BPL USER_APPROVAL tham chiếu case RP vừa đóng
+        let affectedCaseId = null;
+        let caseStatusAfter = null;
+
         try {
           const openCase = await tx.onboarding_cases.findFirst({
             where: {
               user_id: userId,
               deleted_at: null,
+              process_kind: 'REGISTER', // PR-1 (nếu chưa có thì thêm)
               status: {
                 in: [
                   'SUBMITTED',
@@ -2025,7 +2025,10 @@ const authService = {
           });
 
           if (openCase) {
+            affectedCaseId = openCase.id;
+
             if (newStatus === 'DA_DUYET') {
+              caseStatusAfter = 'APPROVED';
               await onboardingService.updateCaseStatus({
                 caseId: openCase.id,
                 status: 'APPROVED',
@@ -2036,6 +2039,7 @@ const authService = {
               });
             } else {
               // TU_CHOI
+              caseStatusAfter = 'REJECTED';
               await onboardingService.updateCaseStatus({
                 caseId: openCase.id,
                 status: 'REJECTED',
@@ -2086,6 +2090,7 @@ const authService = {
                   user_id: userId,
                   deleted_at: null,
                   status: 'APPROVED',
+                  process_kind: 'REGISTER', // PR-1: nguồn RP
                 },
                 orderBy: { approved_at: 'desc' },
                 select: {
@@ -2142,19 +2147,24 @@ const authService = {
               target_name: snapshotName,
               attempt_no: currentAttemptNo,
             },
+            //20.2.5-PR-2
             payload: {
-              admin_note: adminNote || 'Phê duyệt tài khoản thành công',
-              status_before: oldUserStatus,
-              status_after: newStatus,
-              attempt_no: currentAttemptNo,
-              //PR-OP-4R2: cờ từ chối lần cuối (final rejection) → metadata case + BPL
-              is_final: newStatus === 'TU_CHOI' ? finalRejection : false,
               action:
                 newStatus === 'DA_DUYET'
                   ? 'APPROVE'
                   : finalRejection
                     ? 'FINAL_REJECT'
                     : 'REJECT',
+              admin_note: adminNote,
+              approver_note: adminNote,
+              status_before: oldUserStatus,
+              status_after: newStatus,
+              attempt_no: currentAttemptNo,
+              is_final: newStatus === 'TU_CHOI' ? finalRejection : false,
+              approved_role: 'USER',
+              // PR-2.1
+              case_id: affectedCaseId,
+              case_status_after: caseStatusAfter,
             },
           },
           tx
@@ -2371,6 +2381,7 @@ const authService = {
             user_id: userId,
             status: 'REJECTED',
             deleted_at: null,
+            process_kind: 'REGISTER', // PR-1
           },
           orderBy: { created_at: 'desc' },
           select: {
@@ -2635,6 +2646,7 @@ const authService = {
             user_id: userId,
             status: 'REJECTED',
             deleted_at: null,
+            process_kind: 'REGISTER', // PR-1
           },
           orderBy: { created_at: 'desc' },
         });
@@ -2836,6 +2848,7 @@ const authService = {
           where: {
             user_id: userId,
             deleted_at: null,
+            process_kind: 'REGISTER', // PR-1
             status: {
               in: [
                 'SUBMITTED',
@@ -3168,6 +3181,7 @@ const authService = {
         where: {
           user_id: user.id,
           deleted_at: null,
+          process_kind: 'REGISTER', // PR-1
           status: {
             in: [
               'SUBMITTED',
@@ -3193,13 +3207,13 @@ const authService = {
           });
         }
       }
-
+      //20.2.5-PR-2
       try {
         await businessLogger.createLog(
           {
             correlation_id: C,
             attempt_no: 1,
-            process_type: 'USER_REGISTER',
+            process_type: 'USER_APPROVAL',
             actor_type: 'USER',
             actor_id: user.id,
             tenant_id: user.tenant_id,
@@ -3207,10 +3221,18 @@ const authService = {
             context: {
               target_id: user.id,
               target_name: displayName,
+              attempt_no: 1,
             },
             payload: {
               action: 'REVISION_SUBMIT',
               case_id: caseId,
+              status_before: 'CHO_DUYET',
+              status_after: 'CHO_DUYET',
+              case_status_after: 'SUBMITTED',
+              attempt_no: 1,
+              approved_role: 'USER',
+              admin_note: 'REVISION_SUBMIT',
+              approver_note: 'REVISION_SUBMIT',
             },
           },
           tx

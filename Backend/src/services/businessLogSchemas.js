@@ -1,8 +1,11 @@
 /**
  * PATH: src/services/businessLogSchemas.js
- * DATETIME: 2026-07-16T12:15:00+07:00
- * VERSION: 1.0.1
- * DESCRIPTION: Định nghĩa hợp đồng dữ liệu (Data Contract) và khuôn mẫu kiểm tra (Validation Schema)
+ * DATETIME: 2026-08-16T12:11:00+07:00
+ * VERSION: 1.1.0-PR2-bpl-semantic
+ * DESCRIPTION: Data contract metadata BPL theo process_type.
+ *   PR-2: USER_APPROVAL giữ action / status_* / case_id / is_final / admin_note
+ *         (trước đây whitelist quá hẹp → mọi action Admin bị ghi thành "Phê duyệt...").
+ * Định nghĩa hợp đồng dữ liệu (Data Contract) và khuôn mẫu kiểm tra (Validation Schema)
  * cho cấu trúc JSON metadata của từng tiến trình nghiệp vụ (Business Process).
  * Áp đặt học thuyết "Đóng băng lịch sử" (Snapshot Doctrine) cho dữ liệu ngữ cảnh mục tiêu.
  */
@@ -47,13 +50,44 @@ const BusinessLogSchemas = {
   /**
    * @dateTime 2026-06-15 15:42:40
    * @description Chuẩn hóa dữ liệu khi phê duyệt và cấp quyền tài khoản người dùng vào dòng họ.
+   * PR2: Mở rộng contract USER_APPROVAL
    */
-  USER_APPROVAL: (payload) => {
-    if (!payload.approver_note) payload.approver_note = "Phê duyệt tài khoản thành công";
+  /**
+   * USER_APPROVAL — RP identity actions (Approve / Reject / Return / Reopen / Revision submit).
+   * PR-2: giữ đủ semantic; map admin_note → approver_note.
+   * action: APPROVE | REJECT | FINAL_REJECT | RETURN_FOR_REVISION | REOPEN_REJECTED | REVISION_SUBMIT
+   */
+  USER_APPROVAL: (payload = {}) => {
+    const action = payload.action || 'APPROVE';
+    const noteFromCaller =
+      (payload.approver_note && String(payload.approver_note).trim()) ||
+      (payload.admin_note && String(payload.admin_note).trim()) ||
+      null;
+
+    // Chỉ default câu "Phê duyệt..." khi đúng action APPROVE và caller không gửi note
+    let approver_note = noteFromCaller;
+    if (!approver_note && action === 'APPROVE') {
+      approver_note = 'Phê duyệt tài khoản thành công';
+    }
+
     return {
+      action,
       approved_role: payload.approved_role || 'USER',
-      approver_note: payload.approver_note,
-      attempt_no: parseInt(payload.attempt_no, 10) || 1,  // 🟢 NẠP VÀO HỢP ĐỒNG DỮ LIỆU
+      approver_note,
+      admin_note: noteFromCaller || approver_note,
+      attempt_no: parseInt(payload.attempt_no, 10) || 1,
+      status_before:
+        payload.status_before !== undefined && payload.status_before !== null
+          ? payload.status_before
+          : null,
+      status_after:
+        payload.status_after !== undefined && payload.status_after !== null
+          ? payload.status_after
+          : null,
+      is_final: payload.is_final === true,
+      case_id: payload.case_id || null,
+      case_status_after: payload.case_status_after || null,
+      new_case_id: payload.new_case_id || null,
     };
   },
 

@@ -1,8 +1,12 @@
 /**
- * PATH       : backend/src/shared/frameworks/srpf/services/openMemberPromoteInstance.js
- * DATETIME   : 2026-08-13T17:15:00+07:00
- * VERSION    : 0.8.0-C2
- * DESCRIPTION: Open a new MEMBER_PROMOTE (OP) process instance as DRAFT.
+ * PATH       : backend/src/modules/onboarding/srpf/services/openMemberPromoteInstance.js
+ * DATETIME   : 2026-08-15T18:30:00+07:00
+ * VERSION    : 1.1.0-PR1-process-kind
+ * DESCRIPTION: (+ PR-1) process_kind REGISTER khi createCaseFromRegister;
+             findOpenCaseByUser chỉ RP (process_kind REGISTER).
+             
+ *  -Open a new MEMBER_PROMOTE (OP) process instance as DRAFT.
+ *              C6 polish: PATH header corrected (moved from shared).
  *              SSOT: Register-to-OP-Handoff-Contract-2026-08-13 v1.0
  *
  * - Does NOT create members (caller / RP / member.service owns that).
@@ -53,16 +57,22 @@ async function findOpenOpCase({ memberId, tenantId, client }) {
       primary_member_id: memberId,
       tenant_id: tenantId,
       deleted_at: null,
+      process_kind: 'MEMBER_PROMOTE', // PR-1
       status: { notIn: [...TERMINAL_STATUSES] },
     },
     orderBy: { created_at: 'desc' },
     take: 20,
   });
 
-  return rows.find((row) => {
-    const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
-    return meta.process_type === PROCESS_TYPE;
-  }) || null;
+  // Sau backfill + write path: đủ tin process_kind.
+  // Giữ metadata check nếu muốn dual-read an toàn:
+  return (
+    rows.find((row) => {
+      const meta =
+        row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+      return meta.process_type === PROCESS_TYPE || row.process_kind === 'MEMBER_PROMOTE';
+    }) || null
+  );
 }
 
 /**
@@ -197,6 +207,7 @@ async function openMemberPromoteInstance(input = {}) {
     data: {
       correlation_id: correlationId,
       case_type: validCaseType,
+      process_kind: 'MEMBER_PROMOTE', // PR-1: OP case
       status: 'DRAFT',
       user_id: userId,
       tenant_id: tenantId,

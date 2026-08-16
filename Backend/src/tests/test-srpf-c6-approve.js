@@ -1,6 +1,15 @@
 /**
  * PATH       : src/tests/test-srpf-c6-approve.js
  * Run: node test-srpf-c6-approve.js --case-id=... --actor-id=<Admin UUID>
+ * 
+ * Mục đích: Kiểm tra đường phê duyệt cuối (SUBMITTED → START_REVIEW → APPROVE) + side-effect members.status = CHINH_THUC.
+    Nó kiểm tra gì:
+    Nếu case đang SUBMITTED → tự gọi START_REVIEW trước.
+    Bắt buộc status = UNDER_REVIEW rồi mới APPROVE.
+    Sau APPROVE: case = APPROVED và member = CHINH_THUC.
+    Cần --actor-id (Admin UUID) vì Context Guard yêu cầu role admin.
+
+    Khi nào chạy: Kiểm tra cuối cùng của OP-A (DU_BI → CHINH_THUC). Chỉ chạy khi Base Profile đã đủ (nếu thiếu birth_* / generation CLAN_SETUP sẽ fail đúng theo BP hard gate).
  */
 'use strict';
 const path = require('path');

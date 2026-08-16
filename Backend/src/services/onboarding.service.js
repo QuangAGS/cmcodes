@@ -1,8 +1,9 @@
 /**
  * PATH       : src/services/onboarding.service.js
- * DATETIME   : 2026-07-30T17:35:00+07:00
- * VERSION    : 1.0.0-M1
- * DESCRIPTION:
+ * DATETIME   : 2026-08-15T18:30:00+07:00
+ * VERSION    : 1.1.0-PR1-process-kind
+ * DESCRIPTION: (+ PR-1) process_kind REGISTER khi createCaseFromRegister;
+             findOpenCaseByUser chỉ RP (process_kind REGISTER).
  * - Domain service cho onboarding_cases (dùng chung).
  * - M1: createCaseFromRegister → status SUBMITTED + submitted_at (override default DRAFT).
  * - Chuẩn bị 1b: updateCaseStatus (APPROVED / REJECTED / UNDER_REVIEW…).
@@ -92,10 +93,12 @@ const onboardingService = {
     const now = new Date();
     const actorId = changedBy || userId;
 
+    //1.1.0-PR1-process-kind
     return client.onboarding_cases.create({
       data: {
         correlation_id: correlationId,
         case_type: caseType,
+        process_kind: 'REGISTER', // PR-1: RP case
         status: 'SUBMITTED',
         user_id: userId,
         tenant_id: tenantId || null,
@@ -206,6 +209,7 @@ const onboardingService = {
       where: {
         user_id: userId,
         deleted_at: null,
+        process_kind: 'REGISTER', // PR-1: chỉ RP
         status: { in: openStatuses },
         ...(tenantId ? { tenant_id: tenantId } : {}),
       },

@@ -1,7 +1,16 @@
 /**
  * PATH       : src/tests/test-srpf-c6-open.js
  * Run: node test-srpf-c6-open.js --member-id= --user-id= --tenant-id= [--case-type=MEMBER_JOIN]
- */
+ * 
+ * Mục đích: Kiểm tra hàm mở OP instance (openMemberPromoteInstance) — tạo DRAFT + idempotent.
+    Nó kiểm tra gì:
+    Gọi openMemberPromoteInstance lần 1 với --member-id --user-id --tenant-id → tạo case mới (created: true).
+    Gọi lần 2 với cùng input → trả về cùng case (created: false, cùng caseId).
+    Không tạo trùng OP cho cùng (member + tenant).
+
+    Khi nào chạy: Khi đụng tới logic open OP, handoff C3, hoặc muốn xác nhận idempotency sau khi sửa openMemberPromoteInstance.
+    Cần: Member đang DU_BI + user + tenant hợp lệ.
+*/
 'use strict';
 const path = require('path');
 const srcRoot = path.resolve(__dirname, '..');

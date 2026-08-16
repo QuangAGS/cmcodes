@@ -2,6 +2,18 @@
  * PATH       : src/tests/test-srpf-c6-smoke.js
  * VERSION    : 1.0.0-C6
  * Run: node test-srpf-c6-smoke.js [--case-id=...]
+ * 
+ * Mục đích: Kiểm tra nền tảng / smoke sau C6 — engine + registration + loader + correlation policy hoạt động đúng, không cần data nghiệp vụ phức tạp.
+ * Nó kiểm tra gì:
+    Gọi registerMemberPromote() 2 lần (idempotent).
+    MEMBER_PROMOTE đã có trong registry + có entryCondition.
+    Export openMemberPromoteInstance và PROCESS_TYPE đúng.
+    Process type lạ → throw lỗi NOT_REGISTERED.
+    Load case thật (mặc định case-id CLAN_SETUP đã verify) thành công.
+    Load UUID không tồn tại → throw NOT_FOUND.
+    Policy correlation: SAVE_DRAFT không cần C; SUBMIT cần C.
+
+ * Khi nào chạy: Luôn chạy đầu tiên sau khi sửa code (polish B, move path, v.v.). Nhanh, ít phụ thuộc data.
  */
 'use strict';
 const path = require('path');
