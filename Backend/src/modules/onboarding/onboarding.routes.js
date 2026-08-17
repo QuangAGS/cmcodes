@@ -1,14 +1,15 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.routes.js
  * DATETIME   : 2026-07-27T14:50:00+07:00
- * VERSION    : 1.3.0-W4
- * DESCRIPTION:
+ * VERSION    : 1.4.0-FE-OP-B1
+ * DESCRIPTION: ... + GET /my-op (FE OP hub).
  * - [1.3.0-W4] PR-W4-1: rate limit write/admin + restrictSuspiciousActivity admin.
  * - Whitelist activate: write limiter only, no abuse guard nặng.
  *
  * CHANGELOG:
  * - 1.2.0-W3: tenantStatusHeavy admin; activate exempt Heavy.
  * - 1.3.0-W4 (2026-07-27): onboarding rate + guard.
+ * - 1.4.0-FE-OP-B1 (2026-08-16): GET /my-op — verifyToken only, no write limiter.
  */
 
 'use strict';
@@ -18,7 +19,7 @@ require('./srpf').registerMemberPromote();
 const express = require('express');
 const router = express.Router();
 
-const ctrl = require('./onboarding.controller.js');
+const ctrl = require('./onboarding.controller');
 const {
   verifyToken,
   checkRole,
@@ -49,6 +50,13 @@ const onboardingAdminGuard = restrictSuspiciousActivity({
 });
 
 // ── PHASE 1 (User) ───────────────────────────────────────────
+// FE-OP-B1: read-only my OP status (hub / guard)
+router.get(
+  '/my-op',
+  verifyToken,
+  asyncHandler(ctrl.getMyOp)
+);
+
 router.post(
   '/cases',
   onboardingWriteRateLimiter,

@@ -1,8 +1,9 @@
 /**
  * PATH: src/context/AuthContext.jsx
  * DATETIME: 2026-008-01T09:00:00+07:00
- * VERSION: 20.3.0-PR-OP-4
+ * VERSION: 20.3.0-FE-OP-B1
  * DESCRIPTION:
+ * - FE-OP-B1: user thường → /op; OpProtectedRoute + my-op quyết định ở lại hay /tree
  * - FE: xem bút phê + chỉnh sửa hồ sơ khi CHO_DUYET
  * - Phase 20.2.1: Redirect sau login cho Admin.
  * - [20.3.0-W2] Residual Wave 2:
@@ -16,11 +17,12 @@
  * - 20.3.0-W2 (2026-07-26): tenantStatus gate + preserve backend error codes.
  * CHANGE LOGS:
  * 20.3.0-PR-OP-4: FE: AuthPage / LoginForm — hiện note + nút sửa → RegisterForm prefill → submit isRevision.
- * 1) Login nhận 423 ACCOUNT_CHO_DUYET + canEdit: true + reviewNote
- * 2) Hiện góp ý + nút “Chỉnh sửa hồ sơ”
- * 3) Mở RegisterForm prefill tempSnapshot (khóa phone/email)
- * 4) Submit { isRevision: true, phone, password, temp_*, ... }
- * 5) Waiting / Result như đăng ký mới
+ *  1) Login nhận 423 ACCOUNT_CHO_DUYET + canEdit: true + reviewNote
+ *  2) Hiện góp ý + nút “Chỉnh sửa hồ sơ”
+ *  3) Mở RegisterForm prefill tempSnapshot (khóa phone/email)
+ *  4) Submit { isRevision: true, phone, password, temp_*, ... }
+ *  5) Waiting / Result như đăng ký mới
+ * FE-OP-B1: user thường → /op; OpProtectedRoute + my-op quyết định ở lại hay /tree
  */
 
 import { createContext, useContext, useEffect, useState } from 'react';
@@ -101,7 +103,9 @@ const resolvePostLoginRedirect = (userData) => {
     return '/tree';
   }
 
-  return '/tree';
+  // FE-OP-B1: user thường → /op; OpProtectedRoute + my-op quyết định ở lại hay /tree
+  // DU_BI có thể từ RP hoặc định nghĩa family — không phân nguồn tại đây.
+  return '/op'; // return '/tree'
 };
 
 export const AuthProvider = ({ children }) => {

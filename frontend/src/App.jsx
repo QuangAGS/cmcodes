@@ -1,8 +1,9 @@
 /**
  * PATH: src/App.jsx
  * DATETIME: 2026-06-08
- * VERSION: 13.2.5
- * DESCRIPTION: Hỗ trợ SYSTEM_ADMIN + CLAN_ADMIN cho trang phê duyệt
+ * VERSION: 13.2.5-FE-OP-B1 add routes
+ * DESCRIPTION: 
+ * Hỗ trợ SYSTEM_ADMIN + CLAN_ADMIN cho trang phê duyệt
  */
 
 import { Toaster } from 'sonner';
@@ -19,6 +20,10 @@ const WaitingPage = lazy(() => import('./pages/WaitingPage.jsx'));
 const AdminUserApprovalPage = lazy(() => import('./pages/AdminUserApprovalPage.jsx'));
 const AdminWorkSelectorPage = lazy(() => import('./pages/AdminWorkSelectorPage.jsx'));
 const AdminTenantActivatePage = lazy(() => import('./pages/AdminTenantActivatePage.jsx'));
+//13.2.5-FE-OP-B1
+import OpProtectedRoute from './components/routes/OpProtectedRoute.jsx';
+const OpHubPage = lazy(() => import('./pages/OpHubPage.jsx'));
+const OpBaseProfilePage = lazy(() => import('./pages/OpBaseProfilePage.jsx'));
 
 const ProtectedRoute = ({ children, allowedStatus = 'DA_DUYET' }) => {
   const { user, loading } = useAuth();
@@ -90,6 +95,24 @@ const AppRouter = () => {
             <AdminUserApprovalPage />
           </AdminProtectedRoute>
         } />
+
+        //13.2.5-FE-OP-B1
+        <Route
+          path="/op"
+          element={
+            <OpProtectedRoute>
+              <OpHubPage />
+            </OpProtectedRoute>
+          }
+        />
+        <Route
+          path="/op/base-profile"
+          element={
+            <OpProtectedRoute>
+              <OpBaseProfilePage />
+            </OpProtectedRoute>
+          }
+        />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

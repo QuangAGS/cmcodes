@@ -1,8 +1,9 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.controller.js
  * DATETIME   : 2026-07-25T18:15:00+07:00
- * VERSION    : 1.3.0-W2
- * DESCRIPTION:
+ * VERSION    : 1.4.0-FE-OP-B1
+ * DESCRIPTION: ... + getMyOp (GET /my-op) read-only for FE OP hub.
+ * 1.3.0-W2:
  * - HTTP Adapter cho Onboarding Service (OPD v1.2.0 SEC-compliant).
  * - [1.2.0-W1] handleError → sendError (CED).
  * - [1.3.0-W2] Wave 2 PR-W2-4: Validation sớm → throw + sendError (dual-contract).
@@ -13,6 +14,7 @@
  * - 1.1.0-ONBOARDING-CONTROLLER-OPD-1.2: OPD v1.2 alignment.
  * - 1.2.0-W1 (2026-07-22): sendError từ shared/errors.
  * - 1.3.0-W2 (2026-07-25): Validation sớm dual-contract (PR-W2-4).
+ * - 1.4.0-FE-OP-B1 (2026-08-16): getMyOp — không business logic trong controller.
  */
 
 'use strict';
@@ -20,6 +22,7 @@
 const crypto = require('crypto');
 const onboardingService = require('./onboarding.service.js');
 const { sendError } = require('../../shared/errors');
+const { getMyOpInstance } = require('./srpf');
 
 // ─────────────────────────────────────────────────────────────
 // HELPERS
@@ -68,6 +71,23 @@ function validationError(message) {
   err.isOperational = true;
   return err;
 }
+
+/** 1.4.0-FE-OP-B1
+ * Thêm helper lấy userId an toàn (sau getActor, trước PHASE 1) — tránh lệch id vs userId trên JWT
+ */
+function getActorUserId(req) {
+  const actor = getActor(req);
+  const userId = actor.id || actor.userId || actor.sub || null;
+  if (!userId) {
+    const err = new Error('Unauthorized');
+    err.statusCode = 401;
+    err.code = 'UNAUTHORIZED';
+    err.isOperational = true;
+    throw err;
+  }
+  return userId;
+}
+
 
 // ─────────────────────────────────────────────────────────────
 // PHASE 1
@@ -387,6 +407,22 @@ async function mergeBranch(req, res, next) {
   }
 }
 
+/** 1.4.0-FE-OP-B1
+ * GET /onboarding/my-op
+ * Read-only OP status for current user (FE hub / guard).
+ * DATETIME: 2026-08-16T20:00:00+07:00
+ * VERSION: 1.0.0-FE-OP-B1
+ */
+async function getMyOp(req, res, next) {
+  try {
+    const userId = getActorUserId(req);
+    const data = await getMyOpInstance({ userId });
+    return ok(res, data);
+  } catch (err) {
+    return sendError(res, err);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
 // EXPORTS
 // ─────────────────────────────────────────────────────────────
@@ -404,4 +440,5 @@ module.exports = {
   createBranch,
   updateBranch,
   mergeBranch,
+  getMyOp, // 1.4.0-FE-OP-B1
 };
