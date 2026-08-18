@@ -70,9 +70,33 @@ export function buildBaseProfileGuidance(completeness, missingLabels, caseStatus
   return `${statusBit} ${missingText} Bấm Thực hiện để điền.`.replace(/\s+/g, ' ').trim();
 }
 
+/** AudioHelp — trang Hồ sơ cơ sở */
+export const OP_BASE_PROFILE_AUDIO_HELP =
+  'Trang này để điền họ tên, giới tính, ngày sinh và đời thứ mấy. Bạn có thể Lưu nháp khi chưa đủ, hoặc Gửi duyệt khi đã đủ thông tin bắt buộc.';
+
+export const OP_BASE_PROFILE_ZONE = {
+  basic:
+    'Điền họ và tên, chọn giới tính và cho biết còn sống hay đã mất.',
+  birth:
+    'Điền năm, tháng và ngày sinh. Nếu không nhớ ngày hoặc tháng, tạm để trống và bổ sung sau khi lưu nháp.',
+  generation:
+    'Đời thứ mấy trong dòng họ, tính từ đời khởi tổ theo quy ước của dòng họ bạn.',
+};
+
+export const OP_BASE_PROFILE_TOAST = {
+  draftSaved: 'Đã lưu nháp hồ sơ cơ sở.',
+  submitted: 'Đã gửi hồ sơ để xét duyệt.',
+  loadFailed: 'Không tải được hồ sơ. Vui lòng thử lại.',
+  saveFailed: 'Không lưu được hồ sơ. Vui lòng thử lại.',
+  submitFailed: 'Không gửi duyệt được. Vui lòng kiểm tra thông tin và thử lại.',
+};
+
 export default {
   OP_HUB_AUDIO_HELP,
   OP_HUB_WELCOME,
   buildProcessStatusMessage,
   buildBaseProfileGuidance,
+  OP_BASE_PROFILE_AUDIO_HELP,
+  OP_BASE_PROFILE_ZONE,
+  OP_BASE_PROFILE_TOAST,
 };
