@@ -3,4 +3,4 @@
 .env.*.local
 .env*
 Backend/prisma/.env
-.DS_Store
+**/.DS_Store

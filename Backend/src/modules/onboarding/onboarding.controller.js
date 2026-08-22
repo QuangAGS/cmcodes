@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.controller.js
- * DATETIME: 2026-08-18T10:30:00+07:00
- * VERSION: 1.5.0-FE-OP-B2
+ * DATETIME: 2026-08-22T14:10:00+07:00
+ * VERSION: 1.5.1-FE-OP-D1
  * DESCRIPTION: ... + getMyOp (GET /my-op) read-only for FE OP hub.
  * 1.3.0-W2:
  * - HTTP Adapter cho Onboarding Service (OPD v1.2.0 SEC-compliant).
@@ -16,6 +16,7 @@
  * - 1.3.0-W2 (2026-07-25): Validation sớm dual-contract (PR-W2-4).
  * - 1.4.0-FE-OP-B1 (2026-08-16): getMyOp — không business logic trong controller.
  * - 1.5.0-FE-OP-B2 (2026-08-18): GET /cases/reviewable
+ * - 1.5.1-FE-OP-D1: getCaseTimeline — gom C-RP + USER_APPROVAL + OP by context.target_id.
  */
 
 'use strict';
@@ -449,6 +450,25 @@ async function listReviewableOpCases(req, res, next) {
   }
 }
 
+//1.5.1-FE-OP-D1: getCaseTimeline — gom C-RP + USER_APPROVAL + OP by context.target_id.
+async function getCaseTimeline(req, res, next) {
+  try {
+    const actor = getActor(req);
+    const correlationId = getCorrelationId(req);
+    const caseId = req.params.caseId;
+
+    const data = await onboardingService.getCaseTimeline({
+      caseId,
+      actor,
+    });
+
+    res.setHeader('X-Correlation-Id', correlationId);
+    return ok(res, data);
+  } catch (err) {
+    return sendError(res, err);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
 // EXPORTS
 // ─────────────────────────────────────────────────────────────
@@ -468,4 +488,5 @@ module.exports = {
   mergeBranch,
   getMyOp, // 1.4.0-FE-OP-B1
   listReviewableOpCases, // 1.5.0-FE-OP-B2
+  getCaseTimeline, // 1.5.1-FE-OP-D1
 };

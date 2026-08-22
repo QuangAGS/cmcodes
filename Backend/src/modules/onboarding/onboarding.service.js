@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.service.js
- * DATETIME: 2026-08-20T15:30:00+07:00
- * VERSION: 1.5.1-FE-OP-B2
+ * DATETIME: 2026-08-22T14:10:00+07:00
+ * VERSION: 1.5.2-FE-OP-D1
  * DESCRIPTION:
  * - FE-OP-B1-UI2: Cho phép DRAFT member cũng có thể update profile.
  * - TRÁI TIM NGHIỆP VỤ Onboarding theo EGAL-25.x OPD v1.2.0 (SEC-compliant) + EGAL-SEC v1.1.0.
@@ -20,6 +20,8 @@
  * - 1.5.0-FE-OP-B2: List OP cases chờ duyệt + approve OP side-effects
  *   (CHINH_THUC; CLAN_SETUP→CLAN_ADMIN+HOAT_DONG; MEMBER_JOIN→USER).
  * - 1.5.1-FE-OP-B2: SYS startReview/revision/approve/reject dùng basePrisma.
+ * - 1.5.2-FE-OP-D1: getCaseTimeline — gom C-RP + USER_APPROVAL + OP by context.target_id.
+ * 
  */
 
 'use strict';
@@ -1810,6 +1812,220 @@ async function listReviewableOpCases({
 }
 
 // ─────────────────────────────────────────────────────────────
+// FE-OP-D1 — Case timeline (RP C + USER_APPROVAL + OP by target_id)
+// ─────────────────────────────────────────────────────────────
+
+const TIMELINE_ACTION_LABELS = Object.freeze({
+  APPROVE: 'Phê duyệt',
+  REJECT: 'Từ chối',
+  FINAL_REJECT: 'Từ chối lần cuối',
+  REVISION_SUBMIT: 'Gửi lại sau yêu cầu sửa',
+  REOPEN_REJECTED: 'Mở lại hồ sơ từ chối',
+});
+
+const TIMELINE_PROCESS_LABELS = Object.freeze({
+  USER_REGISTER: 'Đăng ký',
+  ONBOARDING_CASE_CREATE: 'Tạo hồ sơ đăng ký',
+  USER_APPROVAL: 'Xét duyệt đăng ký',
+  ONBOARDING_SUBMIT: 'Gửi duyệt hồ sơ',
+  ONBOARDING_APPROVE: 'Phê duyệt thành viên chính thức',
+  ONBOARDING_REJECT: 'Từ chối hồ sơ',
+  ONBOARDING_REVISION_REQUEST: 'Yêu cầu bổ sung',
+  ONBOARDING_REVIEW_START: 'Bắt đầu xem xét',
+  ONBOARDING_PROFILE_SAVE: 'Lưu nháp hồ sơ',
+  ONBOARDING_PROFILE_COMPLETE: 'Hoàn thiện hồ sơ',
+});
+
+function _timelineActionLabel(processType, action) {
+  if (action && TIMELINE_ACTION_LABELS[action]) {
+    if (processType === 'USER_APPROVAL' && action === 'APPROVE') {
+      return 'Phê duyệt đăng ký';
+    }
+    return TIMELINE_ACTION_LABELS[action];
+  }
+  return TIMELINE_PROCESS_LABELS[processType] || processType;
+}
+
+function _normalizeTimelineRow(row, phase) {
+  const meta = row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+  const payload = meta.payload && typeof meta.payload === 'object' ? meta.payload : {};
+  const context = meta.context && typeof meta.context === 'object' ? meta.context : {};
+  const action = payload.action ? String(payload.action) : null;
+
+  return {
+    at: row.created_at,
+    phase,
+    process_type: row.process_type,
+    action,
+    actionLabel: _timelineActionLabel(row.process_type, action),
+    process_status: row.process_status,
+    actor_id: row.actor_id || null,
+    correlation_id: row.correlation_id,
+    summary:
+      payload.admin_note ||
+      payload.approver_note ||
+      payload.rejection_reason ||
+      payload.review_note ||
+      null,
+    payload: {
+      previous_status: payload.previous_status || payload.status_before || null,
+      status_after: payload.status_after || payload.case_status_after || null,
+      case_type: payload.case_type || null,
+      process_kind: payload.process_kind || null,
+      member_status: payload.member_status || null,
+      user_role: payload.user_role || null,
+    },
+    context: {
+      target_id: context.target_id || null,
+      user_id: context.user_id || null,
+      member_id: context.member_id || null,
+      reviewer_id: context.reviewer_id || null,
+    },
+  };
+}
+
+/**
+ * FE-OP-D1: Lịch sử BPL ghép RP + OP cho một onboarding case (OP).
+ * - RP: correlation_id = source_register_correlation_id + USER_APPROVAL theo payload.case_id
+ * - OP: process_type ONBOARDING_* và context.target_id = caseId
+ * - Nhãn: ưu tiên payload.action, không có thì map process_type
+ * - SYS: basePrisma (bypass tenant ALS)
+ *
+ * @param {object} params
+ * @param {string} params.caseId
+ * @param {object} params.actor - { id, role, tenant_id }
+ */
+async function getCaseTimeline({ caseId, actor }) {
+  const role = actor?.role;
+  const actorTenantId = actor?.tenant_id || actor?.tenantId || null;
+
+  if (!['SYSTEM_ADMIN', 'CLAN_ADMIN'].includes(role)) {
+    throw BusinessError(
+      'FORBIDDEN',
+      'Bạn không có quyền xem lịch sử hồ sơ.',
+      { statusCode: 403 }
+    );
+  }
+
+  if (!caseId) {
+    throw BusinessError('VALIDATION_ERROR', 'Thiếu caseId.', { statusCode: 400 });
+  }
+
+  const db = _clientForRole(role);
+
+  const onboardingCase = await db.onboarding_cases.findFirst({
+    where: { id: caseId, deleted_at: null },
+  });
+
+  if (!onboardingCase) {
+    throw BusinessError(
+      'ONBOARDING_CASE_NOT_FOUND',
+      'Hồ sơ onboarding không tồn tại.',
+      { statusCode: 404 }
+    );
+  }
+
+  _assertCaseTenantAccess(onboardingCase, {
+    role,
+    tenant_id: actorTenantId,
+  });
+
+  if (role === 'CLAN_ADMIN' && onboardingCase.case_type === 'CLAN_SETUP') {
+    throw BusinessError(
+      'FORBIDDEN',
+      'CLAN_ADMIN không xem timeline hồ sơ thành lập dòng họ (CLAN_SETUP).',
+      { statusCode: 403 }
+    );
+  }
+
+  const meta =
+    onboardingCase.metadata && typeof onboardingCase.metadata === 'object'
+      ? onboardingCase.metadata
+      : {};
+  const sourceRegisterCaseId = meta.source_register_case_id || null;
+  const sourceRegisterCorrelationId =
+    meta.source_register_correlation_id || null;
+
+  const items = [];
+
+  // 1) RP logs theo C-RP
+  if (sourceRegisterCorrelationId) {
+    const rpRows = await db.business_process_logs.findMany({
+      where: { correlation_id: sourceRegisterCorrelationId },
+      orderBy: { created_at: 'asc' },
+      take: 100,
+    });
+    for (const row of rpRows) {
+      items.push(_normalizeTimelineRow(row, 'RP'));
+    }
+  }
+
+  // 2) USER_APPROVAL theo payload.case_id = source_register_case_id
+  //    (C approve RP thường khác C-RP — factory mới trong processUserApproval)
+  if (sourceRegisterCaseId) {
+    const approvalRows = await db.$queryRaw`
+      SELECT id, created_at, correlation_id, process_type, process_status, actor_id, metadata
+      FROM business_process_logs
+      WHERE process_type = 'USER_APPROVAL'
+        AND metadata->'payload'->>'case_id' = ${sourceRegisterCaseId}
+      ORDER BY created_at ASC
+      LIMIT 50
+    `;
+    for (const row of approvalRows) {
+      items.push(_normalizeTimelineRow(row, 'RP'));
+    }
+  }
+
+  // 3) OP logs neo context.target_id = caseId
+  //    (C-OP trên cases.correlation_id hiện không khớp BPL — D0 confirmed)
+  const opRows = await db.$queryRaw`
+    SELECT id, created_at, correlation_id, process_type, process_status, actor_id, metadata
+    FROM business_process_logs
+    WHERE process_type IN (
+      'ONBOARDING_SUBMIT',
+      'ONBOARDING_APPROVE',
+      'ONBOARDING_REJECT',
+      'ONBOARDING_REVISION_REQUEST',
+      'ONBOARDING_REVIEW_START',
+      'ONBOARDING_PROFILE_SAVE',
+      'ONBOARDING_PROFILE_COMPLETE'
+    )
+      AND (
+        metadata->'context'->>'target_id' = ${caseId}
+        OR metadata->'context'->>'onboarding_case_id' = ${caseId}
+        OR metadata->'payload'->>'case_id' = ${caseId}
+      )
+    ORDER BY created_at ASC
+    LIMIT 100
+  `;
+  for (const row of opRows) {
+    items.push(_normalizeTimelineRow(row, 'OP'));
+  }
+
+  items.sort((a, b) => new Date(a.at) - new Date(b.at));
+
+  const seen = new Set();
+  const deduped = [];
+  for (const it of items) {
+    const key = `${it.correlation_id}|${it.process_type}|${it.at}|${it.action || ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(it);
+  }
+
+  return {
+    caseId: onboardingCase.id,
+    process_kind: onboardingCase.process_kind,
+    case_type: onboardingCase.case_type,
+    status: onboardingCase.status,
+    correlation_id: onboardingCase.correlation_id,
+    source_register_case_id: sourceRegisterCaseId,
+    source_register_correlation_id: sourceRegisterCorrelationId,
+    items: deduped,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────
 // PHASE 3 — PROVISIONAL BRANCH + MERGE ENGINE
 // ─────────────────────────────────────────────────────────────
 
@@ -2635,6 +2851,7 @@ module.exports = {
   rejectOnboardingCase,
   cancelOnboardingCase,
   listReviewableOpCases,
+  getCaseTimeline, // 1.5.2-FE-OP-D1
 
   // Phase 3
   createProvisionalBranch,
