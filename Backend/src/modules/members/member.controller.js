@@ -1,7 +1,7 @@
 /**
  * DATETIME: 2026-07-16T12:15:00+07:00
  * PATH: src/modules/members/member.controller.js
- * VERSION: 1.5.0
+ * VERSION: 1.5.0-FE-OP-B2 cho phép VIEWER Cập nhật thành viên
  * DESCRIPTION: Điều phối Thành viên. 
  * Đảm bảo đầy đủ các hàm getAll, getById, create, update, delete, getStats.
  */
@@ -56,14 +56,45 @@ const memberController = {
   },
 
   // Cập nhật thành viên (Dùng lại logic updateFullMember cũ)
+  // FE-OP-B2 cho phép VIEWER Cập nhật thành viên
   update: async (req, res) => {
     try {
       const { id } = req.params;
-      const tenantId = req.user?.tenantId;
-      const result = await memberService.updateFullMember(id, req.body, tenantId);
+      const tenantId = req.user?.tenantId || req.user?.tenant_id;
+      const role = req.user?.role;
+      const userMemberId = req.user?.member_id; // có thể chưa có trên JWT
+
+      // VIEWER: chỉ được sửa member gắn với chính mình
+      if (role === 'VIEWER') {
+        // JWT thường không có member_id — lấy từ DB
+        const { prisma } = require('../../lib/prisma.js');
+        const userId = req.user?.userId || req.user?.id;
+        const row = await prisma.users.findFirst({
+          where: { id: userId, deleted_at: null },
+          select: { member_id: true },
+        });
+        if (!row?.member_id || row.member_id !== id) {
+          return res.status(403).json({
+            status: 'error',
+            code: 'FORBIDDEN',
+            message: 'Bạn chỉ được cập nhật hồ sơ thành viên của chính mình.',
+          });
+        }
+      }
+
+      const result = await memberService.updateFullMember(id, {
+        ...req.body,
+        changed_by: req.user?.userId || req.user?.id,
+      }, tenantId);
+
       res.status(200).json({ status: 'success', data: result });
     } catch (error) {
-      res.status(500).json({ status: 'error', message: error.message });
+      const statusCode = error.statusCode || 500;
+      res.status(statusCode).json({
+        status: 'error',
+        code: error.code || 'INTERNAL_ERROR',
+        message: error.message || 'Lỗi server',
+      });
     }
   },
 

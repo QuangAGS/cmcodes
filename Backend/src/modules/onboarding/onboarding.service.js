@@ -1,8 +1,9 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.service.js
- * DATETIME   : 2026-07-21T09:05:00+07:00
- * VERSION    : 1.5.0-W3
+ * DATETIME: 2026-08-20T15:30:00+07:00
+ * VERSION: 1.5.1-FE-OP-B2
  * DESCRIPTION:
+ * - FE-OP-B1-UI2: Cho phép DRAFT member cũng có thể update profile.
  * - TRÁI TIM NGHIỆP VỤ Onboarding theo EGAL-25.x OPD v1.2.0 (SEC-compliant) + EGAL-SEC v1.1.0.
  * - onboarding_cases = Aggregate Root (L5). SEC L2/L3 guards trên Heavy path; tenant isolation.
  * - Critical notifications: status=PENDING (outbox-ready). Non-critical: best-effort.
@@ -15,11 +16,15 @@
  * - 1.0.0–1.3.0: Phase 1–3 / OPD v1.1.0.
  * - 1.4.0 (2026-07-21): OPD v1.2.0 + SEC A–E alignment.
  * - 1.5.0-W3 function BusinessError local, chỉ cần wrapper Q1
+ * - FE-OP-B1-UI2: Cho phép DRAFT member cũng có thể update profile.
+ * - 1.5.0-FE-OP-B2: List OP cases chờ duyệt + approve OP side-effects
+ *   (CHINH_THUC; CLAN_SETUP→CLAN_ADMIN+HOAT_DONG; MEMBER_JOIN→USER).
+ * - 1.5.1-FE-OP-B2: SYS startReview/revision/approve/reject dùng basePrisma.
  */
 
 'use strict';
 
-const { prisma } = require('../../lib/prisma.js');
+const { prisma, basePrisma } = require('../../lib/prisma.js');
 //1.5.0-W3
 const { createBusinessError } = require('../../shared/errors');
 
@@ -180,6 +185,15 @@ function _assertCaseTenantAccess(onboardingCase, actorUser) {
       { statusCode: 403 }
     );
   }
+}
+
+/**
+ * SYSTEM_ADMIN: Prisma ALS gắn tenant 00000000-… → không thấy case tenant thật.
+ * Dùng basePrisma để bypass isolation. CLAN_ADMIN giữ prisma (có tenant).
+ * @param {string} [role]
+ */
+function _clientForRole(role) {
+  return role === 'SYSTEM_ADMIN' ? basePrisma : prisma;
 }
 
 /**
@@ -833,13 +847,29 @@ async function submitOnboardingCase({
     }
 
     // Chỉ cho submit từ các status hợp lệ
-    const submittable = ['PROFILE_COMPLETED', 'FAMILY_TREE_DRAFT', 'NEEDS_REVISION'];
-    if (!submittable.includes(onboardingCase.status)) {
-      throw BusinessError(
+    //-FE-OP-B1-UI2
+    const processKind = onboardingCase.process_kind || null;
+    const isOpPromote = processKind === 'MEMBER_PROMOTE';
+
+    const submittableLegacy = [
+      'PROFILE_COMPLETED',
+      'FAMILY_TREE_DRAFT',
+      'NEEDS_REVISION',
+    ];
+
+    const submittableOp = ['DRAFT', 'NEEDS_REVISION'];
+
+    const allowed = isOpPromote ? submittableOp : submittableLegacy;
+
+    if (!allowed.includes(onboardingCase.status)) {
+      const err = BusinessError(
         'ONBOARDING_CASE_NOT_SUBMITTABLE',
         `Hồ sơ đang ở trạng thái ${onboardingCase.status}, không thể gửi.`,
-        { statusCode: 423, currentStatus: onboardingCase.status }
+        { statusCode: 423 }
       );
+      // nếu BusinessError hỗ trợ details:
+      // err.details = { currentStatus: onboardingCase.status, process_kind: processKind };
+      throw err;
     }
 
     // Bắt buộc đã có primary_member_id
@@ -976,7 +1006,11 @@ async function startReview({
   note = null,
   onBehalfOf = null,
 }) {
-  return prisma.$transaction(async (tx) => {
+  const reviewer = await basePrisma.users.findUnique({ where: { id: reviewerId } });
+  _assertActorUsable(reviewer);
+  const db = _clientForRole(reviewer.role);
+
+  return db.$transaction(async (tx) => {
     const onboardingCase = await tx.onboarding_cases.findUnique({ where: { id: caseId } });
 
     if (!onboardingCase || onboardingCase.deleted_at) {
@@ -991,9 +1025,6 @@ async function startReview({
       );
     }
 
-    // Heavy path: re-validate actor + tenant (SEC A/B)
-    const reviewer = await tx.users.findUnique({ where: { id: reviewerId } });
-    _assertActorUsable(reviewer);
     _assertCaseTenantAccess(onboardingCase, reviewer);
 
     const now = new Date();
@@ -1091,7 +1122,11 @@ async function requestRevision({
   correlationId,
   note = null,
 }) {
-  return prisma.$transaction(async (tx) => {
+  const reviewer = await basePrisma.users.findUnique({ where: { id: reviewerId } });
+  _assertActorUsable(reviewer);
+  const db = _clientForRole(reviewer.role);
+
+  return db.$transaction(async (tx) => {
     if (!revisionRequest || !String(revisionRequest).trim()) {
       throw BusinessError(
         'REVISION_REQUEST_REQUIRED',
@@ -1208,7 +1243,11 @@ async function approveOnboardingCase({
   reviewNote = null,
   onBehalfOf = null,
 }) {
-  return prisma.$transaction(async (tx) => {
+  const reviewer = await basePrisma.users.findUnique({ where: { id: reviewerId } });
+  _assertActorUsable(reviewer);
+  const db = _clientForRole(reviewer.role);
+
+  return db.$transaction(async (tx) => {
     const onboardingCase = await tx.onboarding_cases.findUnique({ where: { id: caseId } });
 
     if (!onboardingCase || onboardingCase.deleted_at) {
@@ -1232,10 +1271,33 @@ async function approveOnboardingCase({
       );
     }
 
-    // Heavy path SEC
-    const reviewer = await tx.users.findUnique({ where: { id: reviewerId } });
-    _assertActorUsable(reviewer);
     _assertCaseTenantAccess(onboardingCase, reviewer);
+
+    const caseType = onboardingCase.case_type;
+    const processKind = onboardingCase.process_kind;
+
+    // ── FE-OP-B2 policy ───────────────────────────────────────
+    // CLAN_SETUP (OP): chỉ SYSTEM_ADMIN
+    if (
+      processKind === 'MEMBER_PROMOTE' &&
+      caseType === 'CLAN_SETUP' &&
+      reviewer.role !== 'SYSTEM_ADMIN'
+    ) {
+      throw BusinessError(
+        'FORBIDDEN',
+        'Chỉ SYSTEM_ADMIN được phê duyệt hồ sơ thành lập dòng họ (CLAN_SETUP).',
+        { statusCode: 403 }
+      );
+    }
+
+    // CLAN_ADMIN: chỉ MEMBER_JOIN cùng tenant (tenant đã assert ở trên)
+    if (reviewer.role === 'CLAN_ADMIN' && caseType !== 'MEMBER_JOIN') {
+      throw BusinessError(
+        'FORBIDDEN',
+        'CLAN_ADMIN chỉ được phê duyệt MEMBER_JOIN của dòng họ mình.',
+        { statusCode: 403 }
+      );
+    }
 
     const now = new Date();
 
@@ -1262,6 +1324,79 @@ async function approveOnboardingCase({
       } catch (_) { /* optional */ }
     }
 
+    // ── FE-OP-B2 side-effects (MEMBER_PROMOTE) ────────────────
+    // member DU_BI → CHINH_THUC
+    // CLAN_SETUP → user.role = CLAN_ADMIN + tenant HOAT_DONG
+    // MEMBER_JOIN → user.role = USER
+    let nextUserRole = null;
+    if (processKind === 'MEMBER_PROMOTE' && onboardingCase.primary_member_id) {
+      await tx.members.update({
+        where: { id: onboardingCase.primary_member_id },
+        data: {
+          status: 'CHINH_THUC',
+          changed_by: reviewerId,
+        },
+      });
+
+      await _writeAuditLog(tx, {
+        tableName: 'members',
+        recordId: onboardingCase.primary_member_id,
+        action: 'CAP_NHAT',
+        oldData: { status: 'DU_BI' },
+        newData: { status: 'CHINH_THUC' },
+        tenantId: onboardingCase.tenant_id,
+        changedBy: reviewerId,
+        correlationId,
+      });
+
+      if (onboardingCase.user_id) {
+        nextUserRole = caseType === 'CLAN_SETUP' ? 'CLAN_ADMIN' : 'USER';
+        const owner = await tx.users.findUnique({
+          where: { id: onboardingCase.user_id },
+          select: { id: true, role: true },
+        });
+        if (owner) {
+          await tx.users.update({
+            where: { id: onboardingCase.user_id },
+            data: { role: nextUserRole },
+          });
+          await _writeAuditLog(tx, {
+            tableName: 'users',
+            recordId: onboardingCase.user_id,
+            action: 'CAP_NHAT',
+            oldData: { role: owner.role },
+            newData: { role: nextUserRole },
+            tenantId: onboardingCase.tenant_id,
+            changedBy: reviewerId,
+            correlationId,
+          });
+        }
+      }
+
+      if (caseType === 'CLAN_SETUP' && onboardingCase.tenant_id) {
+        const tenant = await tx.tenants.findUnique({
+          where: { id: onboardingCase.tenant_id },
+          select: { id: true, status: true },
+        });
+        if (tenant && tenant.status !== 'HOAT_DONG') {
+          await tx.tenants.update({
+            where: { id: onboardingCase.tenant_id },
+            data: { status: 'HOAT_DONG' },
+          });
+          await _writeAuditLog(tx, {
+            tableName: 'tenants',
+            recordId: onboardingCase.tenant_id,
+            action: 'CAP_NHAT',
+            oldData: { status: tenant.status },
+            newData: { status: 'HOAT_DONG' },
+            tenantId: onboardingCase.tenant_id,
+            changedBy: reviewerId,
+            correlationId,
+          });
+        }
+      }
+    }
+
     await _writeBusinessLog(tx, {
       correlationId,
       processType: PROCESS_TYPE.ONBOARDING_APPROVE,
@@ -1279,6 +1414,15 @@ async function approveOnboardingCase({
         previous_status: onboardingCase.status,
         review_note: reviewNote || null,
         approved_at: now.toISOString(),
+        process_kind: processKind,
+        case_type: caseType,
+        member_status:
+          processKind === 'MEMBER_PROMOTE' ? 'CHINH_THUC' : undefined,
+        user_role: nextUserRole || undefined,
+        tenant_status:
+          processKind === 'MEMBER_PROMOTE' && caseType === 'CLAN_SETUP'
+            ? 'HOAT_DONG'
+            : undefined,
       },
     });
 
@@ -1308,6 +1452,11 @@ async function approveOnboardingCase({
       caseId,
       status: 'APPROVED',
       approvedAt: now,
+      process_kind: processKind,
+      case_type: caseType,
+      member_status:
+        processKind === 'MEMBER_PROMOTE' ? 'CHINH_THUC' : undefined,
+      user_role: nextUserRole || undefined,
     };
   });
 }
@@ -1335,7 +1484,11 @@ async function rejectOnboardingCase({
   note = null,
   onBehalfOf = null,
 }) {
-  return prisma.$transaction(async (tx) => {
+  const reviewer = await basePrisma.users.findUnique({ where: { id: reviewerId } });
+  _assertActorUsable(reviewer);
+  const db = _clientForRole(reviewer.role);
+
+  return db.$transaction(async (tx) => {
     if (!rejectionReason || !String(rejectionReason).trim()) {
       throw BusinessError(
         'REJECTION_REASON_REQUIRED',
@@ -1542,6 +1695,118 @@ async function cancelOnboardingCase({
       status: 'CANCELLED',
     };
   });
+}
+
+/**
+ * List OP cases chờ duyệt.
+ * DATETIME: 2026-08-18T10:30:00+07:00
+ * VERSION: 1.5.0-FE-OP-B2
+ */
+async function listReviewableOpCases({
+  actor,
+  processKind = 'MEMBER_PROMOTE',
+  caseType = null,
+  statusCsv = 'SUBMITTED,UNDER_REVIEW',
+  page = 1,
+  pageSize = 20,
+}) {
+  const role = actor?.role;
+  const actorTenantId = actor?.tenant_id || actor?.tenantId || null;
+
+  if (!['SYSTEM_ADMIN', 'CLAN_ADMIN'].includes(role)) {
+    throw BusinessError(
+      'FORBIDDEN',
+      'Bạn không có quyền xem danh sách hồ sơ xét duyệt.',
+      { statusCode: 403 }
+    );
+  }
+
+  const statuses = String(statusCsv)
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const where = {
+    deleted_at: null,
+    process_kind: processKind || 'MEMBER_PROMOTE',
+    status: { in: statuses.length ? statuses : ['SUBMITTED', 'UNDER_REVIEW'] },
+  };
+
+  if (role === 'CLAN_ADMIN') {
+    if (!actorTenantId) {
+      throw BusinessError(
+        'FORBIDDEN',
+        'Thiếu tenant. CLAN_ADMIN chỉ xem hồ sơ dòng họ mình.',
+        { statusCode: 403 }
+      );
+    }
+    where.tenant_id = actorTenantId;
+    where.case_type = 'MEMBER_JOIN';
+  } else if (caseType) {
+    where.case_type = caseType;
+  }
+
+  const take = Math.min(Math.max(pageSize, 1), 100);
+  const skip = (Math.max(page, 1) - 1) * take;
+
+  // 2. Chọn client phù hợp: SYSTEM_ADMIN dùng basePrisma để bypass tenant isolation
+  const db = role === 'SYSTEM_ADMIN' ? basePrisma : prisma; //[cite: 2]
+
+  const [total, rows] = await Promise.all([
+    db.onboarding_cases.count({ where }),
+    db.onboarding_cases.findMany({
+      where,
+      orderBy: [{ submitted_at: 'asc' }, { created_at: 'asc' }],
+      skip,
+      
+      take,
+      include: {
+        primary_member: {
+          select: {
+            id: true,
+            full_name: true,
+            gender: true,
+            is_alive: true,
+            birth_year: true,
+            birth_month: true,
+            birth_day: true,
+            generation: true,
+            status: true,
+            role: true,
+          },
+        },
+        users: {
+          select: { id: true, phone: true, email: true, role: true, status: true },
+        },
+        tenants: {
+          select: { id: true, name: true, status: true },
+        },
+      },
+    }),
+  ]);
+
+  return {
+    items: rows.map((c) => ({
+      id: c.id,
+      correlation_id: c.correlation_id,
+      process_kind: c.process_kind,
+      case_type: c.case_type,
+      status: c.status,
+      submitted_at: c.submitted_at,
+      tenant_id: c.tenant_id,
+      tenant: c.tenants
+        ? { id: c.tenants.id, name: c.tenants.name, status: c.tenants.status }
+        : null,
+      user: c.users,
+      primary: c.primary_member,
+    })),
+    pagination: {
+      total_records: total,
+      current_page: Math.max(page, 1),
+      page_size: take,
+      total_pages: Math.max(1, Math.ceil(total / take)),
+    },
+  };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -2369,6 +2634,7 @@ module.exports = {
   approveOnboardingCase,
   rejectOnboardingCase,
   cancelOnboardingCase,
+  listReviewableOpCases,
 
   // Phase 3
   createProvisionalBranch,

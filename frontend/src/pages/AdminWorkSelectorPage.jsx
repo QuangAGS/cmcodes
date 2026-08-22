@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/AdminWorkSelectorPage.jsx
- * DATETIME   : 2026-08-10T12:05:00+07:00
- * VERSION    : 1.3.2-OP-2-Logout
+ * DATETIME   : 2026-08-18T12:05:00+07:00
+ * VERSION    : 1.3.2-FE-OP-B2
  * DESCRIPTION:
  * - OP-2: Work Selector mobile-first, config-driven.
  * - Work items từ src/features/admin/constants/adminWorkItems.js.
@@ -19,6 +19,7 @@ import {
   ShieldCheck,
   Users,
   Building2,
+  UserCheck, //FE-OP-B2
   ChevronRight,
   AlertCircle,
   Loader2,
@@ -34,6 +35,7 @@ import {
 const ICON_MAP = {
   Users,
   Building2,
+  UserCheck, //FE-OP-B2
   ShieldCheck,
 };
 

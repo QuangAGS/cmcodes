@@ -1,8 +1,9 @@
 /**
  * PATH       : src/pages/AdminUserApprovalPage.jsx (Hàm fetchReviewableUsers)
- * DATETIME   : 2026-06-20T12:05:00+07:00
- * VERSION    : 25.1.3-ISSUE1-DATA-BRIDGING-PATCH
+ * DATETIME   : 2026-08-18T21:05:00+07:00
+ * VERSION    : 25.1.3-FE-OP-B2
  * DESCRIPTION:
+ * ISSUE1-DATA-BRIDGING-PATCH:
  * - VÁ DỨT ĐIỂM ISSUE 1: Khớp nối và truyền trọn vẹn dữ liệu hợp đồng (userData, tenantData) sang cho UserApprovalForm.
  * - Hòa trộn cấu trúc dữ liệu phẳng bề nổi và dữ liệu nested lồng nhau vào một Object duy nhất khi setSelectedUser.
  * - Q1-Bảo tồn: Giữ vẹn nguyên 100% giao diện thẻ card Mobile-first và logic đóng mở view review chi tiết của bản gốc.
@@ -10,7 +11,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { 
   Search, 
@@ -25,6 +26,8 @@ import {
 import UserApprovalForm from '../features/admin/components/UserApprovalForm.jsx';
 import apiClient from  '../lib/apiClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
+//FE-OP-B2
+import OpApprovalPanel from '../features/admin/components/OpApprovalPanel.jsx';
 
 const STATUS_BADGES = {
   CHO_DUYET: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -58,6 +61,14 @@ const getStatusBadgeClass = (item) => {
 const AdminUserApprovalPage = () => {
   const { user: currentUser } = useAuth();
   const navigate = useNavigate();
+  //FE-OP-B2
+  const [searchParams] = useSearchParams();
+  const isOpProcess =
+    String(searchParams.get('process') || '').toUpperCase() === 'OP';
+
+  if (isOpProcess) {
+    return <OpApprovalPanel />;
+  }
 
   // State quản lý danh sách & phân trang nhận từ Backend
   const [usersList, setUsersList] = useState([]);
@@ -266,7 +277,12 @@ const AdminUserApprovalPage = () => {
     }
   };
 
-  // Giao diện hiển thị khi đang mở Modal/Form Review chi tiết một User
+  /**  Giao diện hiển thị khi đang mở Modal/Form Review chi tiết một User ****** */
+  //FE-OP-B2
+  if (isOpProcess) {
+    return <OpApprovalPanel />;
+  }
+
   if (selectedUser) {
     return (
       <div className="min-h-screen bg-slate-50 py-6">

@@ -1956,6 +1956,7 @@ const authService = {
         }
 
         // --- Update users (status + member_id nếu có) ---
+        /*
         await tx.users.update({
           where: { id: userId },
           data: {
@@ -1963,6 +1964,21 @@ const authService = {
             changed_by: actorId,
             ...(newStatus === 'DA_DUYET' && newMemberId
               ? { member_id: newMemberId }
+              : {}),
+          },
+        });
+        */
+        await tx.users.update({
+          where: { id: userId },
+          data: {
+            status: newStatus,
+            changed_by: actorId,
+            ...(newStatus === 'DA_DUYET' && newMemberId
+              ? { member_id: newMemberId }
+              : {}),
+            // CLAN_SETUP: RP xong vẫn VIEWER — CLAN_ADMIN chỉ sau OP approve
+            ...(newStatus === 'DA_DUYET' && targetUser.role === 'CLAN_ADMIN'
+              ? { role: 'VIEWER' }
               : {}),
           },
         });
@@ -2179,6 +2195,9 @@ const authService = {
           {
             status: newStatus,
             ...(newMemberId ? { member_id: newMemberId } : {}),
+            ...(newStatus === 'DA_DUYET' && targetUser.role === 'CLAN_ADMIN'
+              ? { role: 'VIEWER' }
+              : {}),
           },
           actorId,
           finalReason,

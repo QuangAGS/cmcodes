@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.routes.js
- * DATETIME   : 2026-07-27T14:50:00+07:00
- * VERSION    : 1.4.0-FE-OP-B1
+ * DATETIME   : 2026-08-18T14:50:00+07:00
+ * VERSION    : 1.5.0-FE-OP-B2
  * DESCRIPTION: ... + GET /my-op (FE OP hub).
  * - [1.3.0-W4] PR-W4-1: rate limit write/admin + restrictSuspiciousActivity admin.
  * - Whitelist activate: write limiter only, no abuse guard nặng.
@@ -10,6 +10,7 @@
  * - 1.2.0-W3: tenantStatusHeavy admin; activate exempt Heavy.
  * - 1.3.0-W4 (2026-07-27): onboarding rate + guard.
  * - 1.4.0-FE-OP-B1 (2026-08-16): GET /my-op — verifyToken only, no write limiter.
+ * - 1.5.0-FE-OP-B2 (2026-08-18): GET /cases/reviewable
  */
 
 'use strict';
@@ -79,6 +80,17 @@ router.post(
 );
 
 // ── PHASE 2 ──────────────────────────────────────────────────
+//FE-OP-B2
+router.get(
+  '/cases/reviewable',
+  onboardingAdminRateLimiter,
+  verifyToken,
+  checkRole(...ADMIN_ROLES),
+  tenantStatusHeavy,
+  onboardingAdminGuard,
+  asyncHandler(ctrl.listReviewableOpCases)
+);
+
 router.post(
   '/cases/:caseId/submit',
   onboardingWriteRateLimiter,

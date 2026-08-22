@@ -1,8 +1,8 @@
 
 /**
  * PATH: src/modules/members/member.routes.js
- * DATETIME: 2026-07-16T12:15:00+07:00
- * VERSION: 1.6.0
+ * DATETIME: 2026-08-17T20:42:00+07:00
+ * VERSION: 1.6.0-FE-OP-B2 cho phép VIEWER Cập nhật thành viên
  * DESCRIPTION: Đồng bộ Routes thành viên, sửa lỗi Shadowing.
  */
 const express = require('express');
@@ -20,9 +20,10 @@ router.get('/focal-tree/:id', verifyToken, memberController.getFocalTree);
 router.get('/', verifyToken, memberController.getAll);
 router.get('/:id', verifyToken, memberController.getById);
 
-// --- NHÓM 3: THAY ĐỔI DỮ LIỆU (CHẶN VIEWER) ---
+// --- NHÓM 3: THAY ĐỔI DỮ LIỆU (TẠM KHÔNG CHẶN VIEWER) ---
 router.post('/', verifyToken, checkRole(['USER', 'CLAN_ADMIN']), memberController.create);
-router.put('/:id', verifyToken, checkRole(['USER', 'CLAN_ADMIN']), memberController.update);
+// FE-OP-B2 cho phép VIEWER Cập nhật thành viên (Dùng lại logic updateFullMember cũ)
+router.put('/:id', verifyToken, checkRole(['USER', 'CLAN_ADMIN','VIEWER']), memberController.update);
 
 // --- NHÓM 4: XÓA DỮ LIỆU (CHỈ CLAN_ADMIN) ---
 router.delete('/:id', verifyToken, checkRole(['CLAN_ADMIN']), memberController.delete);

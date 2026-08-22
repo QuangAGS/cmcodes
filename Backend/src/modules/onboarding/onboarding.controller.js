@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.controller.js
- * DATETIME   : 2026-07-25T18:15:00+07:00
- * VERSION    : 1.4.0-FE-OP-B1
+ * DATETIME: 2026-08-18T10:30:00+07:00
+ * VERSION: 1.5.0-FE-OP-B2
  * DESCRIPTION: ... + getMyOp (GET /my-op) read-only for FE OP hub.
  * 1.3.0-W2:
  * - HTTP Adapter cho Onboarding Service (OPD v1.2.0 SEC-compliant).
@@ -15,6 +15,7 @@
  * - 1.2.0-W1 (2026-07-22): sendError từ shared/errors.
  * - 1.3.0-W2 (2026-07-25): Validation sớm dual-contract (PR-W2-4).
  * - 1.4.0-FE-OP-B1 (2026-08-16): getMyOp — không business logic trong controller.
+ * - 1.5.0-FE-OP-B2 (2026-08-18): GET /cases/reviewable
  */
 
 'use strict';
@@ -422,6 +423,31 @@ async function getMyOp(req, res, next) {
     return sendError(res, err);
   }
 }
+/**
+ * GET /onboarding/cases/reviewable
+ * DATETIME: 2026-08-18T10:30:00+07:00
+ * VERSION: 1.5.0-FE-OP-B2
+ */
+async function listReviewableOpCases(req, res, next) {
+  try {
+    const actor = getActor(req);
+    const correlationId = getCorrelationId(req);
+
+    const data = await onboardingService.listReviewableOpCases({
+      actor,
+      processKind: req.query.process_kind || 'MEMBER_PROMOTE',
+      caseType: req.query.case_type || null,
+      statusCsv: req.query.status || 'SUBMITTED,UNDER_REVIEW',
+      page: Number(req.query.page) || 1,
+      pageSize: Number(req.query.pageSize) || 20,
+    });
+
+    res.setHeader('X-Correlation-Id', correlationId);
+    return ok(res, data);
+  } catch (err) {
+    return sendError(res, err);
+  }
+}
 
 // ─────────────────────────────────────────────────────────────
 // EXPORTS
@@ -441,4 +467,5 @@ module.exports = {
   updateBranch,
   mergeBranch,
   getMyOp, // 1.4.0-FE-OP-B1
+  listReviewableOpCases, // 1.5.0-FE-OP-B2
 };

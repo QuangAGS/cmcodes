@@ -1,8 +1,9 @@
 /**
  * PATH: src/modules/members/member.service.js
- * DATETIME   : 2026-07-16T12:15:00+07:00
- * VERSION    : 1.7.5
- * DESCRIPTION: 
+ * DATETIME: 2026-08-17T19:00:00+07:00
+ * VERSION: 1.8.0-FE-OP-B1-UI2
+ * DESCRIPTION: UPDATE FULL MEMBER (đơn giản) — OP Base Profile + admin chỉnh sửa.
+ *              Chỉ whitelist field an toàn; không đụng tree relation phức tạp.
  * - Rà soát và loại bỏ/comment toàn bộ việc sinh khóa chính (PK) thủ công `id: uuidv4()` ở tầng Backend.
  * - Nhường hoàn toàn quyền sinh mã UUID tự động cho tầng Database PostgreSQL (Supabase).
  * - Bảo tồn 100% logic nghiệp vụ tạo thành viên phức hợp và kiểm tra Data Integrity (Q1).
@@ -223,7 +224,94 @@ const memberService = {
       orderBy: [{ full_name: 'asc' }],
       
     });
-  }
+  },
+
+    /**
+   * GET BY ID — chi tiết 1 member trong tenant.
+   * DATETIME: 2026-08-17T19:00:00+07:00
+   * VERSION: 1.8.0-FE-OP-B1-UI2
+   */
+  getMemberById: async (id, tenantId) => {
+    const where = { id, deleted_at: null };
+    if (tenantId) where.tenant_id = tenantId;
+
+    const member = await prisma.members.findFirst({ where });
+    if (!member) {
+      const err = new Error('Không tìm thấy thành viên.');
+      err.statusCode = 404;
+      err.code = 'MEMBER_NOT_FOUND';
+      throw err;
+    }
+    return member;
+  },
+
+  /**
+   * UPDATE FULL MEMBER (đơn giản) — OP Base Profile + admin chỉnh sửa.
+   * Chỉ whitelist field an toàn; không đụng tree relation phức tạp.
+   * DATETIME: 2026-08-17T19:00:00+07:00
+   * VERSION: 1.8.0-FE-OP-B1-UI2
+   */
+  updateFullMember: async (id, body, tenantId) => {
+    const existing = await memberService.getMemberById(id, tenantId);
+
+    const allowed = [
+      'full_name',
+      'alias',
+      'gender',
+      'is_alive',
+      'birth_year',
+      'birth_month',
+      'birth_day',
+      'is_birth_lunar',
+      'birth_note',
+      'generation',
+      'note',
+      'phone_number',
+      'email',
+      'child_type',
+      'role',
+    ];
+
+    const data = {};
+    for (const key of allowed) {
+      if (Object.prototype.hasOwnProperty.call(body, key)) {
+        data[key] = body[key];
+      }
+    }
+
+    // Chuẩn hoá số nullable
+    for (const numKey of ['birth_year', 'birth_month', 'birth_day', 'generation']) {
+      if (data[numKey] === '' || data[numKey] === undefined) {
+        // không đụng nếu client không gửi
+      } else if (data[numKey] === null) {
+        data[numKey] = null;
+      } else if (typeof data[numKey] === 'string' && data[numKey].trim() === '') {
+        data[numKey] = null;
+      } else if (data[numKey] != null) {
+        const n = Number(data[numKey]);
+        data[numKey] = Number.isFinite(n) ? n : null;
+      }
+    }
+
+    if (typeof data.is_alive === 'string') {
+      data.is_alive = data.is_alive === 'true' || data.is_alive === '1';
+    }
+
+    if (Object.keys(data).length === 0) {
+      return existing;
+    }
+
+    if (body.changed_by) {
+      data.changed_by = body.changed_by;
+    }
+
+    const updated = await prisma.members.update({
+      where: { id: existing.id },
+      data,
+    });
+
+    return updated;
+  },
 
 };
 
