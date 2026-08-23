@@ -1276,13 +1276,13 @@ enum notification_event {
   // ONBOARDING NOTIFICATIONS
   // ==========================================================================
   ONBOARDING_STARTED
-  ONBOARDING_PROFILE_COMPLETED
+  ONBOARDING_PROFILE_COMPLETED ///hoàn thiện BP
   ONBOARDING_SUBMITTED
   ONBOARDING_UNDER_REVIEW
   ONBOARDING_REVISION_REQUESTED
   ONBOARDING_APPROVED
   ONBOARDING_REJECTED
-  ONBOARDING_CANCELLED
+  ONBOARDING_CANCELLED ///Member hủy case
   ONBOARDING_MERGING
   ONBOARDING_MERGE_FAILED
   ONBOARDING_BRANCH_MERGED
@@ -1310,46 +1310,54 @@ enum actor_type {
 }
 
 enum business_process_type {
-  USER_REGISTER
-  USER_APPROVAL
-  USER_REJECTION
-  PASSWORD_RESET_REQUESTED
-  CLAN_CREATE
-  TENANT_ACTIVATE ///Chuyển tenant sang trạng thái HOAT_DONG
-  CLAN_JOIN
-  MEMBER_ADD
-  MEMBER_REMOVE
-  USER_LOCK
-  USER_UNLOCK
-  USER_BAN
-  USER_UNBAN
-  // ==========================================================================
-  // ONBOARDING BUSINESS PROCESSES
-  // ==========================================================================
+  // ── Auth / user lifecycle ─────────────────────────────────
+  USER_REGISTER // User đăng ký tài khoản (RP bắt đầu)
+  USER_APPROVAL // Admin duyệt/từ chối đăng ký (payload.action = APPROVE|REJECT|…)
+  USER_REJECTION // (legacy) từ chối user — ưu tiên USER_APPROVAL + action
+  PASSWORD_RESET_REQUESTED // Yêu cầu đặt lại mật khẩu
 
-  ONBOARDING_CASE_CREATE
-  ONBOARDING_PROFILE_SAVE
-  ONBOARDING_PROFILE_COMPLETE
+  // ── Clan / tenant / member admin ──────────────────────────
+  CLAN_CREATE // Tạo tenant/dòng họ (thường kèm RP CLAN_SETUP)
+  TENANT_ACTIVATE // Chuyển tenant → HOAT_DONG (sau OP approve CLAN_SETUP / activate)
+  CLAN_JOIN // User xin nhập tộc (luồng join — không phải OP promote)
+  MEMBER_ADD // Thêm thành viên vào cây (admin/genealogy)
+  MEMBER_REMOVE // Gỡ / soft-delete thành viên
+  USER_LOCK // Khóa tài khoản (BI_KHOA / lock tạm)
+  USER_UNLOCK // Mở khóa tài khoản
+  USER_BAN // Cấm tài khoản (BI_CAM)
+  USER_UNBAN // Gỡ cấm
 
-  ONBOARDING_BRANCH_CREATE
-  ONBOARDING_BRANCH_UPDATE
-  ONBOARDING_BRANCH_SUBMIT
+  // ── Onboarding — tạo & hồ sơ ──────────────────────────────
+  ONBOARDING_CASE_CREATE // Tạo onboarding_cases (DRAFT)
+  ONBOARDING_PROFILE_SAVE // Lưu nháp base profile / BP (chưa complete)
+  ONBOARDING_PROFILE_COMPLETE // Hoàn thiện profile → PROFILE_COMPLETED (legacy) hoặc đủ BP
 
-  ONBOARDING_SUBMIT
-  ONBOARDING_REVIEW_START
-  ONBOARDING_REVISION_REQUEST
+  // ── Onboarding — nhánh dự bị (Phase 3) ────────────────────
+  ONBOARDING_BRANCH_CREATE // Tạo provisional branch + members DU_BI
+  ONBOARDING_BRANCH_UPDATE // Sửa/thêm/xóa members trên nhánh dự bị
+  ONBOARDING_BRANCH_SUBMIT // (nếu tách) gửi nhánh — thường gộp ONBOARDING_SUBMIT
 
-  ONBOARDING_APPROVE
-  ONBOARDING_REJECT
-  ONBOARDING_CANCEL
-  ONBOARDING_CASE_EXPIRE
+  // ── Onboarding — vòng xét duyệt (OP / RP case) ────────────
+  ONBOARDING_SUBMIT // Member gửi duyệt: → SUBMITTED (kể cả gửi lại sau NEEDS_REVISION)
+  ONBOARDING_REVIEW_START // Admin bắt đầu xem: → UNDER_REVIEW
+  ONBOARDING_REVISION_REQUEST // Admin trả sửa: → NEEDS_REVISION (+ revision_request)
+  ONBOARDING_APPROVE // Admin duyệt: → APPROVED (+ side-effect member/user/tenant)
+  ONBOARDING_REJECT // Soft reject: → REJECTED, reopenable=true
+  //   CLAN_SETUP: tenant → TU_CHOI
+  ONBOARDING_FINAL_REJECT // Final reject: → REJECTED, reopenable=false
+  //   CLAN_SETUP: tenant → NGUNG_HAN
+  ONBOARDING_CASE_REOPEN // Member mở lại soft-reject: → DRAFT
+  //   CLAN_SETUP: tenant TU_CHOI → TAM_NGUNG
+  ONBOARDING_CANCEL // Member/hệ thống hủy hồ sơ: → CANCELLED
+  ONBOARDING_CASE_EXPIRE // Job hết hạn: → EXPIRED
+  //   soft-reject quá hạn có thể log FINAL path / cập nhật reopenable
 
-  ONBOARDING_MERGE_START
-  ONBOARDING_BRANCH_MERGE
-  ONBOARDING_MERGE_FAILED
-  ONBOARDING_COMPLETE
-
-  ONBOARDING_BRANCH_ARCHIVE
+  // ── Onboarding — merge vào cây chính ──────────────────────
+  ONBOARDING_MERGE_START // Bắt đầu merge (case → MERGING)
+  ONBOARDING_BRANCH_MERGE // Ghép nhánh dự bị vào cây CHINH_THUC
+  ONBOARDING_MERGE_FAILED // Merge lỗi (case → MERGE_FAILED, có thể retry)
+  ONBOARDING_COMPLETE // Kết thúc onboarding sau merge thành công
+  ONBOARDING_BRANCH_ARCHIVE // Lưu trữ / đóng nhánh sau merge hoặc hủy
 }
 
 enum process_status_type {
