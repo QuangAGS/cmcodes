@@ -1,8 +1,8 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.controller.js
- * DATETIME: 2026-08-22T14:10:00+07:00
- * VERSION: 1.5.1-FE-OP-D1
- * DESCRIPTION: ... + getMyOp (GET /my-op) read-only for FE OP hub.
+ * DATETIME: 2026-08-22T15:40:00+07:00
+ * VERSION: 1.5.3-FE-OP-B3
+ * DESCRIPTION: ... + getMyOp + listReviewable + timeline + B3 note/reject/reopen.
  * 1.3.0-W2:
  * - HTTP Adapter cho Onboarding Service (OPD v1.2.0 SEC-compliant).
  * - [1.2.0-W1] handleError → sendError (CED).
@@ -15,8 +15,8 @@
  * - 1.2.0-W1 (2026-07-22): sendError từ shared/errors.
  * - 1.3.0-W2 (2026-07-25): Validation sớm dual-contract (PR-W2-4).
  * - 1.4.0-FE-OP-B1 (2026-08-16): getMyOp — không business logic trong controller.
- * - 1.5.0-FE-OP-B2 (2026-08-18): GET /cases/reviewable
- * - 1.5.1-FE-OP-D1: getCaseTimeline — gom C-RP + USER_APPROVAL + OP by context.target_id.
+ * - 1.5.2-FE-OP-D1 (2026-08-22): GET /cases/:caseId/timeline.
+ * - 1.5.3-FE-OP-B3 (2026-08-22): note bắt buộc approve/revision/reject; finalReject; reopen.
  */
 
 'use strict';
@@ -232,13 +232,16 @@ async function requestRevision(req, res, next) {
     if (!revisionRequest || !String(revisionRequest).trim()) {
       throw validationError('revisionRequest là bắt buộc.');
     }
+    if (!note || !String(note).trim()) {
+      throw validationError('note là bắt buộc.');
+    }
 
     const result = await onboardingService.requestRevision({
       caseId,
       reviewerId: actor.id,
       revisionRequest,
       correlationId,
-      note: note || null,
+      note,
     });
 
     res.setHeader('X-Correlation-Id', correlationId);
@@ -253,13 +256,18 @@ async function approveCase(req, res, next) {
     const actor = getActor(req);
     const correlationId = getCorrelationId(req);
     const { caseId } = req.params;
-    const { reviewNote } = req.body || {};
+    const { reviewNote, note } = req.body || {};
+    const noteText = reviewNote || note || null;
+
+    if (!noteText || !String(noteText).trim()) {
+      throw validationError('reviewNote (ghi chú phê duyệt) là bắt buộc.');
+    }
 
     const result = await onboardingService.approveOnboardingCase({
       caseId,
       reviewerId: actor.id,
       correlationId,
-      reviewNote: reviewNote || null,
+      reviewNote: noteText,
     });
 
     res.setHeader('X-Correlation-Id', correlationId);
@@ -274,7 +282,7 @@ async function rejectCase(req, res, next) {
     const actor = getActor(req);
     const correlationId = getCorrelationId(req);
     const { caseId } = req.params;
-    const { rejectionReason, note } = req.body || {};
+    const { rejectionReason, note, finalReject } = req.body || {};
 
     if (!rejectionReason || !String(rejectionReason).trim()) {
       throw validationError('rejectionReason là bắt buộc.');
@@ -284,6 +292,28 @@ async function rejectCase(req, res, next) {
       caseId,
       reviewerId: actor.id,
       rejectionReason,
+      correlationId,
+      note: note || rejectionReason,
+      finalReject: !!finalReject,
+    });
+
+    res.setHeader('X-Correlation-Id', correlationId);
+    return ok(res, result);
+  } catch (err) {
+    return sendError(res, err);
+  }
+}
+
+async function reopenCase(req, res, next) {
+  try {
+    const actor = getActor(req);
+    const correlationId = getCorrelationId(req);
+    const { caseId } = req.params;
+    const { note } = req.body || {};
+
+    const result = await onboardingService.reopenOnboardingCase({
+      caseId,
+      userId: actor.id,
       correlationId,
       note: note || null,
     });
@@ -450,7 +480,10 @@ async function listReviewableOpCases(req, res, next) {
   }
 }
 
-//1.5.1-FE-OP-D1: getCaseTimeline — gom C-RP + USER_APPROVAL + OP by context.target_id.
+/**
+ * GET /onboarding/cases/:caseId/timeline
+ * FE-OP-D1: RP + OP BPL timeline (payload.action ưu tiên)
+ */
 async function getCaseTimeline(req, res, next) {
   try {
     const actor = getActor(req);
@@ -488,5 +521,6 @@ module.exports = {
   mergeBranch,
   getMyOp, // 1.4.0-FE-OP-B1
   listReviewableOpCases, // 1.5.0-FE-OP-B2
-  getCaseTimeline, // 1.5.1-FE-OP-D1
+  getCaseTimeline, // 1.5.2-FE-OP-D1
+  reopenCase, // 1.5.3-FE-OP-B3
 };

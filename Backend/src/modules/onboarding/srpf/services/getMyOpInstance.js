@@ -1,11 +1,12 @@
 /**
  * PATH       : Backend/src/modules/onboarding/srpf/services/getMyOpInstance.js
- * DATETIME   : 2026-08-16T20:00:00+07:00
- * VERSION    : 1.0.0-FE-OP-B1
+ * DATETIME   : 2026-08-22T15:40:00+07:00
+ * VERSION    : 1.1.0-FE-OP-B3
  * DESCRIPTION:
  * - Read-only: lấy OP (MEMBER_PROMOTE) đang mở của user hiện tại cho FE hub/guard.
  * - Contract FE-OP-MEMBER_PROMOTE-2026-08-16: hasOpen, process_kind, case, primary, completeness.
- * - Tái sử dụng findOpenOpCase (openMemberPromoteInstance.js). Không side-effect.
+ * - B3: revision_request, review_note, rejection_reason, reopenable; soft-REJECTED + reopenable = hasOpen.
+ * - Tái sử dụng findOpenOpCase. Không side-effect.
  * - Q1: không đụng auth.service / create / submit / approve.
  */
 
@@ -148,19 +149,44 @@ async function getMyOpInstance(input = {}) {
     return emptyPayload();
   }
 
-  const openCase = await findOpenOpCase({
+  let openCase = await findOpenOpCase({
     memberId: member.id,
     tenantId,
     client,
   });
 
-  // hasOpen: bắt buộc DU_BI + case OP đang mở
+  // B3: soft reject (REJECTED + metadata.reopenable) vẫn hasOpen để member reopen
+  if (!openCase && member.status === 'DU_BI') {
+    const softRejected = await client.onboarding_cases.findFirst({
+      where: {
+        primary_member_id: member.id,
+        tenant_id: tenantId,
+        process_kind: PROCESS_TYPE,
+        deleted_at: null,
+        status: 'REJECTED',
+      },
+      orderBy: { updated_at: 'desc' },
+    });
+    const meta =
+      softRejected?.metadata && typeof softRejected.metadata === 'object'
+        ? softRejected.metadata
+        : {};
+    if (softRejected && meta.reopenable === true) {
+      openCase = softRejected;
+    }
+  }
+
+  // hasOpen: bắt buộc DU_BI + case OP đang mở (hoặc soft-reject reopenable)
   if (!openCase || member.status !== 'DU_BI') {
     return emptyPayload();
   }
 
   const caseType = openCase.case_type || null;
   const completeness = computeCompleteness(member, caseType);
+  const meta =
+    openCase.metadata && typeof openCase.metadata === 'object'
+      ? openCase.metadata
+      : {};
 
   return {
     hasOpen: true,
@@ -169,8 +195,11 @@ async function getMyOpInstance(input = {}) {
       id: openCase.id,
       status: openCase.status,
       case_type: caseType,
-      process_kind:
-        openCase.process_kind || PROCESS_TYPE,
+      process_kind: openCase.process_kind || PROCESS_TYPE,
+      revision_request: openCase.revision_request || null,
+      review_note: openCase.review_note || null,
+      rejection_reason: openCase.rejection_reason || null,
+      reopenable: meta.reopenable === true,
     },
     primary: mapPrimary(member),
     completeness,

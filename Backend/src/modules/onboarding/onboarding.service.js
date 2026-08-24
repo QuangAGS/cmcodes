@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.service.js
  * DATETIME: 2026-08-22T14:10:00+07:00
- * VERSION: 1.5.2-FE-OP-D1
+ * VERSION: 1.5.3-FE-OP-B3
  * DESCRIPTION:
  * - FE-OP-B1-UI2: Cho phép DRAFT member cũng có thể update profile.
  * - TRÁI TIM NGHIỆP VỤ Onboarding theo EGAL-25.x OPD v1.2.0 (SEC-compliant) + EGAL-SEC v1.1.0.
@@ -21,8 +21,46 @@
  *   (CHINH_THUC; CLAN_SETUP→CLAN_ADMIN+HOAT_DONG; MEMBER_JOIN→USER).
  * - 1.5.1-FE-OP-B2: SYS startReview/revision/approve/reject dùng basePrisma.
  * - 1.5.2-FE-OP-D1: getCaseTimeline — gom C-RP + USER_APPROVAL + OP by context.target_id.
- * 
+ * - 1.5.3-FE-OP-B3: note bắt buộc approve/revision/reject; soft/final reject + reopenable;
+ *   reopen endpoint; CLAN_SETUP tenant TU_CHOI/NGUNG_HAN/TAM_NGUNG.
  */
+
+/**
+ * FE-OP-B3 — policy admin trên case MEMBER_PROMOTE (approve/revision/reject).
+ * CLAN_SETUP: chỉ SYSTEM_ADMIN. CLAN_ADMIN: chỉ MEMBER_JOIN cùng tenant.
+ */
+function _assertOpAdminPolicy(onboardingCase, reviewer) {
+  const caseType = onboardingCase.case_type;
+  const processKind = onboardingCase.process_kind;
+  if (processKind !== 'MEMBER_PROMOTE') return;
+
+  if (caseType === 'CLAN_SETUP' && reviewer.role !== 'SYSTEM_ADMIN') {
+    throw BusinessError(
+      'FORBIDDEN',
+      'Chỉ SYSTEM_ADMIN được xử lý hồ sơ thành lập dòng họ (CLAN_SETUP).',
+      { statusCode: 403 }
+    );
+  }
+  if (reviewer.role === 'CLAN_ADMIN' && caseType !== 'MEMBER_JOIN') {
+    throw BusinessError(
+      'FORBIDDEN',
+      'CLAN_ADMIN chỉ được xử lý MEMBER_JOIN của dòng họ mình.',
+      { statusCode: 403 }
+    );
+  }
+}
+
+function _requireNote(note, fieldLabel = 'Ghi chú') {
+  const v = note != null ? String(note).trim() : '';
+  if (!v) {
+    throw BusinessError(
+      'NOTE_REQUIRED',
+      `${fieldLabel} là bắt buộc.`,
+      { statusCode: 400 }
+    );
+  }
+  return v;
+}
 
 'use strict';
 
@@ -1128,15 +1166,10 @@ async function requestRevision({
   _assertActorUsable(reviewer);
   const db = _clientForRole(reviewer.role);
 
-  return db.$transaction(async (tx) => {
-    if (!revisionRequest || !String(revisionRequest).trim()) {
-      throw BusinessError(
-        'REVISION_REQUEST_REQUIRED',
-        'Nội dung yêu cầu bổ sung không được để trống.',
-        { statusCode: 400 }
-      );
-    }
+  const revisionText = _requireNote(revisionRequest, 'Nội dung yêu cầu bổ sung');
+  const noteText = _requireNote(note, 'Ghi chú');
 
+  return db.$transaction(async (tx) => {
     const onboardingCase = await tx.onboarding_cases.findUnique({ where: { id: caseId } });
 
     if (!onboardingCase || onboardingCase.deleted_at) {
@@ -1152,18 +1185,20 @@ async function requestRevision({
       );
     }
 
-    const updatedCase = await tx.onboarding_cases.update({
+    _assertCaseTenantAccess(onboardingCase, reviewer);
+    _assertOpAdminPolicy(onboardingCase, reviewer);
+
+    await tx.onboarding_cases.update({
       where: { id: caseId },
       data: {
         status: 'NEEDS_REVISION',
-        revision_request: String(revisionRequest).trim(),
+        revision_request: revisionText,
         reviewed_by: reviewerId,
         reviewed_at: new Date(),
-        review_note: note || onboardingCase.review_note,
+        review_note: noteText,
       },
     });
 
-    // Branch trở lại trạng thái cho phép edit (PROVISIONAL hoặc giữ nguyên)
     if (onboardingCase.primary_branch_id) {
       try {
         await tx.branches.update({
@@ -1187,9 +1222,10 @@ async function requestRevision({
         reviewer_id: reviewerId,
       },
       payload: {
-        revision_request: String(revisionRequest).trim(),
+        action: 'REVISION_REQUEST',
+        revision_request: revisionText,
         previous_status: onboardingCase.status,
-        note: note || null,
+        note: noteText,
       },
     });
 
@@ -1198,7 +1234,7 @@ async function requestRevision({
       recordId: caseId,
       action: 'CAP_NHAT',
       oldData: { status: onboardingCase.status },
-      newData: { status: 'NEEDS_REVISION', revision_request: String(revisionRequest).trim() },
+      newData: { status: 'NEEDS_REVISION', revision_request: revisionText },
       tenantId: onboardingCase.tenant_id,
       changedBy: reviewerId,
       correlationId,
@@ -1208,7 +1244,7 @@ async function requestRevision({
       userId: onboardingCase.user_id,
       tenantId: onboardingCase.tenant_id,
       title: 'Yêu cầu bổ sung hồ sơ nhập tộc',
-      content: `Ban Quản trị yêu cầu bạn bổ sung: ${String(revisionRequest).trim()}`,
+      content: `Ban Quản trị yêu cầu bạn bổ sung: ${revisionText}`,
       eventType: NOTIF_EVENT.ONBOARDING_REVISION_REQUESTED,
       correlationId,
       level: 'IMPORTANT',
@@ -1218,6 +1254,7 @@ async function requestRevision({
     return {
       caseId,
       status: 'NEEDS_REVISION',
+      revision_request: revisionText,
     };
   });
 }
@@ -1248,6 +1285,7 @@ async function approveOnboardingCase({
   const reviewer = await basePrisma.users.findUnique({ where: { id: reviewerId } });
   _assertActorUsable(reviewer);
   const db = _clientForRole(reviewer.role);
+  const noteText = _requireNote(reviewNote, 'Ghi chú phê duyệt');
 
   return db.$transaction(async (tx) => {
     const onboardingCase = await tx.onboarding_cases.findUnique({ where: { id: caseId } });
@@ -1274,32 +1312,10 @@ async function approveOnboardingCase({
     }
 
     _assertCaseTenantAccess(onboardingCase, reviewer);
+    _assertOpAdminPolicy(onboardingCase, reviewer);
 
     const caseType = onboardingCase.case_type;
     const processKind = onboardingCase.process_kind;
-
-    // ── FE-OP-B2 policy ───────────────────────────────────────
-    // CLAN_SETUP (OP): chỉ SYSTEM_ADMIN
-    if (
-      processKind === 'MEMBER_PROMOTE' &&
-      caseType === 'CLAN_SETUP' &&
-      reviewer.role !== 'SYSTEM_ADMIN'
-    ) {
-      throw BusinessError(
-        'FORBIDDEN',
-        'Chỉ SYSTEM_ADMIN được phê duyệt hồ sơ thành lập dòng họ (CLAN_SETUP).',
-        { statusCode: 403 }
-      );
-    }
-
-    // CLAN_ADMIN: chỉ MEMBER_JOIN cùng tenant (tenant đã assert ở trên)
-    if (reviewer.role === 'CLAN_ADMIN' && caseType !== 'MEMBER_JOIN') {
-      throw BusinessError(
-        'FORBIDDEN',
-        'CLAN_ADMIN chỉ được phê duyệt MEMBER_JOIN của dòng họ mình.',
-        { statusCode: 403 }
-      );
-    }
 
     const now = new Date();
 
@@ -1310,9 +1326,13 @@ async function approveOnboardingCase({
         approved_at: now,
         reviewed_by: reviewerId,
         reviewed_at: onboardingCase.reviewed_at || now,
-        review_note: reviewNote || onboardingCase.review_note,
+        review_note: noteText,
         rejection_reason: null,
         revision_request: null,
+        metadata: {
+          ...(onboardingCase.metadata || {}),
+          reopenable: false,
+        },
       },
     });
 
@@ -1484,28 +1504,27 @@ async function rejectOnboardingCase({
   rejectionReason,
   correlationId,
   note = null,
+  finalReject = false,
   onBehalfOf = null,
 }) {
   const reviewer = await basePrisma.users.findUnique({ where: { id: reviewerId } });
   _assertActorUsable(reviewer);
   const db = _clientForRole(reviewer.role);
+  const reasonText = _requireNote(rejectionReason, 'Lý do từ chối');
+  // note bắt buộc; nếu client chỉ gửi rejectionReason thì dùng chung
+  const noteText = note != null && String(note).trim()
+    ? String(note).trim()
+    : reasonText;
+  const isFinal = finalReject === true || finalReject === 'true' || finalReject === 1;
 
   return db.$transaction(async (tx) => {
-    if (!rejectionReason || !String(rejectionReason).trim()) {
-      throw BusinessError(
-        'REJECTION_REASON_REQUIRED',
-        'Lý do từ chối không được để trống.',
-        { statusCode: 400 }
-      );
-    }
-
     const onboardingCase = await tx.onboarding_cases.findUnique({ where: { id: caseId } });
 
     if (!onboardingCase || onboardingCase.deleted_at) {
       throw BusinessError('ONBOARDING_CASE_NOT_FOUND', 'Hồ sơ onboarding không tồn tại.', { statusCode: 404 });
     }
 
-    const allowedFrom = ['SUBMITTED', 'UNDER_REVIEW', 'NEEDS_REVISION', 'APPROVED'];
+    const allowedFrom = ['SUBMITTED', 'UNDER_REVIEW', 'NEEDS_REVISION'];
     if (!allowedFrom.includes(onboardingCase.status)) {
       throw BusinessError(
         'ONBOARDING_CASE_INVALID_TRANSITION',
@@ -1514,25 +1533,36 @@ async function rejectOnboardingCase({
       );
     }
 
-    const reviewer = await tx.users.findUnique({ where: { id: reviewerId } });
-    _assertActorUsable(reviewer);
     _assertCaseTenantAccess(onboardingCase, reviewer);
+    _assertOpAdminPolicy(onboardingCase, reviewer);
 
     const now = new Date();
+    const reopenable = !isFinal;
+    const action = isFinal ? 'FINAL_REJECT' : 'REJECT';
+    const prevMeta =
+      onboardingCase.metadata && typeof onboardingCase.metadata === 'object'
+        ? onboardingCase.metadata
+        : {};
 
     await tx.onboarding_cases.update({
       where: { id: caseId },
       data: {
         status: 'REJECTED',
         rejected_at: now,
-        rejection_reason: String(rejectionReason).trim(),
+        rejection_reason: reasonText,
         reviewed_by: reviewerId,
         reviewed_at: now,
-        review_note: note || onboardingCase.review_note,
+        review_note: noteText,
+        metadata: {
+          ...prevMeta,
+          reopenable,
+          reject_action: action,
+          rejected_at: now.toISOString(),
+          rejected_by: reviewerId,
+        },
       },
     });
 
-    // Branch → REJECTED hoặc ARCHIVED (giữ dữ liệu)
     if (onboardingCase.primary_branch_id) {
       try {
         await tx.branches.update({
@@ -1542,7 +1572,24 @@ async function rejectOnboardingCase({
       } catch (_) { /* optional */ }
     }
 
-    // Members giữ DU_BI (không xóa, không đổi sang CHINH_THUC)
+    // CLAN_SETUP: soft → TU_CHOI | final → NGUNG_HAN
+    let tenantStatusAfter = null;
+    if (
+      onboardingCase.process_kind === 'MEMBER_PROMOTE' &&
+      onboardingCase.case_type === 'CLAN_SETUP' &&
+      onboardingCase.tenant_id
+    ) {
+      tenantStatusAfter = isFinal ? 'NGUNG_HAN' : 'TU_CHOI';
+      try {
+        await tx.tenants.update({
+          where: { id: onboardingCase.tenant_id },
+          data: { status: tenantStatusAfter, changed_by: reviewerId },
+        });
+      } catch (e) {
+        console.error('[rejectOnboardingCase][tenant]', e.message || e);
+        throw e;
+      }
+    }
 
     await _writeBusinessLog(tx, {
       correlationId,
@@ -1558,9 +1605,12 @@ async function rejectOnboardingCase({
         reviewer_id: reviewerId,
       }, onBehalfOf),
       payload: {
-        rejection_reason: String(rejectionReason).trim(),
+        action,
+        rejection_reason: reasonText,
         previous_status: onboardingCase.status,
-        note: note || null,
+        note: noteText,
+        reopenable,
+        tenant_status_after: tenantStatusAfter,
       },
     });
 
@@ -1569,7 +1619,13 @@ async function rejectOnboardingCase({
       recordId: caseId,
       action: 'CAP_NHAT',
       oldData: { status: onboardingCase.status },
-      newData: { status: 'REJECTED', rejected_at: now, rejection_reason: String(rejectionReason).trim() },
+      newData: {
+        status: 'REJECTED',
+        rejected_at: now,
+        rejection_reason: reasonText,
+        reopenable,
+        action,
+      },
       tenantId: onboardingCase.tenant_id,
       changedBy: reviewerId,
       correlationId,
@@ -1578,8 +1634,12 @@ async function rejectOnboardingCase({
     await _createNotification(tx, {
       userId: onboardingCase.user_id,
       tenantId: onboardingCase.tenant_id,
-      title: 'Hồ sơ nhập tộc bị từ chối',
-      content: `Rất tiếc, hồ sơ của bạn đã bị từ chối. Lý do: ${String(rejectionReason).trim()}. Bạn có thể nộp lại hồ sơ mới nếu muốn.`,
+      title: isFinal
+        ? 'Hồ sơ nhập tộc bị từ chối lần cuối'
+        : 'Hồ sơ nhập tộc bị từ chối',
+      content: isFinal
+        ? `Hồ sơ đã bị từ chối lần cuối. Lý do: ${reasonText}`
+        : `Hồ sơ bị từ chối. Lý do: ${reasonText}. Bạn có thể mở lại và bổ sung rồi gửi duyệt.`,
       eventType: NOTIF_EVENT.ONBOARDING_REJECTED,
       correlationId,
       level: 'IMPORTANT',
@@ -1589,6 +1649,136 @@ async function rejectOnboardingCase({
     return {
       caseId,
       status: 'REJECTED',
+      reopenable,
+      action,
+      tenant_status: tenantStatusAfter,
+    };
+  });
+}
+
+/**
+ * FE-OP-B3: Member mở lại hồ sơ soft-reject (REJECTED + metadata.reopenable).
+ * → DRAFT; CLAN_SETUP tenant TU_CHOI → TAM_NGUNG.
+ */
+async function reopenOnboardingCase({
+  caseId,
+  userId,
+  correlationId,
+  note = null,
+}) {
+  return prisma.$transaction(async (tx) => {
+    const onboardingCase = await tx.onboarding_cases.findUnique({ where: { id: caseId } });
+
+    if (!onboardingCase || onboardingCase.deleted_at) {
+      throw BusinessError('ONBOARDING_CASE_NOT_FOUND', 'Hồ sơ onboarding không tồn tại.', { statusCode: 404 });
+    }
+    if (onboardingCase.user_id !== userId) {
+      throw BusinessError(
+        'ONBOARDING_CASE_FORBIDDEN',
+        'Bạn không có quyền mở lại hồ sơ này.',
+        { statusCode: 403 }
+      );
+    }
+    if (onboardingCase.status !== 'REJECTED') {
+      throw BusinessError(
+        'ONBOARDING_CASE_INVALID_TRANSITION',
+        `Chỉ mở lại được hồ sơ đã từ chối (hiện tại: ${onboardingCase.status}).`,
+        { statusCode: 423, currentStatus: onboardingCase.status }
+      );
+    }
+
+    const meta =
+      onboardingCase.metadata && typeof onboardingCase.metadata === 'object'
+        ? onboardingCase.metadata
+        : {};
+    if (meta.reopenable !== true) {
+      throw BusinessError(
+        'ONBOARDING_CASE_NOT_REOPENABLE',
+        'Hồ sơ đã bị từ chối lần cuối, không thể mở lại.',
+        { statusCode: 423 }
+      );
+    }
+
+    const now = new Date();
+    await tx.onboarding_cases.update({
+      where: { id: caseId },
+      data: {
+        status: 'DRAFT',
+        rejection_reason: null,
+        rejected_at: null,
+        revision_request: null,
+        metadata: {
+          ...meta,
+          reopenable: false,
+          reopened_at: now.toISOString(),
+          reopened_by: userId,
+          last_rejection_reason: onboardingCase.rejection_reason || meta.last_rejection_reason || null,
+        },
+      },
+    });
+
+    if (onboardingCase.primary_branch_id) {
+      try {
+        await tx.branches.update({
+          where: { id: onboardingCase.primary_branch_id },
+          data: { status: 'PROVISIONAL' },
+        });
+      } catch (_) { /* optional */ }
+    }
+
+    let tenantStatusAfter = null;
+    if (
+      onboardingCase.process_kind === 'MEMBER_PROMOTE' &&
+      onboardingCase.case_type === 'CLAN_SETUP' &&
+      onboardingCase.tenant_id
+    ) {
+      const tenant = await tx.tenants.findUnique({
+        where: { id: onboardingCase.tenant_id },
+        select: { id: true, status: true },
+      });
+      if (tenant && tenant.status === 'TU_CHOI') {
+        tenantStatusAfter = 'TAM_NGUNG';
+        await tx.tenants.update({
+          where: { id: tenant.id },
+          data: { status: 'TAM_NGUNG', changed_by: userId },
+        });
+      }
+    }
+
+    await _writeBusinessLog(tx, {
+      correlationId,
+      processType: PROCESS_TYPE.ONBOARDING_CASE_REOPEN,
+      actorId: userId,
+      tenantId: onboardingCase.tenant_id,
+      context: {
+        target_id: caseId,
+        target_name: 'Onboarding case reopened',
+        user_id: userId,
+        member_id: onboardingCase.primary_member_id,
+      },
+      payload: {
+        action: 'REOPEN_REJECTED',
+        previous_status: 'REJECTED',
+        note: note ? String(note).trim() : null,
+        tenant_status_after: tenantStatusAfter,
+      },
+    });
+
+    await _writeAuditLog(tx, {
+      tableName: 'onboarding_cases',
+      recordId: caseId,
+      action: 'CAP_NHAT',
+      oldData: { status: 'REJECTED' },
+      newData: { status: 'DRAFT', reopened: true },
+      tenantId: onboardingCase.tenant_id,
+      changedBy: userId,
+      correlationId,
+    });
+
+    return {
+      caseId,
+      status: 'DRAFT',
+      tenant_status: tenantStatusAfter,
     };
   });
 }
@@ -2852,6 +3042,7 @@ module.exports = {
   cancelOnboardingCase,
   listReviewableOpCases,
   getCaseTimeline, // 1.5.2-FE-OP-D1
+  reopenOnboardingCase, // 1.5.3-FE-OP-B3
 
   // Phase 3
   createProvisionalBranch,

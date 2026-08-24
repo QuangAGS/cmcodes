@@ -24,6 +24,7 @@ const AdminTenantActivatePage = lazy(() => import('./pages/AdminTenantActivatePa
 import OpProtectedRoute from './components/routes/OpProtectedRoute.jsx';
 const OpHubPage = lazy(() => import('./pages/OpHubPage.jsx'));
 const OpBaseProfilePage = lazy(() => import('./pages/OpBaseProfilePage.jsx'));
+const OpCaseDetailPage = lazy(() => import('./pages/OpCaseDetailPage.jsx'));
 
 const ProtectedRoute = ({ children, allowedStatus = 'DA_DUYET' }) => {
   const { user, loading } = useAuth();
@@ -90,9 +91,16 @@ const AppRouter = () => {
         } />
 
         {/* ADMIN APPROVAL - Cho phép cả SYSTEM_ADMIN và CLAN_ADMIN */}
-        <Route path="/admin/approval" element={
+        <Route path="/admin/approval" element={     // process=OP → OpApprovalPanel
           <AdminProtectedRoute>
             <AdminUserApprovalPage />
+          </AdminProtectedRoute>
+        } />
+
+        {/* OP case detail — B3 list → Xem & xử lý */}
+        <Route path="/admin/approval/op/:caseId" element={
+          <AdminProtectedRoute>
+            <OpCaseDetailPage />
           </AdminProtectedRoute>
         } />
 
