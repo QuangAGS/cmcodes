@@ -92,6 +92,7 @@ const PROCESS_TYPE = Object.freeze({
   ONBOARDING_REVISION_REQUEST:  'ONBOARDING_REVISION_REQUEST',
   ONBOARDING_APPROVE:           'ONBOARDING_APPROVE',
   ONBOARDING_REJECT:            'ONBOARDING_REJECT',
+  ONBOARDING_FINAL_REJECT:      'ONBOARDING_FINAL_REJECT',
   ONBOARDING_BRANCH_MERGE:      'ONBOARDING_BRANCH_MERGE',
   ONBOARDING_COMPLETE:          'ONBOARDING_COMPLETE',
   ONBOARDING_CANCEL:            'ONBOARDING_CANCEL',
@@ -1591,9 +1592,37 @@ async function rejectOnboardingCase({
       }
     }
 
+    // FINAL_REJECT: member giữ DU_BI; user → BI_CAM + GUEST
+    let userStatusAfter = null;
+    let userRoleAfter = null;
+    if (isFinal && onboardingCase.user_id) {
+      userStatusAfter = 'BI_CAM';
+      userRoleAfter = 'GUEST';
+      await tx.users.update({
+        where: { id: onboardingCase.user_id },
+        data: {
+          status: 'BI_CAM',
+          role: 'GUEST',
+          changed_by: reviewerId,
+        },
+      });
+      if (onboardingCase.primary_member_id) {
+        try {
+          await tx.members.update({
+            where: { id: onboardingCase.primary_member_id },
+            data: { status: 'DU_BI', changed_by: reviewerId },
+          });
+        } catch (_) { /* keep DU_BI */ }
+      }
+    }
+
+    const processTypeLog = isFinal
+      ? (PROCESS_TYPE.ONBOARDING_FINAL_REJECT || PROCESS_TYPE.ONBOARDING_REJECT)
+      : PROCESS_TYPE.ONBOARDING_REJECT;
+
     await _writeBusinessLog(tx, {
       correlationId,
-      processType: PROCESS_TYPE.ONBOARDING_REJECT,
+      processType: processTypeLog,
       actorId: reviewerId,
       tenantId: onboardingCase.tenant_id,
       context: _bplContext({
@@ -1611,6 +1640,8 @@ async function rejectOnboardingCase({
         note: noteText,
         reopenable,
         tenant_status_after: tenantStatusAfter,
+        user_status_after: userStatusAfter,
+        user_role_after: userRoleAfter,
       },
     });
 
@@ -1639,7 +1670,7 @@ async function rejectOnboardingCase({
         : 'Hồ sơ nhập tộc bị từ chối',
       content: isFinal
         ? `Hồ sơ đã bị từ chối lần cuối. Lý do: ${reasonText}`
-        : `Hồ sơ bị từ chối. Lý do: ${reasonText}. Bạn có thể mở lại và bổ sung rồi gửi duyệt.`,
+        : `Hồ sơ bị từ chối tạm thời. Lý do: ${reasonText}. Vui lòng chờ ban quản trị mở lại nếu cần bổ sung.`,
       eventType: NOTIF_EVENT.ONBOARDING_REJECTED,
       correlationId,
       level: 'IMPORTANT',
@@ -1652,33 +1683,42 @@ async function rejectOnboardingCase({
       reopenable,
       action,
       tenant_status: tenantStatusAfter,
+      user_status: userStatusAfter,
+      user_role: userRoleAfter,
     };
   });
 }
 
 /**
- * FE-OP-B3: Member mở lại hồ sơ soft-reject (REJECTED + metadata.reopenable).
+ * FE-OP-B3.1: Chỉ ADMIN mở lại soft-reject (REJECTED + metadata.reopenable).
+ * Member không tự reopen (giống RP).
  * → DRAFT; CLAN_SETUP tenant TU_CHOI → TAM_NGUNG.
  */
 async function reopenOnboardingCase({
   caseId,
-  userId,
+  reviewerId,
   correlationId,
   note = null,
 }) {
-  return prisma.$transaction(async (tx) => {
+  const reviewer = await basePrisma.users.findUnique({ where: { id: reviewerId } });
+  _assertActorUsable(reviewer);
+  if (!['SYSTEM_ADMIN', 'CLAN_ADMIN'].includes(reviewer.role)) {
+    throw BusinessError(
+      'FORBIDDEN',
+      'Chỉ ban quản trị được mở lại hồ sơ đã từ chối.',
+      { statusCode: 403 }
+    );
+  }
+  const db = _clientForRole(reviewer.role);
+
+  return db.$transaction(async (tx) => {
     const onboardingCase = await tx.onboarding_cases.findUnique({ where: { id: caseId } });
 
     if (!onboardingCase || onboardingCase.deleted_at) {
       throw BusinessError('ONBOARDING_CASE_NOT_FOUND', 'Hồ sơ onboarding không tồn tại.', { statusCode: 404 });
     }
-    if (onboardingCase.user_id !== userId) {
-      throw BusinessError(
-        'ONBOARDING_CASE_FORBIDDEN',
-        'Bạn không có quyền mở lại hồ sơ này.',
-        { statusCode: 403 }
-      );
-    }
+    _assertCaseTenantAccess(onboardingCase, reviewer);
+    _assertOpAdminPolicy(onboardingCase, reviewer);
     if (onboardingCase.status !== 'REJECTED') {
       throw BusinessError(
         'ONBOARDING_CASE_INVALID_TRANSITION',
@@ -1711,7 +1751,7 @@ async function reopenOnboardingCase({
           ...meta,
           reopenable: false,
           reopened_at: now.toISOString(),
-          reopened_by: userId,
+          reopened_by: reviewerId,
           last_rejection_reason: onboardingCase.rejection_reason || meta.last_rejection_reason || null,
         },
       },
@@ -1740,7 +1780,7 @@ async function reopenOnboardingCase({
         tenantStatusAfter = 'TAM_NGUNG';
         await tx.tenants.update({
           where: { id: tenant.id },
-          data: { status: 'TAM_NGUNG', changed_by: userId },
+          data: { status: 'TAM_NGUNG', changed_by: reviewerId },
         });
       }
     }
@@ -1748,13 +1788,14 @@ async function reopenOnboardingCase({
     await _writeBusinessLog(tx, {
       correlationId,
       processType: PROCESS_TYPE.ONBOARDING_CASE_REOPEN,
-      actorId: userId,
+      actorId: reviewerId,
       tenantId: onboardingCase.tenant_id,
       context: {
         target_id: caseId,
-        target_name: 'Onboarding case reopened',
-        user_id: userId,
+        target_name: 'Onboarding case reopened by admin',
+        user_id: onboardingCase.user_id,
         member_id: onboardingCase.primary_member_id,
+        reviewer_id: reviewerId,
       },
       payload: {
         action: 'REOPEN_REJECTED',
@@ -1771,10 +1812,11 @@ async function reopenOnboardingCase({
       oldData: { status: 'REJECTED' },
       newData: { status: 'DRAFT', reopened: true },
       tenantId: onboardingCase.tenant_id,
-      changedBy: userId,
+      changedBy: reviewerId,
       correlationId,
     });
 
+    // Soft-reject user vẫn DA_DUYET/VIEWER — không đụng user khi admin reopen
     return {
       caseId,
       status: 'DRAFT',
@@ -1978,20 +2020,27 @@ async function listReviewableOpCases({
   ]);
 
   return {
-    items: rows.map((c) => ({
+    items: rows.map((c) => {
+      const meta = c.metadata && typeof c.metadata === 'object' ? c.metadata : {};
+      return {
       id: c.id,
       correlation_id: c.correlation_id,
       process_kind: c.process_kind,
       case_type: c.case_type,
       status: c.status,
       submitted_at: c.submitted_at,
+      revision_request: c.revision_request || null,
+      review_note: c.review_note || null,
+      rejection_reason: c.rejection_reason || null,
+      reopenable: meta.reopenable === true,
       tenant_id: c.tenant_id,
       tenant: c.tenants
         ? { id: c.tenants.id, name: c.tenants.name, status: c.tenants.status }
         : null,
       user: c.users,
       primary: c.primary_member,
-    })),
+    };
+    }),
     pagination: {
       total_records: total,
       current_page: Math.max(page, 1),

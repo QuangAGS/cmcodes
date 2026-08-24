@@ -1,17 +1,14 @@
 /**
  * PATH       : src/features/onboarding/constants/opFieldLabels.js
- * DATETIME   : 2026-08-17T15:30:00+07:00
- * VERSION    : 1.0.0-FE-OP-B1-UI1
+ * DATETIME   : 2026-08-24T10:45:00+07:00
+ * VERSION    : 1.1.0-FE-OP-LABELS
  * DESCRIPTION:
  * - Từ điển ngữ nghĩa field/enum phục vụ OP (MEMBER_PROMOTE).
- * - Namespace theo bảng — không raw API key trên UI/TTS.
- * - Module-scoped (features/onboarding) theo LEVEL D2 feature isolation.
- * - Không chứa error-map CED (orchestrator / shared.network sau này).
+ * - UI chỉ hiện nhãn tiếng Việt; mã enum chỉ trong API/DB.
  */
 
 'use strict';
 
-/** members — nhãn UI (bổ sung dần; đủ chỗ cho OP + form sau) */
 export const MEMBERS_FIELD_LABELS = {
   id: 'Mã thành viên',
   full_name: 'Họ và tên',
@@ -45,29 +42,34 @@ export const MEMBERS_FIELD_LABELS = {
   tenant_id: 'Dòng họ',
 };
 
-/** onboarding_cases — field FE hay hiện */
 export const ONBOARDING_CASE_FIELD_LABELS = {
   id: 'Mã hồ sơ',
   status: 'Trạng thái hồ sơ',
   case_type: 'Loại hồ sơ',
   process_kind: 'Loại quy trình',
   review_note: 'Góp ý của quản trị',
+  revision_request: 'Yêu cầu bổ sung',
+  rejection_reason: 'Lý do từ chối',
   primary_member_id: 'Thành viên chính',
   user_id: 'Tài khoản',
   tenant_id: 'Dòng họ',
   correlation_id: 'Mã theo dõi',
 };
 
-/** Enum → câu ngắn (UI + TTS) */
+/** Enum → tiếng Việt (UI + TTS) */
 export const ENUM_LABELS = {
   members_status: {
-    DU_BI: 'Thành viên dự bị',
-    CHINH_THUC: 'Thành viên chính thức',
+    DU_BI: 'Dự bị',
+    CHINH_THUC: 'Chính thức',
   },
   members_gender: {
     NAM: 'Nam',
     NU: 'Nữ',
     KHAC: 'Khác',
+  },
+  members_roles: {
+    THANH_VIEN: 'Thành viên',
+    TRUONG_HO: 'Trưởng họ',
   },
   case_status: {
     DRAFT: 'Chưa gửi duyệt',
@@ -78,6 +80,7 @@ export const ENUM_LABELS = {
     REJECTED: 'Không được duyệt',
     CANCELLED: 'Đã hủy',
     PROFILE_COMPLETED: 'Đã hoàn thiện hồ sơ',
+    EXPIRED: 'Hết hạn',
   },
   case_type: {
     MEMBER_JOIN: 'Xin vào dòng họ',
@@ -87,12 +90,25 @@ export const ENUM_LABELS = {
     MEMBER_PROMOTE: 'Xét duyệt thành viên chính thức',
     REGISTER: 'Đăng ký tài khoản',
   },
+  users_role: {
+    SYSTEM_ADMIN: 'Quản trị hệ thống',
+    CLAN_ADMIN: 'Quản trị dòng họ',
+    USER: 'Thành viên',
+    VIEWER: 'Người xem',
+    GUEST: 'Khách',
+    EDITOR: 'Biên tập',
+    KHAC: 'Khác',
+  },
+  users_status: {
+    CHO_DUYET: 'Chờ duyệt',
+    DA_DUYET: 'Đã duyệt',
+    BI_KHOA: 'Bị khóa',
+    BI_CAM: 'Bị cấm',
+    TAM_NGUNG: 'Tạm ngưng',
+    TU_CHOI: 'Từ chối',
+  },
 };
 
-/**
- * @param {string} fieldKey - e.g. birth_month
- * @param {'members'|'onboarding_cases'} [table='members']
- */
 export function labelField(fieldKey, table = 'members') {
   if (!fieldKey) return '';
   if (table === 'onboarding_cases') {
@@ -101,19 +117,10 @@ export function labelField(fieldKey, table = 'members') {
   return MEMBERS_FIELD_LABELS[fieldKey] || fieldKey;
 }
 
-/**
- * @param {string[]} keys
- * @param {'members'|'onboarding_cases'} [table='members']
- * @returns {string[]}
- */
 export function labelFields(keys = [], table = 'members') {
   return (Array.isArray(keys) ? keys : []).map((k) => labelField(k, table));
 }
 
-/**
- * @param {string} enumGroup - e.g. case_status
- * @param {string} value
- */
 export function labelEnum(enumGroup, value) {
   if (value == null || value === '') return '';
   const group = ENUM_LABELS[enumGroup];

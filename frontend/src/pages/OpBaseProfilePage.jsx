@@ -1,14 +1,13 @@
 /**
  * PATH       : src/pages/OpBaseProfilePage.jsx
- * DATETIME   : 2026-08-17T18:15:00+07:00
- * VERSION    : 1.0.0-FE-OP-B1-UI2
+ * DATETIME   : 2026-08-24T10:45:00+07:00
+ * VERSION    : 1.1.0-FE-OP-UX
  * DESCRIPTION:
- * - Shell /op/base-profile: load my-op → BaseProfileForm.
- * - Sau lưu nháp: refresh my-op. Sau gửi duyệt: toast + về /op.
- * - Q1: không đụng RP.
+ * - Shell /op/base-profile + TenantHeader + AppFooterNav.
+ * - load my-op → BaseProfileForm.
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 
@@ -16,6 +15,23 @@ import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
 import BaseProfileForm from '../features/onboarding/components/BaseProfileForm.jsx';
 import { OP_BASE_PROFILE_TOAST } from '../features/onboarding/constants/opMessages.js';
+import TenantHeader from '../components/shell/TenantHeader.jsx';
+import AppFooterNav from '../components/shell/AppFooterNav.jsx';
+
+function resolveTenant(user, myOpTenant) {
+  const name =
+    myOpTenant?.name ||
+    user?.clanName ||
+    user?.tenantName ||
+    user?.tenant_name ||
+    user?.tenant?.name ||
+    null;
+  return {
+    id: myOpTenant?.id || user?.tenantId || user?.tenant_id || user?.tenant?.id || null,
+    name: name || 'Dòng họ',
+    logo_url: myOpTenant?.logo_url || user?.tenant?.logo_url || user?.tenantLogo || null,
+  };
+}
 
 export default function OpBaseProfilePage() {
   const { user, logout } = useAuth();
@@ -48,6 +64,11 @@ export default function OpBaseProfilePage() {
     navigate('/auth', { replace: true });
   };
 
+  const sessionTenant = useMemo(
+    () => resolveTenant(user, myOp?.tenant),
+    [user, myOp?.tenant]
+  );
+
   const subtitle =
     user?.phone || user?.email || myOp?.primary?.full_name || user?.name || '';
 
@@ -60,55 +81,37 @@ export default function OpBaseProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white px-4 py-8">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
       <div className="mx-auto w-full max-w-[480px]">
-        <header className="mb-6 text-center">
-          <h1 className="text-2xl font-black text-slate-800">Hồ sơ cơ sở</h1>
-          {subtitle ? (
-            <p className="mt-2 text-sm font-semibold text-slate-600">{subtitle}</p>
-          ) : null}
-        </header>
+        <TenantHeader tenant={sessionTenant} subtitle={subtitle} />
 
-        {loadError ? (
-          <p className="mb-4 text-center text-sm text-rose-600">{loadError}</p>
-        ) : (
-          <BaseProfileForm
-            myOpData={myOp}
-            onSuccessDraft={() => {
-              load();
-            }}
-            onSuccessSubmit={() => {
-              navigate('/op', { replace: true });
-            }}
+        <div className="px-4 py-6">
+          <header className="mb-6 text-center">
+            <h1 className="text-2xl font-black text-slate-800">Hồ sơ cơ sở</h1>
+          </header>
+
+          {loadError ? (
+            <p className="mb-4 text-center text-sm text-rose-600">{loadError}</p>
+          ) : (
+            <BaseProfileForm
+              myOpData={myOp}
+              onSuccessDraft={() => {
+                load();
+              }}
+              onSuccessSubmit={() => {
+                navigate('/op', { replace: true });
+              }}
+            />
+          )}
+
+          <AppFooterNav
+            onBack={() => navigate('/op')}
+            backLabel="Quay lại danh mục công việc"
+            onHub={() => navigate('/')}
+            hubLabel="Trang chủ"
+            onExit={handleLogout}
+            exitLabel="Đăng xuất"
           />
-        )}
-
-        <div className="mt-10 space-y-3 pb-6 text-center text-sm">
-          <button
-            type="button"
-            onClick={() => navigate('/op')}
-            className="font-semibold text-indigo-600 underline-offset-2 hover:underline"
-          >
-            Quay lại danh mục công việc
-          </button>
-          <div>
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              className="font-semibold text-slate-500 underline-offset-2 hover:underline"
-            >
-              Trang chủ
-            </button>
-          </div>
-          <div>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="font-semibold text-slate-400 underline-offset-2 hover:underline"
-            >
-              Đăng xuất
-            </button>
-          </div>
         </div>
       </div>
     </div>

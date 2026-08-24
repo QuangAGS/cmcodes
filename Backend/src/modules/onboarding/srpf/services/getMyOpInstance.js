@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/onboarding/srpf/services/getMyOpInstance.js
  * DATETIME   : 2026-08-22T15:40:00+07:00
- * VERSION    : 1.1.0-FE-OP-B3
+ * VERSION    : 1.2.0-FE-OP-HEADER
  * DESCRIPTION:
  * - Read-only: lấy OP (MEMBER_PROMOTE) đang mở của user hiện tại cho FE hub/guard.
  * - Contract FE-OP-MEMBER_PROMOTE-2026-08-16: hasOpen, process_kind, case, primary, completeness.
@@ -69,6 +69,7 @@ function emptyPayload() {
     case: null,
     primary: null,
     completeness: null,
+    tenant: null,
   };
 }
 
@@ -188,6 +189,24 @@ async function getMyOpInstance(input = {}) {
       ? openCase.metadata
       : {};
 
+  let tenantDto = null;
+  try {
+    const tenant = await client.tenants.findFirst({
+      where: { id: tenantId, deleted_at: null },
+      select: { id: true, name: true, status: true },
+    });
+    if (tenant) {
+      tenantDto = {
+        id: tenant.id,
+        name: tenant.name || null,
+        status: tenant.status || null,
+        logo_url: null,
+      };
+    }
+  } catch (_) {
+    tenantDto = { id: tenantId, name: null, status: null, logo_url: null };
+  }
+
   return {
     hasOpen: true,
     process_kind: PROCESS_TYPE, // MEMBER_PROMOTE
@@ -203,6 +222,7 @@ async function getMyOpInstance(input = {}) {
     },
     primary: mapPrimary(member),
     completeness,
+    tenant: tenantDto,
   };
 }
 

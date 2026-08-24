@@ -311,9 +311,10 @@ async function reopenCase(req, res, next) {
     const { caseId } = req.params;
     const { note } = req.body || {};
 
+    // B3.1: chỉ admin reopen (giống RP)
     const result = await onboardingService.reopenOnboardingCase({
       caseId,
-      userId: actor.id,
+      reviewerId: actor.id,
       correlationId,
       note: note || null,
     });

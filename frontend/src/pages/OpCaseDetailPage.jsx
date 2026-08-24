@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/OpCaseDetailPage.jsx
  * DATETIME   : 2026-08-23T18:10:00+07:00
- * VERSION    : 1.0.0-FE-OP-B3-DETAIL
+ * VERSION    : 1.1.0-FE-OP-B3.1-DETAIL
  * DESCRIPTION:
  * - Chi tiết case OP: BP read-only + trao đổi admin + sticky actions.
  * - Modal: Duyệt (reviewNote) / Trả sửa / Từ chối soft|final.
@@ -18,6 +18,7 @@ import apiClient from '../lib/apiClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
+import { labelEnum } from '../features/onboarding/constants/opFieldLabels.js';
 
 const emptyForm = () => ({
   note: '',
@@ -51,8 +52,13 @@ export default function OpCaseDetailPage() {
     setLoading(true);
     try {
       // Dùng reviewable list filter client-side; ưu tiên nếu sau này có GET /cases/:id
+      // Phải gồm REJECTED / NEEDS_REVISION — default API chỉ SUBMITTED,UNDER_REVIEW
       const res = await apiClient.get('/onboarding/cases/reviewable', {
-        params: { process_kind: 'MEMBER_PROMOTE', page_size: 100 },
+        params: {
+          process_kind: 'MEMBER_PROMOTE',
+          page_size: 100,
+          status: 'SUBMITTED,UNDER_REVIEW,NEEDS_REVISION,REJECTED',
+        },
       });
       const data = res.data?.data ?? res.data ?? {};
       const items = Array.isArray(data.items) ? data.items : [];
@@ -96,6 +102,21 @@ export default function OpCaseDetailPage() {
     err?.response?.data?.message ||
     err?.response?.data?.error?.message ||
     null;
+
+  const handleAdminReopen = async () => {
+    setBusy(true);
+    try {
+      await apiClient.post(`/onboarding/cases/${caseId}/reopen`, {
+        note: 'Admin mở lại hồ sơ',
+      });
+      toast.success('Đã mở lại hồ sơ — member có thể bổ sung và gửi duyệt.');
+      navigate('/admin/approval?process=OP', { replace: true });
+    } catch (err) {
+      toast.error(errMsg(err) || 'Không mở lại được hồ sơ.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const handleApprove = async () => {
     const note = form.note.trim();
@@ -211,7 +232,7 @@ export default function OpCaseDetailPage() {
             {p.full_name || 'Hồ sơ thành viên'}
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            {item.user?.phone || item.user?.email || '—'} · {item.status}
+            {item.user?.phone || item.user?.email || '—'} · {labelEnum('case_status', item.status) || item.status}
           </p>
 
           {/* BP */}
@@ -221,7 +242,7 @@ export default function OpCaseDetailPage() {
             </h2>
             <div className="mt-1">
               <Field label="Họ tên" value={p.full_name} />
-              <Field label="Giới tính" value={p.gender} />
+              <Field label="Giới tính" value={labelEnum('members_gender', p.gender)} />
               <Field
                 label="Ngày sinh"
                 value={
@@ -236,7 +257,7 @@ export default function OpCaseDetailPage() {
                 label="Đời thứ"
                 value={p.generation != null ? String(p.generation) : null}
               />
-              <Field label="Trạng thái TV" value={p.status} />
+              <Field label="Trạng thái thành viên" value={labelEnum('members_status', p.status)} />
             </div>
           </section>
 
@@ -273,32 +294,51 @@ export default function OpCaseDetailPage() {
         {/* Sticky actions */}
         <div className="fixed bottom-0 left-0 right-0 border-t border-slate-200 bg-white/95 p-3 backdrop-blur">
           <div className="mx-auto flex max-w-[480px] flex-col gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => openModal('approve')}
-              className="w-full rounded-2xl bg-indigo-600 py-3 text-sm font-bold text-white disabled:opacity-60"
-            >
-              Duyệt
-            </button>
-            <div className="grid grid-cols-2 gap-2">
+            {item.status !== 'REJECTED' ? (
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => openModal('revision')}
-                className="rounded-2xl border border-amber-200 bg-amber-50 py-3 text-sm font-bold text-amber-900 disabled:opacity-60"
+                onClick={() => openModal('approve')}
+                className="w-full rounded-2xl bg-indigo-600 py-3 text-sm font-bold text-white disabled:opacity-60"
               >
-                Trả sửa
+                Duyệt
               </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => openModal('reject')}
-                className="rounded-2xl border border-rose-200 bg-rose-50 py-3 text-sm font-bold text-rose-700 disabled:opacity-60"
-              >
-                Từ chối
-              </button>
-            </div>
+            ) : null}
+            {item.status === 'REJECTED' ? (
+              item.reopenable === true ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={handleAdminReopen}
+                  className="w-full rounded-2xl bg-amber-600 py-3 text-sm font-bold text-white disabled:opacity-60"
+                >
+                  Cho phép mở lại hồ sơ
+                </button>
+              ) : (
+                <p className="text-center text-xs font-semibold text-rose-600">
+                  Từ chối lần cuối — không mở lại được.
+                </p>
+              )
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => openModal('revision')}
+                  className="rounded-2xl border border-amber-200 bg-amber-50 py-3 text-sm font-bold text-amber-900 disabled:opacity-60"
+                >
+                  Trả sửa
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => openModal('reject')}
+                  className="rounded-2xl border border-rose-200 bg-rose-50 py-3 text-sm font-bold text-rose-700 disabled:opacity-60"
+                >
+                  Từ chối
+                </button>
+              </div>
+            )}
           </div>
         </div>
 

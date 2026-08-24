@@ -1,26 +1,24 @@
 /**
  * PATH       : src/pages/OpHubPage.jsx
- * DATETIME   : 2026-08-23T17:05:00+07:00
- * VERSION    : 1.2.0-FE-OP-B3-UX
+ * DATETIME   : 2026-08-24T10:45:00+07:00
+ * VERSION    : 1.4.0-FE-OP-UX
  * DESCRIPTION:
- * - Hub /op: Danh mục loại công việc (member DU_BI / hasOpen).
- * - UX: thông báo admin (revision / reject) nằm TRONG card nhóm việc BP.
- * - Text hướng dẫn dài chỉ phát qua ZoneVoiceButton (tiết kiệm diện tích).
- * - Banner trang tối giản; AudioHelp toàn trang giữ nguyên.
- * - Soft-reject: nút Mở lại trong card BP.
- * - Q1: không đụng RP / admin.
+ * - Hub /op dong: mac dinh chi viec can quan tam; toggle Hien ca viec da xong.
+ * - TenantHeader + AppFooterNav.
+ * - Elder: tach voice — huong dan / yeu cau admin / trang thai (chi khi bam).
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { toast } from 'sonner';
 
 import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
 
 import AudioHelpButton from '../features/elder-doctrine/components/AudioHelpButton.jsx';
 import ZoneVoiceButton from '../features/elder-doctrine/components/ZoneVoiceButton.jsx';
+import TenantHeader from '../components/shell/TenantHeader.jsx';
+import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 
 import {
   labelFields,
@@ -30,13 +28,37 @@ import {
   OP_HUB_AUDIO_HELP,
   OP_HUB_WELCOME,
   buildProcessStatusMessage,
-  buildBaseProfileGuidance,
-  OP_BASE_PROFILE_TOAST,
 } from '../features/onboarding/constants/opMessages.js';
 import {
   OP_WORK_ITEMS,
   OP_WORK_ITEM_IDS,
 } from '../features/onboarding/constants/opWorkItems.js';
+
+const SHOW_ALL_KEY = 'op_hub_show_all_work';
+
+function resolveTenant(user, myOpTenant) {
+  const name =
+    myOpTenant?.name ||
+    user?.clanName ||
+    user?.tenantName ||
+    user?.tenant_name ||
+    user?.tenant?.name ||
+    null;
+  return {
+    id:
+      myOpTenant?.id ||
+      user?.tenantId ||
+      user?.tenant_id ||
+      user?.tenant?.id ||
+      null,
+    name: name || 'Dòng họ',
+    logo_url:
+      myOpTenant?.logo_url ||
+      user?.tenant?.logo_url ||
+      user?.tenantLogo ||
+      null,
+  };
+}
 
 function getSubtitle(user, primary) {
   return (
@@ -48,13 +70,24 @@ function getSubtitle(user, primary) {
   );
 }
 
-/** Badge ngắn trên hàng tiêu đề card (luôn thấy, kể cả khi thu gọn) */
+function isActionableStatus(status) {
+  return [
+    'DRAFT',
+    'NEEDS_REVISION',
+    'SUBMITTED',
+    'UNDER_REVIEW',
+    'REJECTED',
+  ].includes(status);
+}
+
 function statusBadgeForItem(itemId, data) {
   if (itemId !== OP_WORK_ITEM_IDS.BASE_PROFILE) return '—';
   const st = data?.case?.status;
   if (st === 'NEEDS_REVISION') return 'Cần bổ sung theo yêu cầu';
   if (st === 'REJECTED') {
-    return data?.case?.reopenable ? 'Bị từ chối — có thể mở lại' : 'Bị từ chối';
+    return data?.case?.reopenable
+      ? 'Bị từ chối — chờ ban quản trị mở lại'
+      : 'Bị từ chối lần cuối';
   }
   if (st === 'SUBMITTED' || st === 'UNDER_REVIEW') return 'Đang chờ duyệt';
   if (st === 'APPROVED') return 'Đã duyệt';
@@ -62,7 +95,17 @@ function statusBadgeForItem(itemId, data) {
   return 'Cần bổ sung';
 }
 
-/** 1 dòng tóm tắt trong card khi mở — không phải đoạn dài */
+function howToGuidanceText(completeness, missingLabels) {
+  if (completeness?.complete) {
+    return 'Hồ sơ cơ bản đã đủ thông tin bắt buộc. Bạn có thể xem lại hoặc chỉnh sửa rồi gửi duyệt nếu chưa gửi.';
+  }
+  const missing =
+    missingLabels?.length > 0
+      ? `Còn thiếu: ${missingLabels.join(', ')}. `
+      : '';
+  return `${missing}Bấm Thực hiện để điền họ tên, giới tính, ngày sinh và đời thứ mấy. Có thể Lưu nháp rồi Gửi duyệt khi đã đủ.`;
+}
+
 function shortStatusLine(caseStatus, profileComplete, adminNotes) {
   if (caseStatus === 'NEEDS_REVISION') {
     return adminNotes.revision_request
@@ -71,7 +114,7 @@ function shortStatusLine(caseStatus, profileComplete, adminNotes) {
   }
   if (caseStatus === 'REJECTED') {
     return adminNotes.reopenable
-      ? 'Hồ sơ bị từ chối — bạn có thể mở lại.'
+      ? 'Hồ sơ bị từ chối tạm thời — vui lòng chờ ban quản trị mở lại.'
       : 'Hồ sơ bị từ chối lần cuối.';
   }
   if (caseStatus === 'SUBMITTED' || caseStatus === 'UNDER_REVIEW') {
@@ -94,7 +137,13 @@ export default function OpHubPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [expandedId, setExpandedId] = useState(OP_WORK_ITEM_IDS.BASE_PROFILE);
-  const [reopenBusy, setReopenBusy] = useState(false);
+  const [showAll, setShowAll] = useState(() => {
+    try {
+      return localStorage.getItem(SHOW_ALL_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
 
   const fetchMyOp = useCallback(async () => {
     setLoading(true);
@@ -124,8 +173,19 @@ export default function OpHubPage() {
     navigate('/auth', { replace: true });
   };
 
+  const toggleShowAll = () => {
+    setShowAll((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(SHOW_ALL_KEY, next ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  };
+
   const caseStatus = data?.case?.status ?? null;
-  const caseId = data?.case?.id ?? null;
   const profileComplete = data?.completeness?.complete === true;
   const missingKeys = data?.completeness?.missingFields || [];
   const missingLabels = useMemo(
@@ -147,66 +207,41 @@ export default function OpHubPage() {
     ? labelEnum('case_status', caseStatus)
     : '';
 
-  /** Full text chỉ để ZoneVoiceButton đọc — không render dài trên UI */
-  const baseProfileVoiceText = useMemo(() => {
-    const process = buildProcessStatusMessage(
-      caseStatus,
-      profileComplete,
-      adminNotes
-    );
-    const guidance = buildBaseProfileGuidance(
-      data?.completeness,
-      missingLabels,
-      caseStatusLabel || caseStatus,
-      adminNotes
-    );
-    return [process, guidance].filter(Boolean).join(' ');
-  }, [
-    caseStatus,
-    profileComplete,
-    adminNotes,
-    data?.completeness,
-    missingLabels,
-    caseStatusLabel,
-  ]);
+  const processMessage = useMemo(
+    () => buildProcessStatusMessage(caseStatus, profileComplete, adminNotes),
+    [caseStatus, profileComplete, adminNotes]
+  );
 
-  const audioHelpText = useMemo(() => {
-    if (adminNotes.revision_request) {
-      return `${OP_HUB_AUDIO_HELP} Có yêu cầu bổ sung từ ban quản trị trong mục Hồ sơ cơ sở.`;
-    }
-    if (adminNotes.rejection_reason) {
-      return `${OP_HUB_AUDIO_HELP} Hồ sơ có quyết định từ chối — xem trong mục Hồ sơ cơ sở.`;
-    }
-    return OP_HUB_AUDIO_HELP;
-  }, [adminNotes.revision_request, adminNotes.rejection_reason]);
+  const howToText = useMemo(
+    () => howToGuidanceText(data?.completeness, missingLabels),
+    [data?.completeness, missingLabels]
+  );
+
+  const sessionTenant = useMemo(
+    () => resolveTenant(user, data?.tenant),
+    [user, data?.tenant]
+  );
 
   const subtitle = getSubtitle(user, data?.primary);
   const shortLine = shortStatusLine(caseStatus, profileComplete, adminNotes);
-
   const canOpenForm =
-    caseStatus !== 'SUBMITTED' &&
-    caseStatus !== 'UNDER_REVIEW' &&
-    !(caseStatus === 'REJECTED' && !adminNotes.reopenable) &&
-    caseStatus !== 'APPROVED';
+    caseStatus === 'DRAFT' || caseStatus === 'NEEDS_REVISION';
 
-  const handleReopen = async () => {
-    if (!caseId || reopenBusy) return;
-    setReopenBusy(true);
-    try {
-      await apiClient.post(`/onboarding/cases/${caseId}/reopen`, {});
-      toast.success(OP_BASE_PROFILE_TOAST.reopened);
-      await fetchMyOp();
-    } catch (err) {
-      console.error('[OpHubPage] reopen', err?.response?.data || err);
-      toast.error(
-        err?.response?.data?.message ||
-          err?.response?.data?.error?.message ||
-          OP_BASE_PROFILE_TOAST.reopenFailed
+  const visibleItems = useMemo(() => {
+    if (showAll) return OP_WORK_ITEMS;
+    if (!caseStatus || isActionableStatus(caseStatus)) {
+      return OP_WORK_ITEMS.filter(
+        (it) => it.id === OP_WORK_ITEM_IDS.BASE_PROFILE
       );
-    } finally {
-      setReopenBusy(false);
     }
-  };
+    return [];
+  }, [showAll, caseStatus]);
+
+  const allDone =
+    !loadError &&
+    caseStatus === 'APPROVED' &&
+    !showAll &&
+    visibleItems.length === 0;
 
   if (loading) {
     return (
@@ -217,182 +252,206 @@ export default function OpHubPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white px-4 py-8 sm:px-6">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
       <div className="mx-auto w-full max-w-[480px]">
-        <header className="mb-5 text-center">
-          <h1 className="text-2xl font-black tracking-tight text-slate-800">
-            Danh mục loại công việc
-          </h1>
-          <p className="mt-2 text-sm text-slate-500">
-            <span className="font-semibold text-slate-700">{subtitle}</span>
-          </p>
-          <button
-            type="button"
-            onClick={handleLogout}
-            className="mt-2 text-sm font-semibold text-slate-400 underline-offset-2 hover:text-slate-600 hover:underline"
-          >
-            Đăng xuất
-          </button>
-        </header>
+        <TenantHeader tenant={sessionTenant} subtitle={subtitle} />
 
-        <div className="mb-5 space-y-3">
-          <AudioHelpButton
-            text={audioHelpText}
-            label="Nghe hướng dẫn trang"
-            size="md"
-          />
+        <div className="px-4 py-6">
+          <header className="mb-4 text-center">
+            <h1 className="text-2xl font-black tracking-tight text-slate-800">
+              Danh mục loại công việc
+            </h1>
+          </header>
 
-          {loadError ? (
-            <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-left text-sm font-medium text-rose-800">
-              {loadError}
-            </p>
-          ) : (
-            <p className="px-1 text-center text-sm text-slate-600">
-              {OP_HUB_WELCOME}
-            </p>
-          )}
-        </div>
+          <div className="mb-4 space-y-3">
+            <AudioHelpButton
+              text={OP_HUB_AUDIO_HELP}
+              label="Nghe hướng dẫn trang"
+              size="md"
+            />
 
-        <div className="space-y-3">
-          {OP_WORK_ITEMS.map((item) => {
-            const expanded = expandedId === item.id;
-            const isBp = item.id === OP_WORK_ITEM_IDS.BASE_PROFILE;
-            const badge = statusBadgeForItem(item.id, data);
+            {loadError ? (
+              <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-left text-sm font-medium text-rose-800">
+                {loadError}
+              </p>
+            ) : (
+              <p className="px-1 text-center text-sm text-slate-600">
+                {OP_HUB_WELCOME}
+              </p>
+            )}
 
-            return (
-              <div
-                key={item.id}
-                className={`overflow-hidden rounded-3xl border shadow-sm ${
-                  item.primary
-                    ? 'border-indigo-200 bg-indigo-50/40'
-                    : 'border-slate-200 bg-white'
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={() =>
-                    setExpandedId((prev) =>
-                      prev === item.id ? null : item.id
-                    )
-                  }
-                  className="flex w-full items-center gap-3 p-5 text-left transition active:scale-[0.99]"
+            <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
+              <input
+                type="checkbox"
+                className="h-5 w-5"
+                checked={showAll}
+                onChange={toggleShowAll}
+              />
+              Hiện cả việc đã xong
+            </label>
+          </div>
+
+          {allDone ? (
+            <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-center">
+              <p className="text-sm font-bold text-emerald-900">
+                Bạn đã hoàn thành các việc onboarding cần thiết.
+              </p>
+              <div className="mt-3 flex justify-center">
+                <ZoneVoiceButton
+                  visible
+                  text="Bạn đã hoàn thành các việc onboarding cần thiết. Bạn có thể về trang chủ hoặc xem cây gia phả."
+                  label="Nghe trạng thái"
+                />
+              </div>
+            </div>
+          ) : null}
+
+          <div className="space-y-3">
+            {visibleItems.map((item) => {
+              const expanded = expandedId === item.id;
+              const isBp = item.id === OP_WORK_ITEM_IDS.BASE_PROFILE;
+              const badge = statusBadgeForItem(item.id, data);
+              const doneOnly = isBp && caseStatus === 'APPROVED' && showAll;
+
+              return (
+                <div
+                  key={item.id}
+                  className={`overflow-hidden rounded-3xl border shadow-sm ${
+                    item.primary
+                      ? 'border-indigo-200 bg-indigo-50/40'
+                      : 'border-slate-200 bg-white'
+                  }`}
                 >
-                  <div className="min-w-0 flex-1">
-                    <div className="font-bold text-slate-800">{item.title}</div>
-                    <div className="mt-0.5 text-sm text-slate-500">{badge}</div>
-                  </div>
-                  {expanded ? (
-                    <ChevronUp className="h-5 w-5 shrink-0 text-slate-400" />
-                  ) : (
-                    <ChevronDown className="h-5 w-5 shrink-0 text-slate-400" />
-                  )}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setExpandedId((prev) =>
+                        prev === item.id ? null : item.id
+                      )
+                    }
+                    className="flex w-full items-center gap-3 p-5 text-left transition active:scale-[0.99]"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="font-bold text-slate-800">{item.title}</div>
+                      <div className="mt-0.5 text-sm text-slate-500">{badge}</div>
+                    </div>
+                    {expanded ? (
+                      <ChevronUp className="h-5 w-5 shrink-0 text-slate-400" />
+                    ) : (
+                      <ChevronDown className="h-5 w-5 shrink-0 text-slate-400" />
+                    )}
+                  </button>
 
-                {expanded && (
-                  <div className="space-y-3 border-t border-indigo-100/80 px-5 pb-5 pt-3">
-                    {isBp && shortLine ? (
-                      <p className="text-sm font-medium text-slate-700">
-                        {shortLine}
-                      </p>
-                    ) : null}
-
-                    {isBp &&
-                      caseStatus === 'NEEDS_REVISION' &&
-                      adminNotes.revision_request && (
-                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-left">
-                          <p className="text-[10px] font-black uppercase tracking-wide text-amber-800">
-                            Yêu cầu từ ban quản trị
-                          </p>
-                          <p className="mt-1.5 text-sm font-semibold leading-relaxed text-amber-950">
-                            {adminNotes.revision_request}
-                          </p>
-                          {adminNotes.review_note ? (
-                            <p className="mt-1.5 text-xs text-amber-800/80">
-                              Ghi chú: {adminNotes.review_note}
-                            </p>
-                          ) : null}
-                        </div>
-                      )}
-
-                    {isBp &&
-                      caseStatus === 'REJECTED' &&
-                      adminNotes.rejection_reason && (
-                        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-left">
-                          <p className="text-[10px] font-black uppercase tracking-wide text-rose-800">
-                            {adminNotes.reopenable
-                              ? 'Lý do từ chối'
-                              : 'Từ chối lần cuối'}
-                          </p>
-                          <p className="mt-1.5 text-sm font-semibold leading-relaxed text-rose-950">
-                            {adminNotes.rejection_reason}
-                          </p>
-                        </div>
-                      )}
-
-                    {isBp &&
-                      caseStatus === 'DRAFT' &&
-                      !profileComplete &&
-                      missingLabels.length > 0 && (
-                        <p className="text-xs text-slate-500">
-                          Còn thiếu: {missingLabels.join(', ')}.
-                        </p>
-                      )}
-
-                    {isBp && baseProfileVoiceText ? (
+                  {expanded && isBp && (
+                    <div className="space-y-3 border-t border-indigo-100/80 px-5 pb-5 pt-3">
                       <ZoneVoiceButton
                         visible
-                        text={baseProfileVoiceText}
-                        label="Nghe hướng dẫn việc này"
+                        text={howToText}
+                        label="Nghe hướng dẫn thực hiện"
                       />
-                    ) : null}
 
-                    {isBp &&
-                      caseStatus === 'REJECTED' &&
-                      adminNotes.reopenable && (
-                        <button
-                          type="button"
-                          disabled={reopenBusy}
-                          onClick={handleReopen}
-                          className="w-full rounded-2xl bg-rose-600 px-4 py-3.5 text-sm font-bold text-white disabled:opacity-60"
+                      {shortLine ? (
+                        <div className="space-y-2">
+                          <p className="text-sm font-medium text-slate-700">
+                            {shortLine}
+                          </p>
+                          <ZoneVoiceButton
+                            visible
+                            text={processMessage || shortLine}
+                            label="Nghe trạng thái hồ sơ"
+                          />
+                        </div>
+                      ) : null}
+
+                      {caseStatus === 'NEEDS_REVISION' &&
+                        adminNotes.revision_request && (
+                          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-left">
+                            <p className="text-[10px] font-black uppercase tracking-wide text-amber-800">
+                              Yêu cầu từ ban quản trị
+                            </p>
+                            <p className="mt-1.5 text-sm font-semibold leading-relaxed text-amber-950">
+                              {adminNotes.revision_request}
+                            </p>
+                            {adminNotes.review_note ? (
+                              <p className="mt-1.5 text-xs text-amber-800/80">
+                                Ghi chú: {adminNotes.review_note}
+                              </p>
+                            ) : null}
+                            <div className="mt-2">
+                              <ZoneVoiceButton
+                                visible
+                                text={[
+                                  adminNotes.revision_request,
+                                  adminNotes.review_note
+                                    ? `Ghi chú: ${adminNotes.review_note}`
+                                    : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join('. ')}
+                                label="Nghe yêu cầu quản trị"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                      {caseStatus === 'REJECTED' &&
+                        adminNotes.rejection_reason && (
+                          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-left">
+                            <p className="text-[10px] font-black uppercase tracking-wide text-rose-800">
+                              {adminNotes.reopenable
+                                ? 'Lý do từ chối'
+                                : 'Từ chối lần cuối'}
+                            </p>
+                            <p className="mt-1.5 text-sm font-semibold leading-relaxed text-rose-950">
+                              {adminNotes.rejection_reason}
+                            </p>
+                            <div className="mt-2">
+                              <ZoneVoiceButton
+                                visible
+                                text={adminNotes.rejection_reason}
+                                label="Nghe lý do từ chối"
+                              />
+                            </div>
+                          </div>
+                        )}
+
+                      {caseStatus === 'DRAFT' &&
+                        !profileComplete &&
+                        missingLabels.length > 0 && (
+                          <p className="text-xs text-slate-500">
+                            Còn thiếu: {missingLabels.join(', ')}.
+                          </p>
+                        )}
+
+                      {canOpenForm && item.path && !doneOnly && (
+                        <Link
+                          to={item.path}
+                          className="flex w-full items-center justify-center rounded-2xl bg-indigo-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-200 transition active:scale-[0.98]"
                         >
-                          {reopenBusy
-                            ? 'Đang mở lại…'
-                            : 'Mở lại hồ sơ để bổ sung'}
-                        </button>
+                          Thực hiện
+                        </Link>
                       )}
-
-                    {isBp && canOpenForm && item.path && (
-                      <Link
-                        to={item.path}
-                        className="flex w-full items-center justify-center rounded-2xl bg-indigo-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-200 transition active:scale-[0.98]"
-                      >
-                        Thực hiện
-                      </Link>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="mt-10 space-y-3 pb-6 text-center text-sm">
-          <button
-            type="button"
-            onClick={() => navigate('/')}
-            className="font-semibold text-slate-500 underline-offset-2 hover:underline"
-          >
-            Trang chủ
-          </button>
-          <div>
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="font-semibold text-slate-400 underline-offset-2 hover:underline"
-            >
-              Đăng xuất
-            </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
+
+          {caseStatusLabel && !loadError ? (
+            <p className="mt-4 px-1 text-center text-xs font-medium text-slate-400">
+              Trạng thái: {caseStatusLabel}
+            </p>
+          ) : null}
+
+          <AppFooterNav
+            onBack={() => navigate('/')}
+            backLabel="Trang chủ"
+            onHub={() => navigate('/op')}
+            hubLabel="Danh mục việc"
+            onExit={handleLogout}
+            exitLabel="Đăng xuất"
+          />
         </div>
       </div>
     </div>

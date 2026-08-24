@@ -109,11 +109,14 @@ router.post(
   verifyToken,
   asyncHandler(ctrl.submitCase)
 );
-// FE-OP-B3: member reopen soft-reject
+// FE-OP-B3.1: admin reopen soft-reject (member không tự reopen)
 router.post(
   '/cases/:caseId/reopen',
-  onboardingWriteRateLimiter,
+  onboardingAdminRateLimiter,
   verifyToken,
+  checkRole(...ADMIN_ROLES),
+  tenantStatusHeavy,
+  onboardingAdminGuard,
   asyncHandler(ctrl.reopenCase)
 );
 router.post(

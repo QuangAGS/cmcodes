@@ -1,7 +1,7 @@
 /**
  * PATH       : src/features/admin/components/OpApprovalPanel.jsx
  * DATETIME   : 2026-08-23T18:10:00+07:00
- * VERSION    : 2.0.0-FE-OP-B3-LIST
+ * VERSION    : 2.1.0-FE-OP-B3.1-LIST
  * DESCRIPTION:
  * - List OP (MEMBER_PROMOTE): search + lifecycle chips + 1 CTA "Xem & xử lý".
  * - Pattern gần AdminUserApproval; không 3 nút trên mỗi card.
@@ -19,16 +19,35 @@ import { useAuth } from '../../../context/AuthContext.jsx';
 import TenantHeader from '../../../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../../../components/shell/AppFooterNav.jsx';
 
+/** status query gửi BE — "Tất cả" = hàng đợi admin, không phải mọi status DB */
 const LIFECYCLE = [
-  { id: 'QUEUE', label: 'Chờ xử lý', statuses: ['SUBMITTED', 'UNDER_REVIEW'] },
-  { id: 'REVISION', label: 'Trả sửa', statuses: ['NEEDS_REVISION'] },
-  { id: 'ALL', label: 'Tất cả', statuses: null },
+  {
+    id: 'QUEUE',
+    label: 'Chờ xử lý',
+    statusCsv: 'SUBMITTED,UNDER_REVIEW',
+  },
+  {
+    id: 'REVISION',
+    label: 'Trả sửa',
+    statusCsv: 'NEEDS_REVISION',
+  },
+  {
+    id: 'REJECTED',
+    label: 'Từ chối (mở lại)',
+    statusCsv: 'REJECTED',
+  },
+  {
+    id: 'ALL',
+    label: 'Tất cả',
+    statusCsv: 'SUBMITTED,UNDER_REVIEW,NEEDS_REVISION,REJECTED',
+  },
 ];
 
 const STATUS_LABEL = {
   SUBMITTED: 'Chờ xem xét',
   UNDER_REVIEW: 'Đang xem xét',
   NEEDS_REVISION: 'Cần bổ sung',
+  REJECTED: 'Đã từ chối',
 };
 
 export default function OpApprovalPanel() {
@@ -56,8 +75,13 @@ export default function OpApprovalPanel() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      const chip = LIFECYCLE.find((c) => c.id === lifecycle) || LIFECYCLE[0];
       const res = await apiClient.get('/onboarding/cases/reviewable', {
-        params: { process_kind: 'MEMBER_PROMOTE', page_size: 50 },
+        params: {
+          process_kind: 'MEMBER_PROMOTE',
+          page_size: 50,
+          status: chip.statusCsv,
+        },
       });
       const data = res.data?.data ?? res.data ?? {};
       setItems(Array.isArray(data.items) ? data.items : []);
@@ -72,18 +96,14 @@ export default function OpApprovalPanel() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [lifecycle]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   const filtered = useMemo(() => {
-    const chip = LIFECYCLE.find((c) => c.id === lifecycle);
     let list = items;
-    if (chip?.statuses) {
-      list = list.filter((it) => chip.statuses.includes(it.status));
-    }
     const s = q.trim().toLowerCase();
     if (!s) return list;
     return list.filter((it) => {
@@ -99,7 +119,7 @@ export default function OpApprovalPanel() {
         .toLowerCase();
       return blob.includes(s);
     });
-  }, [items, lifecycle, q]);
+  }, [items, q]);
 
   return (
     <div className="min-h-screen bg-slate-50">

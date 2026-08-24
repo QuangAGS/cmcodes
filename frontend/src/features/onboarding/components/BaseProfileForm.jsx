@@ -457,7 +457,11 @@ export default function BaseProfileForm({
         <button
           type="button"
           disabled={isSubmitting}
-          onClick={onSubmitForReview}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onSubmitForReview(e);
+          }}
           className="flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-200 disabled:opacity-60 active:scale-[0.98]"
         >
           {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
@@ -466,7 +470,11 @@ export default function BaseProfileForm({
         <button
           type="button"
           disabled={isSubmitting}
-          onClick={onSaveDraft}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onSaveDraft(e);
+          }}
           className="flex w-full items-center justify-center rounded-2xl border border-slate-200 bg-white px-4 py-3.5 text-sm font-semibold text-slate-700 disabled:opacity-60 active:scale-[0.98]"
         >
           Lưu nháp
