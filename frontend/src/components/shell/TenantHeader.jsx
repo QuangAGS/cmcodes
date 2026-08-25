@@ -1,12 +1,34 @@
 /**
  * PATH       : src/components/shell/TenantHeader.jsx
- * DATETIME   : 2026-08-23T18:05:00+07:00
- * VERSION    : 1.0.0-SHELL
+ * DATETIME   : 2026-08-25T19:20:00+07:00
+ * VERSION    : 1.2.0-SHELL
  * DESCRIPTION:
- * - Header nhận diện tenant (mọi actor, kể cả SYSTEM_ADMIN — tenant đặc biệt).
- * - Cùng pattern: biểu tượng + tên dòng họ (gia đạo). Không nhánh UI theo role.
- * - tenant: { id, name, logo_url? | symbol_url? | logo? }
+ * - logo_url (ảnh) > logo_icon (Lucide) > chữ viết tắt.
+ * - name + slogan (ưu tiên slogan; subtitle phụ).
  */
+
+import {
+  Landmark,
+  Home,
+  TreePine,
+  UsersRound,
+  GitFork,
+  Crown,
+  ShieldCheck,
+  Settings,
+} from 'lucide-react';
+
+const ICON_MAP = {
+  Landmark,
+  Home,
+  House: Home,
+  TreePine,
+  UsersRound,
+  GitFork,
+  Crown,
+  ShieldCheck,
+  Settings,
+};
 
 export default function TenantHeader({ tenant, subtitle = null, className = '' }) {
   const name =
@@ -18,15 +40,22 @@ export default function TenantHeader({ tenant, subtitle = null, className = '' }
     tenant?.logo ||
     tenant?.symbol ||
     null;
+  const iconKey = tenant?.logo_icon || null;
+  const IconComp = iconKey && ICON_MAP[iconKey] ? ICON_MAP[iconKey] : null;
+  const slogan =
+    (tenant?.slogan && String(tenant.slogan).trim()) || null;
 
-  const initials = String(name)
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((w) => w[0])
-    .join('')
-    .toUpperCase() || 'DH';
+  const initials =
+    String(name)
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean)
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join('')
+      .toUpperCase() || 'DH';
+
+  const line2 = slogan || (subtitle ? String(subtitle) : null);
 
   return (
     <header
@@ -34,11 +63,9 @@ export default function TenantHeader({ tenant, subtitle = null, className = '' }
     >
       <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-slate-200 bg-slate-100">
         {logoUrl ? (
-          <img
-            src={logoUrl}
-            alt=""
-            className="h-full w-full object-cover"
-          />
+          <img src={logoUrl} alt="" className="h-full w-full object-cover" />
+        ) : IconComp ? (
+          <IconComp className="h-6 w-6 text-indigo-700" strokeWidth={2.25} />
         ) : (
           <span className="text-sm font-black tracking-tight text-indigo-700">
             {initials}
@@ -47,8 +74,11 @@ export default function TenantHeader({ tenant, subtitle = null, className = '' }
       </div>
       <div className="min-w-0 flex-1 text-left">
         <p className="truncate text-sm font-black text-slate-800">{name}</p>
-        {subtitle ? (
-          <p className="truncate text-xs font-medium text-slate-500">{subtitle}</p>
+        {line2 ? (
+          <p className="truncate text-xs font-medium text-slate-500">{line2}</p>
+        ) : null}
+        {slogan && subtitle ? (
+          <p className="truncate text-[11px] text-slate-400">{subtitle}</p>
         ) : null}
       </div>
     </header>

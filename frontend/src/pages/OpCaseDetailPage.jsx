@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/OpCaseDetailPage.jsx
  * DATETIME   : 2026-08-23T18:10:00+07:00
- * VERSION    : 1.1.0-FE-OP-B3.1-DETAIL
+ * VERSION    : 1.1.1-HEADER
  * DESCRIPTION:
  * - Chi tiết case OP: BP read-only + trao đổi admin + sticky actions.
  * - Modal: Duyệt (reviewNote) / Trả sửa / Từ chối soft|final.
@@ -18,6 +18,7 @@ import apiClient from '../lib/apiClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
+import { resolveTenant } from '../lib/resolveTenant.js';
 import { labelEnum } from '../features/onboarding/constants/opFieldLabels.js';
 
 const emptyForm = () => ({
@@ -39,7 +40,7 @@ function Field({ label, value }) {
 export default function OpCaseDetailPage() {
   const { caseId } = useParams();
   const navigate = useNavigate();
-  const { logout } = useAuth();
+  const { user, logout } = useAuth();
 
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -84,13 +85,10 @@ export default function OpCaseDetailPage() {
     load();
   }, [load]);
 
+  // Ưu tiên tenant của case; bổ sung slogan/icon từ session user nếu list API thiếu
   const headerTenant = useMemo(
-    () => ({
-      id: item?.tenant?.id,
-      name: item?.tenant?.name || 'Dòng họ',
-      logo_url: item?.tenant?.logo_url || null,
-    }),
-    [item]
+    () => resolveTenant(user, item?.tenant),
+    [user, item?.tenant]
   );
 
   const openModal = (mode) => {

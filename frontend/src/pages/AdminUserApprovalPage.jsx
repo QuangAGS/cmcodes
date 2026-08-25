@@ -28,6 +28,8 @@ import apiClient from  '../lib/apiClient.js';
 import { useAuth } from '../context/AuthContext.jsx';
 //FE-OP-B2
 import OpApprovalPanel from '../features/admin/components/OpApprovalPanel.jsx';
+import TenantHeader from '../components/shell/TenantHeader.jsx';
+import { resolveTenant } from '../lib/resolveTenant.js';
 
 const STATUS_BADGES = {
   CHO_DUYET: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -59,7 +61,8 @@ const getStatusBadgeClass = (item) => {
 };
 
 const AdminUserApprovalPage = () => {
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, logout } = useAuth();
+  const sessionTenant = resolveTenant(currentUser);
   const navigate = useNavigate();
   //FE-OP-B2
   const [searchParams] = useSearchParams();
@@ -285,8 +288,13 @@ const AdminUserApprovalPage = () => {
 
   if (selectedUser) {
     return (
-      <div className="min-h-screen bg-slate-50 py-6">
-        <div className="max-w-[480px] mx-auto px-4">
+      <div className="min-h-screen bg-slate-50">
+        <div className="max-w-[480px] mx-auto">
+          <TenantHeader
+            tenant={sessionTenant}
+            subtitle="Phê duyệt thành viên · RP"
+          />
+          <div className="px-4 py-6">
           <div className="mb-6">
             <button
               onClick={() => setSelectedUser(null)}
@@ -301,15 +309,21 @@ const AdminUserApprovalPage = () => {
             onCancel={() => setSelectedUser(null)}
             onSubmit={handleApprovalSubmit}
           />
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 py-6 text-slate-900 font-sans">
-      <div className="max-w-[640px] mx-auto px-4">
-        
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      <div className="mx-auto w-full max-w-[640px]">
+        <TenantHeader
+          tenant={sessionTenant}
+          subtitle="Phê duyệt thành viên · RP"
+        />
+
+        <div className="px-4 py-6">
         {/* HEADER ĐỒNG BỘ AUTH_PAGE */}
         <div className="mb-8 text-center">
           <p className="text-xs font-black uppercase tracking-widest text-indigo-600">HỆ THỐNG TRUNG TÂM</p>
@@ -481,6 +495,7 @@ const AdminUserApprovalPage = () => {
           </div>
         )}
 
+        </div>
       </div>
     </div>
   );

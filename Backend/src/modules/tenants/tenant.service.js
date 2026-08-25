@@ -1,17 +1,11 @@
 /**
  * PATH       : src/modules/tenants/tenant.service.js
- * DATETIME   : 2026-08-09T18:15:00+07:00
- * VERSION    : 1.0.0-OP-2
+ * DATETIME   : 2026-08-25T16:10:00+07:00
+ * VERSION    : 1.1.0-TENANT-SETTINGS
  * DESCRIPTION:
- * - OP-2: Tenant Activate (TAM_NGUNG → HOAT_DONG).
- * - Service tách riêng, không đụng auth.service / Register flow (Q1).
- * - TX bắt buộc: correlation + update status + BPL + audit.
- *
- * INVARIANTS:
- * - Chỉ cho phép chuyển đúng một chiều: TAM_NGUNG → HOAT_DONG.
- * - CLAN_ADMIN chỉ được activate đúng tenant của mình + users.status = DA_DUYET.
- * - SYSTEM_ADMIN: full support.
- * - Không đụng users.status, members, onboarding_cases.
+ * - OP-2 activateTenant (giữ nguyên).
+ * - Tenant settings (ADMIN): name, slogan, description, theme_color, logo_url.
+ * - logo_icon: chỉ cập nhật khi cột đã có trên schema (optional).
  */
 
 'use strict';
@@ -22,22 +16,257 @@ const auditService = require('../../services/audit.service');
 const { createError } = require('../../shared/errors');
 const { ERROR_CODES } = require('../../shared/errors/codes');
 
+const SETTINGS_SELECT = {
+  id: true,
+  name: true,
+  slug: true,
+  description: true,
+  logo_url: true,
+  theme_color: true,
+  slogan: true,
+  status: true,
+  social_configs: true,
+  updated_at: true,
+};
+
+function assertAdminCanEditTenant(actor, tenantId) {
+  const isSystemAdmin = actor.role === 'SYSTEM_ADMIN';
+  const isClanAdmin = actor.role === 'CLAN_ADMIN';
+
+  if (!isSystemAdmin && !isClanAdmin) {
+    throw createError(
+      ERROR_CODES.TENANT?.CROSS_TENANT_DENIED || 'FORBIDDEN',
+      'Chỉ quản trị viên được cập nhật thông tin dòng họ.',
+      { statusCode: 403 }
+    );
+  }
+
+  if (isClanAdmin) {
+    if (actor.status && actor.status !== 'DA_DUYET') {
+      throw createError(
+        ERROR_CODES.TENANT?.CROSS_TENANT_DENIED || 'FORBIDDEN',
+        'Tài khoản chưa được phê duyệt.',
+        { statusCode: 403 }
+      );
+    }
+    if (!actor.tenantId || actor.tenantId !== tenantId) {
+      throw createError(
+        ERROR_CODES.TENANT?.CROSS_TENANT_DENIED || 'FORBIDDEN',
+        'Bạn chỉ được cập nhật dòng họ của mình.',
+        { statusCode: 403 }
+      );
+    }
+  }
+}
+
+/**
+ * Đọc thông tin tenant cho form cài đặt.
+ */
+async function getTenantSettings(tenantId, actor) {
+  if (!tenantId) {
+    throw createError(
+      ERROR_CODES.TENANT?.TENANT_NOT_FOUND || 'NOT_FOUND',
+      'Thiếu tenantId.',
+      { statusCode: 404 }
+    );
+  }
+
+  assertAdminCanEditTenant(actor, tenantId);
+
+  const db = actor.role === 'SYSTEM_ADMIN' ? basePrisma : prisma;
+  const tenant = await db.tenants.findFirst({
+    where: { id: tenantId, deleted_at: null },
+    select: SETTINGS_SELECT,
+  });
+
+  if (!tenant) {
+    throw createError(
+      ERROR_CODES.TENANT?.TENANT_NOT_FOUND || 'NOT_FOUND',
+      'Không tìm thấy dòng họ.',
+      { statusCode: 404 }
+    );
+  }
+
+  // logo_icon nếu lưu tạm trong social_configs
+  const cfg =
+    tenant.social_configs && typeof tenant.social_configs === 'object'
+      ? tenant.social_configs
+      : {};
+
+  return {
+    ...tenant,
+    logo_icon: cfg.logo_icon || null,
+  };
+}
+
+/**
+ * Cập nhật settings hiển thị dòng họ.
+ * Body cho phép: name, slogan, description, theme_color, logo_url, logo_icon
+ */
+async function updateTenantSettings(tenantId, actor, body = {}) {
+  if (!tenantId) {
+    throw createError(
+      ERROR_CODES.TENANT?.TENANT_NOT_FOUND || 'NOT_FOUND',
+      'Thiếu tenantId.',
+      { statusCode: 404 }
+    );
+  }
+
+  assertAdminCanEditTenant(actor, tenantId);
+
+  const db = actor.role === 'SYSTEM_ADMIN' ? basePrisma : prisma;
+
+  const existing = await db.tenants.findFirst({
+    where: { id: tenantId, deleted_at: null },
+    select: SETTINGS_SELECT,
+  });
+
+  if (!existing) {
+    throw createError(
+      ERROR_CODES.TENANT?.TENANT_NOT_FOUND || 'NOT_FOUND',
+      'Không tìm thấy dòng họ.',
+      { statusCode: 404 }
+    );
+  }
+
+  const data = {
+    changed_by: actor.id,
+    updated_at: new Date(),
+  };
+
+  if (body.name !== undefined) {
+    const name = String(body.name || '').trim();
+    if (!name || name.length > 100) {
+      const err = new Error('Tên dòng họ không hợp lệ (1–100 ký tự).');
+      err.statusCode = 400;
+      err.code = 'TENANT_NAME_INVALID';
+      throw err;
+    }
+    data.name = name;
+  }
+
+  if (body.slogan !== undefined) {
+    const slogan = body.slogan == null ? null : String(body.slogan).trim();
+    data.slogan = slogan ? slogan.slice(0, 255) : null;
+  }
+
+  if (body.description !== undefined) {
+    data.description =
+      body.description == null ? null : String(body.description).trim() || null;
+  }
+
+  if (body.theme_color !== undefined) {
+    const c = body.theme_color == null ? null : String(body.theme_color).trim();
+    if (c && !/^#[0-9A-Fa-f]{6}$/.test(c)) {
+      const err = new Error('theme_color phải dạng #RRGGBB.');
+      err.statusCode = 400;
+      err.code = 'TENANT_THEME_INVALID';
+      throw err;
+    }
+    data.theme_color = c || null;
+  }
+
+  if (body.logo_url !== undefined) {
+    data.logo_url =
+      body.logo_url == null ? null : String(body.logo_url).trim().slice(0, 255) || null;
+  }
+
+  // logo_icon: whitelist FE Lucide — lưu social_configs.logo_icon (chưa có cột schema)
+  if (body.logo_icon !== undefined) {
+    const ALLOWED = new Set([
+      'Landmark',
+      'House',
+      'TreePine',
+      'UsersRound',
+      'GitFork',
+      'Crown',
+      'ShieldCheck',
+      'Settings',
+      '',
+      null,
+    ]);
+    let icon = body.logo_icon;
+    if (icon != null) icon = String(icon).trim();
+    if (icon === '') icon = null;
+    if (icon && !ALLOWED.has(icon)) {
+      const err = new Error('logo_icon không nằm trong danh sách cho phép.');
+      err.statusCode = 400;
+      err.code = 'TENANT_ICON_INVALID';
+      throw err;
+    }
+    const prev =
+      existing.social_configs && typeof existing.social_configs === 'object'
+        ? { ...existing.social_configs }
+        : {};
+    if (icon) prev.logo_icon = icon;
+    else delete prev.logo_icon;
+    data.social_configs = prev;
+  }
+
+  const hasField = Object.keys(data).some(
+    (k) => !['changed_by', 'updated_at'].includes(k)
+  );
+  if (!hasField) {
+    const err = new Error('Không có trường nào để cập nhật.');
+    err.statusCode = 400;
+    err.code = 'TENANT_NO_CHANGES';
+    throw err;
+  }
+
+  const updated = await db.tenants.update({
+    where: { id: tenantId },
+    data,
+    select: SETTINGS_SELECT,
+  });
+
+  try {
+    await auditService.logAction(
+      'CAP_NHAT',
+      'tenants',
+      tenantId,
+      {
+        name: existing.name,
+        slogan: existing.slogan,
+        logo_url: existing.logo_url,
+      },
+      {
+        name: updated.name,
+        slogan: updated.slogan,
+        logo_url: updated.logo_url,
+      },
+      actor.id,
+      'Cập nhật cài đặt dòng họ',
+      tenantId
+    );
+  } catch (_) {
+    /* best-effort */
+  }
+
+  const cfg =
+    updated.social_configs && typeof updated.social_configs === 'object'
+      ? updated.social_configs
+      : {};
+
+  return {
+    ...updated,
+    logo_icon: cfg.logo_icon || null,
+  };
+}
+
 /**
  * Kích hoạt tenant: TAM_NGUNG → HOAT_DONG
- *
- * @param {string} tenantId
- * @param {object} actor  { id, role, tenantId, status }
- * @returns {Promise<object>} tenant đã cập nhật (minimal)
  */
 async function activateTenant(tenantId, actor) {
   if (!tenantId) {
     throw createError(ERROR_CODES.TENANT.TENANT_NOT_FOUND, 'Thiếu tenantId');
   }
   if (!actor?.id) {
-    throw createError(ERROR_CODES.COMMON?.UNAUTHORIZED || 'UNAUTHORIZED', 'Thiếu thông tin actor');
+    throw createError(
+      ERROR_CODES.COMMON?.UNAUTHORIZED || 'UNAUTHORIZED',
+      'Thiếu thông tin actor'
+    );
   }
 
-  // --- Authz ---
   const isSystemAdmin = actor.role === 'SYSTEM_ADMIN';
   const isClanAdmin = actor.role === 'CLAN_ADMIN';
 
@@ -63,12 +292,9 @@ async function activateTenant(tenantId, actor) {
     }
   }
 
-  // --- Transaction ---
   return prisma.$transaction(async (tx) => {
-    // 1. Correlation (factory tập trung — trả về string UUID)
     const C = prisma.correlation.create();
 
-    // 2. Load tenant (trong TX)
     const tenant = await tx.tenants.findFirst({
       where: { id: tenantId, deleted_at: null },
       select: {
@@ -81,10 +307,12 @@ async function activateTenant(tenantId, actor) {
     });
 
     if (!tenant) {
-      throw createError(ERROR_CODES.TENANT.TENANT_NOT_FOUND, 'Không tìm thấy dòng họ.');
+      throw createError(
+        ERROR_CODES.TENANT.TENANT_NOT_FOUND,
+        'Không tìm thấy dòng họ.'
+      );
     }
 
-    // 3. Status guard
     if (tenant.status === 'HOAT_DONG') {
       throw createError(
         ERROR_CODES.TENANT.TENANT_ALREADY_ACTIVE,
@@ -99,7 +327,6 @@ async function activateTenant(tenantId, actor) {
       );
     }
 
-    // 4. Update
     const updated = await tx.tenants.update({
       where: { id: tenantId },
       data: {
@@ -116,7 +343,6 @@ async function activateTenant(tenantId, actor) {
       },
     });
 
-    // 5. BPL
     await businessLogger.createLog(
       {
         correlation_id: C,
@@ -139,7 +365,6 @@ async function activateTenant(tenantId, actor) {
       tx
     );
 
-    // 6. Audit
     await auditService.logAction(
       'CAP_NHAT',
       'tenants',
@@ -148,18 +373,15 @@ async function activateTenant(tenantId, actor) {
       { status: 'HOAT_DONG' },
       actor.id,
       'Kích hoạt dòng họ (OP-2)',
-      tenantId,
-      C,
-      tx
+      tenantId
     );
 
-    return {
-      ...updated,
-      correlation_id: C,
-    };
+    return updated;
   });
 }
 
 module.exports = {
   activateTenant,
+  getTenantSettings,
+  updateTenantSettings,
 };

@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/auth/auth.routes.js
  * DATETIME   : 2026-07-25T15:45:00+07:00
- * VERSION    : 21.9.0-W4
+ * VERSION    : 21.9.1-TENANT-DTO
  * DESCRIPTION:
  * - [21.9.0-W4] PR-W4-1: rate limit login/register/reset + securityGuard.
  * - Lưới lọc bảo an chủ động (restrictSuspiciousActivity).
@@ -92,14 +92,38 @@ router.get(
       throw createError('UNAUTHORIZED', 'Không tìm thấy tài khoản.');
     }
 
-    // tenantStatus: lấy kèm nếu FE cần (optional)
+    // SSOT tenant display: id + name + logo_url (+ status)
+    let tenant = null;
     let tenantStatus = null;
     if (row.tenant_id) {
       const t = await prisma.tenants.findFirst({
-        where: { id: row.tenant_id },
-        select: { status: true },
+        where: { id: row.tenant_id, deleted_at: null },
+        select: { id: true, name: true, logo_url: true, slogan: true, status: true, social_configs: true },
       });
-      tenantStatus = t?.status ?? null;
+      if (t) {
+        tenantStatus = t.status ?? null;
+        const cfg =
+          t.social_configs && typeof t.social_configs === 'object'
+            ? t.social_configs
+            : {};
+        tenant = {
+          id: t.id,
+          name: t.name || null,
+          logo_url: t.logo_url || null,
+          slogan: t.slogan || null,
+          logo_icon: cfg.logo_icon || null,
+          status: t.status || null,
+        };
+      } else {
+        tenant = {
+          id: row.tenant_id,
+          name: null,
+          logo_url: null,
+          slogan: null,
+          logo_icon: null,
+          status: null,
+        };
+      }
     }
 
     res.status(200).json({
@@ -109,6 +133,9 @@ router.get(
         userId: row.id,
         tenantId: row.tenant_id,
         tenantStatus,
+        tenant,
+        // Tương thích ngược
+        clanName: tenant?.name || null,
       },
     });
   })

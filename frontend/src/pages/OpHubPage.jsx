@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/OpHubPage.jsx
  * DATETIME   : 2026-08-24T10:45:00+07:00
- * VERSION    : 1.4.0-FE-OP-UX
+ * VERSION    : 1.4.1-HEADER
  * DESCRIPTION:
  * - Hub /op dong: mac dinh chi viec can quan tam; toggle Hien ca viec da xong.
  * - TenantHeader + AppFooterNav.
@@ -19,6 +19,7 @@ import AudioHelpButton from '../features/elder-doctrine/components/AudioHelpButt
 import ZoneVoiceButton from '../features/elder-doctrine/components/ZoneVoiceButton.jsx';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
+import { resolveTenant } from '../lib/resolveTenant.js';
 
 import {
   labelFields,
@@ -35,30 +36,6 @@ import {
 } from '../features/onboarding/constants/opWorkItems.js';
 
 const SHOW_ALL_KEY = 'op_hub_show_all_work';
-
-function resolveTenant(user, myOpTenant) {
-  const name =
-    myOpTenant?.name ||
-    user?.clanName ||
-    user?.tenantName ||
-    user?.tenant_name ||
-    user?.tenant?.name ||
-    null;
-  return {
-    id:
-      myOpTenant?.id ||
-      user?.tenantId ||
-      user?.tenant_id ||
-      user?.tenant?.id ||
-      null,
-    name: name || 'Dòng họ',
-    logo_url:
-      myOpTenant?.logo_url ||
-      user?.tenant?.logo_url ||
-      user?.tenantLogo ||
-      null,
-  };
-}
 
 function getSubtitle(user, primary) {
   return (

@@ -1,38 +1,105 @@
 /**
- * PATH: src/modules/interactions/media.controller.js
+ * PATH       : src/modules/interactions/media.controller.js
+ * DATETIME   : 2026-08-25T10:20:00+07:00
+ * VERSION    : 1.1.0-R2
+ * DESCRIPTION:
+ * - HTTP adapter: upload (multipart) → mediaService.uploadAndRegister (R2 + DB).
  */
+
+'use strict';
+
 const mediaService = require('./media.service');
-// Giả định bạn dùng Cloudinary làm dịch vụ lưu trữ
-// const cloudinary = require('../config/cloudinary'); 
+
+function pickUser(req) {
+  const u = req.user || {};
+  return {
+    userId: u.userId || u.id || u.sub,
+    id: u.userId || u.id || u.sub,
+    tenantId: u.tenantId || u.tenant_id,
+    tenant_id: u.tenantId || u.tenant_id,
+    role: u.role,
+    tenant: u.tenant,
+  };
+}
+
+function sendError(res, error) {
+  const status = error.statusCode || error.status || 500;
+  return res.status(status).json({
+    success: false,
+    status: 'error',
+    code: error.code || 'INTERNAL_ERROR',
+    message: error.message || 'Đã xảy ra lỗi hệ thống.',
+  });
+}
 
 const mediaController = {
-  uploadFile: src/modules/interactions/media.controller.js (req, res) => {
+  uploadFile: async (req, res) => {
     try {
-      if (!req.file) throw new Error("Không có file nào được tải lên.");
+      if (!req.file) {
+        const err = new Error('Không có file nào được tải lên.');
+        err.statusCode = 400;
+        err.code = 'MEDIA_NO_FILE';
+        throw err;
+      }
 
-      // 1. Logic đẩy file lên Cloud (Giả định Cloudinary/S3)
-      // const cloudResult = await cloudinary.uploader.upload_stream(req.file.buffer);
-      const mockCloudUrl = `https://storage.clan-management.com/${Date.now()}_${req.file.originalname}`;
+      const result = await mediaService.uploadAndRegister(
+        req.file,
+        {
+          entity_id: req.body.entity_id,
+          entity_type: req.body.entity_type || 'MISC',
+          purpose: req.body.purpose || 'OTHER',
+          change_reason: req.body.change_reason,
+          is_primary: req.body.is_primary,
+          caption: req.body.caption,
+          sort_order: req.body.sort_order,
+        },
+        pickUser(req)
+      );
 
-      // 2. Chuẩn bị data cho Service
-      const mediaData = {
-        entity_id: req.body.entity_id,
-        entity_type: req.body.entity_type, // MEMBER, BRANCH, WORSHIP...
-        file_url: mockCloudUrl,
-        file_name: req.file.originalname,
-        file_type: req.file.mimetype,
-        file_size: req.file.size,
-        change_reason: req.body.change_reason || "Tải lên tài liệu mới"
-      };
-
-      // 3. Đăng ký vào Database qua Service
-      const result = await mediaService.registerMedia(mediaData, req.user);
-
-      res.status(201).json({ status: 'success', data: result });
+      return res.status(201).json({
+        success: true,
+        status: 'success',
+        data: result,
+      });
     } catch (error) {
-      res.status(500).json({ status: 'error', message: error.message });
+      console.error('[media.uploadFile]', error.message || error);
+      return sendError(res, error);
     }
-  }
+  },
+
+  listByEntity: async (req, res) => {
+    try {
+      const { type, id } = req.params;
+      const data = await mediaService.getByEntity(type, id, pickUser(req));
+      return res.status(200).json({ success: true, status: 'success', data });
+    } catch (error) {
+      return sendError(res, error);
+    }
+  },
+
+  remove: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const data = await mediaService.deleteMedia(
+        id,
+        pickUser(req),
+        req.body?.reason
+      );
+      return res.status(200).json({ success: true, status: 'success', data });
+    } catch (error) {
+      return sendError(res, error);
+    }
+  },
+
+  readUrl: async (req, res) => {
+    try {
+      const { id } = req.params;
+      const data = await mediaService.getReadUrl(id, pickUser(req));
+      return res.status(200).json({ success: true, status: 'success', data });
+    } catch (error) {
+      return sendError(res, error);
+    }
+  },
 };
 
 module.exports = mediaController;

@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/AdminWorkSelectorPage.jsx
  * DATETIME   : 2026-08-18T12:05:00+07:00
- * VERSION    : 1.3.2-FE-OP-B2
+ * VERSION    : 1.3.3-HEADER
  * DESCRIPTION:
  * - OP-2: Work Selector mobile-first, config-driven.
  * - Work items từ src/features/admin/constants/adminWorkItems.js.
@@ -20,6 +20,7 @@ import {
   Users,
   Building2,
   UserCheck, //FE-OP-B2
+  Settings,
   ChevronRight,
   AlertCircle,
   Loader2,
@@ -31,12 +32,15 @@ import {
   SYSTEM_ADMIN_WORK_ITEMS,
   CLAN_ADMIN_WORK_ITEMS,
 } from '../features/admin/constants/adminWorkItems.js';
+import TenantHeader from '../components/shell/TenantHeader.jsx';
+import { resolveTenant } from '../lib/resolveTenant.js';
 
 const ICON_MAP = {
   Users,
   Building2,
   UserCheck, //FE-OP-B2
   ShieldCheck,
+  Settings,
 };
 
 function getDisplayIdentity(user) {
@@ -96,6 +100,7 @@ const AdminWorkSelectorPage = () => {
   const isSystemAdmin = user?.role === 'SYSTEM_ADMIN';
   const tenantStatus = user?.tenantStatus || user?.tenant_status || null;
   const displayIdentity = getDisplayIdentity(user);
+  const sessionTenant = resolveTenant(user);
 
   const handleLogout = () => {
     logout();
@@ -138,10 +143,11 @@ const AdminWorkSelectorPage = () => {
   // ═══════════════════════════════════════════════════════════
   if (isSystemAdmin) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white px-4 py-8 sm:px-6">
+      <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
         <div className="mx-auto w-full max-w-[480px]">
+          <TenantHeader tenant={sessionTenant} subtitle={displayIdentity} />
           {/* Header */}
-          <div className="mb-8 text-center">
+          <div className="mb-8 px-4 pt-6 text-center sm:px-6">
             <h1 className="text-2xl font-black tracking-tight text-slate-800">
               Quản trị hệ thống
             </h1>
@@ -155,7 +161,7 @@ const AdminWorkSelectorPage = () => {
           </div>
 
           {/* Work items */}
-          <div className="mb-6 space-y-3">
+          <div className="mb-6 space-y-3 px-4 sm:px-6">
             {SYSTEM_ADMIN_WORK_ITEMS.map((item) => (
               <WorkCard
                 key={item.id}
@@ -166,7 +172,7 @@ const AdminWorkSelectorPage = () => {
           </div>
 
           {/* Tenant list — chỉ TAM_NGUNG */}
-          <div className="mb-3 flex items-center justify-between px-1">
+          <div className="mb-3 flex items-center justify-between px-4 sm:px-6">
             <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400">
               Dòng họ chờ kích hoạt
             </h2>
@@ -181,6 +187,7 @@ const AdminWorkSelectorPage = () => {
             </button>
           </div>
 
+          <div className="px-4 sm:px-6">
           {loadingList ? (
             <div className="flex items-center justify-center gap-2 rounded-3xl border border-slate-200 bg-white py-16 text-slate-400">
               <Loader2 className="h-5 w-5 animate-spin" />
@@ -223,9 +230,10 @@ const AdminWorkSelectorPage = () => {
               ))}
             </div>
           )}
+          </div>
 
           {/* Logout cuối trang */}
-          <div className="mt-10 pb-6 text-center">
+          <div className="mt-10 px-4 pb-6 text-center sm:px-6">
             <LogoutLink onClick={handleLogout} />
           </div>
         </div>
@@ -237,10 +245,11 @@ const AdminWorkSelectorPage = () => {
   // RENDER: CLAN_ADMIN
   // ═══════════════════════════════════════════════════════════
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white px-4 py-8 sm:px-6">
+    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
       <div className="mx-auto w-full max-w-[480px]">
+        <TenantHeader tenant={sessionTenant} subtitle={displayIdentity} />
         {/* Header */}
-        <div className="mb-8 text-center">
+        <div className="mb-8 px-4 pt-6 text-center sm:px-6">
           <h1 className="text-2xl font-black tracking-tight text-slate-800">
             Chọn công việc
           </h1>
@@ -264,7 +273,7 @@ const AdminWorkSelectorPage = () => {
         </div>
 
         {/* Work cards */}
-        <div className="space-y-3">
+        <div className="space-y-3 px-4 sm:px-6">
           {clanItems.map((item) => (
             <WorkCard
               key={item.id}

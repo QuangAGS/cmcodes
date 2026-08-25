@@ -1,7 +1,7 @@
 /**
  * PATH       : src/features/admin/components/OpApprovalPanel.jsx
  * DATETIME   : 2026-08-23T18:10:00+07:00
- * VERSION    : 2.1.0-FE-OP-B3.1-LIST
+ * VERSION    : 2.1.1-HEADER
  * DESCRIPTION:
  * - List OP (MEMBER_PROMOTE): search + lifecycle chips + 1 CTA "Xem & xử lý".
  * - Pattern gần AdminUserApproval; không 3 nút trên mỗi card.
@@ -18,6 +18,7 @@ import apiClient from '../../../lib/apiClient.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import TenantHeader from '../../../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../../../components/shell/AppFooterNav.jsx';
+import { resolveTenant } from '../../../lib/resolveTenant.js';
 
 /** status query gửi BE — "Tất cả" = hàng đợi admin, không phải mọi status DB */
 const LIFECYCLE = [
@@ -59,18 +60,7 @@ export default function OpApprovalPanel() {
   const [q, setQ] = useState('');
   const [lifecycle, setLifecycle] = useState('QUEUE');
 
-  const sessionTenant = useMemo(
-    () => ({
-      id: user?.tenantId || user?.tenant_id,
-      name:
-        user?.tenantName ||
-        user?.tenant_name ||
-        user?.tenant?.name ||
-        (user?.role === 'SYSTEM_ADMIN' ? 'Hệ thống' : 'Dòng họ'),
-      logo_url: user?.tenant?.logo_url || user?.tenantLogo || null,
-    }),
-    [user]
-  );
+  const sessionTenant = useMemo(() => resolveTenant(user), [user]);
 
   const load = useCallback(async () => {
     setLoading(true);

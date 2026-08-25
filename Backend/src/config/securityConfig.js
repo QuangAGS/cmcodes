@@ -1,17 +1,16 @@
 /**
  * PATH       : src/config/securityConfig.js
- * DATETIME   : 2026-07-16T11:15:20+07:00
- * VERSION    : 22.3.1-R2 CLOUD STORAGE
+ * DATETIME   : 2026-08-25T15:40:00+07:00
+ * VERSION    : 22.3.2-R2
  * DESCRIPTION:
  * - Centralized Configuration & Validation Gateway.
- * - HỢP NHẤT HOÀN TOÀN: Nuốt trọn file validateEnv.js cũ để tránh dư thừa mã nguồn Tức là bỏ validateEnv.js).
- * - QUY TẮC Q1: Bảo tồn hoàn toàn 100% logic nạp biến, các helper check kiểu và thuộc tính cũ.
- * - QUY TẮC Q2: Đồng bộ hóa Documentation Header chuẩn hệ thống.
- * - NÂNG CẤP BẢO MẬT: 
- *   + [Nguyên tắc 1]: Sử dụng Zod để Validate cấu hình sau nạp (Fail-Fast), kiểm tra độ mạnh JWT (>=32 chars).
- *   + [Nguyên tắc 2]: Thực thi đóng băng Object (Object.freeze) ngăn chặn đột biến runtime.
+ * - HỢP NHẤT HOÀN TOÀN: Nuốt trọn file validateEnv.js cũ.
+ * - Q1: Bảo tồn logic nạp biến / helpers.
+ * - Q2: Documentation header chuẩn.
+ * - Zod Fail-Fast + Object.freeze.
  * CHANGE LOGS:
- * 22.3.1-R2 CLOUD STORAGE: add Cloudflare R2 Storage config
+ * - 22.3.1-R2: add Cloudflare R2 rawConfig
+ * - 22.3.2-R2: đưa R2 + MEDIA_MAX_BYTES vào Zod schema (tránh strip unknown keys)
  */
 
 const z = require('zod');
@@ -61,10 +60,10 @@ const arrayEnv = (key, fallback = []) => {
 };
 
 // =========================================================
-// RAW CONFIGURATION MAP (Nạp và normalize dữ liệu cũ - Q1)
+// RAW CONFIGURATION MAP
 // =========================================================
 const rawConfig = {
-  // DATABASE (Hấp thụ từ validateEnv)
+  // DATABASE
   DATABASE_URL: stringEnv('DATABASE_URL'),
 
   // APPLICATION
@@ -93,13 +92,31 @@ const rawConfig = {
   SUSPICIOUS_TIME_WINDOW_MINUTES: intEnv('SUSPICIOUS_TIME_WINDOW_MINUTES', 30),
 
   // FORGOT PASSWORD SECURITY
-  RESET_IDENTIFIER_NOT_FOUND_MAX_ATTEMPTS: intEnv('RESET_IDENTIFIER_NOT_FOUND_MAX_ATTEMPTS', 5),
-  RESET_IDENTIFIER_NOT_FOUND_WINDOW_MINUTES: intEnv('RESET_IDENTIFIER_NOT_FOUND_WINDOW_MINUTES', 15),
-  RESET_IDENTIFIER_NOT_FOUND_BLOCK_MINUTES: intEnv('RESET_IDENTIFIER_NOT_FOUND_BLOCK_MINUTES', 15),
+  RESET_IDENTIFIER_NOT_FOUND_MAX_ATTEMPTS: intEnv(
+    'RESET_IDENTIFIER_NOT_FOUND_MAX_ATTEMPTS',
+    5
+  ),
+  RESET_IDENTIFIER_NOT_FOUND_WINDOW_MINUTES: intEnv(
+    'RESET_IDENTIFIER_NOT_FOUND_WINDOW_MINUTES',
+    15
+  ),
+  RESET_IDENTIFIER_NOT_FOUND_BLOCK_MINUTES: intEnv(
+    'RESET_IDENTIFIER_NOT_FOUND_BLOCK_MINUTES',
+    15
+  ),
   RESET_OTP_EXPIRES_MINUTES: intEnv('RESET_OTP_EXPIRES_MINUTES', 10),
-  RESET_OTP_RESEND_COOLDOWN_SECONDS: intEnv('RESET_OTP_RESEND_COOLDOWN_SECONDS', 60),
-  RESET_OTP_MAX_REQUESTS_PER_WINDOW: intEnv('RESET_OTP_MAX_REQUESTS_PER_WINDOW', 5),
-  RESET_OTP_REQUEST_WINDOW_MINUTES: intEnv('RESET_OTP_REQUEST_WINDOW_MINUTES', 15),
+  RESET_OTP_RESEND_COOLDOWN_SECONDS: intEnv(
+    'RESET_OTP_RESEND_COOLDOWN_SECONDS',
+    60
+  ),
+  RESET_OTP_MAX_REQUESTS_PER_WINDOW: intEnv(
+    'RESET_OTP_MAX_REQUESTS_PER_WINDOW',
+    5
+  ),
+  RESET_OTP_REQUEST_WINDOW_MINUTES: intEnv(
+    'RESET_OTP_REQUEST_WINDOW_MINUTES',
+    15
+  ),
   RESET_OTP_MAX_VERIFY_ATTEMPTS: intEnv('RESET_OTP_MAX_VERIFY_ATTEMPTS', 5),
   RESET_OTP_LOCK_MINUTES: intEnv('RESET_OTP_LOCK_MINUTES', 15),
   RESET_TOKEN_EXPIRES_MINUTES: intEnv('RESET_TOKEN_EXPIRES_MINUTES', 15),
@@ -110,6 +127,7 @@ const rawConfig = {
   BREVO_FROM_NAME: stringEnv('BREVO_FROM_NAME', 'Thông báo từ MyClan'),
 
   // CLOUDFLARE R2 STORAGE
+  // .env: CLOUDFLARE_ACCOUNT_ID → R2_ACCOUNT_ID
   R2_ACCOUNT_ID: stringEnv('CLOUDFLARE_ACCOUNT_ID'),
   R2_BUCKET: stringEnv('R2_BUCKET'),
   R2_ACCESS_KEY_ID: stringEnv('R2_ACCESS_KEY_ID'),
@@ -139,22 +157,24 @@ const rawConfig = {
 // ZOD VALIDATION SCHEMA (FAIL-FAST)
 // =========================================================
 const securitySchema = z.object({
-  // Kiểm tra kết nối DB bắt buộc
-  DATABASE_URL: z.string().min(1, "DATABASE_URL là bắt buộc để kết nối cơ sở dữ liệu"),
+  DATABASE_URL: z
+    .string()
+    .min(1, 'DATABASE_URL là bắt buộc để kết nối cơ sở dữ liệu'),
 
   APP_NAME: z.string(),
   APP_DISPLAY_NAME: z.string(),
   BACKEND_PUBLIC_URL: z.string().url(),
   FRONTEND_URL: z.string().url(),
   ALLOWED_ORIGINS: z.array(z.string()),
-  
-  // JWT_SECRET phải có tối thiểu 32 ký tự để đảm bảo độ mạnh (Mã hóa SHA-256)
-  JWT_SECRET: z.string()
-    .min(1, "JWT_SECRET là bắt buộc và phải được định nghĩa trong file .env")
+
+  JWT_SECRET: z
+    .string()
+    .min(1, 'JWT_SECRET là bắt buộc và phải được định nghĩa trong file .env')
     .refine((val) => val.length >= 32, {
-      message: "JWT_SECRET quá yếu! Yêu cầu tối thiểu phải đạt từ 32 ký tự trở lên để tránh brute-force."
+      message:
+        'JWT_SECRET quá yếu! Yêu cầu tối thiểu phải đạt từ 32 ký tự trở lên để tránh brute-force.',
     }),
-    
+
   DEBUG_SECRET_KEY: z.string().optional(),
   TURNSTILE_SECRET_KEY: z.string().optional(),
   TURNSTILE_REQUIRED: z.boolean(),
@@ -177,47 +197,66 @@ const securitySchema = z.object({
   RESET_OTP_LOCK_MINUTES: z.number().positive(),
   RESET_TOKEN_EXPIRES_MINUTES: z.number().positive(),
 
-  BREVO_API_KEY: z.string().min(1, "BREVO_API_KEY là bắt buộc để gửi mã xác thực OTP"),
+  BREVO_API_KEY: z
+    .string()
+    .min(1, 'BREVO_API_KEY là bắt buộc để gửi mã xác thực OTP'),
   BREVO_FROM_EMAIL: z.string().email(),
   BREVO_FROM_NAME: z.string(),
 
-  ADMIN_EMAIL: z.string().email("ADMIN_EMAIL cấu hình ban đầu chưa đúng định dạng email").optional().or(z.literal('')),
+  // R2 — phải có trong schema để không bị strip; optional lúc boot
+  R2_ACCOUNT_ID: z.string().optional().default(''),
+  R2_BUCKET: z.string().optional().default(''),
+  R2_ACCESS_KEY_ID: z.string().optional().default(''),
+  R2_SECRET_ACCESS_KEY: z.string().optional().default(''),
+  R2_ENDPOINT: z.string().optional().default(''),
+  R2_PUBLIC_BASE_URL: z.string().optional().default(''),
+  R2_REGION: z.string().optional().default('auto'),
+  MEDIA_MAX_BYTES: z.number().positive().optional().default(10 * 1024 * 1024),
+
+  ADMIN_EMAIL: z
+    .string()
+    .email('ADMIN_EMAIL cấu hình ban đầu chưa đúng định dạng email')
+    .optional()
+    .or(z.literal('')),
   ADMIN_INITIAL_PASSWORD: z.string().optional(),
   ADMIN_SUPPORT_PHONE: z.string().optional(),
 
   PORT: z.number().positive(),
   NODE_ENV: z.enum(['development', 'production', 'test']),
-  DEBUG_MODE: z.boolean()
+  DEBUG_MODE: z.boolean(),
 });
 
-// Chạy xác thực dữ liệu
 const parsedResult = securitySchema.safeParse(rawConfig);
 
 if (!parsedResult.success) {
-  console.error("\n❌ [CRITICAL] KHỞI ĐỘNG THẤT BẠI: LỖI CẤU HÌNH BẢO MẬT (FAIL-FAST)");
-  console.error("Vui lòng kiểm tra lại cấu hình file .env của bạn:");
-  
+  console.error(
+    '\n❌ [CRITICAL] KHỞI ĐỘNG THẤT BẠI: LỖI CẤU HÌNH BẢO MẬT (FAIL-FAST)'
+  );
+  console.error('Vui lòng kiểm tra lại cấu hình file .env của bạn:');
+
   const formattedErrors = parsedResult.error.format();
   Object.keys(formattedErrors).forEach((key) => {
     if (key !== '_errors') {
-      console.error(`  👉 [${key}]: ${formattedErrors[key]._errors.join(', ')}`);
+      console.error(
+        `  👉 [${key}]: ${formattedErrors[key]._errors.join(', ')}`
+      );
     }
   });
-  console.error("\nỨng dụng buộc phải dừng hoạt động để bảo vệ an toàn dữ liệu dòng tộc.\n");
+  console.error(
+    '\nỨng dụng buộc phải dừng hoạt động để bảo vệ an toàn dữ liệu dòng tộc.\n'
+  );
   process.exit(1);
 }
 
-// In log thông báo thành công (Hấp thụ từ validateEnv cũ)
 if (parsedResult.data.NODE_ENV === 'production') {
-  console.log(`✅ [securityConfig] Production Hardening hoàn tất.`);
+  console.log('✅ [securityConfig] Production Hardening hoàn tất.');
 } else {
-  console.log(`✅ [securityConfig] Cấu hình môi trường '${parsedResult.data.NODE_ENV}' đã nạp thành công.`);
+  console.log(
+    `✅ [securityConfig] Cấu hình môi trường '${parsedResult.data.NODE_ENV}' đã nạp thành công.`
+  );
 }
 console.log(`📌 Server sẽ chạy trên PORT = ${parsedResult.data.PORT}\n`);
 
-// =========================================================
-// NGUYÊN TẮC 2: FREEZE OBJECT & EXPORT
-// =========================================================
 const securityConfig = Object.freeze(parsedResult.data);
 
 module.exports = securityConfig;

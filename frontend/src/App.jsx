@@ -12,6 +12,7 @@ import { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
+
 // Lazy load
 const HomePage = lazy(() => import('./pages/HomePage.jsx'));
 const AuthPage = lazy(() => import('./pages/AuthPage.jsx'));
@@ -25,6 +26,8 @@ import OpProtectedRoute from './components/routes/OpProtectedRoute.jsx';
 const OpHubPage = lazy(() => import('./pages/OpHubPage.jsx'));
 const OpBaseProfilePage = lazy(() => import('./pages/OpBaseProfilePage.jsx'));
 const OpCaseDetailPage = lazy(() => import('./pages/OpCaseDetailPage.jsx'));
+
+const AdminTenantSettingsPage = lazy(() => import('./pages/AdminTenantSettingsPage.jsx'));
 
 const ProtectedRoute = ({ children, allowedStatus = 'DA_DUYET' }) => {
   const { user, loading } = useAuth();
@@ -120,6 +123,14 @@ const AppRouter = () => {
               <OpBaseProfilePage />
             </OpProtectedRoute>
           }
+        />
+
+        {/* ADMIN TENANT SETTINGS */}
+        <Route path="/admin/tenant/settings" element={
+          <AdminProtectedRoute>
+            <AdminTenantSettingsPage />
+          </AdminProtectedRoute>
+          } 
         />
 
         <Route path="*" element={<Navigate to="/" replace />} />

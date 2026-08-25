@@ -1,11 +1,9 @@
 /**
  * PATH       : src/features/admin/constants/adminWorkItems.js
- * DATETIME   : 2026-08-18T17:45:00+07:00
- * VERSION    : 1.1.0-FE-OP-B2
+ * DATETIME   : 2026-08-25T16:20:00+07:00
+ * VERSION    : 1.2.0-TENANT-SETTINGS
  * DESCRIPTION:
- * - Định nghĩa tập hợp công việc Admin (SYSTEM_ADMIN / CLAN_ADMIN).
- * - 1.1.0: thêm work item Phê duyệt MEMBER_JOIN (OP).
- * - `when`: mảng tenantStatus được phép hiện (CLAN_ADMIN). Omit = luôn hiện.
+ * - Work items Admin + Cài đặt dòng họ.
  */
 
 export const SYSTEM_ADMIN_WORK_ITEMS = [
@@ -22,6 +20,13 @@ export const SYSTEM_ADMIN_WORK_ITEMS = [
     description: 'Duyệt thành viên dự bị thành chính thức (nhập tộc)',
     path: '/admin/approval?process=OP',
     icon: 'UserCheck',
+  },
+  {
+    id: 'tenant-settings',
+    title: 'Cài đặt dòng họ',
+    description: 'Tên, gia đạo, biểu tượng, logo',
+    path: '/admin/tenant/settings',
+    icon: 'Settings',
   },
 ];
 
@@ -50,6 +55,14 @@ export const CLAN_ADMIN_WORK_ITEMS = [
     path: '/admin/approval?process=OP',
     icon: 'UserCheck',
     when: ['HOAT_DONG'],
+  },
+  {
+    id: 'tenant-settings',
+    title: 'Cài đặt dòng họ',
+    description: 'Tên, gia đạo, biểu tượng, logo',
+    path: '/admin/tenant/settings',
+    icon: 'Settings',
+    when: ['HOAT_DONG', 'TAM_NGUNG'],
   },
   {
     id: 'tree',

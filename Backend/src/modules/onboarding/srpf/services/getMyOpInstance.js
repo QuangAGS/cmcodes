@@ -193,18 +193,19 @@ async function getMyOpInstance(input = {}) {
   try {
     const tenant = await client.tenants.findFirst({
       where: { id: tenantId, deleted_at: null },
-      select: { id: true, name: true, status: true },
+      select: { id: true, name: true, status: true, logo_url: true, slogan: true },
     });
     if (tenant) {
       tenantDto = {
         id: tenant.id,
         name: tenant.name || null,
         status: tenant.status || null,
-        logo_url: null,
+        logo_url: tenant.logo_url || null,
+        slogan: tenant.slogan || null,
       };
     }
   } catch (_) {
-    tenantDto = { id: tenantId, name: null, status: null, logo_url: null };
+    tenantDto = { id: tenantId, name: null, status: null, logo_url: null, slogan: null };
   }
 
   return {

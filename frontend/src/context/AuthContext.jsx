@@ -1,7 +1,8 @@
 /**
  * PATH: src/context/AuthContext.jsx
  * DATETIME: 2026-008-01T09:00:00+07:00
- * VERSION: 20.3.0-FE-OP-B1
+ * VERSION: 20.3.1-TENANT-LOGO
+ * - Enrich user.tenant.logo_url từ media LOGO (presign) sau login /me.
  * DESCRIPTION:
  * - FE-OP-B1: user thường → /op; OpProtectedRoute + my-op quyết định ở lại hay /tree
  * - FE: xem bút phê + chỉnh sửa hồ sơ khi CHO_DUYET
@@ -27,6 +28,11 @@
 
 import { createContext, useContext, useEffect, useState } from 'react';
 import apiClient from '../lib/apiClient.js';
+import {
+  fetchTenantLogo,
+  withTenantLogoUrl,
+  isHttpUrl,
+} from '../lib/tenantLogo.js';
 
 const AuthContext = createContext();
 
@@ -108,9 +114,68 @@ const resolvePostLoginRedirect = (userData) => {
   return '/op'; // return '/tree'
 };
 
+/**
+ * Gắn presign logo vào user.tenant (session) — không ghi DB.
+ */
+async function enrichUserTenantLogo(userData) {
+  if (!userData) return userData;
+  const tenantId =
+    userData.tenant?.id ||
+    userData.tenantId ||
+    userData.tenant_id ||
+    null;
+  if (!tenantId) return userData;
+
+  // Đã có http logo_url hợp lệ → giữ
+  if (isHttpUrl(userData.tenant?.logo_url)) {
+    return userData;
+  }
+
+  const { readUrl } = await fetchTenantLogo(tenantId);
+  if (!readUrl) return userData;
+  return withTenantLogoUrl(userData, readUrl);
+}
+
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const applyUser = async (rawUser) => {
+    const enriched = await enrichUserTenantLogo(rawUser);
+    setUser(enriched);
+    return enriched;
+  };
+
+  /** Gọi lại /auth/me + resolve logo (sau cài đặt dòng họ). */
+  const refreshUser = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      setUser(null);
+      return null;
+    }
+    try {
+      const res = await apiClient.get('/auth/me');
+      const raw = res.data?.user || res.data?.data?.user || null;
+      return await applyUser(raw);
+    } catch {
+      logout();
+      return null;
+    }
+  };
+
+  /** Cập nhật nhanh logo_url trên session (sau upload settings). */
+  const setTenantLogoUrl = (readUrl) => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      if (!isHttpUrl(readUrl)) {
+        return {
+          ...prev,
+          tenant: { ...(prev.tenant || {}), logo_url: null },
+        };
+      }
+      return withTenantLogoUrl(prev, readUrl);
+    });
+  };
 
   useEffect(() => {
     const verify = async () => {
@@ -121,7 +186,8 @@ export const AuthProvider = ({ children }) => {
       }
       try {
         const res = await apiClient.get('/auth/me');
-        setUser(res.data?.user || null);
+        const raw = res.data?.user || null;
+        await applyUser(raw);
       } catch (err) {
         logout();
       } finally {
@@ -129,6 +195,7 @@ export const AuthProvider = ({ children }) => {
       }
     };
     verify();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const login = async (loginData) => {
@@ -140,8 +207,8 @@ export const AuthProvider = ({ children }) => {
       const data = res.data?.data || res.data;
       localStorage.setItem('token', data.token);
 
-      // Giữ nguyên tenantStatus từ backend (PR-W2-1)
-      const userData = data.user || null;
+      // Giữ nguyên tenantStatus từ backend (PR-W2-1) + enrich logo media
+      const userData = await enrichUserTenantLogo(data.user || null);
       setUser(userData);
 
       const redirectPath = resolvePostLoginRedirect(userData);
@@ -262,6 +329,8 @@ export const AuthProvider = ({ children }) => {
         forgotPassword,
         verifyResetCode,
         changePasswordAfterReset,
+        refreshUser,
+        setTenantLogoUrl,
       }}
     >
       {children}

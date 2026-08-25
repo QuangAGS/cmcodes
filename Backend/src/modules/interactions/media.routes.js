@@ -1,32 +1,39 @@
 /**
- * PATH: src/modules/interactions/media.routes.js
+ * PATH       : src/modules/interactions/media.routes.js
+ * DATETIME   : 2026-08-25T10:20:00+07:00
+ * VERSION    : 1.1.0-R2
+ * DESCRIPTION:
+ * - POST   /api/media/upload              multipart field "file"
+ * - GET    /api/media/entity/:type/:id
+ * - GET    /api/media/:id/url
+ * - DELETE /api/media/:id
+ * - FE không gọi R2; mọi upload qua BE.
  */
+
+'use strict';
+
 const express = require('express');
 const router = express.Router();
-const mediaService = require('./media.service');
+
+const mediaController = require('./media.controller');
 const { verifyToken } = require('../../middlewares/auth.middleware');
-// Giả định bạn dùng multer để xử lý file upload
-// const upload = require('../middlewares/uploadMiddleware'); 
+const upload = require('../../middlewares/upload.middleware');
 
-router.post('/upload', verifyToken, async (req, res) => {
-  try {
-    // Logic: 1. Upload file lên Cloud -> 2. Lấy URL -> 3. Gọi mediaService.registerMedia
-    // Ở đây tôi viết giả định bạn đã có file_url từ middleware upload
-    const result = await mediaService.registerMedia(req.body, req.user);
-    res.status(201).json({ status: 'success', data: result });
-  } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
-  }
-});
+router.post(
+  '/upload',
+  verifyToken,
+  upload.single('file'),
+  mediaController.uploadFile
+);
 
-router.get('/entity/:type/:id', verifyToken, async (req, res) => {
-  try {
-    const { type, id } = req.params;
-    const data = await mediaService.getByEntity(type, id);
-    res.status(200).json({ status: 'success', data });
-  } catch (error) {
-    res.status(500).json({ status: 'error', message: error.message });
-  }
-});
+router.get(
+  '/entity/:type/:id',
+  verifyToken,
+  mediaController.listByEntity
+);
+
+router.get('/:id/url', verifyToken, mediaController.readUrl);
+
+router.delete('/:id', verifyToken, mediaController.remove);
 
 module.exports = router;

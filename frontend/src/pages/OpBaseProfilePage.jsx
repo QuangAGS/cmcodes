@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/OpBaseProfilePage.jsx
  * DATETIME   : 2026-08-24T10:45:00+07:00
- * VERSION    : 1.1.0-FE-OP-UX
+ * VERSION    : 1.1.1-HEADER
  * DESCRIPTION:
  * - Shell /op/base-profile + TenantHeader + AppFooterNav.
  * - load my-op → BaseProfileForm.
@@ -17,21 +17,7 @@ import BaseProfileForm from '../features/onboarding/components/BaseProfileForm.j
 import { OP_BASE_PROFILE_TOAST } from '../features/onboarding/constants/opMessages.js';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
-
-function resolveTenant(user, myOpTenant) {
-  const name =
-    myOpTenant?.name ||
-    user?.clanName ||
-    user?.tenantName ||
-    user?.tenant_name ||
-    user?.tenant?.name ||
-    null;
-  return {
-    id: myOpTenant?.id || user?.tenantId || user?.tenant_id || user?.tenant?.id || null,
-    name: name || 'Dòng họ',
-    logo_url: myOpTenant?.logo_url || user?.tenant?.logo_url || user?.tenantLogo || null,
-  };
-}
+import { resolveTenant } from '../lib/resolveTenant.js';
 
 export default function OpBaseProfilePage() {
   const { user, logout } = useAuth();

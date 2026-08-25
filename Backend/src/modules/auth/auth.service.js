@@ -388,16 +388,48 @@ const authService = {
       { expiresIn: '24h' }
     );
 
+    // SSOT tenant display cho FE header (mọi page sau login)
+    const sc =
+      user.tenants?.social_configs &&
+      typeof user.tenants.social_configs === 'object'
+        ? user.tenants.social_configs
+        : {};
+    const tenantDto = user.tenants
+      ? {
+          id: user.tenants.id || user.tenant_id || null,
+          name: user.tenants.name || null,
+          logo_url: user.tenants.logo_url || null,
+          slogan: user.tenants.slogan || null,
+          logo_icon: sc.logo_icon || null,
+          status: user.tenants.status || tenantStatus,
+        }
+      : user.tenant_id
+        ? {
+            id: user.tenant_id,
+            name: null,
+            logo_url: null,
+            slogan: null,
+            logo_icon: null,
+            status: tenantStatus,
+          }
+        : null;
+
     return {
       token,
       user: {
         id: user.id,
         name: user.name,
         email: user.email,
+        phone: user.phone || null,
         role: user.role,
         tenant_id: user.tenant_id,
+        tenantId: user.tenant_id,
         status: user.status,
-        tenantStatus, // FE dùng để quyết định redirect
+        tenantStatus, // FE routing (giữ flat)
+        // Chuẩn hóa header multi-tenant
+        tenant: tenantDto,
+        // Tương thích ngược (OpHub resolveTenant / RP cũ)
+        clanName: tenantDto?.name || null,
       },
     };
   },
