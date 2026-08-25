@@ -1,7 +1,7 @@
 /**
  * PATH       : src/config/securityConfig.js
  * DATETIME   : 2026-07-16T11:15:20+07:00
- * VERSION    : 22.3.0-CONSOLIDATED
+ * VERSION    : 22.3.1-R2 CLOUD STORAGE
  * DESCRIPTION:
  * - Centralized Configuration & Validation Gateway.
  * - HỢP NHẤT HOÀN TOÀN: Nuốt trọn file validateEnv.js cũ để tránh dư thừa mã nguồn Tức là bỏ validateEnv.js).
@@ -10,6 +10,8 @@
  * - NÂNG CẤP BẢO MẬT: 
  *   + [Nguyên tắc 1]: Sử dụng Zod để Validate cấu hình sau nạp (Fail-Fast), kiểm tra độ mạnh JWT (>=32 chars).
  *   + [Nguyên tắc 2]: Thực thi đóng băng Object (Object.freeze) ngăn chặn đột biến runtime.
+ * CHANGE LOGS:
+ * 22.3.1-R2 CLOUD STORAGE: add Cloudflare R2 Storage config
  */
 
 const z = require('zod');
@@ -106,6 +108,16 @@ const rawConfig = {
   BREVO_API_KEY: stringEnv('BREVO_API_KEY'),
   BREVO_FROM_EMAIL: stringEnv('BREVO_FROM_EMAIL', 'noreply@myclan.com.vn'),
   BREVO_FROM_NAME: stringEnv('BREVO_FROM_NAME', 'Thông báo từ MyClan'),
+
+  // CLOUDFLARE R2 STORAGE
+  R2_ACCOUNT_ID: stringEnv('CLOUDFLARE_ACCOUNT_ID'),
+  R2_BUCKET: stringEnv('R2_BUCKET'),
+  R2_ACCESS_KEY_ID: stringEnv('R2_ACCESS_KEY_ID'),
+  R2_SECRET_ACCESS_KEY: stringEnv('R2_SECRET_ACCESS_KEY'),
+  R2_ENDPOINT: stringEnv('R2_ENDPOINT'),
+  R2_PUBLIC_BASE_URL: stringEnv('R2_PUBLIC_BASE_URL'),
+  R2_REGION: stringEnv('R2_REGION', 'auto'),
+  MEDIA_MAX_BYTES: intEnv('MEDIA_MAX_BYTES', 10 * 1024 * 1024),
 
   // ADMIN INITIAL SETUP
   ADMIN_EMAIL: stringEnv('ADMIN_EMAIL'),
