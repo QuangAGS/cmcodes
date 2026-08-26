@@ -30,6 +30,10 @@ import { useAuth } from '../context/AuthContext.jsx';
 import OpApprovalPanel from '../features/admin/components/OpApprovalPanel.jsx';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
+import AppFooterNav from '../components/shell/AppFooterNav.jsx';
+import { resolveFooterNav } from '../lib/resolveFooterNav.js';
+import AudioHelpButton from '../features/elder-doctrine/components/AudioHelpButton.jsx';
+import { ADMIN_APPROVAL_RP_HELP } from '../features/admin/constants/adminMessages.js';
 
 const STATUS_BADGES = {
   CHO_DUYET: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -62,16 +66,14 @@ const getStatusBadgeClass = (item) => {
 
 const AdminUserApprovalPage = () => {
   const { user: currentUser, logout } = useAuth();
-  const sessionTenant = resolveTenant(currentUser);
   const navigate = useNavigate();
-  //FE-OP-B2
   const [searchParams] = useSearchParams();
-  const isOpProcess =
-    String(searchParams.get('process') || '').toUpperCase() === 'OP';
-
-  if (isOpProcess) {
-    return <OpApprovalPanel />;
-  }
+  const sessionTenant = resolveTenant(currentUser);
+  const footerNav = resolveFooterNav(currentUser, { pageKey: 'admin-approval' });
+  const handleLogout = () => {
+    logout();
+    navigate('/auth', { replace: true });
+  };
 
   // State quản lý danh sách & phân trang nhận từ Backend
   const [usersList, setUsersList] = useState([]);
@@ -282,6 +284,8 @@ const AdminUserApprovalPage = () => {
 
   /**  Giao diện hiển thị khi đang mở Modal/Form Review chi tiết một User ****** */
   //FE-OP-B2
+  const isOpProcess =
+    String(searchParams.get('process') || '').toUpperCase() === 'OP';
   if (isOpProcess) {
     return <OpApprovalPanel />;
   }
@@ -292,7 +296,7 @@ const AdminUserApprovalPage = () => {
         <div className="max-w-[480px] mx-auto">
           <TenantHeader
             tenant={sessionTenant}
-            subtitle="Phê duyệt thành viên · RP"
+            subtitle="Phê duyệt người dùng · RP"
           />
           <div className="px-4 py-6">
           <div className="mb-6">
@@ -309,6 +313,9 @@ const AdminUserApprovalPage = () => {
             onCancel={() => setSelectedUser(null)}
             onSubmit={handleApprovalSubmit}
           />
+          <div className="mt-8">
+            <AppFooterNav {...footerNav} onLogout={handleLogout} />
+          </div>
           </div>
         </div>
       </div>
@@ -320,15 +327,17 @@ const AdminUserApprovalPage = () => {
       <div className="mx-auto w-full max-w-[640px]">
         <TenantHeader
           tenant={sessionTenant}
-          subtitle="Phê duyệt thành viên · RP"
+          subtitle="Phê duyệt người dùng · RP"
         />
 
         <div className="px-4 py-6">
         {/* HEADER ĐỒNG BỘ AUTH_PAGE */}
         <div className="mb-8 text-center">
-          <p className="text-xs font-black uppercase tracking-widest text-indigo-600">HỆ THỐNG TRUNG TÂM</p>
-          <h1 className="mt-2 text-3xl font-black tracking-tight">Sổ Cái Thành Viên</h1>
-          <p className="mt-2 text-sm text-slate-600 font-medium">Tìm kiếm, điều phối vòng đời tài khoản tộc hệ</p>
+          <div className="mb-2 flex justify-end">
+            <AudioHelpButton text={ADMIN_APPROVAL_RP_HELP} />
+          </div>
+          <h1 className="text-3xl font-black tracking-tight">Phê duyệt người dùng</h1>
+          <p className="mt-2 text-sm font-medium text-slate-600">Tìm kiếm, điều phối vòng đời tài khoản</p>
         </div>
 
         {/* COMPONENT 1: BỘ LỌC TÌM KIẾM ĐỘNG (MOBILE-FIRST ADAPTIVE) */}
@@ -495,6 +504,9 @@ const AdminUserApprovalPage = () => {
           </div>
         )}
 
+          <div className="mt-8">
+            <AppFooterNav {...footerNav} onLogout={handleLogout} />
+          </div>
         </div>
       </div>
     </div>

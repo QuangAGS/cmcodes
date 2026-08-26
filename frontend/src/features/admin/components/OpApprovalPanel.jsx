@@ -18,6 +18,9 @@ import apiClient from '../../../lib/apiClient.js';
 import { useAuth } from '../../../context/AuthContext.jsx';
 import TenantHeader from '../../../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../../../components/shell/AppFooterNav.jsx';
+import { resolveFooterNav } from '../../../lib/resolveFooterNav.js';
+import AudioHelpButton from '../../../features/elder-doctrine/components/AudioHelpButton.jsx';
+import { ADMIN_APPROVAL_OP_HELP } from '../constants/adminMessages.js';
 import { resolveTenant } from '../../../lib/resolveTenant.js';
 
 /** status query gửi BE — "Tất cả" = hàng đợi admin, không phải mọi status DB */
@@ -54,6 +57,11 @@ const STATUS_LABEL = {
 export default function OpApprovalPanel() {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const footerNav = resolveFooterNav(user, { pageKey: 'admin-approval' });
+  const handleLogout = () => {
+    logout();
+    navigate('/auth', { replace: true });
+  };
 
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -116,12 +124,15 @@ export default function OpApprovalPanel() {
       <div className="mx-auto w-full max-w-[480px]">
         <TenantHeader
           tenant={sessionTenant}
-          subtitle="Phê duyệt OP · MEMBER_PROMOTE"
+          subtitle="Phê duyệt thành viên · OP"
         />
 
         <div className="px-4 py-5">
+          <div className="mb-2 flex justify-end">
+            <AudioHelpButton text={ADMIN_APPROVAL_OP_HELP} />
+          </div>
           <h1 className="text-center text-xl font-black tracking-tight text-slate-800">
-            Hồ sơ chờ xét duyệt
+            Phê duyệt thành viên
           </h1>
           <p className="mt-1 text-center text-sm text-slate-500">
             Chọn hồ sơ để xem chi tiết rồi quyết định.
@@ -234,16 +245,7 @@ export default function OpApprovalPanel() {
             )}
           </div>
 
-          <AppFooterNav
-            onBack={() => navigate('/admin')}
-            backLabel="Quay lại công việc quản trị"
-            onHub={() => navigate('/admin')}
-            hubLabel="Trung tâm quản trị"
-            onExit={() => {
-              logout();
-              navigate('/auth', { replace: true });
-            }}
-          />
+          <AppFooterNav {...footerNav} onLogout={handleLogout} />
         </div>
       </div>
     </div>

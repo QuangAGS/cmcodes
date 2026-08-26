@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/OpCaseDetailPage.jsx
  * DATETIME   : 2026-08-23T18:10:00+07:00
- * VERSION    : 1.1.1-HEADER
+ * VERSION    : 1.2.0-FOOTER
  * DESCRIPTION:
  * - Chi tiết case OP: BP read-only + trao đổi admin + sticky actions.
  * - Modal: Duyệt (reviewNote) / Trả sửa / Từ chối soft|final.
@@ -20,6 +20,7 @@ import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
 import { labelEnum } from '../features/onboarding/constants/opFieldLabels.js';
+import { resolveFooterNav } from '../lib/resolveFooterNav.js';
 
 const emptyForm = () => ({
   note: '',
@@ -41,6 +42,11 @@ export default function OpCaseDetailPage() {
   const { caseId } = useParams();
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const handleLogout = () => {
+    logout();
+    navigate('/auth', { replace: true });
+  };
+  const footerNav = resolveFooterNav(user, { pageKey: 'admin-op-detail' });
 
   const [item, setItem] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -226,6 +232,15 @@ export default function OpCaseDetailPage() {
         />
 
         <div className="px-4 py-5">
+          {footerNav.backTo ? (
+            <button
+              type="button"
+              onClick={() => navigate(footerNav.backTo)}
+              className="mb-3 text-sm font-bold text-indigo-700"
+            >
+              ← Quay lại
+            </button>
+          ) : null}
           <h1 className="text-xl font-black text-slate-800">
             {p.full_name || 'Hồ sơ thành viên'}
           </h1>
@@ -278,14 +293,8 @@ export default function OpCaseDetailPage() {
           </section>
 
           <AppFooterNav
-            onBack={() => navigate('/admin/approval?process=OP')}
-            backLabel="Quay lại danh sách"
-            onHub={() => navigate('/admin')}
-            hubLabel="Trung tâm quản trị"
-            onExit={() => {
-              logout();
-              navigate('/auth', { replace: true });
-            }}
+            {...footerNav}
+            onLogout={handleLogout}
           />
         </div>
 

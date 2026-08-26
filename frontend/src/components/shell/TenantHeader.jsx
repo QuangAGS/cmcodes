@@ -1,10 +1,10 @@
 /**
  * PATH       : src/components/shell/TenantHeader.jsx
- * DATETIME   : 2026-08-25T19:20:00+07:00
- * VERSION    : 1.2.0-SHELL
+ * DATETIME   : 2026-08-26T08:55:00+07:00
+ * VERSION    : 1.3.0-SLOGAN-ITALIC
  * DESCRIPTION:
- * - logo_url (ảnh) > logo_icon (Lucide) > chữ viết tắt.
- * - name + slogan (ưu tiên slogan; subtitle phụ).
+ * - logo_url > logo_icon > initials.
+ * - Slogan: italic + bold. Subtitle phụ khi có cả hai.
  */
 
 import {
@@ -55,8 +55,6 @@ export default function TenantHeader({ tenant, subtitle = null, className = '' }
       .join('')
       .toUpperCase() || 'DH';
 
-  const line2 = slogan || (subtitle ? String(subtitle) : null);
-
   return (
     <header
       className={`flex items-center gap-3 border-b border-slate-200/80 bg-white/90 px-4 py-3 backdrop-blur ${className}`}
@@ -74,11 +72,19 @@ export default function TenantHeader({ tenant, subtitle = null, className = '' }
       </div>
       <div className="min-w-0 flex-1 text-left">
         <p className="truncate text-sm font-black text-slate-800">{name}</p>
-        {line2 ? (
-          <p className="truncate text-xs font-medium text-slate-500">{line2}</p>
+        {slogan ? (
+          <p className="truncate text-xs font-bold italic text-slate-600">
+            {slogan}
+          </p>
         ) : null}
-        {slogan && subtitle ? (
-          <p className="truncate text-[11px] text-slate-400">{subtitle}</p>
+        {subtitle ? (
+          <p
+            className={`truncate text-[11px] ${
+              slogan ? 'text-slate-400' : 'font-medium text-slate-500'
+            }`}
+          >
+            {subtitle}
+          </p>
         ) : null}
       </div>
     </header>

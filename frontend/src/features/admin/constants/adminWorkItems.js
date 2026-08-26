@@ -1,23 +1,24 @@
 /**
  * PATH       : src/features/admin/constants/adminWorkItems.js
- * DATETIME   : 2026-08-25T16:20:00+07:00
- * VERSION    : 1.2.0-TENANT-SETTINGS
+ * DATETIME   : 2026-08-26T08:55:00+07:00
+ * VERSION    : 1.3.0-TITLE-RENAME
  * DESCRIPTION:
- * - Work items Admin + Cài đặt dòng họ.
+ * - Work items Admin.
+ * - "Phê duyệt người dùng" (RP) · "Phê duyệt thành viên" (OP).
  */
 
 export const SYSTEM_ADMIN_WORK_ITEMS = [
   {
     id: 'approval',
-    title: 'Phê duyệt thành viên',
-    description: 'Duyệt hồ sơ đăng ký toàn hệ thống',
+    title: 'Phê duyệt người dùng',
+    description: 'Duyệt hồ sơ đăng ký tài khoản toàn hệ thống',
     path: '/admin/approval',
     icon: 'Users',
   },
   {
     id: 'op-approval-join',
-    title: 'Phê duyệt MEMBER_JOIN (OP)',
-    description: 'Duyệt thành viên dự bị thành chính thức (nhập tộc)',
+    title: 'Phê duyệt thành viên',
+    description: 'Duyệt thành viên dự bị thành chính thức (nhập tộc / thành lập)',
     path: '/admin/approval?process=OP',
     icon: 'UserCheck',
   },
@@ -42,7 +43,7 @@ export const CLAN_ADMIN_WORK_ITEMS = [
   },
   {
     id: 'approval',
-    title: 'Phê duyệt thành viên',
+    title: 'Phê duyệt người dùng',
     description: 'Duyệt, từ chối hoặc yêu cầu bổ sung hồ sơ đăng ký',
     path: '/admin/approval',
     icon: 'Users',
@@ -50,7 +51,7 @@ export const CLAN_ADMIN_WORK_ITEMS = [
   },
   {
     id: 'op-approval-join',
-    title: 'Phê duyệt MEMBER_JOIN (OP)',
+    title: 'Phê duyệt thành viên',
     description: 'Duyệt thành viên dự bị thành chính thức',
     path: '/admin/approval?process=OP',
     icon: 'UserCheck',

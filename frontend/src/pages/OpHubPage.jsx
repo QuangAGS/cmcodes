@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/OpHubPage.jsx
  * DATETIME   : 2026-08-24T10:45:00+07:00
- * VERSION    : 1.4.1-HEADER
+ * VERSION    : 1.5.0-FOOTER
  * DESCRIPTION:
  * - Hub /op dong: mac dinh chi viec can quan tam; toggle Hien ca viec da xong.
  * - TenantHeader + AppFooterNav.
@@ -31,6 +31,7 @@ import {
   buildProcessStatusMessage,
 } from '../features/onboarding/constants/opMessages.js';
 import {
+import { resolveFooterNav } from '../lib/resolveFooterNav.js';
   OP_WORK_ITEMS,
   OP_WORK_ITEM_IDS,
 } from '../features/onboarding/constants/opWorkItems.js';
@@ -149,6 +150,7 @@ export default function OpHubPage() {
     logout();
     navigate('/auth', { replace: true });
   };
+  const footerNav = resolveFooterNav(user, { pageKey: 'op-hub' });
 
   const toggleShowAll = () => {
     setShowAll((prev) => {
@@ -422,12 +424,8 @@ export default function OpHubPage() {
           ) : null}
 
           <AppFooterNav
-            onBack={() => navigate('/')}
-            backLabel="Trang chủ"
-            onHub={() => navigate('/op')}
-            hubLabel="Danh mục việc"
-            onExit={handleLogout}
-            exitLabel="Đăng xuất"
+            {...footerNav}
+            onLogout={handleLogout}
           />
         </div>
       </div>

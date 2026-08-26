@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/AdminTenantSettingsPage.jsx
  * DATETIME   : 2026-08-25T20:40:00+07:00
- * VERSION    : 2.0.0-SETTINGS-UX
+ * VERSION    : 2.1.0-FOOTER
  * DESCRIPTION:
  * - Card UI: nhận diện (icon XOR ảnh), tên/gia đạo, giao diện, MXH.
  * - Crop logo 1:1 trước upload; mutual exclusive icon ↔ ảnh.
@@ -36,6 +36,8 @@ import { fetchTenantLogo, isHttpUrl } from '../lib/tenantLogo.js';
 import AudioHelpButton from '../features/elder-doctrine/components/AudioHelpButton.jsx';
 import ZoneVoiceButton from '../features/elder-doctrine/components/ZoneVoiceButton.jsx';
 import LogoCropModal from '../features/admin/components/LogoCropModal.jsx';
+import AppFooterNav from '../components/shell/AppFooterNav.jsx';
+import { resolveFooterNav } from '../lib/resolveFooterNav.js';
 
 const ICON_OPTIONS = [
   { key: 'Landmark', Icon: Landmark, label: 'Cột mốc' },
@@ -88,8 +90,13 @@ function Card({ title, zoneText, open, onToggle, children }) {
 }
 
 export default function AdminTenantSettingsPage() {
-  const { user, setTenantLogoUrl, refreshUser } = useAuth();
+  const { user, logout, setTenantLogoUrl, refreshUser } = useAuth();
   const navigate = useNavigate();
+  const handleLogout = () => {
+    logout();
+    navigate('/auth', { replace: true });
+  };
+  const footerNav = resolveFooterNav(user, { pageKey: 'admin-settings' });
   const [searchParams] = useSearchParams();
 
   const isSystemAdmin = user?.role === 'SYSTEM_ADMIN';
@@ -358,7 +365,7 @@ export default function AdminTenantSettingsPage() {
       <div className="flex items-center gap-2 border-b border-slate-200 bg-white px-4 py-3">
         <button
           type="button"
-          onClick={() => navigate('/admin')}
+          onClick={() => navigate(footerNav.backTo || '/admin')}
           className="flex items-center gap-1 rounded-xl px-2 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-100"
         >
           <ArrowLeft className="h-5 w-5" />
@@ -591,6 +598,10 @@ export default function AdminTenantSettingsPage() {
           </button>
         </form>
       )}
+
+      <div className="px-4 pb-6">
+        <AppFooterNav {...footerNav} onLogout={handleLogout} />
+      </div>
 
       {cropFile ? (
         <LogoCropModal

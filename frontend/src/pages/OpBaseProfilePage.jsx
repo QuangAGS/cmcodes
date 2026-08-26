@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/OpBaseProfilePage.jsx
  * DATETIME   : 2026-08-24T10:45:00+07:00
- * VERSION    : 1.1.1-HEADER
+ * VERSION    : 1.2.0-FOOTER
  * DESCRIPTION:
  * - Shell /op/base-profile + TenantHeader + AppFooterNav.
  * - load my-op → BaseProfileForm.
@@ -18,6 +18,7 @@ import { OP_BASE_PROFILE_TOAST } from '../features/onboarding/constants/opMessag
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
+import { resolveFooterNav } from '../lib/resolveFooterNav.js';
 
 export default function OpBaseProfilePage() {
   const { user, logout } = useAuth();
@@ -50,6 +51,8 @@ export default function OpBaseProfilePage() {
     navigate('/auth', { replace: true });
   };
 
+  const footerNav = resolveFooterNav(user, { pageKey: 'op-base-profile' });
+
   const sessionTenant = useMemo(
     () => resolveTenant(user, myOp?.tenant),
     [user, myOp?.tenant]
@@ -72,6 +75,15 @@ export default function OpBaseProfilePage() {
         <TenantHeader tenant={sessionTenant} subtitle={subtitle} />
 
         <div className="px-4 py-6">
+          {footerNav.backTo ? (
+            <button
+              type="button"
+              onClick={() => navigate(footerNav.backTo)}
+              className="mb-3 text-sm font-bold text-indigo-700"
+            >
+              ← Quay lại
+            </button>
+          ) : null}
           <header className="mb-6 text-center">
             <h1 className="text-2xl font-black text-slate-800">Hồ sơ cơ sở</h1>
           </header>
@@ -91,12 +103,8 @@ export default function OpBaseProfilePage() {
           )}
 
           <AppFooterNav
-            onBack={() => navigate('/op')}
-            backLabel="Quay lại danh mục công việc"
-            onHub={() => navigate('/')}
-            hubLabel="Trang chủ"
-            onExit={handleLogout}
-            exitLabel="Đăng xuất"
+            {...footerNav}
+            onLogout={handleLogout}
           />
         </div>
       </div>
