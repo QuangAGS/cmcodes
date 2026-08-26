@@ -1,11 +1,12 @@
 /**
  * PATH       : src/modules/interactions/media.service.js
- * DATETIME   : 2026-08-25T15:05:00+07:00
- * VERSION    : 2.0.0-R2-SCHEMA
+ * DATETIME   : 2026-08-26T08:00:00+07:00
+ * VERSION    : 2.1.0-REPLACE-R2
  * DESCRIPTION:
- * - Media theo schema mới: purpose, mime_type, file_ext, storage_provider enum,
- *   storage_key SSOT (R2 private), file_url optional.
- * - Upload: multer buffer → R2 key {tenantId}/{uuid}{ext} → prisma.media.
+ * - Upload R2 + prisma.media.
+ * - LOGO / AVATAR (singleton): sau tạo bản mới → soft-delete mọi bản cũ
+ *   cùng tenant+entity+purpose + xóa object R2 ngay (tránh rác storage).
+ * - deleteMedia: soft DB + R2 delete (đã có).
  */
 
 'use strict';
@@ -24,6 +25,9 @@ const PURPOSES = new Set([
   'OTHER',
   'VIDEO',
 ]);
+
+/** Mục đích chỉ giữ 1 bản active / entity — upload mới = thay thế */
+const SINGLETON_PURPOSES = new Set(['LOGO', 'AVATAR']);
 
 function actorOf(currentUser) {
   return {
@@ -55,12 +59,74 @@ function normalizeEntityType(raw) {
     .slice(0, 50);
 }
 
+/**
+ * Soft-delete DB + xóa R2 ngay mọi media cùng scope, trừ keepId.
+ * Best-effort từng object R2 (lỗi R2 không rollback DB đã soft).
+ * @returns {Promise<number>} số bản đã retire
+ */
+async function retirePreviousMedia({
+  tenantId,
+  entity_type,
+  entity_id,
+  purpose,
+  keepId,
+  userId,
+}) {
+  const prev = await prisma.media.findMany({
+    where: {
+      tenant_id: tenantId,
+      entity_type,
+      entity_id,
+      purpose,
+      deleted_at: null,
+      ...(keepId ? { id: { not: keepId } } : {}),
+    },
+    select: {
+      id: true,
+      storage_key: true,
+      storage_provider: true,
+      file_name: true,
+    },
+  });
+
+  if (!prev.length) return 0;
+
+  const now = new Date();
+  await prisma.media.updateMany({
+    where: {
+      id: { in: prev.map((r) => r.id) },
+      deleted_at: null,
+    },
+    data: {
+      deleted_at: now,
+      is_primary: false,
+      changed_by: userId || null,
+      updated_at: now,
+    },
+  });
+
+  for (const row of prev) {
+    if (!row.storage_key) continue;
+    try {
+      await r2Storage.deleteObject(row.storage_key);
+    } catch (e) {
+      console.error(
+        '[media.retirePreviousMedia][R2]',
+        row.id,
+        row.storage_key,
+        e.message || e
+      );
+    }
+  }
+
+  return prev.length;
+}
+
 const mediaService = {
   /**
    * Upload file → R2 → insert media.
-   * @param {object} file multer: buffer, originalname, mimetype, size
-   * @param {object} meta entity_id, entity_type, purpose, is_primary, caption, change_reason
-   * @param {object} currentUser
+   * LOGO/AVATAR: replace toàn bộ bản cũ (soft + R2).
+   * purpose khác + is_primary: chỉ hạ cờ primary cũ (không xóa file).
    */
   uploadAndRegister: async (file, meta, currentUser) => {
     const { userId, tenantId } = actorOf(currentUser);
@@ -83,8 +149,10 @@ const mediaService = {
     const is_primary =
       meta?.is_primary === true ||
       meta?.is_primary === 'true' ||
-      meta?.is_primary === '1';
+      meta?.is_primary === '1' ||
+      SINGLETON_PURPOSES.has(purpose);
 
+    // 1) Upload R2 trước — fail thì không đụng DB / bản cũ
     const stored = await r2Storage.uploadObject({
       buffer: file.buffer,
       contentType: file.mimetype,
@@ -92,32 +160,14 @@ const mediaService = {
       tenantId,
     });
 
-    // Một logo/avatar primary: hạ primary cũ cùng scope (best-effort)
-    if (is_primary) {
-      try {
-        await prisma.media.updateMany({
-          where: {
-            tenant_id: tenantId,
-            entity_type,
-            entity_id,
-            purpose,
-            is_primary: true,
-            deleted_at: null,
-          },
-          data: { is_primary: false, changed_by: userId, updated_at: new Date() },
-        });
-      } catch (_) {
-        /* ignore */
-      }
-    }
-
+    // 2) Insert bản mới
     const newMedia = await prisma.media.create({
       data: {
         tenant_id: tenantId,
         entity_id,
         entity_type,
         purpose,
-        is_primary,
+        is_primary: !!is_primary,
         file_name: stored.file_name,
         mime_type: stored.mime_type,
         file_ext: stored.file_ext,
@@ -135,27 +185,66 @@ const mediaService = {
       },
     });
 
+    // 3) Replace / demote cũ
+    let retired = 0;
+    if (SINGLETON_PURPOSES.has(purpose)) {
+      // LOGO | AVATAR: soft-delete + xóa R2 mọi bản trước
+      try {
+        retired = await retirePreviousMedia({
+          tenantId,
+          entity_type,
+          entity_id,
+          purpose,
+          keepId: newMedia.id,
+          userId,
+        });
+      } catch (e) {
+        console.error('[media.uploadAndRegister][retire]', e.message || e);
+      }
+    } else if (is_primary) {
+      // GALLERY/... primary: chỉ hạ cờ, giữ file
+      try {
+        await prisma.media.updateMany({
+          where: {
+            tenant_id: tenantId,
+            entity_type,
+            entity_id,
+            purpose,
+            is_primary: true,
+            deleted_at: null,
+            id: { not: newMedia.id },
+          },
+          data: {
+            is_primary: false,
+            changed_by: userId,
+            updated_at: new Date(),
+          },
+        });
+      } catch (_) {
+        /* ignore */
+      }
+    }
+
     try {
       await auditService.logAction(
         'THEM_MOI',
         'media',
         newMedia.id,
         null,
-        newMedia,
+        { ...newMedia, retired_previous: retired },
         userId,
-        meta?.change_reason || `Upload ${purpose} / ${entity_type}`,
+        meta?.change_reason ||
+          `Upload ${purpose} / ${entity_type}` +
+            (retired ? ` (retire ${retired})` : ''),
         tenantId
       );
     } catch (_) {
       /* best-effort */
     }
 
-    return newMedia;
+    return { ...newMedia, retired_previous: retired };
   },
 
-  /**
-   * Đăng ký metadata thuần (không upload) — tương thích / import.
-   */
   registerMedia: async (fileData, currentUser) => {
     const { userId, tenantId } = actorOf(currentUser);
     const purpose = normalizePurpose(fileData.purpose);
@@ -168,7 +257,9 @@ const mediaService = {
         entity_type,
         purpose,
         is_primary:
-          fileData.is_primary === true || fileData.is_primary === 'true',
+          fileData.is_primary === true ||
+          fileData.is_primary === 'true' ||
+          SINGLETON_PURPOSES.has(purpose),
         file_name: fileData.file_name || null,
         mime_type: fileData.mime_type || fileData.file_type || null,
         file_ext: fileData.file_ext || null,
@@ -187,6 +278,21 @@ const mediaService = {
         changed_by: userId,
       },
     });
+
+    if (SINGLETON_PURPOSES.has(purpose) && tenantId) {
+      try {
+        await retirePreviousMedia({
+          tenantId,
+          entity_type,
+          entity_id: fileData.entity_id,
+          purpose,
+          keepId: newMedia.id,
+          userId,
+        });
+      } catch (e) {
+        console.error('[media.registerMedia][retire]', e.message || e);
+      }
+    }
 
     try {
       await auditService.logAction(
@@ -218,7 +324,11 @@ const mediaService = {
 
     const rows = await prisma.media.findMany({
       where,
-      orderBy: [{ is_primary: 'desc' }, { sort_order: 'asc' }, { created_at: 'desc' }],
+      orderBy: [
+        { is_primary: 'desc' },
+        { sort_order: 'asc' },
+        { created_at: 'desc' },
+      ],
     });
 
     const out = [];
@@ -270,6 +380,7 @@ const mediaService = {
       where: { id },
       data: {
         deleted_at: now,
+        is_primary: false,
         changed_by: userId,
         updated_at: now,
       },

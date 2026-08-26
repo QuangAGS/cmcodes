@@ -171,10 +171,11 @@ async function updateTenantSettings(tenantId, actor, body = {}) {
       body.logo_url == null ? null : String(body.logo_url).trim().slice(0, 255) || null;
   }
 
-  // logo_icon: whitelist FE Lucide — lưu social_configs.logo_icon (chưa có cột schema)
-  if (body.logo_icon !== undefined) {
+  // social_configs: logo_icon (Lucide) + zalo/facebook/website
+  {
     const ALLOWED = new Set([
       'Landmark',
+      'Home',
       'House',
       'TreePine',
       'UsersRound',
@@ -185,22 +186,39 @@ async function updateTenantSettings(tenantId, actor, body = {}) {
       '',
       null,
     ]);
-    let icon = body.logo_icon;
-    if (icon != null) icon = String(icon).trim();
-    if (icon === '') icon = null;
-    if (icon && !ALLOWED.has(icon)) {
-      const err = new Error('logo_icon không nằm trong danh sách cho phép.');
-      err.statusCode = 400;
-      err.code = 'TENANT_ICON_INVALID';
-      throw err;
-    }
     const prev =
       existing.social_configs && typeof existing.social_configs === 'object'
         ? { ...existing.social_configs }
         : {};
-    if (icon) prev.logo_icon = icon;
-    else delete prev.logo_icon;
-    data.social_configs = prev;
+    let touched = false;
+
+    if (body.logo_icon !== undefined) {
+      let icon = body.logo_icon;
+      if (icon != null) icon = String(icon).trim();
+      if (icon === '') icon = null;
+      if (icon && !ALLOWED.has(icon)) {
+        const err = new Error('logo_icon không nằm trong danh sách cho phép.');
+        err.statusCode = 400;
+        err.code = 'TENANT_ICON_INVALID';
+        throw err;
+      }
+      if (icon) prev.logo_icon = icon;
+      else delete prev.logo_icon;
+      touched = true;
+    }
+
+    const setLink = (key, val) => {
+      if (val === undefined) return;
+      touched = true;
+      const s = val == null ? '' : String(val).trim().slice(0, 500);
+      if (s) prev[key] = s;
+      else delete prev[key];
+    };
+    setLink('zalo', body.social_zalo);
+    setLink('facebook', body.social_facebook);
+    setLink('website', body.social_website);
+
+    if (touched) data.social_configs = prev;
   }
 
   const hasField = Object.keys(data).some(
