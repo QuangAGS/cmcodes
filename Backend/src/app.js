@@ -124,7 +124,8 @@ app.use(
 
 app.use(express.json());
 
-// Tenant Context
+// Public tenant resolve (pre-auth). Không phải authorization.
+// Request đã login: verifyToken ghi đè ALS từ JWT (S0.1).
 app.use(async (req, res, next) => {
   const slug = req.headers['x-tenant-slug'] || req.query.slug;
 

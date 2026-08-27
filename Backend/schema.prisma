@@ -680,15 +680,17 @@ model users {
   onboarding_cases_owned                                              onboarding_cases[]               @relation("UserToOnboardingCases")
   onboarding_cases_reviewed                                           onboarding_cases[]               @relation("OnboardingCaseToReviewer")
 
+  @@unique([member_id], map: "uq_users_member_id")
   @@index([tenant_id], map: "idx_users_tenant")
   @@index([branch_id], map: "idx_user_branch")
-  @@index([member_id], map: "idx_user_member")
+  /// @@index([member_id], map: "idx_user_member").  không dùng nữa S0.1)
   @@index([changed_by], map: "idx_users_user")
   @@index([deleted_at], map: "idx_users_deleted_at")
   @@index([locked_until], map: "idx_users_locked_until")
   @@index([email(ops: raw("gin_trgm_ops"))], map: "trgm_idx_users_email", type: Gin)
   @@index([name(ops: raw("gin_trgm_ops"))], map: "trgm_idx_users_name", type: Gin)
   @@index([phone(ops: raw("gin_trgm_ops"))], map: "trgm_idx_users_phone", type: Gin)
+  @@index([tenant_id, member_id], map: "idx_users_tenant_member")
   @@map("users")
 }
 

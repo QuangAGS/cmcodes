@@ -1,7 +1,7 @@
 /**
  * PATH       : src/middlewares/auth.middleware.js
  * DATETIME   : 2026-07-26T15:45:00+07:00
- * VERSION    : 20.5.0-W3
+ * VERSION    : 20.5.1-S0-ALS
  * DESCRIPTION:
  * - Dual req.user + tenantStatus.
  * - [20.5.0-W3] PR-W3-2: re-export tenantStatus Light/Heavy + requireActiveTenant alias.
@@ -77,7 +77,16 @@ const verifyToken = (req, res, next) => {
       return next();
     }
 
-    tenantContext.run({ tenantId: userData.tenantId }, next);
+    const isSys = userData.role === 'SYSTEM_ADMIN';
+    tenantContext.run(
+      {
+        tenantId: isSys ? null : userData.tenantId,
+        allowUnscoped: isSys,
+        userId: userData.userId,
+        actorRole: userData.role,
+      },
+      next
+    );
   } catch (error) {
     console.error('JWT Verify Error:', error.message);
     const err = new Error('Phiên làm việc hết hạn hoặc Token không hợp lệ.');

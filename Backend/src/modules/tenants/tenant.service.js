@@ -10,7 +10,8 @@
 
 'use strict';
 
-const { basePrisma, prisma } = require('../../lib/prisma.js');
+const { prisma } = require('../../lib/prisma.js');
+const { sysFindFirstTenant, sysUpdateTenant } = require('../../lib/sysAccess.js');
 const businessLogger = require('../../services/ledger.service');
 const auditService = require('../../services/audit.service');
 const { createError } = require('../../shared/errors');
@@ -73,11 +74,17 @@ async function getTenantSettings(tenantId, actor) {
 
   assertAdminCanEditTenant(actor, tenantId);
 
-  const db = actor.role === 'SYSTEM_ADMIN' ? basePrisma : prisma;
-  const tenant = await db.tenants.findFirst({
-    where: { id: tenantId, deleted_at: null },
-    select: SETTINGS_SELECT,
-  });
+  const tenant =
+    actor.role === 'SYSTEM_ADMIN'
+      ? await sysFindFirstTenant(
+          actor,
+          { where: { id: tenantId, deleted_at: null }, select: SETTINGS_SELECT },
+          { reason: 'SYS_TENANT_SETTINGS_READ' }
+        )
+      : await prisma.tenants.findFirst({
+          where: { id: tenantId, deleted_at: null },
+          select: SETTINGS_SELECT,
+        });
 
   if (!tenant) {
     throw createError(
@@ -114,12 +121,17 @@ async function updateTenantSettings(tenantId, actor, body = {}) {
 
   assertAdminCanEditTenant(actor, tenantId);
 
-  const db = actor.role === 'SYSTEM_ADMIN' ? basePrisma : prisma;
-
-  const existing = await db.tenants.findFirst({
-    where: { id: tenantId, deleted_at: null },
-    select: SETTINGS_SELECT,
-  });
+  const existing =
+    actor.role === 'SYSTEM_ADMIN'
+      ? await sysFindFirstTenant(
+          actor,
+          { where: { id: tenantId, deleted_at: null }, select: SETTINGS_SELECT },
+          { reason: 'SYS_TENANT_SETTINGS_READ' }
+        )
+      : await prisma.tenants.findFirst({
+          where: { id: tenantId, deleted_at: null },
+          select: SETTINGS_SELECT,
+        });
 
   if (!existing) {
     throw createError(
@@ -231,11 +243,18 @@ async function updateTenantSettings(tenantId, actor, body = {}) {
     throw err;
   }
 
-  const updated = await db.tenants.update({
-    where: { id: tenantId },
-    data,
-    select: SETTINGS_SELECT,
-  });
+  const updated =
+    actor.role === 'SYSTEM_ADMIN'
+      ? await sysUpdateTenant(
+          actor,
+          { where: { id: tenantId }, data, select: SETTINGS_SELECT },
+          { reason: 'SYS_TENANT_SETTINGS_WRITE' }
+        )
+      : await prisma.tenants.update({
+          where: { id: tenantId },
+          data,
+          select: SETTINGS_SELECT,
+        });
 
   try {
     await auditService.logAction(

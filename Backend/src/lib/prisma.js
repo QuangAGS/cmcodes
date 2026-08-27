@@ -2,12 +2,12 @@
  * ============================================================================
  * PATH       : src/lib/prisma.js
  * DATETIME   : 2026-07-19T15:30:00+07:00
- * VERSION    : 23.0.0-MERGED
- * DESCRIPTION: 
- * - Merge EGAL-25.2.0 + 3.2.2: Kết hợp infrastructure mạnh + middleware tenant/soft-delete tự động
- * - Thêm PRISMA_SELECTS đầy đủ
- * - Bảo toàn tenantContext và basePrisma cho các middleware cũ
- * - Tuân thủ Q1 & Q2
+ * VERSION    : 23.1.0-S0-ISOLATION
+ * DESCRIPTION:
+ * - [23.1.0-S0] Đợt 1 S0.1–S0.5: fail-closed tenant guardrail + ALS bind
+ *   trong withTransaction; không patch findUnique; SYS unscoped explicit.
+ * - Merge EGAL-25.2.0 + 3.2.2 (giữ).
+ * - basePrisma không phải authorization. Q1/Q2.
  * ============================================================================
  *
  * OLD DESCRIPTION
@@ -156,42 +156,115 @@ if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.__egalPrisma = basePrisma;
 }
 
-/* ====================== TENANT CONTEXT + SOFT DELETE MIDDLEWARE (từ v3.2.2) ====================== 
-*/
-const tenantModels = ['achievements', 'addresses', 'assets', 'audit_logs', 'biographies', 'branches', 
-  'business_process_logs', 'cemetery', 'data_suggestions', 'event_funds', 'events', 'fund_transactions', 'funds', 'graves',
-  'inbound_messages', 'marriages', 'media', 'members', 'notifications', 'onboarding_cases',
-  'tenant_communication_providers', 'tenant_social_spaces', 'users', 'worships'
-];
+/* ====================== TENANT GUARDRAIL (S0.1) ======================
+ * Explicit tenantScope() + service guard = cơ chế chính.
+ * Extension = fail-closed + soft-delete filter. Không phải authorization.
+ * SYS cross-tenant: store.allowUnscoped === true (verifyToken SYSTEM_ADMIN)
+ *   hoặc gọi basePrisma qua sysAccess.js (có actor + reason).
+ */
+const STRICT_TENANT_MODELS = new Set([
+  'achievements', 'addresses', 'assets', 'biographies', 'branches',
+  'cemetery', 'data_suggestions', 'event_funds', 'events', 'fund_transactions',
+  'funds', 'graves', 'inbound_messages', 'marriages', 'media', 'members',
+  'notifications', 'onboarding_cases', 'tenant_communication_providers',
+  'tenant_social_spaces', 'worships',
+]);
+
+const OPTIONAL_TENANT_MODELS = new Set([
+  'users', 'audit_logs', 'business_process_logs',
+]);
+
+const SOFT_DELETE_MODELS = new Set([
+  'achievements', 'addresses', 'assets', 'audit_logs', 'biographies', 'branches',
+  'business_process_logs', 'cemetery', 'data_suggestions', 'event_funds', 'events',
+  'fund_transactions', 'funds', 'graves', 'inbound_messages', 'marriages', 'media',
+  'members', 'notifications', 'onboarding_cases', 'tenants', 'users', 'worships',
+]);
+
+const APPEND_ONLY_MODELS = new Set([
+  'audit_logs', 'business_process_logs',
+]);
+
+const READ_OPS = new Set([
+  'findMany', 'findFirst', 'findFirstOrThrow', 'count', 'aggregate', 'groupBy',
+]);
+const WRITE_MANY_OPS = new Set(['updateMany', 'deleteMany']);
+
+function andWhere(where, extra) {
+  if (!extra) return where || {};
+  if (!where || Object.keys(where).length === 0) return extra;
+  return { AND: [where, extra] };
+}
+
+function applyTenantData(data, tenantId) {
+  if (Array.isArray(data)) return data.map((row) => ({ ...row, tenant_id: tenantId }));
+  return { ...data, tenant_id: tenantId };
+}
 
 const prisma = basePrisma.$extends({
   query: {
     $allModels: {
       async $allOperations({ model, operation, args, query }) {
-        const modelName = model.toLowerCase();
+        const modelName = String(model || '').toLowerCase();
         const store = tenantContext.getStore();
-        const tenantId = store?.tenantId;
+        const tenantId = store?.tenantId || null;
+        const allowUnscoped = store?.allowUnscoped === true;
+        args = args || {};
 
-        // Soft Delete tự động
-        if (['findMany', 'findFirst', 'count'].includes(operation)) {
-          args.where = { ...args.where, deleted_at: null };
-        }
-        if (operation === 'delete') {
-          return basePrisma[model].update({ ...args, data: { deleted_at: new Date() } });
+        if (APPEND_ONLY_MODELS.has(modelName) && (operation === 'delete' || operation === 'deleteMany')) {
+          throw new Error(`S0.4: ${modelName} is append-only — không delete/archive.`);
         }
 
-        // Tenant Isolation tự động
-        if (tenantModels.includes(modelName) && modelName !== 'tenants' && tenantId) {
-          if (['findMany', 'findFirst', 'findUnique', 'update', 'updateMany', 'delete', 'deleteMany', 'count'].includes(operation)) {
-            args.where = { ...args.where, tenant_id: tenantId };
+        if (STRICT_TENANT_MODELS.has(modelName) && !tenantId && !allowUnscoped) {
+          throw new Error(
+            `S0.1 Tenant context missing: ${model}.${operation}. ` +
+              'Gắn ALS từ JWT hoặc sysAccess.allowUnscoped / withTransaction({ tenantId }).'
+          );
+        }
+
+        if (SOFT_DELETE_MODELS.has(modelName) && READ_OPS.has(operation)) {
+          args.where = andWhere(args.where, { deleted_at: null });
+        }
+
+        if (SOFT_DELETE_MODELS.has(modelName) && operation === 'delete') {
+          const where = tenantId
+            ? andWhere(args.where, { tenant_id: tenantId, deleted_at: null })
+            : andWhere(args.where, { deleted_at: null });
+          return basePrisma[modelName].updateMany({
+            where,
+            data: { deleted_at: new Date() },
+          });
+        }
+
+        const scoped = (STRICT_TENANT_MODELS.has(modelName) || OPTIONAL_TENANT_MODELS.has(modelName)) && tenantId;
+
+        if (scoped) {
+          if (READ_OPS.has(operation) || WRITE_MANY_OPS.has(operation) || operation === 'update') {
+            args.where = andWhere(args.where, { tenant_id: tenantId });
           }
-          if (operation === 'create') {
-            args.data = { ...args.data, tenant_id: tenantId };
+          if (operation === 'create' && args.data) {
+            args.data = applyTenantData(args.data, tenantId);
           }
           if (operation === 'createMany' && args.data) {
-            args.data = Array.isArray(args.data) 
-              ? args.data.map(item => ({ ...item, tenant_id: tenantId }))
-              : { ...args.data, tenant_id: tenantId };
+            args.data = applyTenantData(args.data, tenantId);
+          }
+          if (operation === 'upsert') {
+            args.create = applyTenantData(args.create || {}, tenantId);
+            args.update = args.update || {};
+          }
+          if (operation === 'findUnique' || operation === 'findUniqueOrThrow') {
+            return query({
+              ...args,
+              where: args.where,
+            }).then(async (row) => {
+              if (row && row.tenant_id && row.tenant_id !== tenantId) {
+                if (operation === 'findUniqueOrThrow') {
+                  throw new Error(`S0.1 Cross-tenant ${model} denied.`);
+                }
+                return null;
+              }
+              return row;
+            });
           }
         }
 
@@ -349,20 +422,10 @@ function createExecutionContext(input = {}) {
  * TENANT SCOPE
  * ============================================================================
  *
- * Không tự động inject tenant_id bằng Prisma middleware.
- *
- * Lý do:
- *
- * - Có bảng global không có tenant_id.
- * - Có bảng tenant_id nullable.
- * - Có system admin query cross tenant.
- * - Middleware tự inject dễ làm query sai mà khó debug.
- *
- * Thay vào đó dùng helper explicit:
- *
- * const where = prisma.tenantScope(ctx, { status: 'SUBMITTED' });
- *
- * tx.onboarding_cases.findMany({ where });
+ * S0.1: tenantScope() là cơ chế chính (explicit).
+ * Extension chỉ fail-closed + AND tenant_id khi ALS có tenantId.
+ * SYS: allowUnscoped trên ALS hoặc sysAccess + basePrisma — không coi
+ * tên biến basePrisma là quyền.
  */
 
 /**
@@ -1078,14 +1141,59 @@ async function withTransaction(contextInput, callback, options = {}) {
 
   const context = createExecutionContext(contextInput);
 
-  // 🎯 BẢO TOÀN LÕI: Đảm bảo mọi write (onboarding, audit) bên trong callback này phải dùng thực thể tập trung 'tx'
-  return prisma.$transaction(
-    async (tx) => callback(tx, context),
-    {
-      maxWait: options.maxWait ?? 5000,
-      timeout: options.timeout ?? 20000
-    }
+  const store = {
+    tenantId: context.tenantId || null,
+    userId: context.actorId || null,
+    requestId: context.requestId || null,
+    correlationId: context.correlationId || null,
+    allowUnscoped: contextInput?.allowUnscoped === true,
+  };
+
+  return tenantContext.run(store, () =>
+    prisma.$transaction(
+      async (tx) => callback(tx, context),
+      {
+        maxWait: options.maxWait ?? 5000,
+        timeout: options.timeout ?? 20000,
+      }
+    )
   );
+}
+
+/**
+ * S0.3 — Link user↔member cùng tenant. Unlink chỉ NULL member_id.
+ */
+async function assertSameTenantLink(client, userId, memberId) {
+  const user = await client.users.findFirst({
+    where: { id: userId, deleted_at: null },
+    select: { id: true, tenant_id: true, member_id: true },
+  });
+  const member = await client.members.findFirst({
+    where: { id: memberId, deleted_at: null },
+    select: { id: true, tenant_id: true },
+  });
+  if (!user || !member) {
+    throw new Error('S0.3 User hoặc member không tồn tại.');
+  }
+  if (!user.tenant_id || !member.tenant_id || user.tenant_id !== member.tenant_id) {
+    throw new Error('S0.3 users.tenant_id phải trùng members.tenant_id.');
+  }
+  return { user, member };
+}
+
+async function linkUserToMember(client, userId, memberId) {
+  await assertSameTenantLink(client, userId, memberId);
+  return client.users.update({
+    where: { id: userId },
+    data: { member_id: memberId },
+  });
+}
+
+async function unlinkUserFromMember(client, userId) {
+  return client.users.update({
+    where: { id: userId },
+    data: { member_id: null },
+  });
 }
 
 /**
@@ -1293,7 +1401,11 @@ module.exports = {
   basePrisma,
   tenantContext,
   PRISMA_SELECTS,
-  exactMatchFields, // nếu cần lấy từ v3.2.2
+  exactMatchFields,
+  assertSameTenantLink,
+  linkUserToMember,
+  unlinkUserFromMember,
+  STRICT_TENANT_MODELS,
   ...egalPrisma,
   egalPrisma
 };
