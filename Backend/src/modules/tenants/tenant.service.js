@@ -11,7 +11,12 @@
 'use strict';
 
 const { prisma } = require('../../lib/prisma.js');
-const { sysFindFirstTenant, sysUpdateTenant } = require('../../lib/sysAccess.js');
+const {
+  sysFindFirstTenant,
+  sysUpdateTenant,
+  sysFindManyTenants,
+  sysCountTenants,
+} = require('../../lib/sysAccess.js');
 const businessLogger = require('../../services/ledger.service');
 const auditService = require('../../services/audit.service');
 const { createError } = require('../../shared/errors');
@@ -417,8 +422,85 @@ async function activateTenant(tenantId, actor) {
   });
 }
 
+const TENANT_STATUS_FILTER = new Set([
+  'CHO_DUYET',
+  'HOAT_DONG',
+  'TAM_NGUNG',
+  'BI_KHOA',
+  'NGUNG_HAN',
+  'TU_CHOI',
+]);
+
+async function listTenantsDirectory(actor, query = {}) {
+  if (actor?.role !== 'SYSTEM_ADMIN') {
+    throw createError(
+      ERROR_CODES.TENANT?.CROSS_TENANT_DENIED || 'FORBIDDEN',
+      'Chỉ SYSTEM_ADMIN xem directory dòng họ.',
+      { statusCode: 403 }
+    );
+  }
+
+  const page = Math.max(1, parseInt(query.page, 10) || 1);
+  const limit = Math.min(100, Math.max(1, parseInt(query.limit, 10) || 20));
+  const skip = (page - 1) * limit;
+  const q = String(query.q || '').trim();
+  const status = String(query.status || '').trim();
+
+  const where = { deleted_at: null };
+  if (status) {
+    if (!TENANT_STATUS_FILTER.has(status)) {
+      throw createError(
+        ERROR_CODES.COMMON?.BAD_REQUEST || 'BAD_REQUEST',
+        'status filter không hợp lệ.',
+        { statusCode: 400 }
+      );
+    }
+    where.status = status;
+  }
+  if (q) {
+    where.OR = [
+      { name: { contains: q, mode: 'insensitive' } },
+      { slug: { contains: q, mode: 'insensitive' } },
+    ];
+  }
+
+  const [items, total] = await Promise.all([
+    sysFindManyTenants(
+      actor,
+      {
+        where,
+        orderBy: { updated_at: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+          status: true,
+          slogan: true,
+          description: true,
+          logo_url: true,
+          updated_at: true,
+          created_at: true,
+        },
+      },
+      { reason: 'SYS_TENANT_DIRECTORY' }
+    ),
+    sysCountTenants(actor, { where }, { reason: 'SYS_TENANT_DIRECTORY' }),
+  ]);
+
+  return {
+    items,
+    page,
+    limit,
+    total,
+    pages: Math.ceil(total / limit) || 1,
+  };
+}
+
 module.exports = {
   activateTenant,
   getTenantSettings,
   updateTenantSettings,
+  listTenantsDirectory,
 };

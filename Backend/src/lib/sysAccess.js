@@ -36,9 +36,15 @@ async function sysUpdateTenant(actor, args = {}, meta = {}) {
   return basePrisma.tenants.update(args);
 }
 
+async function sysCountTenants(actor, args = {}, meta = {}) {
+  assertSysActor(actor);
+  return basePrisma.tenants.count(args);
+}
+
 module.exports = {
   assertSysActor,
   sysFindManyTenants,
   sysFindFirstTenant,
   sysUpdateTenant,
+  sysCountTenants,
 };

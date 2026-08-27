@@ -116,7 +116,16 @@ router.patch(
 router.get('/:id', tenantCtrl.getById);
 
 // --- PROTECTED CRUD ---
-router.get('/', verifyToken, checkRole(['SYSTEM_ADMIN']), tenantCtrl.getAll);
+router.get(
+  '/',
+  verifyToken,
+  checkRole(['SYSTEM_ADMIN']),
+  asyncHandler(async (req, res) => {
+    const actor = actorFromReq(req);
+    const data = await tenantService.listTenantsDirectory(actor, req.query || {});
+    res.status(200).json({ success: true, status: 'success', data });
+  })
+);
 
 router.post(
   '/',

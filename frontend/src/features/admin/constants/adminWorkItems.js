@@ -23,6 +23,13 @@ export const SYSTEM_ADMIN_WORK_ITEMS = [
     icon: 'UserCheck',
   },
   {
+    id: 'tenant-directory',
+    title: 'Quản trị dòng họ',
+    description: 'Danh sách mọi dòng họ, lọc trạng thái, kích hoạt hẹp',
+    path: '/admin/tenants',
+    icon: 'Building2',
+  },
+  {
     id: 'tenant-settings',
     title: 'Cài đặt dòng họ',
     description: 'Tên, gia đạo, biểu tượng, logo',

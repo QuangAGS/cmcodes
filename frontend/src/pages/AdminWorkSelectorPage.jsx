@@ -7,9 +7,7 @@
  * - Titles: Phê duyệt người dùng (RP) · Phê duyệt thành viên (OP).
  */
 
-import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
 import {
   ShieldCheck,
   Users,
@@ -18,11 +16,8 @@ import {
   Settings,
   ChevronRight,
   AlertCircle,
-  Loader2,
-  RefreshCw,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
-import apiClient from '../lib/apiClient.js';
 import {
   SYSTEM_ADMIN_WORK_ITEMS,
   CLAN_ADMIN_WORK_ITEMS,
@@ -36,7 +31,6 @@ import ZoneVoiceButton from '../features/elder-doctrine/components/ZoneVoiceButt
 import {
   ADMIN_PAGE_HELP,
   ADMIN_ZONE_WORK,
-  ADMIN_ZONE_TENANTS,
 } from '../features/admin/constants/adminMessages.js';
 
 const ICON_MAP = {
@@ -102,31 +96,6 @@ const AdminWorkSelectorPage = () => {
   const isClanAdmin = user?.role === 'CLAN_ADMIN';
   const tenantStatus = user?.tenantStatus || user?.tenant_status || null;
 
-  const [tenants, setTenants] = useState([]);
-  const [loadingList, setLoadingList] = useState(false);
-
-  const fetchTenants = useCallback(async () => {
-    if (!isSystemAdmin) return;
-    setLoadingList(true);
-    try {
-      const res = await apiClient.get('/tenants', {
-        params: { status: 'TAM_NGUNG', page_size: 50 },
-      });
-      const data = res.data?.data || res.data;
-      const list = Array.isArray(data) ? data : data?.items || data?.rows || [];
-      setTenants(list);
-    } catch {
-      toast.error('Không tải được danh sách dòng họ.');
-      setTenants([]);
-    } finally {
-      setLoadingList(false);
-    }
-  }, [isSystemAdmin]);
-
-  useEffect(() => {
-    fetchTenants();
-  }, [fetchTenants]);
-
   const clanItems = CLAN_ADMIN_WORK_ITEMS.filter((item) => {
     if (!item.when) return true;
     if (!tenantStatus) return true;
@@ -168,71 +137,6 @@ const AdminWorkSelectorPage = () => {
                 onClick={() => navigate(item.path)}
               />
             ))}
-          </div>
-
-          <div className="mb-3 flex items-center justify-between px-4 sm:px-6">
-            <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400">
-              Dòng họ chờ kích hoạt
-            </h2>
-            <div className="flex items-center gap-2">
-              <ZoneVoiceButton visible text={ADMIN_ZONE_TENANTS} label="Nghe" />
-              <button
-                type="button"
-                onClick={fetchTenants}
-                disabled={loadingList}
-                className="inline-flex items-center gap-1.5 text-sm font-semibold text-indigo-600"
-              >
-                <RefreshCw
-                  className={`h-3.5 w-3.5 ${loadingList ? 'animate-spin' : ''}`}
-                />
-                Làm mới
-              </button>
-            </div>
-          </div>
-
-          <div className="px-4 sm:px-6">
-            {loadingList ? (
-              <div className="flex items-center justify-center gap-2 rounded-3xl border border-slate-200 bg-white py-16 text-slate-400">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                <span className="text-sm font-medium">Đang tải...</span>
-              </div>
-            ) : tenants.length === 0 ? (
-              <div className="rounded-3xl border border-slate-200 bg-white py-16 text-center">
-                <Building2 className="mx-auto h-10 w-10 text-slate-300" />
-                <p className="mt-3 text-sm font-medium text-slate-400">
-                  Không có dòng họ nào đang tạm ngưng
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {tenants.map((t) => (
-                  <div
-                    key={t.id}
-                    className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
-                  >
-                    <div className="font-bold text-slate-800">{t.name}</div>
-                    {t.description ? (
-                      <p className="mt-1 line-clamp-2 text-sm text-slate-500">
-                        {t.description}
-                      </p>
-                    ) : null}
-                    {t.slug ? (
-                      <p className="mt-1 text-xs text-slate-400">{t.slug}</p>
-                    ) : null}
-                    <button
-                      type="button"
-                      onClick={() =>
-                        navigate(`/admin/tenant/activate?tenantId=${t.id}`)
-                      }
-                      className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-200 transition active:scale-[0.98]"
-                    >
-                      <Building2 className="h-4 w-4" />
-                      Kích hoạt
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
 
           <div className="mt-8 px-4 pb-6 sm:px-6">
