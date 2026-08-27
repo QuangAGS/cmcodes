@@ -167,7 +167,7 @@ const STRICT_TENANT_MODELS = new Set([
   'cemetery', 'data_suggestions', 'event_funds', 'events', 'fund_transactions',
   'funds', 'graves', 'inbound_messages', 'marriages', 'media', 'members',
   'notifications', 'onboarding_cases', 'tenant_communication_providers',
-  'tenant_social_spaces', 'worships',
+  'tenant_social_spaces', 'worships', 'clan_profiles', 'generation_naming_rules', 'proposals','member_privacy_rules',
 ]);
 
 const OPTIONAL_TENANT_MODELS = new Set([
@@ -178,7 +178,8 @@ const SOFT_DELETE_MODELS = new Set([
   'achievements', 'addresses', 'assets', 'audit_logs', 'biographies', 'branches',
   'business_process_logs', 'cemetery', 'data_suggestions', 'event_funds', 'events',
   'fund_transactions', 'funds', 'graves', 'inbound_messages', 'marriages', 'media',
-  'members', 'notifications', 'onboarding_cases', 'tenants', 'users', 'worships',
+  'members', 'notifications', 'onboarding_cases', 'tenants', 'users', 'worships', 
+  'clan_profiles', 'generation_naming_rules', 'proposals','member_privacy_rules',
 ]);
 
 const APPEND_ONLY_MODELS = new Set([
