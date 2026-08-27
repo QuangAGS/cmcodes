@@ -1,0 +1,1212 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+  binaryTargets   = ["native", "debian-openssl-3.0.x"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  directUrl  = env("DIRECT_URL")
+  extensions = [citext, pg_trgm, pg_stat_statements, pgcrypto, supabase_vault, uuid_ossp(map: "uuid-ossp")]
+}
+
+model data_suggestions {
+  id             String                   @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  tenant_id      String?                  @db.VarChar(36)
+  target_table   String?                  @db.VarChar(50)
+  target_id      String?                  @db.VarChar(36)
+  suggested_data Json?
+  status         data_suggestions_status? @default(CHO_DUYET)
+  created_at     DateTime?                @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime?                @default(now()) @db.Timestamptz(6)
+  changed_by     String?                  @db.VarChar(36)
+  deleted_at     DateTime?                @db.Timestamptz(6)
+  tenants        tenants?                 @relation(fields: [tenant_id], references: [id], map: "fk_data_suggestions_tenant")
+
+  @@index([tenant_id], map: "idx_suggestions_tenant")
+  @@index([deleted_at], map: "idx_suggestions_deleted")
+  @@map("data_suggestions")
+}
+
+model tenants {
+  id                             String                           @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  name                           String                           @db.VarChar(100)
+  slug                           String                           @unique @db.VarChar(10)
+  description                    String?
+  logo_url                       String?                          @db.VarChar(255)
+  theme_color                    String?                          @db.VarChar(7)
+  created_at                     DateTime?                        @default(now()) @db.Timestamptz(6)
+  updated_at                     DateTime?                        @default(now()) @db.Timestamptz(6)
+  changed_by                     String?                          @db.VarChar(36)
+  deleted_at                     DateTime?                        @db.Timestamptz(6)
+  social_configs                 Json?                            @default("{}")
+  status                         tenant_status?                   @default(CHO_DUYET)
+  slogan                         String?                          @db.VarChar(255)
+  achievements                   achievements[]
+  addresses                      addresses[]
+  assets                         assets[]
+  biographies                    biographies[]
+  branches                       branches[]
+  business_process_logs          business_process_logs[]
+  cemetery                       cemetery[]
+  data_suggestions               data_suggestions[]
+  event_funds                    event_funds[]
+  events                         events[]
+  fund_transactions              fund_transactions[]
+  funds                          funds[]
+  graves                         graves[]
+  inbound_messages               inbound_messages[]
+  marriages                      marriages[]
+  media                          media[]
+  members                        members[]
+  notifications                  notifications[]
+  tenant_communication_providers tenant_communication_providers[]
+  tenant_social_spaces           tenant_social_spaces[]
+  users                          users[]
+  worships                       worships[]
+
+  @@index([name(ops: raw("gin_trgm_ops"))], map: "trgm_idx_tenants_name", type: Gin)
+  @@map("tenants")
+}
+
+model achievements {
+  id             String                @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  member_id      String                @db.VarChar(36)
+  category       achievements_category
+  title          String                @db.VarChar(255)
+  organization   String?               @db.VarChar(255)
+  achieved_year  Int
+  achieved_month Int?
+  achieved_day   Int?
+  description    String?
+  created_at     DateTime?             @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime?             @default(now()) @db.Timestamptz(6)
+  changed_by     String?               @db.VarChar(36)
+  deleted_at     DateTime?             @db.Timestamptz(6)
+  tenant_id      String                @db.VarChar(36)
+  members        members               @relation(fields: [member_id], references: [id], onUpdate: NoAction, map: "fk_achievement_member")
+  tenants        tenants               @relation(fields: [tenant_id], references: [id], map: "fk_achievement_tenant")
+  users          users?                @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_achievements_user")
+
+  @@index([tenant_id], map: "idx_achievement_tenant")
+  @@index([member_id], map: "idx_achievement_member")
+  @@index([changed_by], map: "idx_achievements_user")
+  @@index([deleted_at], map: "idx_achievements_deleted_at")
+}
+
+model addresses {
+  id            String     @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  full_address  String     @db.VarChar(255)
+  ward_name     String?    @db.VarChar(100)
+  district_name String?    @db.VarChar(100)
+  province_name String?    @db.VarChar(100)
+  country       String?    @default("VIETNAM") @db.VarChar(45)
+  notes         String?    @db.VarChar(255)
+  latitude      Decimal?   @db.Decimal(10, 8)
+  longitude     Decimal?   @db.Decimal(11, 8)
+  location_url  String?
+  created_at    DateTime?  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime?  @default(now()) @db.Timestamptz(6)
+  changed_by    String?    @db.VarChar(36)
+  deleted_at    DateTime?  @db.Timestamptz(6)
+  tenant_id     String     @db.VarChar(36)
+  tenants       tenants    @relation(fields: [tenant_id], references: [id], map: "fk_address_tenant")
+  users         users?     @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_addresses_user")
+  assets        assets[]
+  branches      branches[]
+  cemetery      cemetery[]
+  events        events[]
+  graves        graves[]
+  residents     members[]  @relation("members_current_address_idToaddresses")
+  natives       members[]  @relation("members_origin_address_idToaddresses")
+  worships      worships[]
+
+  @@index([tenant_id], map: "idx_address_tenant")
+  @@index([changed_by], map: "idx_addresses_user")
+  @@index([full_address(ops: raw("gin_trgm_ops"))], map: "trgm_idx_addresses_full_address", type: Gin)
+}
+
+model assets {
+  id            String            @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  branch_id     String?           @db.VarChar(36)
+  worship_id    String?           @db.VarChar(36)
+  name          String            @db.VarChar(255)
+  asset_type    assets_asset_type
+  description   String?
+  current_value Decimal?          @db.Decimal(15, 2)
+  manager_id    String?           @db.VarChar(36)
+  address_id    String?           @db.VarChar(36)
+  created_at    DateTime?         @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime?         @default(now()) @db.Timestamptz(6)
+  changed_by    String?           @db.VarChar(36)
+  deleted_at    DateTime?         @db.Timestamptz(6)
+  tenant_id     String            @db.VarChar(36)
+  addresses     addresses?        @relation(fields: [address_id], references: [id], onUpdate: NoAction, map: "fk_asset_address")
+  branches      branches?         @relation(fields: [branch_id], references: [id], onUpdate: NoAction, map: "fk_asset_branch")
+  members       members?          @relation(fields: [manager_id], references: [id], onUpdate: NoAction, map: "fk_asset_manager")
+  tenants       tenants           @relation(fields: [tenant_id], references: [id], map: "fk_asset_tenant")
+  worship       worships?         @relation(fields: [worship_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_asset_worship")
+  users         users?            @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_assets_user")
+
+  @@index([tenant_id], map: "idx_assets_tenant")
+  @@index([address_id], map: "idx_asset_address")
+  @@index([branch_id], map: "idx_asset_branch")
+  @@index([manager_id], map: "idx_asset_manager")
+  @@index([changed_by], map: "idx_assets_user")
+  @@index([worship_id], map: "idx_asset_worship")
+  @@index([deleted_at], map: "idx_assets_deleted_at")
+  @@index([name(ops: raw("gin_trgm_ops"))], map: "trgm_idx_assets_name", type: Gin)
+}
+
+model audit_logs {
+  id             String            @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  table_name     String            @db.VarChar(50)
+  record_id      String            @db.VarChar(36)
+  action         audit_logs_action
+  old_data       Json?
+  new_data       Json?
+  tenant_id      String            @db.VarChar(36)
+  change_reason  String?           @db.VarChar(500)
+  changed_by     String?           @db.VarChar(36)
+  created_at     DateTime?         @default(now()) @db.Timestamptz(6)
+  correlation_id String?           @db.VarChar(36)
+  users          users?            @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_audit_user")
+
+  @@index([changed_by], map: "idx_audit_user")
+  @@index([table_name, record_id], map: "idx_audit_record")
+  @@index([tenant_id], map: "idx_audit_tenant")
+  @@index([correlation_id], map: "idx_audit_logs_correlation_id")
+  @@index([tenant_id, table_name, created_at(sort: Desc)], map: "idx_audit_logs_query_perf")
+}
+
+model biographies {
+  id                 String    @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  member_id          String?   @db.VarChar(36)
+  childhood_summary  String?
+  education_history  String?
+  career_history     String?
+  later_life_summary String?
+  personality_traits String?   @db.VarChar(500)
+  notable_quotes     String?
+  created_at         DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime? @default(now()) @db.Timestamptz(6)
+  changed_by         String?   @db.VarChar(36)
+  deleted_at         DateTime? @db.Timestamptz(6)
+  tenant_id          String?   @db.VarChar(36)
+  tenants            tenants?  @relation(fields: [tenant_id], references: [id], map: "fk_bibliography_tenant")
+  users              users?    @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_biographies_user")
+  members            members?  @relation(fields: [member_id], references: [id], onUpdate: NoAction, map: "fk_biography_member")
+
+  @@index([tenant_id], map: "idx_bibliography_tenant")
+  @@index([changed_by], map: "idx_biographies_user")
+  @@index([deleted_at], map: "idx_biographies_deleted_at")
+  @@index([member_id], map: "idx_biography_member")
+}
+
+model branches {
+  id                               String     @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  parent_id                        String?    @db.VarChar(36)
+  name                             String     @db.VarChar(100)
+  description                      String?
+  headquarters_address_id          String?    @db.VarChar(36)
+  social_groups                    Json?
+  contact_phone                    String?    @db.VarChar(20)
+  contact_email                    String?    @db.VarChar(100)
+  changed_by                       String?    @db.VarChar(36)
+  created_at                       DateTime?  @default(now()) @db.Timestamptz(6)
+  updated_at                       DateTime?  @default(now()) @db.Timestamptz(6)
+  deleted_at                       DateTime?  @db.Timestamptz(6)
+  founder_id                       String?    @db.VarChar(36)
+  tenant_id                        String     @db.VarChar(36)
+  assets                           assets[]
+  addresses                        addresses? @relation(fields: [headquarters_address_id], references: [id], onUpdate: NoAction, map: "fk_branch_address")
+  founder                          members?   @relation("MemberToBranchFounder", fields: [founder_id], references: [id], onUpdate: NoAction, map: "fk_branch_founder")
+  tenants                          tenants    @relation(fields: [tenant_id], references: [id], map: "fk_branch_tenant")
+  users_branches_changed_byTousers users?     @relation("branches_changed_byTousers", fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_branches_user")
+  cemetery                         cemetery[]
+  events                           events[]
+  members                          members[]
+  users_users_branch_idTobranches  users[]    @relation("users_branch_idTobranches")
+  worships                         worships[]
+
+  @@index([tenant_id], map: "idx_branch_tenant")
+  @@index([headquarters_address_id], map: "idx_branch_address")
+  @@index([changed_by], map: "idx_branches_user")
+  @@index([deleted_at], map: "idx_branches_deleted_at")
+  @@index([name(ops: raw("gin_trgm_ops"))], map: "trgm_idx_branches_name", type: Gin)
+}
+
+model events {
+  id           String            @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  branch_id    String?           @db.VarChar(36)
+  name         String            @db.VarChar(255)
+  event_type   events_event_type
+  event_day    Int?
+  event_month  Int?
+  event_year   Int?
+  is_lunar     Boolean?          @default(false)
+  description  String?
+  address_id   String?           @db.VarChar(36)
+  organizer_id String?           @db.VarChar(36)
+  created_at   DateTime?         @default(now()) @db.Timestamptz(6)
+  changed_by   String?           @db.VarChar(36)
+  deleted_at   DateTime?         @db.Timestamptz(6)
+  tenant_id    String            @db.VarChar(36)
+  event_funds  event_funds[]
+  addresses    addresses?        @relation(fields: [address_id], references: [id], onUpdate: NoAction, map: "fk_event_address")
+  branches     branches?         @relation(fields: [branch_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_event_branch")
+  members      members?          @relation(fields: [organizer_id], references: [id], onUpdate: NoAction, map: "fk_event_organizer")
+  tenants      tenants           @relation(fields: [tenant_id], references: [id], map: "fk_event_tenant")
+  users        users?            @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_events_user")
+
+  @@index([tenant_id], map: "idx_event_tenant")
+  @@index([address_id], map: "idx_event_address")
+  @@index([branch_id], map: "idx_event_branch")
+  @@index([organizer_id], map: "idx_event_organizer")
+  @@index([changed_by], map: "idx_events_user")
+  @@index([deleted_at], map: "idx_events_deleted_at")
+}
+
+model event_funds {
+  id             String            @id @default(dbgenerated("(gen_random_uuid())::text"))
+  event_id       String            @db.VarChar(36)
+  transaction_id String            @db.VarChar(36)
+  created_at     DateTime?         @default(now()) @db.Timestamptz(6)
+  changed_by     String?           @db.VarChar(36)
+  deleted_at     DateTime?         @db.Timestamptz(6)
+  tenant_id      String            @db.VarChar(36)
+  events         events            @relation(fields: [event_id], references: [id])
+  transactions   fund_transactions @relation(fields: [transaction_id], references: [id])
+  tenants        tenants           @relation(fields: [tenant_id], references: [id], map: "fk_event_fund_tenant")
+
+  @@index([tenant_id], map: "idx_event_fund_tenant")
+  @@index([deleted_at], map: "idx_events_funds_deleted_at")
+}
+
+model fund_transactions {
+  id               String                             @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  fund_id          String                             @db.VarChar(36)
+  transaction_type fund_transactions_transaction_type
+  amount           Decimal                            @db.Decimal(15, 2)
+  transaction_date DateTime                           @db.Date
+  member_id        String?                            @db.VarChar(36)
+  guest_name       String?                            @db.VarChar(100)
+  note             String                             @db.VarChar(255)
+  created_at       DateTime?                          @default(now()) @db.Timestamptz(6)
+  changed_by       String?                            @db.VarChar(36)
+  deleted_at       DateTime?                          @db.Timestamptz(6)
+  tenant_id        String                             @db.VarChar(36)
+  event_funds      event_funds[]
+  users            users?                             @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_fund_trans_user")
+  tenants          tenants                            @relation(fields: [tenant_id], references: [id], map: "fk_fund_trs_tenant")
+  funds            funds                              @relation(fields: [fund_id], references: [id], onUpdate: NoAction, map: "fk_transaction_fund")
+  members          members?                           @relation(fields: [member_id], references: [id], onUpdate: NoAction, map: "fk_transaction_member")
+
+  @@index([tenant_id], map: "idx_fund_trs_tenant")
+  @@index([changed_by], map: "idx_fund_trans_user")
+  @@index([fund_id], map: "idx_transaction_fund")
+  @@index([member_id], map: "idx_transaction_member")
+  @@index([deleted_at], map: "idx_funds_trs_deleted_at")
+}
+
+model funds {
+  id                String              @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  name              String              @db.VarChar(255)
+  description       String?
+  current_balance   Decimal?            @default(0.00) @db.Decimal(15, 2)
+  created_at        DateTime?           @default(now()) @db.Timestamptz(6)
+  changed_by        String?             @db.VarChar(36)
+  deleted_at        DateTime?           @db.Timestamptz(6)
+  tenant_id         String              @db.VarChar(36)
+  fund_transactions fund_transactions[]
+  tenants           tenants             @relation(fields: [tenant_id], references: [id], map: "fk_funds_tenant")
+  users             users?              @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_funds_user")
+
+  @@index([tenant_id], map: "idx_funds_tenant")
+  @@index([changed_by], map: "idx_funds_user")
+  @@index([deleted_at], map: "idx_funds_deleted_at")
+  @@index([name(ops: raw("gin_trgm_ops"))], map: "trgm_idx_funds_name", type: Gin)
+}
+
+model graves {
+  id               String                   @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  member_id        String                   @unique(map: "graves_member_id") @db.VarChar(36)
+  cemetery_id      String?                  @db.VarChar(36)
+  plot_details     String?                  @db.VarChar(255)
+  grave_address_id String?                  @db.VarChar(36)
+  condition_status graves_condition_status? @default(DA_SANG_CAT)
+  guide_notes      String?
+  created_at       DateTime?                @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime?                @default(now()) @db.Timestamptz(6)
+  changed_by       String?                  @db.VarChar(36)
+  deleted_at       DateTime?                @db.Timestamptz(6)
+  tenant_id        String                   @db.VarChar(36)
+  addresses        addresses?               @relation(fields: [grave_address_id], references: [id], onUpdate: NoAction, map: "fk_grave_address")
+  cemetery         cemetery?                @relation(fields: [cemetery_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_grave_cemetery")
+  members          members                  @relation(fields: [member_id], references: [id], onUpdate: NoAction, map: "fk_grave_member")
+  tenants          tenants                  @relation(fields: [tenant_id], references: [id], map: "fk_graves_tenant")
+  users            users?                   @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_graves_user")
+
+  @@index([tenant_id], map: "idx_graves_tenant")
+  @@index([grave_address_id], map: "idx_grave_address")
+  @@index([changed_by], map: "idx_graves_user")
+  @@index([cemetery_id], map: "idx_grave_cemetery")
+  @@index([deleted_at], map: "idx_graves_deleted_at")
+}
+
+model marriages {
+  id                                    String            @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  husband_id                            String?           @db.VarChar(36)
+  wife_id                               String?           @db.VarChar(36)
+  husband_marriage_order                Int?              @default(1)
+  wife_marriage_order                   Int?              @default(1)
+  status                                marriages_status? @default(DANG_KET_HON)
+  start_date                            DateTime?         @db.Date
+  end_date                              DateTime?         @db.Date
+  created_at                            DateTime?         @default(now()) @db.Timestamptz(6)
+  updated_at                            DateTime?         @default(now()) @db.Timestamptz(6)
+  changed_by                            String?           @db.VarChar(36)
+  deleted_at                            DateTime?         @db.Timestamptz(6)
+  spouse_name_literal                   String?           @db.VarChar(255)
+  tenant_id                             String            @db.VarChar(36)
+  members_marriages_husband_idTomembers members?          @relation("marriages_husband_idTomembers", fields: [husband_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_marriage_husband")
+  members_marriages_wife_idTomembers    members?          @relation("marriages_wife_idTomembers", fields: [wife_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_marriage_wife")
+  tenants                               tenants           @relation(fields: [tenant_id], references: [id], map: "fk_marriages_tenant")
+  users                                 users?            @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_marriages_user")
+
+  @@unique([husband_id, wife_id], map: "unique_couple")
+  @@index([tenant_id], map: "idx_marriages_tenant")
+  @@index([wife_id], map: "idx_marriage_wife")
+  @@index([changed_by], map: "idx_marriages_user")
+  @@index([deleted_at], map: "idx_marriages_deleted_at")
+}
+
+model media {
+  id               String    @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  entity_id        String    @db.VarChar(36)
+  entity_type      String    @db.VarChar(50)
+  file_url         String?   @db.VarChar(1000)
+  file_name        String?   @db.VarChar(255)
+  file_type        String?   @db.VarChar(50)
+  file_size        Int?
+  is_primary       Boolean?  @default(false)
+  uploaded_by      String?   @db.VarChar(36)
+  changed_by       String?   @db.VarChar(36)
+  created_at       DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at       DateTime? @default(now()) @db.Timestamptz(6)
+  deleted_at       DateTime? @db.Timestamptz(6)
+  tenant_id        String    @db.VarChar(36)
+  storage_provider String?   @default("GOOGLE_DRIVE") @db.VarChar(30)
+  storage_key      String?   @db.VarChar(512)
+  tenants          tenants   @relation(fields: [tenant_id], references: [id], map: "fk_media_tenant")
+  users            users?    @relation(fields: [uploaded_by], references: [id], onUpdate: NoAction, map: "fk_media_user")
+
+  @@index([tenant_id], map: "idx_media_tenant")
+  @@index([uploaded_by], map: "idx_media_user")
+  @@index([deleted_at], map: "idx_media_deleted_at")
+  @@index([tenant_id, entity_type, entity_id, deleted_at], map: "idx_media_polymorphic_lookup")
+}
+
+model members {
+  id                   String              @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  is_clan              Boolean?            @default(true)
+  branch_id            String?             @db.VarChar(36)
+  full_name            String              @db.VarChar(255)
+  note                 String?             @db.VarChar(255)
+  alias                String?             @db.VarChar(255)
+  gender               members_gender
+  is_alive             Boolean?            @default(true)
+  generation           Int?
+  child_type           members_child_type? @default(CON_DE)
+  father_id            String?             @db.VarChar(36)
+  mother_id            String?             @db.VarChar(36)
+  birth_day            Int?
+  birth_month          Int?
+  birth_year           Int?
+  is_birth_lunar       Boolean?            @default(false)
+  birth_note           String?             @db.VarChar(100)
+  death_day            Int?
+  death_month          Int?
+  death_year           Int?
+  is_death_lunar       Boolean?            @default(true)
+  death_note           String?             @db.VarChar(100)
+  current_address_id   String?             @db.VarChar(36)
+  origin_address_id    String?             @db.VarChar(36)
+  phone_number         String?             @db.VarChar(20)
+  email                String?             @db.VarChar(100)
+  social_profiles      Json?
+  is_contact_public    Boolean?            @default(true)
+  created_at           DateTime?           @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime?           @default(now()) @db.Timestamptz(6)
+  changed_by           String?             @db.VarChar(36)
+  deleted_at           DateTime?           @db.Timestamptz(6)
+  tenant_id            String              @db.VarChar(36)
+  role                 members_roles?      @default(THANH_VIEN)
+  status               members_status      @default(DU_BI)
+  achievements         achievements[]
+  assets               assets[]
+  biographies          biographies[]
+  founded_branches     branches[]          @relation("MemberToBranchFounder")
+  events               events[]
+  fund_transactions    fund_transactions[]
+  graves               graves?
+  marriages_as_husband marriages[]         @relation("marriages_husband_idTomembers")
+  marriages_as_wife    marriages[]         @relation("marriages_wife_idTomembers")
+  branch               branches?           @relation(fields: [branch_id], references: [id], onUpdate: NoAction, map: "fk_member_branch")
+  currentAddress       addresses?          @relation("members_current_address_idToaddresses", fields: [current_address_id], references: [id], onUpdate: NoAction, map: "fk_member_current_addr")
+  father               members?            @relation("members_father_idTomembers", fields: [father_id], references: [id], onUpdate: NoAction, map: "fk_member_father")
+  children_of_father   members[]           @relation("members_father_idTomembers")
+  mother               members?            @relation("members_mother_idTomembers", fields: [mother_id], references: [id], onUpdate: NoAction, map: "fk_member_mother")
+  children_of_mother   members[]           @relation("members_mother_idTomembers")
+  originAddress        addresses?          @relation("members_origin_address_idToaddresses", fields: [origin_address_id], references: [id], onUpdate: NoAction, map: "fk_member_origin_addr")
+  tenants              tenants             @relation(fields: [tenant_id], references: [id], map: "fk_members_tenant")
+  editor               users?              @relation("members_changed_byTousers", fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_members_user")
+  as_user              users[]             @relation("users_member_idTomembers")
+
+  @@index([tenant_id], map: "idx_members_tenant")
+  @@index([branch_id], map: "idx_member_branch")
+  @@index([current_address_id], map: "idx_member_current_addr")
+  @@index([father_id], map: "idx_member_father")
+  @@index([mother_id], map: "idx_member_mother")
+  @@index([origin_address_id], map: "idx_member_origin_addr")
+  @@index([changed_by], map: "idx_members_user")
+  @@index([deleted_at], map: "idx_members_deleted_at")
+  @@index([alias(ops: raw("gin_trgm_ops"))], map: "trgm_idx_members_alias", type: Gin)
+  @@index([full_name(ops: raw("gin_trgm_ops"))], map: "trgm_idx_members_full_name", type: Gin)
+  @@map("members")
+}
+
+model users {
+  id                                                                  String                           @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  phone                                                               String?                          @unique(map: "users_phone") @db.VarChar(20)
+  email                                                               String?                          @unique(map: "users_email") @db.VarChar(255)
+  name                                                                String                           @db.VarChar(255)
+  password                                                            String                           @db.VarChar(255)
+  role                                                                users_role?                      @default(VIEWER)
+  status                                                              users_status?                    @default(CHO_DUYET)
+  temp_full_name                                                      String?                          @db.VarChar(100)
+  temp_father_name                                                    String?                          @db.VarChar(100)
+  temp_grandfather_name                                               String?                          @db.VarChar(100)
+  temp_address                                                        String?                          @db.VarChar(255)
+  temp_birth_year                                                     Int?
+  temp_branch_name                                                    String?                          @db.VarChar(100)
+  temp_relationship                                                   users_temp_relationship?
+  temp_note                                                           String?
+  branch_id                                                           String?                          @db.VarChar(36)
+  member_id                                                           String?                          @db.VarChar(36)
+  created_at                                                          DateTime?                        @default(now()) @db.Timestamptz(6)
+  updated_at                                                          DateTime?                        @default(now()) @db.Timestamptz(6)
+  changed_by                                                          String?                          @db.VarChar(36)
+  deleted_at                                                          DateTime?                        @db.Timestamptz(6)
+  tenant_id                                                           String?                          @db.VarChar(36)
+  locked_until                                                        DateTime?                        @db.Timestamptz(6)
+  reset_expires                                                       DateTime?                        @db.Timestamptz(6)
+  reset_token                                                         String?                          @db.VarChar(128)
+  temp_social_profiles                                                Json?                            @default("{}")
+  last_login_at                                                       DateTime?                        @db.Timestamptz(6)
+  pre_lock_status                                                     users_status?
+  attempt_count                                                       Int?                             @default(0)
+  achievements                                                        achievements[]
+  addresses                                                           addresses[]
+  assets                                                              assets[]
+  audit_logs                                                          audit_logs[]
+  biographies                                                         biographies[]
+  branches_branches_changed_byTousers                                 branches[]                       @relation("branches_changed_byTousers")
+  communication_bindings_communication_bindings_changed_byTousers     communication_bindings[]         @relation("communication_bindings_changed_byTousers")
+  communication_bindings_communication_bindings_user_idTousers        communication_bindings[]         @relation("communication_bindings_user_idTousers")
+  events                                                              events[]
+  fund_transactions                                                   fund_transactions[]
+  funds                                                               funds[]
+  graves                                                              graves[]
+  inbound_messages_inbound_messages_changed_byTousers                 inbound_messages[]               @relation("inbound_messages_changed_byTousers")
+  inbound_messages_inbound_messages_user_idTousers                    inbound_messages[]               @relation("inbound_messages_user_idTousers")
+  marriages                                                           marriages[]
+  media                                                               media[]
+  members_members_changed_byTousers                                   members[]                        @relation("members_changed_byTousers")
+  notification_deliveries_notification_deliveries_changed_byTousers   notification_deliveries[]        @relation("notification_deliveries_changed_byTousers")
+  notification_deliveries_notification_deliveries_handled_byTousers   notification_deliveries[]        @relation("notification_deliveries_handled_byTousers")
+  notification_recipients_notification_recipients_changed_byTousers   notification_recipients[]        @relation("notification_recipients_changed_byTousers")
+  notification_recipients_notification_recipients_user_idTousers      notification_recipients[]        @relation("notification_recipients_user_idTousers")
+  notifications                                                       notifications[]
+  password_reset_sessions_password_reset_sessions_changed_byTousers   password_reset_sessions[]        @relation("password_reset_sessions_changed_byTousers")
+  password_reset_sessions_password_reset_sessions_user_idTousers      password_reset_sessions[]        @relation("password_reset_sessions_user_idTousers")
+  tenant_communication_providers                                      tenant_communication_providers[]
+  user_contact_preferences_user_contact_preferences_changed_byTousers user_contact_preferences[]       @relation("user_contact_preferences_changed_byTousers")
+  user_contact_preferences_user_contact_preferences_user_idTousers    user_contact_preferences[]       @relation("user_contact_preferences_user_idTousers")
+  branches_users_branch_idTobranches                                  branches?                        @relation("users_branch_idTobranches", fields: [branch_id], references: [id], onUpdate: NoAction, map: "fk_user_branch")
+  members_users_member_idTomembers                                    members?                         @relation("users_member_idTomembers", fields: [member_id], references: [id], onUpdate: NoAction, map: "fk_user_member")
+  tenants                                                             tenants?                         @relation(fields: [tenant_id], references: [id], onDelete: Restrict, map: "fk_users_tenant")
+  modifier                                                            users?                           @relation("UserAuditing", fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_users_user")
+  modified_users                                                      users[]                          @relation("UserAuditing")
+  web_push_subscriptions_web_push_subscriptions_changed_byTousers     web_push_subscriptions[]         @relation("web_push_subscriptions_changed_byTousers")
+  web_push_subscriptions_web_push_subscriptions_user_idTousers        web_push_subscriptions[]         @relation("web_push_subscriptions_user_idTousers")
+
+  @@index([tenant_id], map: "idx_users_tenant")
+  @@index([branch_id], map: "idx_user_branch")
+  @@index([member_id], map: "idx_user_member")
+  @@index([changed_by], map: "idx_users_user")
+  @@index([deleted_at], map: "idx_users_deleted_at")
+  @@index([locked_until], map: "idx_users_locked_until")
+  @@index([email(ops: raw("gin_trgm_ops"))], map: "trgm_idx_users_email", type: Gin)
+  @@index([name(ops: raw("gin_trgm_ops"))], map: "trgm_idx_users_name", type: Gin)
+  @@index([phone(ops: raw("gin_trgm_ops"))], map: "trgm_idx_users_phone", type: Gin)
+  @@map("users")
+}
+
+model cemetery {
+  id          String                 @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  branch_id   String?                @db.VarChar(36)
+  name        String                 @db.VarChar(255)
+  description String?
+  address_id  String?                @db.VarChar(36)
+  status      cemetery_cemetery_type
+  created_at  DateTime?              @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime?              @default(now()) @db.Timestamptz(6)
+  changed_by  String?                @db.VarChar(36)
+  deleted_at  DateTime?              @db.Timestamptz(6)
+  tenant_id   String                 @db.VarChar(36)
+  addresses   addresses?             @relation(fields: [address_id], references: [id], onUpdate: NoAction, map: "fk_cemetery_address")
+  branches    branches?              @relation(fields: [branch_id], references: [id], onUpdate: NoAction, map: "fk_cemetery_branch")
+  tenants     tenants                @relation(fields: [tenant_id], references: [id], map: "fk_cemetery_tenant")
+  graves      graves[]
+
+  @@index([tenant_id], map: "idx_cemetery_tenant")
+  @@index([address_id], map: "idx_cemetery_address")
+  @@index([branch_id], map: "idx_cemetery_branch")
+  @@index([deleted_at], map: "idx_cemetery_deleted_at")
+}
+
+model worships {
+  id          String                @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  branch_id   String?               @db.VarChar(36)
+  name        String                @db.VarChar(50)
+  address_id  String?               @db.VarChar(36)
+  status      worships_worship_type
+  description String?
+  created_at  DateTime?             @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime?             @default(now()) @db.Timestamptz(6)
+  changed_by  String?               @db.VarChar(36)
+  deleted_at  DateTime?             @db.Timestamptz(6)
+  tenant_id   String                @db.VarChar(36)
+  assets      assets[]
+  addresses   addresses?            @relation(fields: [address_id], references: [id], onUpdate: NoAction, map: "fk_worship_address")
+  branches    branches?             @relation(fields: [branch_id], references: [id], onUpdate: NoAction, map: "fk_worship_branch")
+  tenants     tenants               @relation(fields: [tenant_id], references: [id], map: "fk_worship_tenant")
+
+  @@index([tenant_id], map: "idx_worship_tenant")
+  @@index([address_id], map: "idx_worship_address")
+  @@index([branch_id], map: "idx_worship_branch")
+  @@index([deleted_at], map: "idx_worship_deleted_at")
+}
+
+model auth_logs {
+  id                   String            @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  identifier           String            @db.VarChar(100)
+  ip_address           String            @db.VarChar(45)
+  user_agent           String
+  status               auth_logs_status? @default(THANH_CONG)
+  failure_reason       String?
+  attempt_count        Int?              @default(0)
+  created_at           DateTime?         @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime?         @default(now()) @db.Timestamptz(6)
+  changed_by           String?           @db.VarChar(36)
+  deleted_at           DateTime?         @db.Timestamptz(6)
+  turnstile_success    Boolean?
+  turnstile_error_code String?           @db.VarChar(50)
+  turnstile_action     String?           @db.VarChar(50)
+  turnstile_hostname   String?           @db.VarChar(255)
+  turnstile_score      Decimal?          @db.Decimal(3, 2)
+  cf_bot_score         Int?
+  cf_bot_verified      Boolean?
+
+  @@index([identifier, ip_address], map: "idx_auth_logs_identifier_ip")
+  @@index([identifier, created_at], map: "idx_auth_logs_identifier_time")
+}
+
+model notifications {
+  id                      String                    @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  user_id                 String                    @db.VarChar(36)
+  type                    String?                   @default("HE_THONG") @db.VarChar(20)
+  title                   String?                   @db.VarChar(255)
+  content                 String?
+  is_read                 Boolean?                  @default(false)
+  created_at              DateTime?                 @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime?                 @default(now()) @db.Timestamptz(6)
+  changed_by              String?                   @db.VarChar(36)
+  deleted_at              DateTime?                 @db.Timestamptz(6)
+  external_sent_status    Boolean?                  @default(false)
+  level                   notification_level?       @default(INFO)
+  status                  notification_status?      @default(PENDING)
+  read_at                 DateTime?                 @db.Timestamptz(6)
+  metadata                Json?                     @default("{}")
+  event_type              notification_event?
+  reliability             notification_reliability  @default(LOW)
+  correlation_id          String                    @db.VarChar(36)
+  tenant_id               String?                   @db.VarChar(36)
+  notification_deliveries notification_deliveries[]
+  notification_recipients notification_recipients[]
+  users                   users                     @relation(fields: [user_id], references: [id], onUpdate: NoAction, map: "fk_notifications_user")
+  tenants                 tenants?                  @relation(fields: [tenant_id], references: [id], onDelete: Restrict, map: "fk_tenants_notifications")
+
+  @@index([level], map: "idx_notifications_level")
+  @@index([status], map: "idx_notifications_status")
+  @@index([created_at], map: "idx_notifications_created_at")
+  @@index([deleted_at], map: "idx_notifications_deleted_at")
+  @@index([event_type], map: "idx_notifications_event_type")
+  @@index([reliability], map: "idx_notifications_reliability")
+  @@index([user_id], map: "idx_notifications_user")
+  @@index([correlation_id], map: "idx_notifications_correlation")
+  @@index([tenant_id], map: "idx_notifications_tenants")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model slug_counters {
+  year       Int       @id
+  last_value Int       @default(0)
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @db.Timestamptz(6)
+  changed_by String?   @db.VarChar(36)
+  deleted_at DateTime? @db.Timestamptz(6)
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model inbound_messages {
+  id                                       String                 @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  tenant_id                                String?                @db.VarChar(36)
+  user_id                                  String?                @db.VarChar(36)
+  channel                                  contact_channel
+  provider                                 communication_provider
+  external_user_id                         String?                @db.VarChar(255)
+  external_message_id                      String?                @db.VarChar(255)
+  sender_name                              String?                @db.VarChar(255)
+  content                                  String?
+  raw_payload                              Json                   @default("{}")
+  received_at                              DateTime?              @default(now()) @db.Timestamptz(6)
+  processed_at                             DateTime?              @db.Timestamptz(6)
+  created_at                               DateTime?              @default(now()) @db.Timestamptz(6)
+  updated_at                               DateTime?              @default(now()) @db.Timestamptz(6)
+  changed_by                               String?                @db.VarChar(36)
+  deleted_at                               DateTime?              @db.Timestamptz(6)
+  status                                   inbound_message_status @default(PENDING)
+  error                                    String?
+  users_inbound_messages_changed_byTousers users?                 @relation("inbound_messages_changed_byTousers", fields: [changed_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_im_changed_by")
+  tenants                                  tenants?               @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_im_tenant")
+  users_inbound_messages_user_idTousers    users?                 @relation("inbound_messages_user_idTousers", fields: [user_id], references: [id], onUpdate: NoAction, map: "fk_im_user")
+
+  @@index([channel], map: "idx_im_channel")
+  @@index([deleted_at], map: "idx_im_deleted_at")
+  @@index([provider], map: "idx_im_provider")
+  @@index([tenant_id], map: "idx_im_tenant")
+  @@index([user_id], map: "idx_im_user")
+  @@index([received_at], map: "idx_im_received_at")
+  @@index([status], map: "idx_im_status")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model notification_deliveries {
+  id                                              String                   @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  notification_id                                 String                   @db.VarChar(36)
+  channel                                         contact_channel
+  provider                                        communication_provider?
+  status                                          notification_status      @default(PENDING)
+  recipient                                       String?                  @db.VarChar(255)
+  external_id                                     String?                  @db.VarChar(255)
+  sent_at                                         DateTime?                @db.Timestamptz(6)
+  failed_at                                       DateTime?                @db.Timestamptz(6)
+  error                                           String?
+  raw_response                                    Json                     @default("{}")
+  manual_note                                     String?
+  handled_by                                      String?                  @db.VarChar(36)
+  created_at                                      DateTime?                @default(now()) @db.Timestamptz(6)
+  updated_at                                      DateTime?                @default(now()) @db.Timestamptz(6)
+  changed_by                                      String?                  @db.VarChar(36)
+  deleted_at                                      DateTime?                @db.Timestamptz(6)
+  notification_recipient_id                       String?                  @db.VarChar(36)
+  retry_count                                     Int                      @default(0)
+  delivered_at                                    DateTime?                @db.Timestamptz(6)
+  read_at                                         DateTime?                @db.Timestamptz(6)
+  users_notification_deliveries_changed_byTousers users?                   @relation("notification_deliveries_changed_byTousers", fields: [changed_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_nd_changed_by")
+  users_notification_deliveries_handled_byTousers users?                   @relation("notification_deliveries_handled_byTousers", fields: [handled_by], references: [id], onUpdate: NoAction, map: "fk_nd_handled_by")
+  notifications                                   notifications            @relation(fields: [notification_id], references: [id], onUpdate: NoAction, map: "fk_nd_notification")
+  notification_recipients                         notification_recipients? @relation(fields: [notification_recipient_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_nd_recipient")
+
+  @@index([channel], map: "idx_nd_channel")
+  @@index([deleted_at], map: "idx_nd_deleted_at")
+  @@index([notification_id], map: "idx_nd_notification")
+  @@index([provider], map: "idx_nd_provider")
+  @@index([status], map: "idx_nd_status")
+  @@index([created_at], map: "idx_nd_created_at")
+  @@index([notification_recipient_id], map: "idx_nd_recipient")
+  @@index([retry_count], map: "idx_nd_retry_count")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model tenant_communication_providers {
+  id          String                 @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  tenant_id   String                 @db.VarChar(36)
+  provider    communication_provider
+  name        String?                @db.VarChar(100)
+  enabled     Boolean                @default(true)
+  is_default  Boolean                @default(false)
+  config      Json                   @default("{}")
+  secrets_ref String?                @db.VarChar(255)
+  created_at  DateTime?              @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime?              @default(now()) @db.Timestamptz(6)
+  changed_by  String?                @db.VarChar(36)
+  deleted_at  DateTime?              @db.Timestamptz(6)
+  channel     contact_channel?
+  priority    Int                    @default(100)
+  users       users?                 @relation(fields: [changed_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_tcp_changed_by")
+  tenants     tenants                @relation(fields: [tenant_id], references: [id], onUpdate: NoAction, map: "fk_tcp_tenant")
+
+  @@index([deleted_at], map: "idx_tcp_deleted_at")
+  @@index([provider], map: "idx_tcp_provider")
+  @@index([tenant_id], map: "idx_tcp_tenant")
+  @@index([channel], map: "idx_tcp_channel")
+  @@index([enabled], map: "idx_tcp_enabled")
+  @@index([tenant_id, provider], map: "idx_tcp_tenant_provider")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model user_contact_preferences {
+  id                                               String          @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  user_id                                          String          @db.VarChar(36)
+  channel                                          contact_channel
+  value                                            String?         @db.VarChar(255)
+  preferred                                        Boolean         @default(false)
+  enabled                                          Boolean         @default(true)
+  verified                                         Boolean         @default(false)
+  metadata                                         Json            @default("{}")
+  created_at                                       DateTime?       @default(now()) @db.Timestamptz(6)
+  updated_at                                       DateTime?       @default(now()) @db.Timestamptz(6)
+  changed_by                                       String?         @db.VarChar(36)
+  deleted_at                                       DateTime?       @db.Timestamptz(6)
+  users_user_contact_preferences_changed_byTousers users?          @relation("user_contact_preferences_changed_byTousers", fields: [changed_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_ucp_changed_by")
+  users_user_contact_preferences_user_idTousers    users           @relation("user_contact_preferences_user_idTousers", fields: [user_id], references: [id], onUpdate: NoAction, map: "fk_ucp_user")
+
+  @@index([channel], map: "idx_ucp_channel")
+  @@index([deleted_at], map: "idx_ucp_deleted_at")
+  @@index([user_id], map: "idx_ucp_user")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model web_push_subscriptions {
+  id                                             String    @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  user_id                                        String    @db.VarChar(36)
+  endpoint                                       String
+  p256dh                                         String
+  auth                                           String
+  user_agent                                     String?
+  enabled                                        Boolean   @default(true)
+  created_at                                     DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at                                     DateTime? @default(now()) @db.Timestamptz(6)
+  changed_by                                     String?   @db.VarChar(36)
+  deleted_at                                     DateTime? @db.Timestamptz(6)
+  last_seen_at                                   DateTime? @db.Timestamptz(6)
+  failed_at                                      DateTime? @db.Timestamptz(6)
+  failure_count                                  Int       @default(0)
+  users_web_push_subscriptions_changed_byTousers users?    @relation("web_push_subscriptions_changed_byTousers", fields: [changed_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_wps_changed_by")
+  users_web_push_subscriptions_user_idTousers    users     @relation("web_push_subscriptions_user_idTousers", fields: [user_id], references: [id], onUpdate: NoAction, map: "fk_wps_user")
+
+  @@index([deleted_at], map: "idx_wps_deleted_at")
+  @@index([user_id], map: "idx_wps_user")
+  @@index([enabled], map: "idx_wps_enabled")
+  @@index([failed_at], map: "idx_wps_failed_at")
+  @@index([last_seen_at], map: "idx_wps_last_seen_at")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model password_reset_sessions {
+  id                                              String    @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  user_id                                         String    @db.VarChar(36)
+  identifier                                      String    @db.VarChar(255)
+  otp_hash                                        String?   @db.VarChar(255)
+  reset_token_hash                                String?   @db.VarChar(255)
+  status                                          String    @default("PENDING") @db.VarChar(30)
+  request_count                                   Int       @default(1)
+  resend_count                                    Int       @default(0)
+  verify_attempt_count                            Int       @default(0)
+  expires_at                                      DateTime  @db.Timestamptz(6)
+  verified_at                                     DateTime? @db.Timestamptz(6)
+  locked_until                                    DateTime? @db.Timestamptz(6)
+  ip_address                                      String?   @db.VarChar(45)
+  user_agent                                      String?
+  metadata                                        Json      @default("{}")
+  created_at                                      DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at                                      DateTime? @default(now()) @db.Timestamptz(6)
+  changed_by                                      String?   @db.VarChar(36)
+  deleted_at                                      DateTime? @db.Timestamptz(6)
+  users_password_reset_sessions_changed_byTousers users?    @relation("password_reset_sessions_changed_byTousers", fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_prs_changed_by")
+  users_password_reset_sessions_user_idTousers    users     @relation("password_reset_sessions_user_idTousers", fields: [user_id], references: [id], onUpdate: NoAction, map: "fk_prs_user")
+
+  @@index([deleted_at], map: "idx_prs_deleted_at")
+  @@index([expires_at], map: "idx_prs_expires_at")
+  @@index([identifier], map: "idx_prs_identifier")
+  @@index([locked_until], map: "idx_prs_locked_until")
+  @@index([status], map: "idx_prs_status")
+  @@index([user_id], map: "idx_prs_user")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model communication_bindings {
+  id                                             String                      @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  user_id                                        String                      @db.VarChar(36)
+  channel                                        contact_channel
+  binding_state                                  communication_binding_state @default(DECLARED)
+  external_id                                    String?                     @db.VarChar(255)
+  display_name                                   String?                     @db.VarChar(255)
+  connected_at                                   DateTime?                   @db.Timestamptz(6)
+  disabled_at                                    DateTime?                   @db.Timestamptz(6)
+  metadata                                       Json                        @default("{}")
+  created_at                                     DateTime?                   @default(now()) @db.Timestamptz(6)
+  updated_at                                     DateTime?                   @default(now()) @db.Timestamptz(6)
+  changed_by                                     String?                     @db.VarChar(36)
+  deleted_at                                     DateTime?                   @db.Timestamptz(6)
+  users_communication_bindings_changed_byTousers users?                      @relation("communication_bindings_changed_byTousers", fields: [changed_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cb_changed_by")
+  users_communication_bindings_user_idTousers    users                       @relation("communication_bindings_user_idTousers", fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_cb_user")
+
+  @@index([channel], map: "idx_cb_channel")
+  @@index([deleted_at], map: "idx_cb_deleted_at")
+  @@index([binding_state], map: "idx_cb_state")
+  @@index([user_id], map: "idx_cb_user")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model notification_recipients {
+  id                                              String                    @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  notification_id                                 String                    @db.VarChar(36)
+  user_id                                         String                    @db.VarChar(36)
+  read_at                                         DateTime?                 @db.Timestamptz(6)
+  created_at                                      DateTime?                 @default(now()) @db.Timestamptz(6)
+  updated_at                                      DateTime?                 @default(now()) @db.Timestamptz(6)
+  changed_by                                      String?                   @db.VarChar(36)
+  deleted_at                                      DateTime?                 @db.Timestamptz(6)
+  notification_deliveries                         notification_deliveries[]
+  users_notification_recipients_changed_byTousers users?                    @relation("notification_recipients_changed_byTousers", fields: [changed_by], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_nr_changed_by")
+  notifications                                   notifications             @relation(fields: [notification_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_nr_notification")
+  users_notification_recipients_user_idTousers    users                     @relation("notification_recipients_user_idTousers", fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_nr_user")
+
+  @@index([deleted_at], map: "idx_nr_deleted_at")
+  @@index([notification_id], map: "idx_nr_notification")
+  @@index([read_at], map: "idx_nr_read_at")
+  @@index([user_id], map: "idx_nr_user")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model tenant_social_spaces {
+  id            String    @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  tenant_id     String    @db.VarChar(36)
+  platform      String    @db.VarChar(32)
+  name          String    @db.VarChar(255)
+  url           String
+  description   String?
+  display_order Int?      @default(0)
+  enabled       Boolean?  @default(true)
+  metadata      Json?     @default("{}")
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime? @default(now()) @db.Timestamptz(6)
+  changed_by    String?   @db.VarChar(36)
+  deleted_at    DateTime? @db.Timestamptz(6)
+  tenants       tenants   @relation(fields: [tenant_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+
+  @@index([deleted_at], map: "idx_tss_deleted_at")
+}
+
+/// This model contains row level security and requires additional setup for migrations. Visit https://pris.ly/d/row-level-security for more info.
+model business_process_logs {
+  id             String                @id(map: "pk_business_process_logs") @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  correlation_id String                @db.VarChar(36)
+  attempt_no     Int                   @default(1)
+  process_type   business_process_type
+  actor_type     actor_type            @default(USER)
+  actor_id       String                @db.VarChar(36)
+  tenant_id      String?               @db.VarChar(36)
+  process_status process_status_type   @default(SUCCESS)
+  metadata       Json                  @default("{}")
+  created_at     DateTime              @default(now()) @db.Timestamptz(6)
+  tenants        tenants?              @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_process_log_tenant")
+
+  @@unique([correlation_id, attempt_no], map: "uq_process_log_attempt")
+  @@index([tenant_id], map: "idx_process_log_tenant")
+  @@index([created_at(sort: Desc)], map: "idx_process_log_time")
+  @@index([process_type], map: "idx_process_log_type")
+  @@index([correlation_id], map: "idx_process_log_correlation")
+}
+
+/// This table is to enhance the INSERT performance of authLogs.
+model user_attempt_number {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.VarChar(36)
+  identifier     String   @db.VarChar(100)
+  ip_address     String   @default("0.0.0.0") @db.VarChar(45)
+  action_type    String   @default("LOGIN") @db.VarChar(30)
+  attempt_count  Int      @default(1)
+  last_failed_at DateTime @default(now()) @db.Timestamptz(6)
+
+  @@unique([identifier, ip_address, action_type], name: "idx_user_attempt_action")
+  @@map("user_attempt_number")
+}
+
+enum achievements_category {
+  KHOA_BANG
+  QUAN_SU
+  CHINH_TRI
+  KINH_DOANH
+  TON_GIAO
+  DONG_GOP_XA_HOI
+  KHAC
+}
+
+enum fund_transactions_transaction_type {
+  THU
+  CHI
+}
+
+enum assets_asset_type {
+  BAT_DONG_SAN
+  DI_VAT_CO_VAT
+  GIA_PHA
+  TAI_LIEU
+  KHAC
+}
+
+enum audit_logs_action {
+  THEM_MOI
+  CAP_NHAT
+  XOA
+}
+
+enum events_event_type {
+  GIO_CHAP
+  HOP_HO
+  LE_TET
+  THANH_MINH
+  KHAC
+}
+
+enum members_gender {
+  NAM
+  NU
+  KHAC
+}
+
+enum users_role {
+  SYSTEM_ADMIN
+  CLAN_ADMIN
+  USER
+  KHAC
+  VIEWER
+  GUEST
+  EDITOR
+}
+
+enum users_status {
+  CHO_DUYET
+  DA_DUYET
+  BI_KHOA
+  BI_CAM
+  TAM_NGUNG
+  TU_CHOI
+}
+
+enum users_temp_relationship {
+  CON_DE
+  CON_NUOI
+  CON_RIENG
+  KHAC
+  CON_DAU
+  CON_RE
+  CON_DO_DAU
+}
+
+enum graves_condition_status {
+  MO_DAT
+  DA_SANG_CAT
+  HOA_TANG
+  THAT_LAC
+  CHUA_XAY
+  KHAC
+}
+
+enum marriages_status {
+  DANG_KET_HON
+  LY_HON
+  GOA
+  LY_THAN
+  KHAC
+}
+
+enum members_child_type {
+  CON_DE
+  CON_NUOI
+  CON_RIENG
+  KHAC
+  CON_DAU
+  CON_RE
+  CON_DO_DAU
+}
+
+enum cemetery_cemetery_type {
+  TAM_THOI
+  ON_DINH
+  KHAC
+}
+
+enum worships_worship_type {
+  TOT
+  CAN_SUA
+  CAN_XAY
+  KHAC
+}
+
+enum members_roles {
+  TRUONG_TOC
+  TRUONG_NGANH
+  TRUONG_CHI
+  THANH_VIEN
+  TRUONG_HO
+  KHAC
+}
+
+enum data_suggestions_status {
+  CHO_DUYET
+  DA_DUYET
+  TU_CHOI
+}
+
+enum auth_logs_status {
+  THANH_CONG
+  THAT_BAI
+  KHAC
+}
+
+enum tenant_status {
+  CHO_DUYET
+  HOAT_DONG
+  BI_KHOA
+  TAM_NGUNG
+  NGUNG_HAN
+  TU_CHOI
+}
+
+enum communication_provider {
+  IN_APP
+  EMAIL_SMTP
+  EMAIL_API
+  TELEGRAM_BOT
+  WHATSAPP_BUSINESS
+  ZALO_PZ_MANUAL
+  ZALO_OA
+  WEB_PUSH
+  SMS_PROVIDER
+  MOBILE_PUSH_PROVIDER
+}
+
+enum contact_channel {
+  IN_APP
+  EMAIL
+  TELEGRAM
+  WHATSAPP
+  ZALO
+  WEB_PUSH
+  SMS
+  MOBILE_PUSH
+}
+
+enum notification_level {
+  INFO
+  WARNING
+  IMPORTANT
+  CRITICAL
+}
+
+enum notification_status {
+  PENDING
+  SENT
+  FAILED
+  MANUAL_REQUIRED
+  READ
+  CANCELLED
+}
+
+enum communication_binding_state {
+  DECLARED
+  SUGGESTED
+  CONNECTED
+  DISABLED
+}
+
+enum inbound_message_status {
+  PENDING
+  PROCESSED
+  FAILED
+  IGNORED
+}
+
+enum notification_event {
+  USER_REGISTERED
+  USER_APPROVAL_PENDING
+  USER_APPROVED
+  USER_REJECTED
+  PASSWORD_RESET_REQUESTED
+  PASSWORD_CHANGED
+  LOGIN_SUCCESS
+  SUSPICIOUS_LOGIN
+  SECURITY_ALERT
+  ACCOUNT_LOCKED
+  RECOVERY_EMAIL_CHANGED
+  CLAN_INVITATION
+  CLAN_JOIN_REQUEST
+  MEMBERSHIP_APPROVED
+  MEMBERSHIP_REJECTED
+  ROLE_CHANGED
+  ADMIN_APPROVAL_REQUIRED
+  ADMIN_ACTION_REQUIRED
+  ONBOARDING_REMINDER
+  PROFILE_INCOMPLETE
+  COMMUNICATION_BINDING_REMINDER
+}
+
+enum notification_reliability {
+  LOW
+  MEDIUM
+  HIGH
+  VERY_HIGH
+}
+
+enum members_status {
+  DU_BI
+  CHINH_THUC
+}
+
+enum actor_type {
+  USER
+  SYSTEM
+  JOB_RUNNER
+  CRON
+  IMPORT_TOOL
+}
+
+enum business_process_type {
+  USER_REGISTER
+  USER_APPROVAL
+  USER_REJECTION
+  PASSWORD_RESET_REQUESTED
+  CLAN_CREATE
+  CLAN_JOIN
+  MEMBER_ADD
+  MEMBER_REMOVE
+  USER_LOCK
+  USER_UNLOCK
+  USER_BAN
+  USER_UNBAN
+}
+
+enum process_status_type {
+  SUCCESS
+  FAILED
+  ROLLBACKED
+  CANCELLED
+  PENDING
+}

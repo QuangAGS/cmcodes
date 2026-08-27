@@ -1,0 +1,728 @@
+generator client {
+  provider = "prisma-client-js"
+  binaryTargets = ["native", "debian-openssl-3.0.x"]    //Bổ sung cho render.com
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ========== MODELS ==========
+
+
+model data_suggestions {
+  id              String                  @id @default(uuid()) @db.VarChar(36)
+  tenant_id       String?                 @db.VarChar(36)
+  target_table    String?                 @db.VarChar(50)
+  target_id       String?                 @db.VarChar(36)
+  suggested_data  Json?                   // Sử dụng Json để lưu thay đổi cấu trúc
+  status          data_suggestions_status? @default(CHO_DUYET)
+  
+  created_at      DateTime?               @default(now()) @db.Timestamp(0)
+  updated_at      DateTime?               @default(now()) @db.Timestamp(0)
+  changed_by      String?                 @db.VarChar(36)
+  deleted_at      DateTime?               @db.Timestamp(0)
+
+  // Relations
+  tenants         tenants?                @relation(fields: [tenant_id], references: [id], map: "fk_data_suggestions_tenant")
+  
+  @@index([tenant_id], map: "idx_suggestions_tenant")
+  @@index([deleted_at], map: "idx_suggestions_deleted")
+  @@map("data_suggestions")
+}
+
+// tenants cho phép quản lý nhiều dòng họ.
+model tenants {
+  id             String                @id @default(uuid()) @db.VarChar(36)
+  name           String                @db.VarChar(100) // Tối ưu 100 theo thảo luận
+  slug           String                @unique @db.VarChar(10)  // Ép đúng 10 ký tự cho URL gọn
+  description    String?               @db.Text
+  logo_url       String?               @db.VarChar(255)
+  theme_color    String?               @db.VarChar(7)
+  
+  created_at     DateTime?             @default(now()) @db.Timestamp(0)
+  updated_at     DateTime?             @default(now()) @db.Timestamp(0)
+  changed_by     String?               @db.VarChar(36)
+  deleted_at     DateTime?             @db.Timestamp(0)
+
+  // Quan hệ
+  achievements     achievements[]
+  addresses        addresses[]
+  assets           assets[]
+ 
+  biographies      biographies[]
+  branches         branches[]
+  cemetery         cemetery[]
+  events           events[]
+  event_funds      event_funds[]
+  funds            funds[]
+  fund_transactions fund_transactions[]
+  graves           graves[]
+  marriages        marriages[]
+  media            media[]
+  members          members[]
+  worships         worships[]
+  users            users[]
+  data_suggestions data_suggestions[]
+
+  @@map("tenants")
+}
+
+model achievements {
+  id             String                @id @db.VarChar(36)
+  member_id      String                @db.VarChar(36)
+  category       achievements_category
+  title          String                @db.VarChar(255)
+  organization   String?               @db.VarChar(255)
+  achieved_year  Int
+  achieved_month Int?
+  achieved_day   Int?
+  description    String?               @db.Text
+  created_at     DateTime?             @default(now()) @db.Timestamp(0)
+  updated_at     DateTime?             @default(now()) @db.Timestamp(0)
+  changed_by     String?               @db.VarChar(36)
+  deleted_at     DateTime?             @db.Timestamp(0)
+// THÊM LIÊN KẾT TENANT
+  tenant_id    String         @db.VarChar(36)
+  tenants      tenants         @relation(fields: [tenant_id], references: [id], map:"fk_achievement_tenant")
+  @@index([tenant_id], map: "idx_achievement_tenant")
+
+  members        members               @relation(fields: [member_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_achievement_member")
+  users          users?                @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_achievements_user")
+
+  @@index([member_id], map: "idx_achievement_member")
+  @@index([changed_by], map: "idx_achievements_user")
+  @@index([deleted_at], map: "idx_achievements_deleted_at")
+}
+
+model addresses {
+  id            String                @id @db.VarChar(36)
+  full_address  String                @db.VarChar(255)
+  ward_name     String?               @db.VarChar(100)
+  district_name String?               @db.VarChar(100)
+  province_name String?               @db.VarChar(100)
+  country       String?               @default("VIETNAM") @db.VarChar(45)
+  notes         String?               @db.VarChar(255)
+  latitude      Decimal?              @db.Decimal(10, 8)
+  longitude     Decimal?              @db.Decimal(11, 8)
+  location_url  String?               @db.Text
+  created_at    DateTime?             @default(now()) @db.Timestamp(0)
+  updated_at    DateTime?             @default(now()) @db.Timestamp(0)
+  changed_by    String?               @db.VarChar(36)
+  deleted_at    DateTime?             @db.Timestamp(0)
+  // THÊM LIÊN KẾT TENANT
+  tenant_id    String         @db.VarChar(36)
+  tenants      tenants         @relation(fields: [tenant_id], references: [id], map: "fk_address_tenant")
+  @@index([tenant_id], map: "idx_address_tenant")
+
+  users         users?                @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_addresses_user")
+  assets        assets[]
+  branches      branches[]
+  cemetery      cemetery[]
+  events        events[]
+  graves        graves[]
+
+  residents     members[]             @relation("members_current_address_idToaddresses")
+  natives       members[]             @relation("members_origin_address_idToaddresses")
+
+  worships      worships[]
+
+  @@index([changed_by], map: "idx_addresses_user")
+
+}
+
+model assets {
+  id            String            @id @db.VarChar(36)
+  branch_id     String?           @db.VarChar(36)
+  worship_id    String?           @db.VarChar(36)
+  name          String            @db.VarChar(255)
+  asset_type    assets_asset_type
+  description   String?           @db.Text
+  current_value Decimal?          @db.Decimal(15, 2)
+  manager_id    String?           @db.VarChar(36)
+  address_id    String?           @db.VarChar(36)
+  created_at    DateTime?         @default(now()) @db.Timestamp(0)
+  updated_at    DateTime?         @default(now()) @db.Timestamp(0)
+  changed_by    String?           @db.VarChar(36)
+  deleted_at    DateTime?         @db.Timestamp(0)
+  // THÊM LIÊN KẾT TENANT
+  tenant_id    String         @db.VarChar(36)
+  tenants      tenants         @relation(fields: [tenant_id], references: [id], map: "fk_asset_tenant")
+  @@index([tenant_id], map: "idx_assets_tenant")
+
+  addresses     addresses?        @relation(fields: [address_id], references: [id], onUpdate: NoAction, map: "fk_asset_address")
+  branches      branches?         @relation(fields: [branch_id], references: [id], onUpdate: NoAction, map: "fk_asset_branch")
+  members       members?          @relation(fields: [manager_id], references: [id], onUpdate: NoAction, map: "fk_asset_manager")
+  worship       worships?         @relation(fields: [worship_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_asset_worship")
+  users         users?            @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_assets_user")
+
+  @@index([address_id], map: "idx_asset_address")
+  @@index([branch_id], map: "idx_asset_branch")
+  @@index([manager_id], map: "idx_asset_manager")
+  @@index([changed_by], map: "idx_assets_user")
+  @@index([worship_id], map: "idx_asset_worship")
+  @@index([deleted_at], map: "idx_assets_deleted_at")
+}
+
+model audit_logs {
+  id            String            @id @db.VarChar(36)
+  table_name    String            @db.VarChar(50)
+  record_id     String            @db.VarChar(36)
+  action        audit_logs_action
+  old_data      Json?
+  new_data      Json?
+  // THÊM LIÊN KẾT TENANT
+  tenant_id    String         @db.VarChar(36)
+  
+  @@index([tenant_id], map: "idx_tenant_id")
+
+  change_reason String?           @db.VarChar(500)
+  changed_by    String?           @db.VarChar(36)
+  created_at    DateTime?         @default(now()) @db.Timestamp(0)
+  users         users?            @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_audit_user")
+
+  @@index([changed_by], map: "idx_audit_user")
+  @@index([table_name, record_id], map: "idx_audit_record")
+}
+
+model biographies {
+  id                 String    @id @db.VarChar(36)
+  member_id          String    @unique(map: "biographies_member_id") @db.VarChar(36)
+  childhood_summary  String?   @db.Text
+  education_history  String?   @db.Text
+  career_history     String?   @db.Text   // LongText -> Text (Postgres)
+  later_life_summary String?   @db.Text
+  personality_traits String?   @db.VarChar(500)
+  notable_quotes     String?   @db.Text
+  created_at         DateTime? @default(now()) @db.Timestamp(0)
+  updated_at         DateTime? @default(now()) @db.Timestamp(0)
+  changed_by         String?   @db.VarChar(36)
+  deleted_at         DateTime? @db.Timestamp(0)
+  // THÊM LIÊN KẾT TENANT
+  tenant_id    String         @db.VarChar(36)
+  tenants      tenants         @relation(fields: [tenant_id], references: [id], map: "fk_bibliography_tenant")
+  @@index([tenant_id], map: "idx_bibliography_tenant")
+
+  users              users?    @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_biographies_user")
+  members            members   @relation(fields: [member_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_biography_member")
+
+  @@index([changed_by], map: "idx_biographies_user")
+  // @@fulltext([career_history], map: "ft_idx_career") // không hỗ trợ với Postgres
+  @@index([deleted_at], map: "idx_biographies_deleted_at")
+}
+
+model branches {
+  id                               String     @id @db.VarChar(36)
+  parent_id                        String?    @db.VarChar(36)
+  name                             String     @db.VarChar(100)
+  description                      String?    @db.Text
+  headquarters_address_id          String?    @db.VarChar(36)
+  social_groups                    Json?
+  contact_phone                    String?    @db.VarChar(20)
+  contact_email                    String?    @db.VarChar(100)
+  changed_by                       String?    @db.VarChar(36)
+  created_at                       DateTime?  @default(now()) @db.Timestamp(0)
+  updated_at                       DateTime?  @default(now()) @db.Timestamp(0)
+  deleted_at                       DateTime?  @db.Timestamp(0)
+  founder_id                       String?    @db.VarChar(36)
+  // THÊM LIÊN KẾT TENANT
+  tenant_id    String         @db.VarChar(36)
+  tenants      tenants         @relation(fields: [tenant_id], references: [id], map: "fk_branch_tenant")
+  @@index([tenant_id], map: "idx_branch_tenant")
+
+  assets                           assets[]
+  addresses                        addresses? @relation(fields: [headquarters_address_id], references: [id], onUpdate: NoAction, map: "fk_branch_address")
+  users_branches_changed_byTousers users?     @relation("branches_changed_byTousers", fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_branches_user")
+  cemetery                         cemetery[]
+  events                           events[]
+  members                          members[]
+  users_users_branch_idTobranches  users[]    @relation("users_branch_idTobranches")
+  worships                         worships[]
+  // Thiết lập quan hệ với bảng members
+  founder                          members?  @relation("MemberToBranchFounder", fields: [founder_id], references: [id], onUpdate: NoAction, map: "fk_branch_founder")
+
+  @@index([headquarters_address_id], map: "idx_branch_address")
+  @@index([changed_by], map: "idx_branches_user")
+  @@index([deleted_at], map: "idx_branches_deleted_at")
+}
+
+model events {
+  id           String            @id @db.VarChar(36)
+  branch_id    String?           @db.VarChar(36)
+  name         String            @db.VarChar(255)
+  event_type   events_event_type
+  event_day    Int?
+  event_month  Int?
+  event_year   Int?
+  is_lunar     Boolean?          @default(false)
+  description  String?           @db.Text
+  address_id   String?           @db.VarChar(36)
+  organizer_id String?           @db.VarChar(36)
+  created_at   DateTime?         @default(now()) @db.Timestamp(0)
+  changed_by   String?           @db.VarChar(36)
+  deleted_at   DateTime?         @db.Timestamp(0)
+  // THÊM LIÊN KẾT TENANT
+  tenant_id    String         @db.VarChar(36)
+  tenants      tenants         @relation(fields: [tenant_id], references: [id], map: "fk_event_tenant")
+  @@index([tenant_id], map: "idx_event_tenant")
+
+  event_funds   event_funds[]
+  addresses    addresses?        @relation(fields: [address_id], references: [id], onUpdate: NoAction, map: "fk_event_address")
+  branches     branches?         @relation(fields: [branch_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_event_branch")
+  members      members?          @relation(fields: [organizer_id], references: [id], onUpdate: NoAction, map: "fk_event_organizer")
+  users        users?            @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_events_user")
+
+  @@index([address_id], map: "idx_event_address")
+  @@index([branch_id], map: "idx_event_branch")
+  @@index([organizer_id], map: "idx_event_organizer")
+  @@index([changed_by], map: "idx_events_user")
+  @@index([deleted_at], map: "idx_events_deleted_at")
+}
+
+model event_funds {
+  id              String            @id @default(uuid())
+  event_id        String            @db.VarChar(36)
+  transaction_id  String            @db.VarChar(36)
+  created_at      DateTime?         @default(now()) @db.Timestamp(0)
+  changed_by      String?           @db.VarChar(36)
+  deleted_at      DateTime?         @db.Timestamp(0)
+  // THÊM LIÊN KẾT TENANT
+  tenant_id    String         @db.VarChar(36)
+  tenants      tenants         @relation(fields: [tenant_id], references: [id], map: "fk_event_fund_tenant")
+  @@index([tenant_id], map: "idx_event_fund_tenant")
+
+  // Quan hệ
+  events          events            @relation(fields: [event_id], references: [id])
+  transactions    fund_transactions @relation(fields: [transaction_id], references: [id])
+  @@index([deleted_at], map: "idx_events_funds_deleted_at")
+}
+
+model fund_transactions {
+  id               String                             @id @db.VarChar(36)
+  fund_id          String                             @db.VarChar(36)
+  transaction_type fund_transactions_transaction_type
+  amount           Decimal                            @db.Decimal(15, 2)
+  transaction_date DateTime                           @db.Date
+  member_id        String?                            @db.VarChar(36)
+  guest_name       String?                            @db.VarChar(100)
+  note             String                             @db.VarChar(255)
+  created_at       DateTime?                          @default(now()) @db.Timestamp(0)
+  changed_by       String?                            @db.VarChar(36)
+  deleted_at       DateTime?                          @db.Timestamp(0)
+  // THÊM LIÊN KẾT TENANT
+  tenant_id    String         @db.VarChar(36)
+  tenants      tenants         @relation(fields: [tenant_id], references: [id], map: "fk_fund_trs_tenant")
+  @@index([tenant_id], map: "idx_fund_trs_tenant")
+
+  event_funds       event_funds[]
+  users            users?                             @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_fund_trans_user")
+  funds            funds                              @relation(fields: [fund_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_transaction_fund")
+  members          members?                           @relation(fields: [member_id], references: [id], onUpdate: NoAction, map: "fk_transaction_member")
+
+  @@index([changed_by], map: "idx_fund_trans_user")
+  @@index([fund_id], map: "idx_transaction_fund")
+  @@index([member_id], map: "idx_transaction_member")
+  @@index([deleted_at], map: "idx_funds_trs_deleted_at")
+}
+
+model funds {
+  id                String              @id @db.VarChar(36)
+  name              String              @db.VarChar(255)
+  description       String?             @db.Text
+  current_balance   Decimal?            @default(0.00) @db.Decimal(15, 2)
+  created_at        DateTime?           @default(now()) @db.Timestamp(0)
+  changed_by        String?             @db.VarChar(36)
+  deleted_at        DateTime?           @db.Timestamp(0)
+  // THÊM LIÊN KẾT TENANT
+  tenant_id    String         @db.VarChar(36)
+  tenants      tenants         @relation(fields: [tenant_id], references: [id], map: "fk_funds_tenant")
+  @@index([tenant_id], map: "idx_funds_tenant")
+
+  fund_transactions fund_transactions[]
+  users             users?              @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_funds_user")
+
+  @@index([changed_by], map: "idx_funds_user")
+  @@index([deleted_at], map: "idx_funds_deleted_at")
+}
+
+model graves {
+  id               String                   @id @db.VarChar(36)
+  member_id        String                   @unique(map: "graves_member_id") @db.VarChar(36)
+  cemetery_id      String?                  @db.VarChar(36)
+  plot_details     String?                  @db.VarChar(255)
+  grave_address_id String?                  @db.VarChar(36)
+  condition_status graves_condition_status? @default(DA_SANG_CAT)
+  guide_notes      String?                  @db.Text
+  created_at       DateTime?                @default(now()) @db.Timestamp(0)
+  updated_at       DateTime?                @default(now()) @db.Timestamp(0)
+  changed_by       String?                  @db.VarChar(36)
+  deleted_at       DateTime?                @db.Timestamp(0)
+  // THÊM LIÊN KẾT TENANT
+  tenant_id    String         @db.VarChar(36)
+  tenants      tenants         @relation(fields: [tenant_id], references: [id], map: "fk_graves_tenant")
+  @@index([tenant_id], map: "idx_graves_tenant")
+
+  addresses        addresses?               @relation(fields: [grave_address_id], references: [id], onUpdate: NoAction, map: "fk_grave_address")
+  cemetery         cemetery?                @relation(fields: [cemetery_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_grave_cemetery")
+  members          members                  @relation(fields: [member_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_grave_member")
+  users            users?                   @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_graves_user")
+
+  @@index([grave_address_id], map: "idx_grave_address")
+  @@index([changed_by], map: "idx_graves_user")
+  @@index([cemetery_id], map: "idx_grave_cemetery")
+  @@index([deleted_at], map: "idx_graves_deleted_at")
+}
+
+model marriages {
+  id                                    String            @id @db.VarChar(36)
+  husband_id                            String?            @db.VarChar(36)
+  wife_id                               String?            @db.VarChar(36)
+  husband_marriage_order                Int?              @default(1)
+  wife_marriage_order                   Int?              @default(1)
+  status                                marriages_status? @default(DANG_KET_HON)
+  start_date                            DateTime?         @db.Date
+  end_date                              DateTime?         @db.Date
+  created_at                            DateTime?         @default(now()) @db.Timestamp(0)
+  updated_at                            DateTime?         @default(now()) @db.Timestamp(0)
+  changed_by                            String?           @db.VarChar(36)
+  deleted_at                            DateTime?         @db.Timestamp(0)
+  spouse_name_literal                   String?           @db.VarChar(255)   //Dùng khi không biết ai là hôn phối
+  // THÊM LIÊN KẾT TENANT
+  tenant_id    String         @db.VarChar(36)
+  tenants      tenants         @relation(fields: [tenant_id], references: [id], map: "fk_marriages_tenant")
+  @@index([tenant_id], map: "idx_marriages_tenant")
+
+  members_marriages_husband_idTomembers members?           @relation("marriages_husband_idTomembers", fields: [husband_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_marriage_husband")
+  members_marriages_wife_idTomembers    members?           @relation("marriages_wife_idTomembers", fields: [wife_id], references: [id], onDelete: Cascade, onUpdate: NoAction, map: "fk_marriage_wife")
+  users                                 users?            @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_marriages_user")
+
+  @@unique([husband_id, wife_id], map: "unique_couple")
+  @@index([wife_id], map: "idx_marriage_wife")
+  @@index([changed_by], map: "idx_marriages_user")
+  @@index([deleted_at], map: "idx_marriages_deleted_at")
+}
+
+model media {
+  id          String    @id @db.VarChar(36)
+  entity_id   String    @db.VarChar(36)
+  entity_type String    @db.VarChar(50)
+  file_url    String?   @db.VarChar(500)
+  file_name   String?   @db.VarChar(255)
+  file_type   String?   @db.VarChar(50)
+  file_size   Int?
+  is_primary  Boolean?  @default(false)
+  uploaded_by String?   @db.VarChar(36)
+  changed_by  String?   @db.VarChar(36)
+  created_at  DateTime? @default(now()) @db.Timestamp(0)
+  updated_at  DateTime? @default(now()) @db.Timestamp(0)
+  deleted_at  DateTime? @db.Timestamp(0)
+  // THÊM LIÊN KẾT TENANT
+  tenant_id    String         @db.VarChar(36)
+  tenants      tenants         @relation(fields: [tenant_id], references: [id], map: "fk_media_tenant")
+  @@index([tenant_id], map: "idx_media_tenant")
+
+  users       users?    @relation(fields: [uploaded_by], references: [id], onUpdate: NoAction, map: "fk_media_user")
+
+  @@index([uploaded_by], map: "idx_media_user")
+  @@index([entity_type, entity_id], map: "idx_polymorphic")
+  @@index([deleted_at], map: "idx_media_deleted_at")
+}
+
+model members {
+  id                 String              @id @db.VarChar(36)
+  is_clan            Boolean?            @default(true)
+  branch_id          String?             @db.VarChar(36)
+  full_name          String              @db.VarChar(255)
+  note               String?             @db.VarChar(255)
+  alias              String?             @db.VarChar(255)
+  gender             members_gender
+  is_alive           Boolean?            @default(true)
+  generation         Int?
+  child_type         members_child_type? @default(CON_DE)
+  father_id          String?             @db.VarChar(36)
+  mother_id          String?             @db.VarChar(36)
+  birth_day          Int?
+  birth_month        Int?
+  birth_year         Int?
+  is_birth_lunar     Boolean?            @default(false)
+  birth_note         String?             @db.VarChar(100)
+  death_day          Int?
+  death_month        Int?
+  death_year         Int?
+  is_death_lunar     Boolean?            @default(true)
+  death_note         String?             @db.VarChar(100)
+  current_address_id String?             @db.VarChar(36)
+  origin_address_id  String?             @db.VarChar(36)
+  phone_number       String?             @db.VarChar(20)
+  email              String?             @db.VarChar(100)
+  social_profiles    Json?
+  is_contact_public  Boolean?            @default(true)
+  created_at         DateTime?           @default(now()) @db.Timestamp(0)
+  updated_at         DateTime?           @default(now()) @db.Timestamp(0)
+  changed_by         String?             @db.VarChar(36)
+  deleted_at         DateTime?           @db.Timestamp(0)
+  // THÊM LIÊN KẾT TENANT
+  tenant_id    String         @db.VarChar(36)
+  tenants      tenants         @relation(fields: [tenant_id], references: [id], map: "fk_members_tenant")
+  @@index([tenant_id], map: "idx_members_tenant")
+  role          members_roles?          @default(THANH_VIEN)
+
+  achievements       achievements[]
+  assets             assets[]
+  biographies        biographies?
+  events             events[]
+  fund_transactions  fund_transactions[]
+  graves             graves?
+
+  marriages_as_husband marriages[]       @relation("marriages_husband_idTomembers")
+  marriages_as_wife    marriages[]       @relation("marriages_wife_idTomembers")
+
+  branch               branches?         @relation(fields: [branch_id], references: [id], onUpdate: NoAction, map: "fk_member_branch")
+
+  currentAddress       addresses?        @relation("members_current_address_idToaddresses", fields: [current_address_id], references: [id], onUpdate: NoAction, map: "fk_member_current_addr")
+  originAddress        addresses?        @relation("members_origin_address_idToaddresses", fields: [origin_address_id], references: [id], onUpdate: NoAction, map: "fk_member_origin_addr")
+
+  father               members?          @relation("members_father_idTomembers", fields: [father_id], references: [id], onUpdate: NoAction, map: "fk_member_father")
+  children_of_father   members[]         @relation("members_father_idTomembers")
+
+  mother               members?          @relation("members_mother_idTomembers", fields: [mother_id], references: [id], onUpdate: NoAction, map: "fk_member_mother")
+  children_of_mother   members[]         @relation("members_mother_idTomembers")
+
+  editor               users?            @relation("members_changed_byTousers", fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_members_user")
+  as_user              users[]           @relation("users_member_idTomembers")
+
+  founded_branches     branches[]         @relation("MemberToBranchFounder")
+
+  @@index([branch_id], map: "idx_member_branch")
+  @@index([current_address_id], map: "idx_member_current_addr")
+  @@index([father_id], map: "idx_member_father")
+  @@index([mother_id], map: "idx_member_mother")
+  @@index([origin_address_id], map: "idx_member_origin_addr")
+  @@index([changed_by], map: "idx_members_user")
+  @@index([deleted_at], map: "idx_members_deleted_at")
+  @@map("members")
+}
+
+model users {
+  id                                  String              @id @db.VarChar(36)
+  phone                               String?              @unique(map: "users_phone") @db.VarChar(20)
+  email                               String?              @unique(map: "users_email") @db.VarChar(255)
+  name                                String              @db.VarChar(255)             
+  password                            String              @db.VarChar(255)
+  role                                users_role?         @default(USER)
+  status                              users_status?       @default(CHO_DUYET)
+  temp_full_name                      String?             @db.VarChar(100)
+  temp_father_name                    String?             @db.VarChar(100)
+  temp_grandfather_name               String?             @db.VarChar(100)
+  temp_address                        String?             @db.VarChar(255)
+  temp_birth_year                     Int?
+  temp_branch_name                    String?             @db.VarChar(100)
+  temp_relationship                   users_temp_relationship?
+  temp_note                           String?             @db.Text
+  branch_id                           String?             @db.VarChar(36)
+  member_id                           String?             @db.VarChar(36)
+  created_at                          DateTime?           @default(now()) @db.Timestamp(0)
+  updated_at                          DateTime?           @default(now()) @db.Timestamp(0)
+  changed_by                          String?             @db.VarChar(36)
+  deleted_at                          DateTime?           @db.Timestamp(0)
+  // THÊM LIÊN KẾT TENANT
+  tenant_id    String         @db.VarChar(36)
+  tenants      tenants         @relation(fields: [tenant_id], references: [id], map: "fk_users_tenant")
+  @@index([tenant_id], map: "idx_users_tenant")
+
+  achievements                        achievements[]
+  addresses                           addresses[]
+  assets                              assets[]
+  audit_logs                          audit_logs[]
+  biographies                         biographies[]
+  branches_branches_changed_byTousers branches[]          @relation("branches_changed_byTousers")
+  events                              events[]
+  fund_transactions                   fund_transactions[]
+  funds                               funds[]
+  graves                              graves[]
+  marriages                           marriages[]
+  media                               media[]
+  members_members_changed_byTousers   members[]           @relation("members_changed_byTousers")
+  branches_users_branch_idTobranches  branches?           @relation("users_branch_idTobranches", fields: [branch_id], references: [id], onUpdate: NoAction, map: "fk_user_branch")
+  members_users_member_idTomembers    members?            @relation("users_member_idTomembers", fields: [member_id], references: [id], onUpdate: NoAction, map: "fk_user_member")
+  users                               users?              @relation("usersTousers", fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_users_user")
+  other_users                         users[]             @relation("usersTousers")
+
+  @@index([branch_id], map: "idx_user_branch")
+  @@index([member_id], map: "idx_user_member")
+  @@index([changed_by], map: "idx_users_user")
+  @@index([deleted_at], map: "idx_users_deleted_at")
+  @@map("users")
+}
+
+model cemetery {
+  id          String     @id @db.VarChar(36)
+  branch_id   String?    @db.VarChar(36)
+  name        String     @db.VarChar(255)
+  description String?    @db.Text
+  address_id  String?    @db.VarChar(36)
+  status      cemetery_cemetery_type
+  created_at                          DateTime?           @default(now()) @db.Timestamp(0)
+  updated_at                          DateTime?           @default(now()) @db.Timestamp(0)
+  changed_by                          String?             @db.VarChar(36)
+  deleted_at                          DateTime?           @db.Timestamp(0)
+  // THÊM LIÊN KẾT TENANT
+  tenant_id    String         @db.VarChar(36)
+  tenants      tenants         @relation(fields: [tenant_id], references: [id], map: "fk_cemetery_tenant")
+  @@index([tenant_id], map: "idx_cemetery_tenant")
+
+  addresses   addresses? @relation(fields: [address_id], references: [id], onUpdate: NoAction, map: "fk_cemetery_address")
+  branches    branches?  @relation(fields: [branch_id], references: [id], onUpdate: NoAction, map: "fk_cemetery_branch")
+  graves      graves[]
+
+  @@index([address_id], map: "idx_cemetery_address")
+  @@index([branch_id], map: "idx_cemetery_branch")
+  @@index([deleted_at], map: "idx_cemetery_deleted_at")
+}
+
+model worships {
+  id          String     @id @db.VarChar(36)
+  branch_id   String?    @db.VarChar(36)
+  name        String     @db.VarChar(50)
+  address_id  String?    @db.VarChar(36)
+  status      worships_worship_type
+  description String?    @db.Text
+  created_at                          DateTime?           @default(now()) @db.Timestamp(0)
+  updated_at                          DateTime?           @default(now()) @db.Timestamp(0)
+  changed_by                          String?             @db.VarChar(36)
+  deleted_at                          DateTime?           @db.Timestamp(0)
+  // THÊM LIÊN KẾT TENANT
+  tenant_id    String          @db.VarChar(36)
+  tenants      tenants         @relation(fields: [tenant_id], references: [id], map: "fk_worship_tenant")
+  @@index([tenant_id], map: "idx_worship_tenant")
+
+  assets      assets[]
+  addresses   addresses? @relation(fields: [address_id], references: [id], onUpdate: NoAction, map: "fk_worship_address")
+  branches    branches?  @relation(fields: [branch_id], references: [id], onUpdate: NoAction, map: "fk_worship_branch")
+
+  @@index([address_id], map: "idx_worship_address")
+  @@index([branch_id], map: "idx_worship_branch")
+  @@index([deleted_at], map: "idx_worship_deleted_at")
+}
+
+// ========== ENUMS ==========
+
+enum achievements_category {
+  KHOA_BANG         // Nếu cần  chuyển sang tiếng Việt: : @map("KHOA BẢNG")
+  QUAN_SU           // Nếu cần  chuyển sang tiếng Việt: : @map("QUÂN SỰ")
+  CHINH_TRI         // Nếu cần  chuyển sang tiếng Việt: : @map("CHÍNH TRỊ")
+  KINH_DOANH        // Nếu cần  chuyển sang tiếng Việt: : @map("KINH DOANH")
+  TON_GIAO          // Nếu cần  chuyển sang tiếng Việt: : @map("TÔN GIÁO")
+  DONG_GOP_XA_HOI   // Nếu cần  chuyển sang tiếng Việt: : @map("ĐÓNG GÓP XÃ HỘI")
+  KHAC              // Nếu cần  chuyển sang tiếng Việt: : @map("KHÁC")
+}
+
+enum fund_transactions_transaction_type {
+  THU
+  CHI
+}
+
+enum assets_asset_type {
+  BAT_DONG_SAN    // Nếu cần  chuyển sang tiếng Việt: : @map("BẤT ĐỘNG SẢN")
+  DI_VAT_CO_VAT   // Nếu cần  chuyển sang tiếng Việt: : @map("DI VẬT CỔ VẬT")
+  GIA_PHA         // Nếu cần  chuyển sang tiếng Việt: : @map("GIA PHẢ")
+  TAI_LIEU        // Nếu cần  chuyển sang tiếng Việt: : @map("TÀI LIỆU")
+  KHAC            // Nếu cần  chuyển sang tiếng Việt: : @map("KHÁC")
+}
+
+enum audit_logs_action {
+  THEM_MOI
+  CAP_NHAT
+  XOA
+}
+
+enum events_event_type {
+  GIO_CHAP      // Nếu cần  chuyển sang tiếng Việt: : @map("GIỖ CHẠP")
+  HOP_HO        // Nếu cần  chuyển sang tiếng Việt: : @map("HỌP HỌ")
+  LE_TET        // Nếu cần  chuyển sang tiếng Việt: : @map("LỄ TẾT")
+  THANH_MINH    // Nếu cần  chuyển sang tiếng Việt: : @map("THANH MINH")
+  KHAC            // Nếu cần  chuyển sang tiếng Việt: : @map("KHÁC")
+}
+
+enum members_gender {
+  NAM
+  NU              // Nếu cần  chuyển sang tiếng Việt: : @map("NỮ") 
+  KHAC            // Nếu cần  chuyển sang tiếng Việt: : @map("KHÁC")
+}
+
+enum users_role {
+  SYSTEM_ADMIN
+  CLAN_ADMIN 
+  USER
+  KHAC
+}
+
+enum users_status {
+  CHO_DUYET   // Nếu cần  chuyển sang tiếng Việt: : @map("CHỜ DUYỆT")
+  DA_DUYET    // Nếu cần  chuyển sang tiếng Việt: : @map("ĐÃ DUYỆT")
+  BI_KHOA     // Nếu cần  chuyển sang tiếng Việt: : @map("BỊ KHOÁ")
+}
+
+enum users_temp_relationship {
+  CON_DE // Nếu cần  chuyển sang tiếng Việt: : @map("CON ĐẺ")
+  CON_NUOI // Nếu cần  chuyển sang tiếng Việt: : @map("CON NUÔI")
+  CON_RIENG // Nếu cần  chuyển sang tiếng Việt: : @map("CON RIÊNG")
+  KHAC    // Nếu cần  chuyển sang tiếng Việt: : @map("KHÁC")
+  CON_DAU   //Nếu cần  chuyển sang tiếng Việt: : @map("CON DÂU")
+  CON_RE   //Nếu cần  chuyển sang tiếng Việt: : @map("CON DÂU")
+}
+
+enum graves_condition_status {
+  MO_DAT        // Nếu cần  chuyển sang tiếng Việt: : @map("MỘ ĐẤT")
+  DA_SANG_CAT   // Nếu cần  chuyển sang tiếng Việt: : @map("ĐÃ XANG CÁT")
+  HOA_TANG      // Nếu cần  chuyển sang tiếng Việt: : @map("HOẢ TÁNG")
+  THAT_LAC      // Nếu cần  chuyển sang tiếng Việt: : @map("THẤT LẠC")
+  CHUA_XAY      // Nếu cần  chuyển sang tiếng Việt: : @map("CHƯA XÂY")
+  KHAC          // Nếu cần  chuyển sang tiếng Việt: : @map("KHÁC")
+}
+
+enum marriages_status {
+  DANG_KET_HON    // Nếu cần  chuyển sang tiếng Việt: : @map("ĐANG KẾT HÔN")
+  LY_HON          // Nếu cần  chuyển sang tiếng Việt: : @map("LY HÔN")
+  GOA             // Nếu cần  chuyển sang tiếng Việt: : @map("GOÁ")
+  LY_THAN         // Nếu cần  chuyển sang tiếng Việt: : @map("LY THÂN")
+  KHAC            // Nếu cần  chuyển sang tiếng Việt: : @map("KHÁC")
+}
+
+enum members_child_type {
+  CON_DE // Nếu cần  chuyển sang tiếng Việt: : @map("CON ĐẺ")
+  CON_NUOI // Nếu cần  chuyển sang tiếng Việt: : @map("CON NUÔI")
+  CON_RIENG // Nếu cần  chuyển sang tiếng Việt: : @map("CON RIÊNG")
+  KHAC    // Nếu cần  chuyển sang tiếng Việt: : @map("KHÁC")
+  CON_DAU   //Nếu cần  chuyển sang tiếng Việt: : @map("CON DÂU")
+  CON_RE   //Nếu cần  chuyển sang tiếng Việt: : @map("CON DÂU")
+}
+
+enum cemetery_cemetery_type {
+  TAM_THOI // Nếu cần  chuyển sang tiếng Việt: : @map("TẠM THỜI")
+  ON_DINH // Nếu cần  chuyển sang tiếng Việt: : @map("ỔN ĐỊNH")
+  KHAC    // Nếu cần  chuyển sang tiếng Việt: : @map("KHÁC")
+}
+
+enum worships_worship_type {
+  TOT     // Nếu cần  chuyển sang tiếng Việt: : @map("TỐT")
+  CAN_SUA // Nếu cần  chuyển sang tiếng Việt: : @map("CẦN SỬA")
+  CAN_XAY // Nếu cần  chuyển sang tiếng Việt: : @map("CẦN XÂY")
+  KHAC    // Nếu cần  chuyển sang tiếng Việt: : @map("KHÁC")
+}
+
+enum members_roles {
+  TRUONG_TOC
+  TRUONG_NGANH
+  TRUONG_CHI
+  THANH_VIEN
+}
+
+enum data_suggestions_status {
+  CHO_DUYET
+  DA_DUYET
+  TU_CHOI
+}
+
