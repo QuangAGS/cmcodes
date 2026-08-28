@@ -248,6 +248,7 @@ export default function AdminTenantSettingsPage() {
       const fd = new FormData();
       fd.append('file', blob, 'logo.png');
       fd.append('entity_type', 'TENANT');
+      fd.append('tenant_id', tenantId);
       fd.append('entity_id', tenantId);
       fd.append('purpose', 'LOGO');
       fd.append('is_primary', 'true');

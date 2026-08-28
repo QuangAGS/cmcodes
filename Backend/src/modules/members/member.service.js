@@ -305,12 +305,25 @@ const memberService = {
       data.changed_by = body.changed_by;
     }
 
-    const updated = await prisma.members.update({
-      where: { id: existing.id },
-      data,
-    });
+    data.updated_at = new Date();
 
-    return updated;
+      const result = await prisma.members.updateMany({
+        where: {
+          id: existing.id,
+          tenant_id: tenantId || existing.tenant_id,
+          deleted_at: null,
+        },
+        data,
+      });
+
+      if (result.count !== 1) {
+        const err = new Error('Không cập nhật được thành viên.');
+        err.statusCode = 404;
+        err.code = 'MEMBER_NOT_FOUND';
+        throw err;
+      }
+
+      return memberService.getMemberById(existing.id, tenantId || existing.tenant_id);
   },
 
 };

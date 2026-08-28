@@ -30,8 +30,8 @@ import {
   OP_HUB_WELCOME,
   buildProcessStatusMessage,
 } from '../features/onboarding/constants/opMessages.js';
-import {
 import { resolveFooterNav } from '../lib/resolveFooterNav.js';
+import {
   OP_WORK_ITEMS,
   OP_WORK_ITEM_IDS,
 } from '../features/onboarding/constants/opWorkItems.js';

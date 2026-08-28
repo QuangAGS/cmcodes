@@ -240,7 +240,7 @@ const prisma = basePrisma.$extends({
         const scoped = (STRICT_TENANT_MODELS.has(modelName) || OPTIONAL_TENANT_MODELS.has(modelName)) && tenantId;
 
         if (scoped) {
-          if (READ_OPS.has(operation) || WRITE_MANY_OPS.has(operation) || operation === 'update') {
+          if (READ_OPS.has(operation) || WRITE_MANY_OPS.has(operation)) {
             args.where = andWhere(args.where, { tenant_id: tenantId });
           }
           if (operation === 'create' && args.data) {
@@ -1161,6 +1161,22 @@ async function withTransaction(contextInput, callback, options = {}) {
   );
 }
 
+function runWithTenantContext(store = {}, callback) {
+  if (typeof callback !== 'function') {
+    throw new TypeError('runWithTenantContext requires callback');
+  }
+  return tenantContext.run(
+    {
+      tenantId: store.tenantId || null,
+      userId: store.userId || store.actorId || null,
+      allowUnscoped: store.allowUnscoped === true,
+      requestId: store.requestId || null,
+      correlationId: store.correlationId || null,
+    },
+    callback
+  );
+}
+
 /**
  * S0.3 — Link user↔member cùng tenant. Unlink chỉ NULL member_id.
  */
@@ -1383,7 +1399,8 @@ const egalPrisma = Object.assign(prisma, {
   }
 });
 // export cả hai để tương thích với codes cũ
-/* Phân tích chi tiết:
+
+/** Phân tích chi tiết:
  * ...egalPrisma (spread operator)
  * Copy toàn bộ thuộc tính và method của egalPrisma ra object mới.
  * Ví dụ: client, withTransaction, audit, notification, onboarding, v.v... đều được copy ra.
@@ -1395,12 +1412,14 @@ const egalPrisma = Object.assign(prisma, {
  * 2) egalPrisma
  * Tạo key egalPrisma trỏ đến object chính.
  * Cho phép import kiểu const egalPrisma = require('./prisma') hoặc const { egalPrisma } = require...
-*/
+ *************** */
 
 module.exports = {
   prisma,
   basePrisma,
   tenantContext,
+  runWithTenantContext,
+  withTransaction,
   PRISMA_SELECTS,
   exactMatchFields,
   assertSameTenantLink,
@@ -1408,6 +1427,6 @@ module.exports = {
   unlinkUserFromMember,
   STRICT_TENANT_MODELS,
   ...egalPrisma,
-  egalPrisma
+  egalPrisma,
 };
    

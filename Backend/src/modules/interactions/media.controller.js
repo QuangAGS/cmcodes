@@ -1,9 +1,10 @@
 /**
  * PATH       : src/modules/interactions/media.controller.js
- * DATETIME   : 2026-08-25T10:20:00+07:00
- * VERSION    : 1.1.0-R2
+ * DATETIME   : 2026-08-28T10:35:00+07:00
+ * VERSION    : 1.2.0-S0-TENANT-META
  * DESCRIPTION:
- * - HTTP adapter: upload (multipart) → mediaService.uploadAndRegister (R2 + DB).
+ * - HTTP adapter: upload (multipart) → mediaService.uploadAndRegister.
+ * - Pass tenant_id từ body/query để SYS gắn ALS đúng họ đích.
  */
 
 'use strict';
@@ -52,6 +53,7 @@ const mediaController = {
           is_primary: req.body.is_primary,
           caption: req.body.caption,
           sort_order: req.body.sort_order,
+          tenant_id: req.body.tenant_id || req.body.entity_id,
         },
         pickUser(req)
       );
@@ -70,7 +72,10 @@ const mediaController = {
   listByEntity: async (req, res) => {
     try {
       const { type, id } = req.params;
-      const data = await mediaService.getByEntity(type, id, pickUser(req));
+      const data = await mediaService.getByEntity(type, id, pickUser(req), {
+        purpose: req.query.purpose,
+        tenant_id: req.query.tenant_id || req.body?.tenant_id,
+      });
       return res.status(200).json({ success: true, status: 'success', data });
     } catch (error) {
       return sendError(res, error);

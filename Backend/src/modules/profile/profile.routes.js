@@ -34,4 +34,13 @@ router.patch(
   })
 );
 
+router.get(
+  '/addresses',
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    const data = await profileService.searchMyAddresses(req.user, req.query || {});
+    res.status(200).json({ success: true, status: 'success', data });
+  })
+);
+
 module.exports = router;

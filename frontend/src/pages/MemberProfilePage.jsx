@@ -42,7 +42,9 @@ const EMPTY = {
   personality_traits: '',
   notable_quotes: '',
   origin_full: '',
+  origin_id: '',
   current_full: '',
+  current_id: '',
   privacy_CONTACT: 'TENANT',
   privacy_ACHIEVEMENT: 'TENANT',
   privacy_BIRTH_DATE: 'TENANT',
@@ -69,6 +71,74 @@ function Card({ title, zoneText, open, onToggle, children }) {
       </button>
       {open ? <div className="space-y-3 border-t border-slate-100 px-4 py-4">{children}</div> : null}
     </section>
+  );
+}
+
+function AddressPick({ label, valueText, valueId, onPick, onType }) {
+  const [q, setQ] = useState(valueText || '');
+  const [hits, setHits] = useState([]);
+  const [openList, setOpenList] = useState(false);
+
+  useEffect(() => {
+    setQ(valueText || '');
+  }, [valueText]);
+
+  useEffect(() => {
+    const text = q.trim();
+    if (text.length < 2) {
+      setHits([]);
+      return undefined;
+    }
+    const t = setTimeout(async () => {
+      try {
+        const res = await apiClient.get('/me/addresses', { params: { q: text } });
+        setHits(res.data?.data?.items || []);
+        setOpenList(true);
+      } catch {
+        setHits([]);
+      }
+    }, 300);
+    return () => clearTimeout(t);
+  }, [q]);
+
+  return (
+    <div>
+      <span className="mb-1 block text-sm font-bold text-slate-700">{label}</span>
+      <input
+        className={inputCls}
+        value={q}
+        placeholder="Gõ để tìm địa chỉ đã có trong họ"
+        onChange={(e) => {
+          setQ(e.target.value);
+          onType(e.target.value);
+        }}
+        onFocus={() => hits.length && setOpenList(true)}
+      />
+      {valueId ? (
+        <p className="mt-1 text-xs font-semibold text-emerald-700">Đã chọn địa chỉ có sẵn</p>
+      ) : (
+        <p className="mt-1 text-xs text-slate-500">Không thấy thì giữ nguyên chữ — lần lưu sẽ tạo mới nếu chưa trùng.</p>
+      )}
+      {openList && hits.length > 0 ? (
+        <ul className="mt-2 max-h-40 overflow-auto rounded-2xl border border-slate-200 bg-white">
+          {hits.map((row) => (
+            <li key={row.id}>
+              <button
+                type="button"
+                className="w-full px-3 py-2 text-left text-sm hover:bg-indigo-50"
+                onClick={() => {
+                  setQ(row.full_address);
+                  setOpenList(false);
+                  onPick(row);
+                }}
+              >
+                {row.full_address}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
@@ -144,7 +214,9 @@ export default function MemberProfilePage() {
           personality_traits: b.personality_traits || '',
           notable_quotes: b.notable_quotes || '',
           origin_full: d.origin_address?.full_address || '',
+          origin_id: d.origin_address?.id || '',
           current_full: d.current_address?.full_address || '',
+          current_id: d.current_address?.id || '',
           privacy_CONTACT: priv.privacy_CONTACT || 'TENANT',
           privacy_ACHIEVEMENT: priv.privacy_ACHIEVEMENT || 'TENANT',
           privacy_BIRTH_DATE: priv.privacy_BIRTH_DATE || 'TENANT',
@@ -189,12 +261,16 @@ export default function MemberProfilePage() {
           personality_traits: form.personality_traits || null,
           notable_quotes: form.notable_quotes || null,
         },
-        origin_address: form.origin_full
-          ? { full_address: form.origin_full }
-          : undefined,
-        current_address: form.current_full
-          ? { full_address: form.current_full }
-          : undefined,
+        origin_address: form.origin_id
+          ? { address_id: form.origin_id }
+          : form.origin_full
+            ? { full_address: form.origin_full }
+            : undefined,
+        current_address: form.current_id
+          ? { address_id: form.current_id }
+          : form.current_full
+            ? { full_address: form.current_full }
+            : undefined,
         privacy: [
           { field_group: 'CONTACT', visibility: form.privacy_CONTACT },
           { field_group: 'ACHIEVEMENT', visibility: form.privacy_ACHIEVEMENT },
@@ -284,12 +360,32 @@ export default function MemberProfilePage() {
           </Card>
 
           <Card title="4. Địa chỉ" zoneText={PROFILE_ZONE.address} open={open.address} onToggle={() => toggle('address')}>
-            <Field label="Quê quán">
-              <input className={inputCls} value={form.origin_full} onChange={(e) => setField('origin_full', e.target.value)} />
-            </Field>
-            <Field label="Nơi ở hiện tại">
-              <input className={inputCls} value={form.current_full} onChange={(e) => setField('current_full', e.target.value)} />
-            </Field>
+            <AddressPick
+              label="Quê quán"
+              valueText={form.origin_full}
+              valueId={form.origin_id}
+              onPick={(row) => {
+                setField('origin_id', row.id);
+                setField('origin_full', row.full_address);
+              }}
+              onType={(text) => {
+                setField('origin_id', '');
+                setField('origin_full', text);
+              }}
+            />
+            <AddressPick
+              label="Nơi ở hiện tại"
+              valueText={form.current_full}
+              valueId={form.current_id}
+              onPick={(row) => {
+                setField('current_id', row.id);
+                setField('current_full', row.full_address);
+              }}
+              onType={(text) => {
+                setField('current_id', '');
+                setField('current_full', text);
+              }}
+            />
           </Card>
 
           <Card title="5. Tiểu sử" zoneText={PROFILE_ZONE.bio} open={open.bio} onToggle={() => toggle('bio')}>

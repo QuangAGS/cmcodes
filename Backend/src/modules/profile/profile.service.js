@@ -107,21 +107,77 @@ function normalizeSocial(input) {
   return out;
 }
 
+function normalizeCountry(raw) {
+  const c = String(raw || 'VN').trim().toUpperCase();
+  if (c === 'VIETNAM' || c === 'VIET NAM') return 'VN';
+  return c.slice(0, 2) || 'VN';
+}
+
+function normalizeAddressKey(raw) {
+  return String(raw || '')
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/[.,;:/\\_|-]+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 async function upsertAddress(tx, tenantId, actorId, payload) {
   if (!payload || typeof payload !== 'object') return null;
-  const full_address = String(payload.full_address || '').trim();
+
+  if (payload.address_id) {
+    const existing = await tx.addresses.findFirst({
+      where: {
+        id: String(payload.address_id),
+        tenant_id: tenantId,
+        deleted_at: null,
+      },
+      select: { id: true },
+    });
+    if (!existing) deny('FORBIDDEN', 'address_id không thuộc dòng họ này.', 403);
+    return existing;
+  }
+
+  const full_address = String(payload.full_address || '').trim().slice(0, 500);
   if (!full_address) return null;
+  const country_code = normalizeCountry(payload.country_code || payload.country);
+  const key = normalizeAddressKey(full_address);
+
+  const sameCountry = await tx.addresses.findMany({
+    where: { tenant_id: tenantId, country_code, deleted_at: null },
+    select: { id: true, full_address: true },
+    take: 500,
+  });
+  const found = sameCountry.find(
+    (row) => normalizeAddressKey(row.full_address) === key
+  );
+  if (found) return { id: found.id };
+
   return tx.addresses.create({
     data: {
       tenant_id: tenantId,
-      full_address: full_address.slice(0, 255),
-      ward_name: payload.ward_name ? String(payload.ward_name).slice(0, 100) : null,
-      district_name: payload.district_name
-        ? String(payload.district_name).slice(0, 100)
+      country_code,
+      postal_code: payload.postal_code
+        ? String(payload.postal_code).slice(0, 20)
         : null,
-      province_name: payload.province_name
-        ? String(payload.province_name).slice(0, 100)
-        : null,
+      admin_area: payload.admin_area
+        ? String(payload.admin_area).slice(0, 100)
+        : payload.province_name
+          ? String(payload.province_name).slice(0, 100)
+          : null,
+      locality: payload.locality
+        ? String(payload.locality).slice(0, 100)
+        : payload.district_name
+          ? String(payload.district_name).slice(0, 100)
+          : null,
+      sub_locality: payload.sub_locality
+        ? String(payload.sub_locality).slice(0, 100)
+        : payload.ward_name
+          ? String(payload.ward_name).slice(0, 100)
+          : null,
+      line1: payload.line1 ? String(payload.line1).slice(0, 255) : null,
+      line2: payload.line2 ? String(payload.line2).slice(0, 255) : null,
+      full_address,
       changed_by: actorId,
     },
     select: { id: true },
@@ -308,8 +364,50 @@ async function patchMyProfile(reqUser, body = {}) {
   }).then(() => getMyProfile(reqUser));
 }
 
+async function searchMyAddresses(reqUser, query = {}) {
+  const { member } = await resolveMemberActor(reqUser);
+  const q = String(query.q || '').trim();
+  const country_code = query.country_code
+    ? String(query.country_code).trim().toUpperCase().slice(0, 2)
+    : null;
+
+  const where = {
+    tenant_id: member.tenant_id,
+    deleted_at: null,
+  };
+  if (country_code) where.country_code = country_code;
+  if (q) {
+    where.OR = [
+      { full_address: { contains: q, mode: 'insensitive' } },
+      { line1: { contains: q, mode: 'insensitive' } },
+      { sub_locality: { contains: q, mode: 'insensitive' } },
+      { locality: { contains: q, mode: 'insensitive' } },
+      { admin_area: { contains: q, mode: 'insensitive' } },
+    ];
+  }
+
+  const items = await prisma.addresses.findMany({
+    where,
+    orderBy: { updated_at: 'desc' },
+    take: Math.min(30, Math.max(5, parseInt(query.limit, 10) || 15)),
+    select: {
+      id: true,
+      full_address: true,
+      country_code: true,
+      admin_area: true,
+      locality: true,
+      sub_locality: true,
+      line1: true,
+      postal_code: true,
+    },
+  });
+
+  return { items, total: items.length };
+}
+
 module.exports = {
   resolveMemberActor,
   getMyProfile,
   patchMyProfile,
+  searchMyAddresses,
 };
