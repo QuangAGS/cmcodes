@@ -29,6 +29,7 @@ const OpCaseDetailPage = lazy(() => import('./pages/OpCaseDetailPage.jsx'));
 
 const AdminTenantSettingsPage = lazy(() => import('./pages/AdminTenantSettingsPage.jsx'));
 const AdminTenantDirectoryPage = lazy(() => import('./pages/AdminTenantDirectoryPage.jsx'));
+const MemberProfilePage = lazy(() => import('./pages/MemberProfilePage.jsx'));
 
 const ProtectedRoute = ({ children, allowedStatus = 'DA_DUYET' }) => {
   const { user, loading } = useAuth();
@@ -72,6 +73,12 @@ const AppRouter = () => {
         <Route path="/tree" element={
           <ProtectedRoute allowedStatus="DA_DUYET">
             <TreePage />
+          </ProtectedRoute>
+        } />
+
+        <Route path="/me/profile" element={
+          <ProtectedRoute allowedStatus="DA_DUYET">
+            <MemberProfilePage />
           </ProtectedRoute>
         } />
 

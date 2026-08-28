@@ -64,6 +64,7 @@ const mediaRoutes = require('./modules/interactions/media.routes');
 
 // [21.5.2] Onboarding module (EGAL-25.x OPD v1.1.0)
 const onboardingRoutes = require('./modules/onboarding/onboarding.routes');
+const profileRoutes = require('./modules/profile/profile.routes');
 
 const authRoutesRaw = require('./modules/auth/auth.routes');
 const authRoutes = authRoutesRaw.default || authRoutesRaw;
@@ -191,6 +192,7 @@ app.use('/api/notifications', notificationRoutes);
 // [21.5.2] Onboarding — EGAL-25.x OPD v1.1.0 (Phase 1–3)
 // Prefix nhất quán với các module hiện tại (/api/members, /api/branches, ...)
 app.use('/api/onboarding', onboardingRoutes);
+app.use('/api/me', profileRoutes);
 
 // ─────────────────────────────────────────────────────────────
 // [21.6.0-W1] 404 Catcher → chuyển thành AppError để đi vào Global Handler
