@@ -1,8 +1,10 @@
 /**
  * PATH       : src/modules/profile/profile.service.js
- * DATETIME   : 2026-08-27T22:20:00+07:00
- * VERSION    : 1.0.0-A01
- * DESCRIPTION: A01 self-profile. Cấm users.phone/email. Cấm gender/is_alive/cây.
+ * DATETIME   : 2026-08-29T16:40:00+07:00
+ * VERSION    : 1.2.0-A01-ADDR2
+ * DESCRIPTION: Compose full_address. VN locality null. Search chỉ chỗ gắn member.
+ *  A01-ADDR: Generate full_address từ phần. Cấm chỉ gửi chuỗi. Không inject tenant vào findUnique.
+ *  A01 self-profile. Cấm users.phone/email. Cấm gender/is_alive/cây.
  */
 
 'use strict';
@@ -121,7 +123,7 @@ function normalizeAddressKey(raw) {
     .replace(/\s+/g, ' ')
     .trim();
 }
-
+/** 
 async function upsertAddress(tx, tenantId, actorId, payload) {
   if (!payload || typeof payload !== 'object') return null;
 
@@ -183,6 +185,261 @@ async function upsertAddress(tx, tenantId, actorId, payload) {
     select: { id: true },
   });
 }
+**************** */
+
+/**
+ * PATH       : snippet profile.service.js — ADDR-2
+ * DATETIME   : 2026-08-29T16:40:00+07:00
+ * VERSION    : 1.2.0-A01-ADDR2
+ * DESCRIPTION: Compose full_address. VN locality null. Search chỉ chỗ gắn member.
+ */
+
+function composeFullAddress(payload, country_code) {
+  const parts = [
+    payload.line1,
+    payload.line2,
+    payload.sub_locality,
+    country_code === 'VN' ? null : payload.locality,
+    payload.admin_area,
+    payload.postal_code,
+    country_code,
+  ]
+    .map((v) => String(v || '').trim())
+    .filter(Boolean);
+  return parts.join(', ').slice(0, 500);
+}
+
+function pickPart(payload, key, max) {
+  if (payload[key] == null || payload[key] === '') return null;
+  return String(payload[key]).trim().slice(0, max) || null;
+}
+
+async function upsertAddress(tx, tenantId, actorId, payload) {
+  if (!payload || typeof payload !== 'object') return null;
+
+  if (payload.address_id) {
+    const existing = await tx.addresses.findFirst({
+      where: { id: String(payload.address_id), tenant_id: tenantId, deleted_at: null },
+      select: { id: true },
+    });
+    if (!existing) deny('FORBIDDEN', 'address_id không thuộc dòng họ này.', 403);
+    if (!payload.update) return existing;
+
+    const country_code = normalizeCountry(payload.country_code || payload.country);
+    const isVn = country_code === 'VN';
+    const admin_area = pickPart(payload, 'admin_area', 100);
+    const locality = isVn ? null : pickPart(payload, 'locality', 100);
+    const sub_locality = pickPart(payload, 'sub_locality', 100);
+    const line1 = pickPart(payload, 'line1', 255);
+    const line2 = pickPart(payload, 'line2', 255);
+    const postal_code = pickPart(payload, 'postal_code', 20);
+    const notes = pickPart(payload, 'notes', 255);
+    const full_address = composeFullAddress(
+      { line1, line2, sub_locality, locality, admin_area, postal_code },
+      country_code
+    );
+    await tx.addresses.updateMany({
+      where: { id: existing.id, tenant_id: tenantId, deleted_at: null },
+      data: {
+        country_code,
+        admin_area,
+        locality,
+        sub_locality,
+        line1,
+        line2,
+        postal_code,
+        notes,
+        full_address: full_address || undefined,
+        changed_by: actorId,
+        updated_at: new Date(),
+      },
+    });
+    return existing;
+  }
+
+  const country_code = normalizeCountry(payload.country_code || payload.country);
+  const isVn = country_code === 'VN';
+  const admin_area = pickPart(payload, 'admin_area', 100);
+  const locality = isVn ? null : pickPart(payload, 'locality', 100);
+  const sub_locality = pickPart(payload, 'sub_locality', 100);
+  const line1 = pickPart(payload, 'line1', 255);
+  const line2 = pickPart(payload, 'line2', 255);
+  const postal_code = pickPart(payload, 'postal_code', 20);
+  const notes = pickPart(payload, 'notes', 255);
+
+  const hasPart = Boolean(admin_area || locality || sub_locality || line1 || line2);
+  if (!hasPart) {
+    deny('BAD_REQUEST', 'Địa chỉ mới cần Country và ít nhất tỉnh / xã / số nhà. Không lưu chỉ full_address.', 400);
+  }
+
+  const full_address = composeFullAddress(
+    { line1, line2, sub_locality, locality, admin_area, postal_code },
+    country_code
+  );
+  if (!full_address) return null;
+
+  const key = normalizeAddressKey(full_address);
+  const sameCountry = await tx.addresses.findMany({
+    where: { tenant_id: tenantId, country_code, deleted_at: null },
+    select: { id: true, full_address: true },
+    take: 80,
+  });
+  const found = sameCountry.find((row) => normalizeAddressKey(row.full_address) === key);
+  if (found) return { id: found.id };
+
+  return tx.addresses.create({
+    data: {
+      tenant_id: tenantId,
+      country_code,
+      postal_code,
+      admin_area,
+      locality,
+      sub_locality,
+      line1,
+      line2,
+      notes,
+      full_address,
+      changed_by: actorId,
+    },
+    select: { id: true },
+  });
+}
+
+async function searchMyAddresses(reqUser, query = {}) {
+  const { member } = await resolveMemberActor(reqUser);
+  const q = String(query.q || '').trim();
+  const country_code = query.country_code
+    ? String(query.country_code).trim().toUpperCase().slice(0, 2)
+    : null;
+  const memberOnly = String(query.member_only || '1') !== '0';
+
+  const where = {
+    tenant_id: member.tenant_id,
+    deleted_at: null,
+  };
+  if (country_code) where.country_code = country_code;
+  if (memberOnly) {
+    where.OR = [
+      { natives: { some: { tenant_id: member.tenant_id, deleted_at: null } } },
+      { residents: { some: { tenant_id: member.tenant_id, deleted_at: null } } },
+    ];
+  }
+  if (q) {
+    const textOr = [
+      { full_address: { contains: q, mode: 'insensitive' } },
+      { line1: { contains: q, mode: 'insensitive' } },
+      { line2: { contains: q, mode: 'insensitive' } },
+      { sub_locality: { contains: q, mode: 'insensitive' } },
+      { admin_area: { contains: q, mode: 'insensitive' } },
+      { notes: { contains: q, mode: 'insensitive' } },
+    ];
+    if (memberOnly) {
+      where.AND = [{ OR: where.OR }, { OR: textOr }];
+      delete where.OR;
+    } else {
+      where.OR = textOr;
+    }
+  }
+
+  const items = await prisma.addresses.findMany({
+    where,
+    orderBy: { updated_at: 'desc' },
+    take: Math.min(30, Math.max(5, parseInt(query.limit, 10) || 15)),
+    select: {
+      id: true,
+      full_address: true,
+      country_code: true,
+      admin_area: true,
+      locality: true,
+      sub_locality: true,
+      line1: true,
+      line2: true,
+      postal_code: true,
+      notes: true,
+    },
+  });
+
+  return { items, total: items.length };
+}
+
+
+function pickPart(payload, key, legacyKey, max) {
+  const raw = payload[key] != null && payload[key] !== ''
+    ? payload[key]
+    : payload[legacyKey];
+  if (raw == null || raw === '') return null;
+  return String(raw).trim().slice(0, max) || null;
+}
+
+async function upsertAddress(tx, tenantId, actorId, payload) {
+  if (!payload || typeof payload !== 'object') return null;
+
+  if (payload.address_id) {
+    const existing = await tx.addresses.findFirst({
+      where: {
+        id: String(payload.address_id),
+        tenant_id: tenantId,
+        deleted_at: null,
+      },
+      select: { id: true },
+    });
+    if (!existing) deny('FORBIDDEN', 'address_id không thuộc dòng họ này.', 403);
+    return existing;
+  }
+
+  const country_code = normalizeCountry(payload.country_code || payload.country);
+  const admin_area = pickPart(payload, 'admin_area', 'province_name', 100);
+  const locality = pickPart(payload, 'locality', 'district_name', 100);
+  const sub_locality = pickPart(payload, 'sub_locality', 'ward_name', 100);
+  const line1 = pickPart(payload, 'line1', null, 255);
+  const line2 = pickPart(payload, 'line2', null, 255);
+  const postal_code = pickPart(payload, 'postal_code', null, 20);
+
+  const hasPart = Boolean(admin_area || locality || sub_locality || line1 || line2);
+  if (!hasPart) {
+    deny(
+      'BAD_REQUEST',
+      'Địa chỉ mới cần Country và ít nhất một phần cấu trúc (tỉnh / huyện / xã / số nhà). Không lưu chỉ full_address.',
+      400
+    );
+  }
+
+  const full_address =
+    composeFullAddress(
+      { line1, line2, sub_locality, locality, admin_area, postal_code },
+      country_code
+    ) || String(payload.full_address || '').trim().slice(0, 500);
+
+  if (!full_address) return null;
+
+  const key = normalizeAddressKey(full_address);
+  const sameCountry = await tx.addresses.findMany({
+    where: { tenant_id: tenantId, country_code, deleted_at: null },
+    select: { id: true, full_address: true },
+    take: 500,
+  });
+  const found = sameCountry.find(
+    (row) => normalizeAddressKey(row.full_address) === key
+  );
+  if (found) return { id: found.id };
+
+  return tx.addresses.create({
+    data: {
+      tenant_id: tenantId,
+      country_code,
+      postal_code,
+      admin_area,
+      locality,
+      sub_locality,
+      line1,
+      line2,
+      full_address,
+      changed_by: actorId,
+    },
+    select: { id: true },
+  });
+}
+
 
 async function getMyProfile(reqUser) {
   const { user, member } = await resolveMemberActor(reqUser);
