@@ -39,6 +39,27 @@ export function wardsOfProvince(provinceName) {
   return row ? row.wards : [];
 }
 
+function foldAdmin(s) {
+  return String(s || '')
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/^(tỉnh|thành phố|tp\.?|quận|huyện|thị xã|phường|xã|thị trấn|đặc khu)\s+/i, '')
+    .trim();
+}
+
+export function matchProvinceName(raw) {
+  if (!raw) return '';
+  const hit = VN_PROVINCES.find((n) => n === raw || foldAdmin(n) === foldAdmin(raw));
+  return hit || raw;
+}
+
+export function matchWardName(provinceName, raw) {
+  if (!raw) return '';
+  const wards = wardsOfProvince(matchProvinceName(provinceName));
+  const hit = wards.find((n) => n === raw || foldAdmin(n) === foldAdmin(raw));
+  return hit || raw;
+}
+
 export const EMPTY_ADDRESS = {
   address_id: '',
   country_code: 'VN',
@@ -69,32 +90,17 @@ export function addressFromApi(row) {
 }
 
 export function addressToUpdate(addr) {
-  if (!addr || !addr.address_id) return undefined;
-  const country_code = (addr.country_code || 'VN').toString().toUpperCase().slice(0, 2);
-  const isVn = country_code === 'VN';
-  return {
-    address_id: addr.address_id,
-    update: true,
-    country_code,
-    admin_area: addr.admin_area || null,
-    locality: isVn ? null : addr.locality || null,
-    sub_locality: addr.sub_locality || null,
-    line1: addr.line1 || null,
-    line2: addr.line2 || null,
-    postal_code: addr.postal_code || null,
-    notes: addr.notes || null,
-  };
+  return addressToPatch(addr);
 }
 
 export function addressToPatch(addr) {
   if (!addr) return undefined;
-  if (addr.address_id) return { address_id: addr.address_id };
   const country_code = (addr.country_code || 'VN').toString().toUpperCase().slice(0, 2);
   const isVn = country_code === 'VN';
   const hasPart = [addr.admin_area, isVn ? '' : addr.locality, addr.sub_locality, addr.line1, addr.line2]
     .some((v) => String(v || '').trim());
-  if (!hasPart) return undefined;
-  return {
+  if (!addr.address_id && !hasPart) return undefined;
+  const body = {
     country_code,
     admin_area: addr.admin_area || null,
     locality: isVn ? null : addr.locality || null,
@@ -102,8 +108,13 @@ export function addressToPatch(addr) {
     line1: addr.line1 || null,
     line2: addr.line2 || null,
     postal_code: addr.postal_code || null,
-    notes: addr.notes || null,
+    notes: String(addr.notes || '').trim() ? String(addr.notes).trim().slice(0, 255) : null,
   };
+  if (addr.address_id) {
+    body.address_id = addr.address_id;
+    body.update = true;
+  }
+  return body;
 }
 
 export function countryLabel(code) {

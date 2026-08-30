@@ -66,7 +66,7 @@ export default function AddressFormPage() {
 
   async function onSubmit(ev) {
     ev.preventDefault();
-    const payload = mode === 'edit' ? addressToUpdate(addr) || addressToPatch(addr) : addressToPatch(addr);
+    const payload = addressToPatch(addr);
     if (!payload) {
       toast.error('Chọn tỉnh/xã hoặc nhập ít nhất một phần địa chỉ.');
       return;

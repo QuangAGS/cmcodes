@@ -350,11 +350,21 @@ export default function MemberProfilePage() {
                     <ReadRow label="Địa chỉ" value={hasPlace(form.origin) ? formatAddressSummary(form.origin) : 'Chưa có'} />
                     <ReadRow label="Ghi chú" value={form.origin.notes || '—'} />
                   </dl>
-                  {hasPlace(form.origin) ? (
-                    <button type="button" onClick={() => goAddress('origin', 'edit')} className="mt-2 w-full rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700">Sửa</button>
-                  ) : (
-                    <button type="button" onClick={() => goAddress('origin', 'create')} className="mt-2 w-full rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">Thêm</button>
-                  )}
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={!hasPlace(form.origin)}
+                      onClick={() => goAddress('origin', 'edit')}
+                      className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                    >
+                      Sửa
+                    </button>
+                    {!hasPlace(form.origin) ? (
+                      <button type="button" onClick={() => goAddress('origin', 'create')} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">Thêm</button>
+                    ) : (
+                      <span />
+                    )}
+                  </div>
                 </div>
                 <div className="border-t border-slate-100 pt-3">
                   <p className="mb-1 text-sm font-black text-slate-800">{currentTitle}</p>
@@ -366,17 +376,22 @@ export default function MemberProfilePage() {
                     <ReadRow label="Ghi chú" value={form.current.notes || '—'} />
                   </dl>
                   <div className="mt-2 grid grid-cols-2 gap-2">
-                    {hasPlace(form.current) ? (
-                      <button type="button" onClick={() => goAddress('current', 'edit')} className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700">Sửa</button>
-                    ) : (
-                      <span />
-                    )}
+                    <button
+                      type="button"
+                      disabled={!hasPlace(form.current)}
+                      onClick={() => goAddress('current', 'edit')}
+                      className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                    >
+                      Sửa
+                    </button>
                     {alive ? (
-                      <button type="button" onClick={() => goAddress('current', 'create')} className={`rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white ${hasPlace(form.current) ? '' : 'col-span-2'}`}>
+                      <button type="button" onClick={() => goAddress('current', 'create')} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
                         {hasPlace(form.current) ? 'Thay đổi / Tạo mới' : 'Thêm'}
                       </button>
-                    ) : hasPlace(form.current) ? null : (
-                      <button type="button" onClick={() => goAddress('current', 'create')} className="col-span-2 rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">Thêm nơi ở cuối</button>
+                    ) : (
+                      <button type="button" onClick={() => goAddress('current', 'create')} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
+                        {hasPlace(form.current) ? 'Thay đổi' : 'Thêm nơi ở cuối'}
+                      </button>
                     )}
                   </div>
                 </div>

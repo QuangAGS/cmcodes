@@ -12,6 +12,9 @@ import {
   VN_PROVINCES,
   EMPTY_ADDRESS,
   wardsOfProvince,
+  addressFromApi,
+  matchProvinceName,
+  matchWardName,
 } from '../constants/addressCatalog.js';
 
 const inputCls =
@@ -65,17 +68,15 @@ export default function AddressForm({ value, onChange }) {
   function pickExisting(row) {
     setQ('');
     setOpenList(false);
+    const mapped = addressFromApi(row);
+    const admin = matchProvinceName(mapped.admin_area);
+    const ward = matchWardName(admin, mapped.sub_locality);
     onChange({
-      address_id: row.id,
-      country_code: row.country_code || addr.country_code || 'VN',
-      admin_area: row.admin_area || '',
-      locality: row.locality || '',
-      sub_locality: row.sub_locality || '',
-      line1: row.line1 || '',
-      line2: row.line2 || '',
-      postal_code: row.postal_code || '',
-      notes: row.notes || '',
-      full_address: row.full_address || '',
+      ...EMPTY_ADDRESS,
+      ...mapped,
+      address_id: row.id || mapped.address_id,
+      admin_area: admin,
+      sub_locality: ward,
     });
   }
 
@@ -122,6 +123,9 @@ export default function AddressForm({ value, onChange }) {
         {isVn ? (
           <select className={inputCls} value={addr.admin_area || ''} onChange={(e) => patch({ admin_area: e.target.value, sub_locality: '', locality: '' })}>
             <option value="">— Chọn tỉnh/thành —</option>
+            {addr.admin_area && !VN_PROVINCES.includes(addr.admin_area) ? (
+              <option value={addr.admin_area}>{addr.admin_area}</option>
+            ) : null}
             {VN_PROVINCES.map((name) => (
               <option key={name} value={name}>{name}</option>
             ))}
@@ -141,6 +145,9 @@ export default function AddressForm({ value, onChange }) {
         {isVn && wards.length > 0 ? (
           <select className={inputCls} value={addr.sub_locality || ''} onChange={(e) => patch({ sub_locality: e.target.value })}>
             <option value="">— Chọn xã/phường —</option>
+            {addr.sub_locality && !wards.includes(addr.sub_locality) ? (
+              <option value={addr.sub_locality}>{addr.sub_locality}</option>
+            ) : null}
             {wards.map((name) => (
               <option key={name} value={name}>{name}</option>
             ))}
