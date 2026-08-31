@@ -404,6 +404,7 @@ async function patchMyProfile(reqUser, body = {}) {
 async function searchMyAddresses(reqUser, query = {}) {
   const { member } = await resolveMemberActor(reqUser);
   const q = String(query.q || '').trim();
+  const id = query.id ? String(query.id).trim() : '';
   const country_code = query.country_code
     ? String(query.country_code).trim().toUpperCase().slice(0, 2)
     : null;
@@ -412,14 +413,17 @@ async function searchMyAddresses(reqUser, query = {}) {
     tenant_id: member.tenant_id,
     deleted_at: null,
   };
-  if (country_code) where.country_code = country_code;
+  if (id) where.id = id;
+  if (country_code && !id) where.country_code = country_code;
   if (q) {
     where.OR = [
       { full_address: { contains: q, mode: 'insensitive' } },
       { line1: { contains: q, mode: 'insensitive' } },
+      { line2: { contains: q, mode: 'insensitive' } },
       { sub_locality: { contains: q, mode: 'insensitive' } },
       { locality: { contains: q, mode: 'insensitive' } },
       { admin_area: { contains: q, mode: 'insensitive' } },
+      { notes: { contains: q, mode: 'insensitive' } },
     ];
   }
 
@@ -435,7 +439,9 @@ async function searchMyAddresses(reqUser, query = {}) {
       locality: true,
       sub_locality: true,
       line1: true,
+      line2: true,
       postal_code: true,
+      notes: true,
     },
   });
 

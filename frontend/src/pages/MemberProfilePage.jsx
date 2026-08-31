@@ -1,14 +1,14 @@
 /**
  * PATH       : src/pages/MemberProfilePage.jsx
  * DATETIME   : 2026-08-29T18:00:00+07:00
- * VERSION    : 1.4.0-A01-PROFILE-SHELL
+ * VERSION    : 1.5.2-A01-BIO-RA
  * DESCRIPTION: Shell tóm tắt + một mục. Địa chỉ đọc 2 cột. Form địa chỉ trang con.
  */
 
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
@@ -61,7 +61,17 @@ const SECTIONS = [
   { key: 'contact', label: 'Liên lạc' },
   { key: 'address', label: 'Địa chỉ' },
   { key: 'bio', label: 'Tiểu sử' },
+  { key: 'bio_read', label: 'Đọc toàn bộ tiểu sử' },
   { key: 'privacy', label: 'Ai được xem' },
+];
+
+const BIO_TOPICS = [
+  { key: 'childhood_summary', label: 'Thiếu thời', voice: 'Thiếu thời.', max: null },
+  { key: 'education_history', label: 'Học vấn', voice: 'Học vấn.', max: null },
+  { key: 'career_history', label: 'Nghề nghiệp', voice: 'Nghề nghiệp.', max: null },
+  { key: 'later_life_summary', label: 'Về già / giai đoạn sau', voice: 'Về già và giai đoạn sau.', max: null },
+  { key: 'personality_traits', label: 'Tính cách', voice: 'Tính cách.', max: 500 },
+  { key: 'notable_quotes', label: 'Danh ngôn', voice: 'Danh ngôn.', max: null },
 ];
 
 const PRIVACY_ITEMS = [
@@ -122,6 +132,8 @@ export default function MemberProfilePage() {
   const [saving, setSaving] = useState(false);
   const [section, setSection] = useState('identity');
   const [privacyGroup, setPrivacyGroup] = useState('CONTACT');
+  const [bioTopic, setBioTopic] = useState('childhood_summary');
+  const [bioOpen, setBioOpen] = useState({});
 
   const setField = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
   const alive = meta.is_alive !== false;
@@ -221,6 +233,7 @@ export default function MemberProfilePage() {
         ],
       });
       toast.success('Đã lưu hồ sơ dòng họ.');
+      if (section === 'bio') setSection('bio_read');
     } catch (e) {
       toast.error(e.response?.data?.message || 'Không lưu được hồ sơ.');
     } finally {
@@ -400,15 +413,75 @@ export default function MemberProfilePage() {
 
             {section === 'bio' ? (
               <div className="space-y-3">
-                <Field label="Thiếu thời">
-                  <textarea className={inputCls} rows={3} value={form.childhood_summary} onChange={(e) => setField('childhood_summary', e.target.value)} />
+                <Field label="Chủ đề tiểu sử">
+                  <select className={inputCls} value={bioTopic} onChange={(e) => setBioTopic(e.target.value)}>
+                    {BIO_TOPICS.map((it) => (
+                      <option key={it.key} value={it.key}>{it.label}</option>
+                    ))}
+                  </select>
                 </Field>
-                <Field label="Học vấn">
-                  <textarea className={inputCls} rows={3} value={form.education_history} onChange={(e) => setField('education_history', e.target.value)} />
-                </Field>
-                <Field label="Nghề nghiệp">
-                  <textarea className={inputCls} rows={3} value={form.career_history} onChange={(e) => setField('career_history', e.target.value)} />
-                </Field>
+                {BIO_TOPICS.filter((it) => it.key === bioTopic).map((it) => {
+                  const text = form[it.key] || '';
+                  const voice = text.trim() ? `${it.voice} ${text}` : `${it.voice} Chưa có nội dung.`;
+                  return (
+                    <div key={it.key} className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-black text-slate-800">{text.trim() ? 'Sửa nội dung' : 'Nhập nội dung'}</p>
+                        <ZoneVoiceButton visible text={voice} label="Nghe chủ đề" />
+                      </div>
+                      <textarea
+                        className={inputCls}
+                        rows={8}
+                        maxLength={it.max || undefined}
+                        value={text}
+                        onChange={(e) => setField(it.key, e.target.value)}
+                      />
+                      {it.max ? <p className="text-xs text-slate-500">{text.length}/{it.max}</p> : null}
+                      <p className="text-xs text-slate-400">Tài liệu đính kèm: lát media.</p>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {section === 'bio_read' ? (
+              <div className="space-y-2">
+                {BIO_TOPICS.map((it) => {
+                  const text = (form[it.key] || '').trim();
+                  const open = !!bioOpen[it.key];
+                  const voice = text ? `${it.voice} ${text}` : `${it.voice} Chưa có nội dung.`;
+                  return (
+                    <div key={it.key} className="rounded-2xl border border-slate-200 bg-slate-50/80">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-3 py-3 text-left"
+                        onClick={() => setBioOpen((prev) => ({ ...prev, [it.key]: !prev[it.key] }))}
+                      >
+                        <span className="flex-1 text-sm font-black text-slate-800">{it.label}</span>
+                        <span className="max-w-[40%] truncate text-xs text-slate-500">{text ? text : 'Chưa có'}</span>
+                        {open ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+                      </button>
+                      {open ? (
+                        <div className="space-y-2 border-t border-slate-200 px-3 py-3">
+                          <div className="flex justify-end">
+                            <ZoneVoiceButton visible text={voice} label="Nghe chủ đề" />
+                          </div>
+                          <p className="whitespace-pre-wrap text-sm font-medium text-slate-800">{text || 'Chưa có nội dung.'}</p>
+                          <button
+                            type="button"
+                            className="w-full rounded-2xl border border-indigo-200 bg-white py-2 text-sm font-bold text-indigo-700"
+                            onClick={() => {
+                              setBioTopic(it.key);
+                              setSection('bio');
+                            }}
+                          >
+                            {text ? 'Sửa chủ đề này' : 'Nhập chủ đề này'}
+                          </button>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             ) : null}
 
@@ -447,7 +520,7 @@ export default function MemberProfilePage() {
             ) : null}
           </section>
 
-          {section !== 'address' ? (
+          {section !== 'address' && section !== 'bio_read' ? (
             <button
               type="submit"
               disabled={saving}

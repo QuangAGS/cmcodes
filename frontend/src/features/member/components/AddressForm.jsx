@@ -65,18 +65,26 @@ export default function AddressForm({ value, onChange }) {
     onChange({ ...addr, ...partial, address_id: nextId || '' });
   }
 
-  function pickExisting(row) {
+  async function pickExisting(row) {
     setQ('');
     setOpenList(false);
-    const mapped = addressFromApi(row);
+    let raw = row;
+    try {
+      const res = await apiClient.get('/me/addresses', { params: { id: row.id, limit: 1 } });
+      raw = res.data?.data?.items?.[0] || row;
+    } catch {
+      raw = row;
+    }
+    const mapped = addressFromApi(raw);
     const admin = matchProvinceName(mapped.admin_area);
     const ward = matchWardName(admin, mapped.sub_locality);
     onChange({
       ...EMPTY_ADDRESS,
       ...mapped,
-      address_id: row.id || mapped.address_id,
+      address_id: raw.id || mapped.address_id,
       admin_area: admin,
       sub_locality: ward,
+      notes: raw.notes || mapped.notes || '',
     });
   }
 
