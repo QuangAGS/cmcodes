@@ -7,8 +7,7 @@
 
 'use strict';
 
-const crypto = require('crypto');
-const { prisma } = require('../../lib/prisma.js');
+const { prisma, correlation } = require('../../lib/prisma.js');
 const { writeBpl } = require('../../services/bpl.service.js');
 const { isValidCategory, isValidSub } = require('./achievementCatalog.js');
 const { resolveMemberActor } = require('./profile.service.js');
@@ -114,7 +113,7 @@ function actorCtx(user, member) {
     actor_id: user.id,
     actor_type: 'USER',
     tenant_id: member.tenant_id,
-    correlation_id: crypto.randomUUID(),
+    correlation_id: correlation.create(), 
   };
 }
 

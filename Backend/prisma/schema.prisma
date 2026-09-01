@@ -1549,7 +1549,7 @@ enum business_process_type {
 
   // ---- Member profile -------------
   MEMBER_PROFILE_PATCH //Update member profile
-  ACHIEVEMENT_UPSERT //Insert profile
+  ACHIEVEMENT_UPSERT //Cập nhật hoặc chèn mới
   ACHIEVEMENT_DELETE
   MEMBER_ADDRESS_LINK //Link address
 }

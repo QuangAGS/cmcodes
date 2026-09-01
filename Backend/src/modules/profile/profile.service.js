@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/profile/profile.service.js
- * DATETIME   : 2026-08-29T16:40:00+07:00
- * VERSION    : 1.2.0-A01-ADDR2
+ * DATETIME   : 2026-09-01T17:10:00+07:00
+ * VERSION    : 1.3.0-BFA-222-B3
  * DESCRIPTION: Compose full_address. VN locality null. Search chỉ chỗ gắn member.
  *  A01-ADDR: Generate full_address từ phần. Cấm chỉ gửi chuỗi. Không inject tenant vào findUnique.
  *  A01 self-profile. Cấm users.phone/email. Cấm gender/is_alive/cây.
@@ -339,9 +339,13 @@ async function patchMyProfile(reqUser, body = {}) {
       }
     }
 
+    let originAddrId = null;
+    let currentAddrId = null;
+
     if (body.origin_address) {
       const addr = await upsertAddress(tx, tenantId, actorId, body.origin_address);
       if (addr) {
+        originAddrId = addr.id;
         await tx.members.updateMany({
           where: { id: member.id, tenant_id: tenantId, deleted_at: null },
           data: { origin_address_id: addr.id, changed_by: actorId },
@@ -351,6 +355,7 @@ async function patchMyProfile(reqUser, body = {}) {
     if (body.current_address) {
       const addr = await upsertAddress(tx, tenantId, actorId, body.current_address);
       if (addr) {
+        currentAddrId = addr.id;
         await tx.members.updateMany({
           where: { id: member.id, tenant_id: tenantId, deleted_at: null },
           data: { current_address_id: addr.id, changed_by: actorId },
@@ -396,7 +401,7 @@ async function patchMyProfile(reqUser, body = {}) {
         }
       }
     }
-    //B3: Write BPL logs
+
     const correlationId = correlation.create();
     const actorCtx = {
       actor_id: actorId,
@@ -404,32 +409,36 @@ async function patchMyProfile(reqUser, body = {}) {
       tenant_id: tenantId,
       correlation_id: correlationId,
     };
+    let attempt = 1;
 
     if (Object.keys(memberPatch).length || Object.keys(bioPatch).length) {
       await writeBpl({
         processType: 'MEMBER_PROFILE_PATCH',
         actorContext: actorCtx,
+        attemptNo: attempt++,
         context: { target_id: member.id, target_name: memberPatch.full_name || null },
         payload: { member_id: member.id, fields: Object.keys(memberPatch).concat(Object.keys(bioPatch)) },
         tx,
       });
     }
 
-    if (body.origin_address) {
+    if (originAddrId) {
       await writeBpl({
         processType: 'MEMBER_ADDRESS_LINK',
         actorContext: actorCtx,
+        attemptNo: attempt++,
         context: { target_id: member.id, target_name: null },
-        payload: { member_id: member.id, usage: 'ORIGIN', address_id: null },
+        payload: { member_id: member.id, usage: 'ORIGIN', address_id: originAddrId },
         tx,
       });
     }
-    if (body.current_address) {
+    if (currentAddrId) {
       await writeBpl({
         processType: 'MEMBER_ADDRESS_LINK',
         actorContext: actorCtx,
+        attemptNo: attempt++,
         context: { target_id: member.id, target_name: null },
-        payload: { member_id: member.id, usage: 'CURRENT', address_id: null },
+        payload: { member_id: member.id, usage: 'CURRENT', address_id: currentAddrId },
         tx,
       });
     }
