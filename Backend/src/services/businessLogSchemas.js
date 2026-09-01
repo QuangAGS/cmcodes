@@ -1,7 +1,7 @@
 /**
  * PATH: src/services/businessLogSchemas.js
- * DATETIME: 2026-08-16T12:11:00+07:00
- * VERSION: 1.1.0-PR2-bpl-semantic
+ * DATETIME: 2026-09-01T15:45:00+07:00
+ * VERSION: 1.2.0-BFA-222-B2
  * DESCRIPTION: Data contract metadata BPL theo process_type.
  *   PR-2: USER_APPROVAL giữ action / status_* / case_id / is_final / admin_note
  *         (trước đây whitelist quá hẹp → mọi action Admin bị ghi thành "Phê duyệt...").
@@ -402,6 +402,53 @@ const BusinessLogSchemas = {
       member_status_after: payload.member_status_after || 'CHINH_THUC',
       user_role_before: payload.user_role_before || 'VIEWER',
       user_role_after: payload.user_role_after || 'USER'
+    };
+  },
+
+  // =========================================================================
+  // A01 /me — BFA 2.2.2 B2 — CL = NONE
+  // =========================================================================
+
+  MEMBER_PROFILE_PATCH: (payload = {}) => {
+    return {
+      member_id: payload.member_id || null,
+      fields: Array.isArray(payload.fields) ? payload.fields : [],
+    };
+  },
+
+  ACHIEVEMENT_UPSERT: (payload = {}) => {
+    if (!payload.member_id) {
+      throw new Error('ACHIEVEMENT_UPSERT requires member_id');
+    }
+    return {
+      member_id: payload.member_id,
+      achievement_id: payload.achievement_id || null,
+      op: payload.op === 'UPDATE' ? 'UPDATE' : 'CREATE',
+      category: payload.category || null,
+      sub_category: payload.sub_category || null,
+      title: payload.title || null,
+      achieved_year: payload.achieved_year == null ? null : Number(payload.achieved_year),
+    };
+  },
+
+  ACHIEVEMENT_DELETE: (payload = {}) => {
+    if (!payload.member_id || !payload.achievement_id) {
+      throw new Error('ACHIEVEMENT_DELETE requires member_id and achievement_id');
+    }
+    return {
+      member_id: payload.member_id,
+      achievement_id: payload.achievement_id,
+    };
+  },
+
+  MEMBER_ADDRESS_LINK: (payload = {}) => {
+    if (!payload.member_id) {
+      throw new Error('MEMBER_ADDRESS_LINK requires member_id');
+    }
+    return {
+      member_id: payload.member_id,
+      usage: payload.usage === 'CURRENT' ? 'CURRENT' : 'ORIGIN',
+      address_id: payload.address_id || null,
     };
   },
 };

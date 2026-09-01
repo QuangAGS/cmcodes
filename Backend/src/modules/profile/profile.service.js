@@ -8,8 +8,8 @@
  */
 
 'use strict';
-
-const { prisma } = require('../../lib/prisma.js');
+const { prisma, correlation } = require('../../lib/prisma.js');
+const { writeBpl } = require('../../services/bpl.service.js');
 
 const MEMBER_PATCH = [
   'full_name',
@@ -395,6 +395,43 @@ async function patchMyProfile(reqUser, body = {}) {
           });
         }
       }
+    }
+    //B3: Write BPL logs
+    const correlationId = correlation.create();
+    const actorCtx = {
+      actor_id: actorId,
+      actor_type: 'USER',
+      tenant_id: tenantId,
+      correlation_id: correlationId,
+    };
+
+    if (Object.keys(memberPatch).length || Object.keys(bioPatch).length) {
+      await writeBpl({
+        processType: 'MEMBER_PROFILE_PATCH',
+        actorContext: actorCtx,
+        context: { target_id: member.id, target_name: memberPatch.full_name || null },
+        payload: { member_id: member.id, fields: Object.keys(memberPatch).concat(Object.keys(bioPatch)) },
+        tx,
+      });
+    }
+
+    if (body.origin_address) {
+      await writeBpl({
+        processType: 'MEMBER_ADDRESS_LINK',
+        actorContext: actorCtx,
+        context: { target_id: member.id, target_name: null },
+        payload: { member_id: member.id, usage: 'ORIGIN', address_id: null },
+        tx,
+      });
+    }
+    if (body.current_address) {
+      await writeBpl({
+        processType: 'MEMBER_ADDRESS_LINK',
+        actorContext: actorCtx,
+        context: { target_id: member.id, target_name: null },
+        payload: { member_id: member.id, usage: 'CURRENT', address_id: null },
+        tx,
+      });
     }
 
     return true;

@@ -1546,6 +1546,12 @@ enum business_process_type {
   ONBOARDING_MERGE_FAILED // Merge lỗi (case → MERGE_FAILED, có thể retry)
   ONBOARDING_COMPLETE // Kết thúc onboarding sau merge thành công
   ONBOARDING_BRANCH_ARCHIVE // Lưu trữ / đóng nhánh sau merge hoặc hủy
+
+  // ---- Member profile -------------
+  MEMBER_PROFILE_PATCH //Update member profile
+  ACHIEVEMENT_UPSERT //Insert profile
+  ACHIEVEMENT_DELETE
+  MEMBER_ADDRESS_LINK //Link address
 }
 
 enum process_status_type {

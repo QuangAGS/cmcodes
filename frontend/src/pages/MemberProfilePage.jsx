@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/MemberProfilePage.jsx
  * DATETIME   : 2026-08-29T18:00:00+07:00
- * VERSION    : 1.5.2-A01-BIO-RA
+ * VERSION    : 1.6.0-A01-ACH
  * DESCRIPTION: Shell tóm tắt + một mục. Địa chỉ đọc 2 cột. Form địa chỉ trang con.
  */
 
@@ -27,6 +27,12 @@ import {
   formatAddressSummary,
   hasPlace,
 } from '../features/member/constants/addressCatalog.js';
+import {
+  AchievementEditor,
+  AchievementReader,
+  EMPTY_ACHIEVEMENT,
+} from '../features/member/components/AchievementSection.jsx';
+import { achievementFromApi } from '../features/member/constants/achievementCatalog.js';
 
 const EMPTY = {
   full_name: '',
@@ -62,6 +68,8 @@ const SECTIONS = [
   { key: 'address', label: 'Địa chỉ' },
   { key: 'bio', label: 'Tiểu sử' },
   { key: 'bio_read', label: 'Đọc toàn bộ tiểu sử' },
+  { key: 'ach', label: 'Thành tựu' },
+  { key: 'ach_read', label: 'Đọc toàn bộ thành tựu' },
   { key: 'privacy', label: 'Ai được xem' },
 ];
 
@@ -134,6 +142,10 @@ export default function MemberProfilePage() {
   const [privacyGroup, setPrivacyGroup] = useState('CONTACT');
   const [bioTopic, setBioTopic] = useState('childhood_summary');
   const [bioOpen, setBioOpen] = useState({});
+  const [achievements, setAchievements] = useState([]);
+  const [achDraft, setAchDraft] = useState({ ...EMPTY_ACHIEVEMENT });
+  const [achOpen, setAchOpen] = useState({});
+  const [savingAch, setSavingAch] = useState(false);
 
   const setField = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
   const alive = meta.is_alive !== false;
@@ -187,6 +199,12 @@ export default function MemberProfilePage() {
           is_alive: m.is_alive !== false,
           generation: m.generation ?? null,
         });
+        try {
+          const ach = await apiClient.get('/me/achievements');
+          if (!cancelled) setAchievements(ach.data?.data?.items || []);
+        } catch {
+          if (!cancelled) setAchievements([]);
+        }
       } catch (e) {
         toast.error(e.response?.data?.message || 'Không tải được hồ sơ.');
       } finally {
@@ -485,6 +503,66 @@ export default function MemberProfilePage() {
               </div>
             ) : null}
 
+
+            {section === 'ach' ? (
+              <AchievementEditor
+                draft={achDraft}
+                setDraft={setAchDraft}
+                saving={savingAch}
+                onCancel={() => setAchDraft({ ...EMPTY_ACHIEVEMENT })}
+                onSave={async (payload) => {
+                  if (!payload.title || !payload.achieved_year) {
+                    toast.error('Cần tiêu đề và năm.');
+                    return;
+                  }
+                  setSavingAch(true);
+                  try {
+                    if (achDraft.id) {
+                      await apiClient.patch(`/me/achievements/${achDraft.id}`, payload);
+                      toast.success('Đã lưu thành tích.');
+                    } else {
+                      await apiClient.post('/me/achievements', payload);
+                      toast.success('Đã thêm thành tích.');
+                    }
+                    const ach = await apiClient.get('/me/achievements');
+                    setAchievements(ach.data?.data?.items || []);
+                    setAchDraft({ ...EMPTY_ACHIEVEMENT });
+                    setSection('ach_read');
+                  } catch (e) {
+                    toast.error(e.response?.data?.message || 'Không lưu được thành tích.');
+                  } finally {
+                    setSavingAch(false);
+                  }
+                }}
+              />
+            ) : null}
+
+            {section === 'ach_read' ? (
+              <AchievementReader
+                items={achievements}
+                openMap={achOpen}
+                setOpenMap={setAchOpen}
+                onCreate={() => {
+                  setAchDraft({ ...EMPTY_ACHIEVEMENT });
+                  setSection('ach');
+                }}
+                onEdit={(row) => {
+                  setAchDraft(achievementFromApi(row));
+                  setSection('ach');
+                }}
+                onDelete={async (row) => {
+                  if (!window.confirm('Xóa thành tích này?')) return;
+                  try {
+                    await apiClient.delete(`/me/achievements/${row.id}`);
+                    setAchievements((prev) => prev.filter((x) => x.id !== row.id));
+                    toast.success('Đã xóa thành tích.');
+                  } catch (e) {
+                    toast.error(e.response?.data?.message || 'Không xóa được.');
+                  }
+                }}
+              />
+            ) : null}
+
             {section === 'privacy' ? (
               <div className="space-y-3">
                 <Field label="Mục thông tin">
@@ -520,7 +598,7 @@ export default function MemberProfilePage() {
             ) : null}
           </section>
 
-          {section !== 'address' && section !== 'bio_read' ? (
+          {section !== 'address' && section !== 'bio_read' && section !== 'ach' && section !== 'ach_read' ? (
             <button
               type="submit"
               disabled={saving}
