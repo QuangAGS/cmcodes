@@ -86,29 +86,59 @@ model tenants {
   @@map("tenants")
 }
 
+/// DATETIME   : 2026-09-01T07:00:00+07:00
+/// VERSION    : 2.0.0-ACH-SUBCAT
+/// DESCRIPTION: Thành tích member. category + sub_category (mã) phục vụ thống kê.
+///              sub_category không tự do: mã trong catalog FE/BE theo category.
 model achievements {
-  id             String                @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
-  member_id      String                @db.VarChar(36)
-  category       achievements_category
-  title          String                @db.VarChar(255)
-  organization   String?               @db.VarChar(255)
+  id String @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+
+  tenant_id String @db.VarChar(36)
+  member_id String @db.VarChar(36)
+
+  /// Nhóm thống kê cấp 1
+  category achievements_category
+
+  /// Mã chi tiết trong nhóm. Null = chưa phân loại.
+  /// Ví dụ KHOA_BANG: TIEN_SI | THAC_SI | DAI_HOC | GIAO_SU | PHO_GIAO_SU | GIAI_THUONG
+  /// App validate: sub_category ∈ catalog[category]. Không nhét tiếng Việt vào cột này.
+  sub_category String? @db.VarChar(60)
+
+  title     String  @db.VarChar(255)
+  issued_by String? @db.VarChar(255)
+
+  /// Mốc bắt đầu / ngày đạt. Năm bắt buộc.
   achieved_year  Int
   achieved_month Int?
   achieved_day   Int?
-  description    String?
-  created_at     DateTime?             @default(now()) @db.Timestamptz(6)
-  updated_at     DateTime?             @default(now()) @db.Timestamptz(6)
-  changed_by     String?               @db.VarChar(36)
-  deleted_at     DateTime?             @db.Timestamptz(6)
-  tenant_id      String                @db.VarChar(36)
-  members        members               @relation(fields: [member_id], references: [id], onUpdate: NoAction, map: "fk_achievement_member")
-  tenants        tenants               @relation(fields: [tenant_id], references: [id], map: "fk_achievement_tenant")
-  users          users?                @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_achievements_user")
+  is_lunar       Boolean @default(false)
+
+  /// Mốc kết thúc — chức vụ, quân ngũ, nhiệm kỳ. Null = sự kiện một mốc hoặc còn đương nhiệm.
+  ended_year  Int?
+  ended_month Int?
+  ended_day   Int?
+  is_current  Boolean @default(false)
+
+  description String?
+  sort_order  Int?    @default(0)
+
+  created_at DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at DateTime? @default(now()) @updatedAt @db.Timestamptz(6)
+  changed_by String?   @db.VarChar(36)
+  deleted_at DateTime? @db.Timestamptz(6)
+
+  members members @relation(fields: [member_id], references: [id], onUpdate: NoAction, map: "fk_achievement_member")
+  tenants tenants @relation(fields: [tenant_id], references: [id], map: "fk_achievement_tenant")
+  users   users?  @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_achievements_user")
 
   @@index([tenant_id], map: "idx_achievement_tenant")
   @@index([member_id], map: "idx_achievement_member")
+  @@index([category], map: "idx_achievement_category")
+  @@index([tenant_id, category, sub_category], map: "idx_achievement_cat_sub")
+  @@index([member_id, achieved_year], map: "idx_achievement_member_year")
   @@index([changed_by], map: "idx_achievements_user")
   @@index([deleted_at], map: "idx_achievements_deleted_at")
+  @@map("achievements")
 }
 
 ///Đợt 2, thay toàn bộ cấu trúc Addresses
