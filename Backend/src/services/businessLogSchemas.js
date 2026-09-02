@@ -410,9 +410,17 @@ const BusinessLogSchemas = {
   // =========================================================================
 
   MEMBER_PROFILE_PATCH: (payload = {}) => {
+    const member = payload.member && typeof payload.member === 'object' ? payload.member : {};
+    const biography = payload.biography && typeof payload.biography === 'object' ? payload.biography : {};
+    const fields = Array.isArray(payload.fields)
+      ? payload.fields
+      : [...Object.keys(member), ...Object.keys(biography)];
     return {
       member_id: payload.member_id || null,
-      fields: Array.isArray(payload.fields) ? payload.fields : [],
+      action: payload.action || 'PATCH',
+      fields,
+      member,
+      biography,
     };
   },
 

@@ -415,9 +415,16 @@ async function patchMyProfile(reqUser, body = {}) {
       await writeBpl({
         processType: 'MEMBER_PROFILE_PATCH',
         actorContext: actorCtx,
+        action: 'PATCH',
         attemptNo: attempt++,
         context: { target_id: member.id, target_name: memberPatch.full_name || null },
-        payload: { member_id: member.id, fields: Object.keys(memberPatch).concat(Object.keys(bioPatch)) },
+        payload: {
+          member_id: member.id,
+          action: 'PATCH',
+          fields: Object.keys(memberPatch).concat(Object.keys(bioPatch)),
+          member: memberPatch,
+          biography: bioPatch,
+        },
         tx,
       });
     }
