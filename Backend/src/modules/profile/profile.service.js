@@ -1,15 +1,36 @@
 /**
  * PATH       : src/modules/profile/profile.service.js
  * DATETIME   : 2026-09-01T17:10:00+07:00
- * VERSION    : 1.3.0-BFA-222-B3
- * DESCRIPTION: Compose full_address. VN locality null. Search chỉ chỗ gắn member.
- *  A01-ADDR: Generate full_address từ phần. Cấm chỉ gửi chuỗi. Không inject tenant vào findUnique.
- *  A01 self-profile. Cấm users.phone/email. Cấm gender/is_alive/cây.
+ * VERSION    : 1.4.0-BFA-222-AUDIT
+ * DESCRIPTION: A01 audit_logs cùng TX + correlation với BPL. Unwrap body. A01_DEBUG.
  */
 
 'use strict';
 const { prisma, correlation } = require('../../lib/prisma.js');
 const { writeBpl } = require('../../services/bpl.service.js');
+const { logAction } = require('../../services/audit.service.js');
+const { a01Log } = require('./a01Debug.js');
+
+async function writeAudit(tx, {
+  action, tableName, recordId, oldData, newData, actorId, tenantId, correlationId, reason,
+}) {
+  const row = await logAction(
+    action,
+    tableName,
+    recordId,
+    oldData,
+    newData,
+    actorId,
+    reason,
+    tenantId,
+    correlationId,
+    tx
+  );
+  if (!row) {
+    deny('AUDIT_FAILED', `Không ghi được audit_logs (${tableName}).`, 500);
+  }
+  return row;
+}
 
 const MEMBER_PATCH = [
   'full_name',
@@ -44,6 +65,30 @@ function deny(code, message, statusCode = 403) {
   err.code = code;
   err.isOperational = true;
   throw err;
+}
+
+function unwrapBody(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  let src = raw;
+  if (src.data && typeof src.data === 'object' && !Array.isArray(src.data) && src.full_name === undefined) {
+    src = {
+      ...src.data,
+      origin_address: raw.origin_address || src.data.origin_address,
+      current_address: raw.current_address || src.data.current_address,
+      privacy: raw.privacy || src.data.privacy,
+      biography: raw.biography || src.data.biography,
+    };
+  }
+  if (src.member && typeof src.member === 'object' && src.full_name === undefined) {
+    return {
+      ...src.member,
+      biography: src.biography || src.member.biography,
+      origin_address: src.origin_address,
+      current_address: src.current_address,
+      privacy: src.privacy,
+    };
+  }
+  return src;
 }
 
 async function resolveMemberActor(reqUser) {
@@ -271,10 +316,16 @@ async function getMyProfile(reqUser) {
   };
 }
 
-async function patchMyProfile(reqUser, body = {}) {
+async function patchMyProfile(reqUser, rawBody = {}) {
   const { user, member } = await resolveMemberActor(reqUser);
   const actorId = user.id;
   const tenantId = member.tenant_id;
+  const body = unwrapBody(rawBody);
+
+  a01Log('incoming', {
+    rawKeys: rawBody && typeof rawBody === 'object' ? Object.keys(rawBody) : [],
+    bodyKeys: Object.keys(body),
+  });
 
   if (body.gender !== undefined) {
     deny('FIELD_LOCKED', 'Giới tính không tự sửa sau OP. Dùng đề xuất (G01).', 400);
@@ -307,34 +358,87 @@ async function patchMyProfile(reqUser, body = {}) {
   }
 
   const bioPatch = pick(body.biography || body, BIO_PATCH);
+  a01Log('pick', { memberPatch, bioPatch });
+
+  const hasAddr = !!(body.origin_address || body.current_address);
+  const hasPrivacy = Array.isArray(body.privacy) && body.privacy.length > 0;
+  if (!Object.keys(memberPatch).length && !Object.keys(bioPatch).length && !hasAddr && !hasPrivacy) {
+    deny('EMPTY_PATCH', 'Không nhận được trường hồ sơ. Kiểm tra Request Payload (Network).', 400);
+  }
 
   return prisma.$transaction(async (tx) => {
+    const correlationId = correlation.create();
+    const actorCtx = {
+      actor_id: actorId,
+      actor_type: 'USER',
+      tenant_id: tenantId,
+      correlation_id: correlationId,
+    };
+    let attempt = 1;
+
+    const oldMember = await tx.members.findFirst({
+      where: { id: member.id, tenant_id: tenantId, deleted_at: null },
+    });
+    const oldBio = await tx.biographies.findFirst({
+      where: { member_id: member.id, tenant_id: tenantId, deleted_at: null },
+    });
+
     if (Object.keys(memberPatch).length) {
       const upd = await tx.members.updateMany({
         where: { id: member.id, tenant_id: tenantId, deleted_at: null },
         data: { ...memberPatch, changed_by: actorId, updated_at: new Date() },
       });
       if (upd.count !== 1) deny('MEMBER_NOT_FOUND', 'Không cập nhật được hồ sơ.', 404);
+      await writeAudit(tx, {
+        action: 'CAP_NHAT',
+        tableName: 'members',
+        recordId: member.id,
+        oldData: oldMember,
+        newData: { ...(oldMember || {}), ...memberPatch },
+        actorId,
+        tenantId,
+        correlationId,
+        reason: 'A01 PATCH /me/profile',
+      });
     }
 
     if (Object.keys(bioPatch).length) {
-      const existing = await tx.biographies.findFirst({
-        where: { member_id: member.id, tenant_id: tenantId, deleted_at: null },
-        select: { id: true },
-      });
+      const existing = oldBio;
       if (existing) {
         await tx.biographies.updateMany({
           where: { id: existing.id, tenant_id: tenantId, deleted_at: null },
           data: { ...bioPatch, changed_by: actorId, updated_at: new Date() },
         });
+        await writeAudit(tx, {
+          action: 'CAP_NHAT',
+          tableName: 'biographies',
+          recordId: existing.id,
+          oldData: existing,
+          newData: { ...existing, ...bioPatch },
+          actorId,
+          tenantId,
+          correlationId,
+          reason: 'A01 PATCH /me/profile biography',
+        });
       } else {
-        await tx.biographies.create({
+        const created = await tx.biographies.create({
           data: {
             member_id: member.id,
             tenant_id: tenantId,
             changed_by: actorId,
             ...bioPatch,
           },
+        });
+        await writeAudit(tx, {
+          action: 'THEM_MOI',
+          tableName: 'biographies',
+          recordId: created.id,
+          oldData: null,
+          newData: created,
+          actorId,
+          tenantId,
+          correlationId,
+          reason: 'A01 PATCH /me/profile biography',
         });
       }
     }
@@ -350,6 +454,17 @@ async function patchMyProfile(reqUser, body = {}) {
           where: { id: member.id, tenant_id: tenantId, deleted_at: null },
           data: { origin_address_id: addr.id, changed_by: actorId },
         });
+        await writeAudit(tx, {
+          action: 'CAP_NHAT',
+          tableName: 'members',
+          recordId: member.id,
+          oldData: { origin_address_id: oldMember && oldMember.origin_address_id },
+          newData: { origin_address_id: addr.id },
+          actorId,
+          tenantId,
+          correlationId,
+          reason: 'A01 link origin address',
+        });
       }
     }
     if (body.current_address) {
@@ -359,6 +474,17 @@ async function patchMyProfile(reqUser, body = {}) {
         await tx.members.updateMany({
           where: { id: member.id, tenant_id: tenantId, deleted_at: null },
           data: { current_address_id: addr.id, changed_by: actorId },
+        });
+        await writeAudit(tx, {
+          action: 'CAP_NHAT',
+          tableName: 'members',
+          recordId: member.id,
+          oldData: { current_address_id: oldMember && oldMember.current_address_id },
+          newData: { current_address_id: addr.id },
+          actorId,
+          tenantId,
+          correlationId,
+          reason: 'A01 link current address',
         });
       }
     }
@@ -388,8 +514,19 @@ async function patchMyProfile(reqUser, body = {}) {
               updated_at: new Date(),
             },
           });
+          await writeAudit(tx, {
+            action: 'CAP_NHAT',
+            tableName: 'member_privacy_rules',
+            recordId: found.id,
+            oldData: found,
+            newData: { ...found, visibility: rule.visibility },
+            actorId,
+            tenantId,
+            correlationId,
+            reason: 'A01 PATCH privacy',
+          });
         } else {
-          await tx.member_privacy_rules.create({
+          const created = await tx.member_privacy_rules.create({
             data: {
               tenant_id: tenantId,
               member_id: member.id,
@@ -398,24 +535,29 @@ async function patchMyProfile(reqUser, body = {}) {
               changed_by: actorId,
             },
           });
+          await writeAudit(tx, {
+            action: 'THEM_MOI',
+            tableName: 'member_privacy_rules',
+            recordId: created.id,
+            oldData: null,
+            newData: created,
+            actorId,
+            tenantId,
+            correlationId,
+            reason: 'A01 PATCH privacy',
+          });
         }
       }
     }
 
-    const correlationId = correlation.create();
-    const actorCtx = {
-      actor_id: actorId,
-      actor_type: 'USER',
-      tenant_id: tenantId,
-      correlation_id: correlationId,
-    };
-    let attempt = 1;
-
     if (Object.keys(memberPatch).length || Object.keys(bioPatch).length) {
+      a01Log('writeBpl.MEMBER_PROFILE_PATCH', {
+        correlationId,
+        payload: { member_id: member.id, member: memberPatch, biography: bioPatch },
+      });
       await writeBpl({
         processType: 'MEMBER_PROFILE_PATCH',
         actorContext: actorCtx,
-        action: 'PATCH',
         attemptNo: attempt++,
         context: { target_id: member.id, target_name: memberPatch.full_name || null },
         payload: {

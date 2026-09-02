@@ -9,6 +9,7 @@
 
 const { prisma, correlation } = require('../../lib/prisma.js');
 const { writeBpl } = require('../../services/bpl.service.js');
+const { logAction } = require('../../services/audit.service.js');
 const { isValidCategory, isValidSub } = require('./achievementCatalog.js');
 const { resolveMemberActor } = require('./profile.service.js');
 
@@ -108,13 +109,31 @@ const SELECT = {
   updated_at: true,
 };
 
-function actorCtx(user, member) {
+function actorCtx(user, member, correlationId) {
   return {
     actor_id: user.id,
     actor_type: 'USER',
     tenant_id: member.tenant_id,
-    correlation_id: correlation.create(), 
+    correlation_id: correlationId,
   };
+}
+
+async function writeAudit(tx, args) {
+  const row = await logAction(
+    args.action,
+    args.tableName,
+    args.recordId,
+    args.oldData,
+    args.newData,
+    args.actorId,
+    args.reason,
+    args.tenantId,
+    args.correlationId,
+    tx
+  );
+  if (!row) {
+    deny('AUDIT_FAILED', `Không ghi được audit_logs (${args.tableName}).`, 500);
+  }
 }
 
 async function listMine(reqUser) {
@@ -131,6 +150,7 @@ async function createMine(reqUser, body) {
   const { user, member } = await resolveMemberActor(reqUser);
   const data = parseBody(body, { partial: false });
   return prisma.$transaction(async (tx) => {
+    const correlationId = correlation.create();
     const row = await tx.achievements.create({
       data: {
         ...data,
@@ -140,9 +160,20 @@ async function createMine(reqUser, body) {
       },
       select: SELECT,
     });
+    await writeAudit(tx, {
+      action: 'THEM_MOI',
+      tableName: 'achievements',
+      recordId: row.id,
+      oldData: null,
+      newData: row,
+      actorId: user.id,
+      tenantId: member.tenant_id,
+      correlationId,
+      reason: 'A01 POST /me/achievements',
+    });
     await writeBpl({
       processType: 'ACHIEVEMENT_UPSERT',
-      actorContext: actorCtx(user, member),
+      actorContext: actorCtx(user, member, correlationId),
       context: { target_id: member.id, target_name: row.title },
       payload: {
         member_id: member.id,
@@ -168,6 +199,7 @@ async function updateMine(reqUser, id, body) {
   if (!existing) deny('NOT_FOUND', 'Không tìm thấy thành tích.', 404);
   const patch = parseBody({ category: existing.category, ...body }, { partial: true });
   return prisma.$transaction(async (tx) => {
+    const correlationId = correlation.create();
     const upd = await tx.achievements.updateMany({
       where: { id: existing.id, tenant_id: member.tenant_id, deleted_at: null },
       data: { ...patch, changed_by: user.id, updated_at: new Date() },
@@ -177,9 +209,20 @@ async function updateMine(reqUser, id, body) {
       where: { id: existing.id, tenant_id: member.tenant_id, deleted_at: null },
       select: SELECT,
     });
+    await writeAudit(tx, {
+      action: 'CAP_NHAT',
+      tableName: 'achievements',
+      recordId: existing.id,
+      oldData: existing,
+      newData: item,
+      actorId: user.id,
+      tenantId: member.tenant_id,
+      correlationId,
+      reason: 'A01 PATCH /me/achievements',
+    });
     await writeBpl({
       processType: 'ACHIEVEMENT_UPSERT',
-      actorContext: actorCtx(user, member),
+      actorContext: actorCtx(user, member, correlationId),
       context: { target_id: member.id, target_name: item && item.title },
       payload: {
         member_id: member.id,
@@ -204,13 +247,25 @@ async function removeMine(reqUser, id) {
   });
   if (!existing) deny('NOT_FOUND', 'Không tìm thấy thành tích.', 404);
   return prisma.$transaction(async (tx) => {
+    const correlationId = correlation.create();
     await tx.achievements.updateMany({
       where: { id: existing.id, tenant_id: member.tenant_id, deleted_at: null },
       data: { deleted_at: new Date(), changed_by: user.id, updated_at: new Date() },
     });
+    await writeAudit(tx, {
+      action: 'XOA',
+      tableName: 'achievements',
+      recordId: existing.id,
+      oldData: existing,
+      newData: { id: existing.id, deleted_at: true },
+      actorId: user.id,
+      tenantId: member.tenant_id,
+      correlationId,
+      reason: 'A01 DELETE /me/achievements',
+    });
     await writeBpl({
       processType: 'ACHIEVEMENT_DELETE',
-      actorContext: actorCtx(user, member),
+      actorContext: actorCtx(user, member, correlationId),
       context: { target_id: member.id, target_name: null },
       payload: { member_id: member.id, achievement_id: existing.id },
       tx,
