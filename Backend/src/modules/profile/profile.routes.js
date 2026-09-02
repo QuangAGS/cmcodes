@@ -16,6 +16,17 @@ const profileService = require('./profile.service');
 const achievementsService = require('./achievements.service.js');
 const avatarService = require('./avatar.service.js');
 
+function actorFromReq(req) {
+  const u = req.user || {};
+  return {
+    ...u,
+    id: u.id || u.userId,
+    userId: u.userId || u.id,
+    tenantId: u.tenantId || u.tenant_id || req.tenantId || null,
+    tenant_id: u.tenant_id || u.tenantId || req.tenantId || null,
+  };
+}
+
 router.get(
   '/profile',
   verifyToken,
@@ -52,7 +63,7 @@ router.get(
   '/avatar',
   verifyToken,
   asyncHandler(async (req, res) => {
-    const data = await avatarService.getMine(req.user);
+    const data = await avatarService.getMine(actorFromReq(req));
     res.status(200).json({ success: true, status: 'success', data });
   })
 );
@@ -62,7 +73,7 @@ router.post(
   verifyToken,
   upload.single('file'),
   asyncHandler(async (req, res) => {
-    const data = await avatarService.uploadMine(req.user, req.file);
+    const data = await avatarService.uploadMine(actorFromReq(req), req.file);
     res.status(201).json({
       success: true,
       status: 'success',
@@ -76,7 +87,7 @@ router.delete(
   '/avatar',
   verifyToken,
   asyncHandler(async (req, res) => {
-    const data = await avatarService.removeMine(req.user);
+    const data = await avatarService.removeMine(actorFromReq(req));
     res.status(200).json({
       success: true,
       status: 'success',
