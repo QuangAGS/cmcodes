@@ -1552,6 +1552,8 @@ enum business_process_type {
   ACHIEVEMENT_UPSERT //Cập nhật hoặc chèn mới
   ACHIEVEMENT_DELETE
   MEMBER_ADDRESS_LINK //Link address
+  MEDIA_AVATAR_UPSERT
+  MEDIA_AVATAR_DELETE 
 }
 
 enum process_status_type {

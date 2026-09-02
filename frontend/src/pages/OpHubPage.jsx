@@ -1,433 +1,729 @@
 /**
- * PATH       : src/pages/OpHubPage.jsx
- * DATETIME   : 2026-08-24T10:45:00+07:00
- * VERSION    : 1.5.0-FOOTER
- * DESCRIPTION:
- * - Hub /op dong: mac dinh chi viec can quan tam; toggle Hien ca viec da xong.
- * - TenantHeader + AppFooterNav.
- * - Elder: tach voice — huong dan / yeu cau admin / trang thai (chi khi bam).
+ * PATH       : src/pages/MemberProfilePage.jsx
+ * DATETIME   : 2026-08-29T18:00:00+07:00
+ * VERSION    : 1.6.0-A01-ACH
+ * DESCRIPTION: Shell tóm tắt + một mục. Địa chỉ đọc 2 cột. Form địa chỉ trang con.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { ChevronDown, ChevronUp } from 'lucide-react';
-
+import { useEffect, useMemo, useState, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { toast } from 'sonner';
+import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
-
-import AudioHelpButton from '../features/elder-doctrine/components/AudioHelpButton.jsx';
-import ZoneVoiceButton from '../features/elder-doctrine/components/ZoneVoiceButton.jsx';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
-
-import {
-  labelFields,
-  labelEnum,
-} from '../features/onboarding/constants/opFieldLabels.js';
-import {
-  OP_HUB_AUDIO_HELP,
-  OP_HUB_WELCOME,
-  buildProcessStatusMessage,
-} from '../features/onboarding/constants/opMessages.js';
 import { resolveFooterNav } from '../lib/resolveFooterNav.js';
+import AudioHelpButton from '../features/elder-doctrine/components/AudioHelpButton.jsx';
+import ZoneVoiceButton from '../features/elder-doctrine/components/ZoneVoiceButton.jsx';
 import {
-  OP_WORK_ITEMS,
-  OP_WORK_ITEM_IDS,
-} from '../features/onboarding/constants/opWorkItems.js';
+  PROFILE_PAGE_HELP,
+  PROFILE_ZONE,
+} from '../features/member/constants/memberProfileMessages.js';
+import {
+  EMPTY_ADDRESS,
+  addressFromApi,
+  formatAddressSummary,
+  hasPlace,
+} from '../features/member/constants/addressCatalog.js';
+import {
+  AchievementEditor,
+  AchievementReader,
+  EMPTY_ACHIEVEMENT,
+} from '../features/member/components/AchievementSection.jsx';
+import { achievementFromApi } from '../features/member/constants/achievementCatalog.js';
 
-const SHOW_ALL_KEY = 'op_hub_show_all_work';
+// ============================================================================
+// 1. CÁC HẰNG SỐ CẤU HÌNH BẢN GHI VÀ DANH SÁCH MỤC (CONSTANTS)
+// ============================================================================
 
-function getSubtitle(user, primary) {
+/** Cấu trúc giá trị mặc định cho toàn bộ form dữ liệu hồ sơ cá nhân */
+const EMPTY = {
+  full_name: '',
+  alias: '',
+  note: '',
+  birth_year: '',
+  birth_month: '',
+  birth_day: '',
+  is_birth_lunar: false,
+  birth_note: '',
+  phone_number: '',
+  email: '',
+  zalo: '',
+  facebook: '',
+  website: '',
+  childhood_summary: '',
+  education_history: '',
+  career_history: '',
+  later_life_summary: '',
+  personality_traits: '',
+  notable_quotes: '',
+  origin: { ...EMPTY_ADDRESS }, // Địa chỉ quê quán
+  current: { ...EMPTY_ADDRESS }, // Địa chỉ hiện tại / nơi ở cuối
+  privacy_CONTACT: 'TENANT',
+  privacy_ACHIEVEMENT: 'TENANT',
+  privacy_BIRTH_DATE: 'TENANT',
+};
+
+/** Danh sách các tab/mục trong trang hồ sơ để người dùng chọn xem/sửa */
+const SECTIONS = [
+  { key: 'identity', label: 'Họ tên' },
+  { key: 'birth', label: 'Ngày sinh' },
+  { key: 'contact', label: 'Liên lạc' },
+  { key: 'address', label: 'Địa chỉ' },
+  { key: 'bio', label: 'Tiểu sử' },
+  { key: 'bio_read', label: 'Đọc toàn bộ tiểu sử' },
+  { key: 'ach', label: 'Thành tựu' },
+  { key: 'ach_read', label: 'Đọc toàn bộ thành tựu' },
+  { key: 'privacy', label: 'Ai được xem' },
+];
+
+/** Danh sách các chủ đề nằm trong phần Tiểu sử (Biography) */
+const BIO_TOPICS = [
+  { key: 'childhood_summary', label: 'Thiếu thời', voice: 'Thiếu thời.', max: null },
+  { key: 'education_history', label: 'Học vấn', voice: 'Học vấn.', max: null },
+  { key: 'career_history', label: 'Nghề nghiệp', voice: 'Nghề nghiệp.', max: null },
+  { key: 'later_life_summary', label: 'Về già / giai đoạn sau', voice: 'Về già và giai đoạn sau.', max: null },
+  { key: 'personality_traits', label: 'Tính cách', voice: 'Tính cách.', max: 500 },
+  { key: 'notable_quotes', label: 'Danh ngôn', voice: 'Danh ngôn.', max: null },
+];
+
+/** Danh sách các nhóm quyền riêng tư được phép cài đặt */
+const PRIVACY_ITEMS = [
+  { key: 'CONTACT', label: 'Liên lạc' },
+  { key: 'BIRTH_DATE', label: 'Ngày sinh' },
+  { key: 'ACHIEVEMENT', label: 'Thành tựu' },
+];
+
+/** Class CSS tái sử dụng cho các ô input/select */
+const inputCls =
+  'w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-medium outline-none focus:border-indigo-400';
+
+// ============================================================================
+// 2. CÁC COMPONENT PHỤ VÀ HÀM BỔ TRỢ (HELPERS & UI COMPONENTS)
+// ============================================================================
+
+/** Component bọc ô nhập liệu có Label và Ghi chú (Hint) */
+function Field({ label, hint, children }) {
   return (
-    user?.phone ||
-    user?.email ||
-    primary?.full_name ||
-    user?.name ||
-    'Thành viên'
+    <label className="block">
+      <span className="mb-1 block text-sm font-bold text-slate-700">{label}</span>
+      {children}
+      {hint ? <span className="mt-1 block text-xs text-slate-500">{hint}</span> : null}
+    </label>
   );
 }
 
-function isActionableStatus(status) {
-  return [
-    'DRAFT',
-    'NEEDS_REVISION',
-    'SUBMITTED',
-    'UNDER_REVIEW',
-    'REJECTED',
-  ].includes(status);
+/** Component hiển thị 1 dòng dữ liệu dạng "nhãn: giá trị" ở chế độ chỉ đọc */
+function ReadRow({ label, value }) {
+  return (
+    <div className="grid grid-cols-[7.5rem_1fr] items-start gap-2 py-1.5">
+      <dt className="text-sm italic text-slate-500">{label}</dt>
+      <dd className="text-sm font-medium text-slate-800">{value || '—'}</dd>
+    </div>
+  );
 }
 
-function statusBadgeForItem(itemId, data) {
-  if (itemId !== OP_WORK_ITEM_IDS.BASE_PROFILE) return '—';
-  const st = data?.case?.status;
-  if (st === 'NEEDS_REVISION') return 'Cần bổ sung theo yêu cầu';
-  if (st === 'REJECTED') {
-    return data?.case?.reopenable
-      ? 'Bị từ chối — chờ ban quản trị mở lại'
-      : 'Bị từ chối lần cuối';
-  }
-  if (st === 'SUBMITTED' || st === 'UNDER_REVIEW') return 'Đang chờ duyệt';
-  if (st === 'APPROVED') return 'Đã duyệt';
-  if (data?.completeness?.complete) return 'Đã đủ thông tin bắt buộc';
-  return 'Cần bổ sung';
+/** Định dạng chuỗi hiển thị ngày sinh (Ngày/Tháng/Năm) kèm âm/dương lịch */
+function formatDob(form) {
+  const d = [form.birth_day, form.birth_month, form.birth_year].filter((x) => x !== '' && x != null);
+  if (!d.length) return 'Chưa có';
+  const s = [form.birth_day, form.birth_month, form.birth_year].filter((x) => x !== '' && x != null).join('/');
+  return form.is_birth_lunar ? `${s} (âm lịch)` : s;
 }
 
-function howToGuidanceText(completeness, missingLabels) {
-  if (completeness?.complete) {
-    return 'Hồ sơ cơ bản đã đủ thông tin bắt buộc. Bạn có thể xem lại hoặc chỉnh sửa rồi gửi duyệt nếu chưa gửi.';
-  }
-  const missing =
-    missingLabels?.length > 0
-      ? `Còn thiếu: ${missingLabels.join(', ')}. `
-      : '';
-  return `${missing}Bấm Thực hiện để điền họ tên, giới tính, ngày sinh và đời thứ mấy. Có thể Lưu nháp rồi Gửi duyệt khi đã đủ.`;
+/** Lấy chữ cái đầu đại diện (avatar fallback) từ tên */
+function initials(name) {
+  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function shortStatusLine(caseStatus, profileComplete, adminNotes) {
-  if (caseStatus === 'NEEDS_REVISION') {
-    return adminNotes.revision_request
-      ? 'Ban quản trị yêu cầu bổ sung (chi tiết bên dưới).'
-      : 'Ban quản trị yêu cầu bổ sung hồ sơ.';
-  }
-  if (caseStatus === 'REJECTED') {
-    return adminNotes.reopenable
-      ? 'Hồ sơ bị từ chối tạm thời — vui lòng chờ ban quản trị mở lại.'
-      : 'Hồ sơ bị từ chối lần cuối.';
-  }
-  if (caseStatus === 'SUBMITTED' || caseStatus === 'UNDER_REVIEW') {
-    return 'Đang chờ ban quản trị xem xét.';
-  }
-  if (caseStatus === 'DRAFT') {
-    return profileComplete
-      ? 'Đã đủ thông tin bắt buộc — có thể gửi duyệt.'
-      : 'Chưa đủ thông tin bắt buộc.';
-  }
-  if (caseStatus === 'APPROVED') return 'Đã được duyệt.';
-  return '';
-}
+// ============================================================================
+// 3. COMPONENT CHÍNH (MAIN COMPONENT)
+// ============================================================================
 
-export default function OpHubPage() {
+export default function MemberProfilePage() {
+  // --- Hooks từ thư viện/Context ---
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState(null);
-  const [expandedId, setExpandedId] = useState(OP_WORK_ITEM_IDS.BASE_PROFILE);
-  const [showAll, setShowAll] = useState(() => {
-    try {
-      return localStorage.getItem(SHOW_ALL_KEY) === '1';
-    } catch {
-      return false;
-    }
+  const sessionTenant = resolveTenant(user);
+  const footerNav = resolveFooterNav(user, {
+    pageKey: 'public',
+    backTo: '/',
+    showBack: true,
   });
 
-  const fetchMyOp = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const res = await apiClient.get('/onboarding/my-op');
-      const payload = res.data?.data ?? res.data ?? null;
-      setData(payload);
-    } catch (err) {
-      setData(null);
-      setLoadError(
-        err?.response?.status === 401
-          ? 'Phiên đăng nhập hết hạn. Vui lòng đăng nhập lại.'
-          : 'Không tải được danh mục công việc. Vui lòng thử lại.'
-      );
-    } finally {
-      setLoading(false);
-    }
+  // ==========================================================================
+  // KHAI BÁO CÁC STATE QUẢN LÝ DỮ LIỆU
+  // ==========================================================================
+  
+  /** State chứa toàn bộ thông tin form đang chỉnh sửa */
+  const [form, setForm] = useState(EMPTY);
+  
+  /** State chứa các thông tin hệ thống không chỉnh sửa trực tiếp qua form (giới tính, gợi ý đăng nhập, sống/mất, thế hệ) */
+  const [meta, setMeta] = useState({ gender: '', hint: null, is_alive: true, generation: null });
+  
+  /** Trạng thái tải trang ban đầu */
+  const [loading, setLoading] = useState(true);
+  
+  /** Trạng thái đang lưu form chính */
+  const [saving, setSaving] = useState(false);
+  
+  /** Mục/Tab hiện tại người dùng đang chọn xem (mặc định là 'identity') */
+  const [section, setSection] = useState('identity');
+  
+  /** Nhóm quyền riêng tư đang chọn chỉnh sửa ('CONTACT' | 'BIRTH_DATE' | 'ACHIEVEMENT') */
+  const [privacyGroup, setPrivacyGroup] = useState('CONTACT');
+  
+  /** Chủ đề tiểu sử đang chọn viết/chỉnh sửa trong tab 'bio' */
+  const [bioTopic, setBioTopic] = useState('childhood_summary');
+  
+  /** Trạng thái đóng/mở (accordion) cho từng mục tiểu sử ở chế độ xem 'bio_read' */
+  const [bioOpen, setBioOpen] = useState({});
+  
+  /** Danh sách thành tựu lấy từ server */
+  const [achievements, setAchievements] = useState([]);
+  
+  /** Bản nháp thành tựu đang thêm/sửa */
+  const [achDraft, setAchDraft] = useState({ ...EMPTY_ACHIEVEMENT });
+  
+  /** Trạng thái đóng/mở (accordion) cho từng thành tựu ở chế độ xem 'ach_read' */
+  const [achOpen, setAchOpen] = useState({});
+  
+  /** Trạng thái đang lưu thành tựu */
+  const [savingAch, setSavingAch] = useState(false);
+
+  // --- Các hàm tiện ích ngắn trong component ---
+  
+  /** Hàm hỗ trợ cập nhật 1 trường dữ liệu trong state form */
+  const setField = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
+  
+  /** Kiểm tra thành viên còn sống hay đã mất */
+  const alive = meta.is_alive !== false;
+  
+  /** Tiêu đề động tùy thuộc vào việc thành viên còn sống hay không */
+  const currentTitle = alive ? 'Nơi ở hiện tại' : 'Nơi ở cuối';
+  
+  /** Lấy đối tượng thông tin tương ứng với tab (section) hiện tại */
+  const sectionMeta = useMemo(() => SECTIONS.find((s) => s.key === section) || SECTIONS[0], [section]);
+
+  const fileRef = useRef(null);
+  const [avatarUrl, setAvatarUrl] = useState(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  
+  // ==========================================================================
+  // SIDE EFFECTS (GỌI API TẢI DỮ LIỆU BAN ĐẦU)
+  // ==========================================================================
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        // Tải thông tin hồ sơ người dùng
+        const res = await apiClient.get('/me/profile');
+        const d = res.data?.data || {};
+        const m = d.member || {};
+        const b = d.biography || {};
+        const social = m.social_profiles || {};
+        const priv = {};
+        
+        // Chuyển danh sách quyền riêng tư từ API về object key-value
+        (d.privacy || []).forEach((r) => {
+          priv[`privacy_${r.field_group}`] = r.visibility;
+        });
+        
+        if (cancelled) return;
+
+        // Đổ dữ liệu từ API vào state form
+        setForm({
+          ...EMPTY,
+          full_name: m.full_name || '',
+          alias: m.alias || '',
+          note: m.note || '',
+          birth_year: m.birth_year ?? '',
+          birth_month: m.birth_month ?? '',
+          birth_day: m.birth_day ?? '',
+          is_birth_lunar: !!m.is_birth_lunar,
+          birth_note: m.birth_note || '',
+          phone_number: m.phone_number || '',
+          email: m.email || '',
+          zalo: social.zalo || '',
+          facebook: social.facebook || '',
+          website: social.website || '',
+          childhood_summary: b.childhood_summary || '',
+          education_history: b.education_history || '',
+          career_history: b.career_history || '',
+          later_life_summary: b.later_life_summary || '',
+          personality_traits: b.personality_traits || '',
+          notable_quotes: b.notable_quotes || '',
+          origin: addressFromApi(d.origin_address),
+          current: addressFromApi(d.current_address),
+          privacy_CONTACT: priv.privacy_CONTACT || 'TENANT',
+          privacy_ACHIEVEMENT: priv.privacy_ACHIEVEMENT || 'TENANT',
+          privacy_BIRTH_DATE: priv.privacy_BIRTH_DATE || 'TENANT',
+        });
+
+        // Đổ dữ liệu hệ thống vào state meta
+        setMeta({
+          gender: m.gender || '',
+          hint: d.login_contact_hint,
+          is_alive: m.is_alive !== false,
+          generation: m.generation ?? null,
+        });
+
+        // Tải danh sách thành tựu
+        try {
+          const ach = await apiClient.get('/me/achievements');
+          if (!cancelled) setAchievements(ach.data?.data?.items || []);
+        } catch {
+          if (!cancelled) setAchievements([]);
+        }
+      } catch (e) {
+        toast.error(e.response?.data?.message || 'Không tải được hồ sơ.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  useEffect(() => {
-    fetchMyOp();
-  }, [fetchMyOp]);
+  // ==========================================================================
+  // XỬ LÝ SỰ KIỆN (EVENT HANDLERS)
+  // ==========================================================================
 
-  const handleLogout = () => {
-    logout();
-    navigate('/auth', { replace: true });
-  };
-  const footerNav = resolveFooterNav(user, { pageKey: 'op-hub' });
-
-  const toggleShowAll = () => {
-    setShowAll((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem(SHOW_ALL_KEY, next ? '1' : '0');
-      } catch {
-        /* ignore */
-      }
-      return next;
-    });
-  };
-
-  const caseStatus = data?.case?.status ?? null;
-  const profileComplete = data?.completeness?.complete === true;
-  const missingKeys = data?.completeness?.missingFields || [];
-  const missingLabels = useMemo(
-    () => labelFields(missingKeys, 'members'),
-    [missingKeys]
-  );
-
-  const adminNotes = useMemo(
-    () => ({
-      revision_request: data?.case?.revision_request ?? null,
-      review_note: data?.case?.review_note ?? null,
-      rejection_reason: data?.case?.rejection_reason ?? null,
-      reopenable: data?.case?.reopenable === true,
-    }),
-    [data?.case]
-  );
-
-  const caseStatusLabel = caseStatus
-    ? labelEnum('case_status', caseStatus)
-    : '';
-
-  const processMessage = useMemo(
-    () => buildProcessStatusMessage(caseStatus, profileComplete, adminNotes),
-    [caseStatus, profileComplete, adminNotes]
-  );
-
-  const howToText = useMemo(
-    () => howToGuidanceText(data?.completeness, missingLabels),
-    [data?.completeness, missingLabels]
-  );
-
-  const sessionTenant = useMemo(
-    () => resolveTenant(user, data?.tenant),
-    [user, data?.tenant]
-  );
-
-  const subtitle = getSubtitle(user, data?.primary);
-  const shortLine = shortStatusLine(caseStatus, profileComplete, adminNotes);
-  const canOpenForm =
-    caseStatus === 'DRAFT' || caseStatus === 'NEEDS_REVISION';
-
-  const visibleItems = useMemo(() => {
-    if (showAll) return OP_WORK_ITEMS;
-    if (!caseStatus || isActionableStatus(caseStatus)) {
-      return OP_WORK_ITEMS.filter(
-        (it) => it.id === OP_WORK_ITEM_IDS.BASE_PROFILE
-      );
+  /**
+   * Xử lý lưu thông tin hồ sơ lên server
+   */
+  async function onSubmit(ev) {
+    ev.preventDefault();
+    setSaving(true);
+    try {
+      await apiClient.patch('/me/profile', {
+        full_name: form.full_name,
+        alias: form.alias || null,
+        note: form.note || null,
+        birth_year: form.birth_year === '' ? null : form.birth_year,
+        birth_month: form.birth_month === '' ? null : form.birth_month,
+        birth_day: form.birth_day === '' ? null : form.birth_day,
+        is_birth_lunar: !!form.is_birth_lunar,
+        birth_note: form.birth_note || null,
+        phone_number: form.phone_number || null,
+        email: form.email || null,
+        social_profiles: {
+          zalo: form.zalo || null,
+          facebook: form.facebook || null,
+          website: form.website || null,
+        },
+        biography: {
+          childhood_summary: form.childhood_summary || null,
+          education_history: form.education_history || null,
+          career_history: form.career_history || null,
+          later_life_summary: form.later_life_summary || null,
+          personality_traits: form.personality_traits || null,
+          notable_quotes: form.notable_quotes || null,
+        },
+        privacy: [
+          { field_group: 'CONTACT', visibility: form.privacy_CONTACT },
+          { field_group: 'ACHIEVEMENT', visibility: form.privacy_ACHIEVEMENT },
+          { field_group: 'BIRTH_DATE', visibility: form.privacy_BIRTH_DATE },
+        ],
+      });
+      toast.success('Đã lưu hồ sơ dòng họ.');
+      // Nếu đang sửa tiểu sử thì chuyển sang giao diện đọc toàn bộ tiểu sử
+      if (section === 'bio') setSection('bio_read');
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Không lưu được hồ sơ.');
+    } finally {
+      setSaving(false);
     }
-    return [];
-  }, [showAll, caseStatus]);
-
-  const allDone =
-    !loadError &&
-    caseStatus === 'APPROVED' &&
-    !showAll &&
-    visibleItems.length === 0;
-
-  if (loading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center font-sans text-slate-500">
-        Đang tải danh mục công việc...
-      </div>
-    );
   }
 
+  /** Chuyển hướng sang trang quản lý/chỉnh sửa địa chỉ */
+  function goAddress(usage, mode) {
+    navigate(`/me/profile/address?usage=${usage}&mode=${mode}`);
+  }
+
+  // ==========================================================================
+  // GIAO DIỆN (RENDER)
+  // ==========================================================================
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
-      <div className="mx-auto w-full max-w-[480px]">
-        <TenantHeader tenant={sessionTenant} subtitle={subtitle} />
+    <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-slate-50">
+      {/* Header dòng họ */}
+      <TenantHeader tenant={sessionTenant} subtitle="Hồ sơ dòng họ" />
 
-        <div className="px-4 py-6">
-          <header className="mb-4 text-center">
-            <h1 className="text-2xl font-black tracking-tight text-slate-800">
-              Danh mục loại công việc
-            </h1>
-          </header>
-
-          <div className="mb-4 space-y-3">
-            <AudioHelpButton
-              text={OP_HUB_AUDIO_HELP}
-              label="Nghe hướng dẫn trang"
-              size="md"
-            />
-
-            {loadError ? (
-              <p className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-left text-sm font-medium text-rose-800">
-                {loadError}
-              </p>
-            ) : (
-              <p className="px-1 text-center text-sm text-slate-600">
-                {OP_HUB_WELCOME}
-              </p>
-            )}
-
-            <label className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700">
-              <input
-                type="checkbox"
-                className="h-5 w-5"
-                checked={showAll}
-                onChange={toggleShowAll}
-              />
-              Hiện cả việc đã xong
-            </label>
-          </div>
-
-          {allDone ? (
-            <div className="rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-center">
-              <p className="text-sm font-bold text-emerald-900">
-                Bạn đã hoàn thành các việc onboarding cần thiết.
-              </p>
-              <div className="mt-3 flex justify-center">
-                <ZoneVoiceButton
-                  visible
-                  text="Bạn đã hoàn thành các việc onboarding cần thiết. Bạn có thể về trang chủ hoặc xem cây gia phả."
-                  label="Nghe trạng thái"
-                />
+      {/* Hiển thị đợt tải trang hoặc nội dung chính */}
+      {loading ? (
+        <div className="flex flex-1 items-center justify-center py-20">
+          <Loader2 className="h-8 w-8 animate-spin text-indigo-600" />
+        </div>
+      ) : (
+        <form onSubmit={onSubmit} className="flex flex-1 flex-col gap-4 px-4 py-4 pb-10">
+          {/* BANNER TÓM TẮT THÔNG TIN THÀNH VIÊN */}
+          <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex gap-4">
+              <button
+                type="button"
+                className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-lg font-black text-indigo-700"
+                onClick={() => toast.message('Ảnh đại diện sẽ thêm ở lát media (chưa mở upload).')}
+                aria-label="Ảnh đại diện"
+              >
+                {initials(form.full_name)}
+              </button>
+              <div className="min-w-0 flex-1">
+                <h1 className="text-xl font-black text-slate-800">{form.full_name || 'Chưa có tên'}</h1>
+                <p className="mt-1 text-sm text-slate-600">
+                  Giới tính: <span className="font-semibold">{meta.gender || '—'}</span>
+                </p>
+                <p className="text-sm text-slate-600">
+                  Ngày sinh: <span className="font-semibold">{formatDob(form)}</span>
+                </p>
+                <p className="text-sm text-slate-600">
+                  Đời thứ: <span className="font-semibold">{meta.generation != null ? meta.generation : 'Chưa có'}</span>
+                </p>
               </div>
             </div>
-          ) : null}
+            <div className="mt-3">
+              <AudioHelpButton text={PROFILE_PAGE_HELP} label="Nghe hướng dẫn trang" />
+            </div>
+            {meta.hint ? (
+              <p className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{meta.hint}</p>
+            ) : null}
+          </section>
 
-          <div className="space-y-3">
-            {visibleItems.map((item) => {
-              const expanded = expandedId === item.id;
-              const isBp = item.id === OP_WORK_ITEM_IDS.BASE_PROFILE;
-              const badge = statusBadgeForItem(item.id, data);
-              const doneOnly = isBp && caseStatus === 'APPROVED' && showAll;
+          {/* MENU CHỌN MỤC HỒ SƠ (DROPDOWN) */}
+          <label className="block">
+            <span className="mb-1 block text-sm font-bold text-slate-700">Mục hồ sơ</span>
+            <select className={inputCls} value={section} onChange={(e) => setSection(e.target.value)}>
+              {SECTIONS.map((s) => (
+                <option key={s.key} value={s.key}>{s.label}</option>
+              ))}
+            </select>
+          </label>
 
-              return (
-                <div
-                  key={item.id}
-                  className={`overflow-hidden rounded-3xl border shadow-sm ${
-                    item.primary
-                      ? 'border-indigo-200 bg-indigo-50/40'
-                      : 'border-slate-200 bg-white'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setExpandedId((prev) =>
-                        prev === item.id ? null : item.id
-                      )
-                    }
-                    className="flex w-full items-center gap-3 p-5 text-left transition active:scale-[0.99]"
-                  >
-                    <div className="min-w-0 flex-1">
-                      <div className="font-bold text-slate-800">{item.title}</div>
-                      <div className="mt-0.5 text-sm text-slate-500">{badge}</div>
-                    </div>
-                    {expanded ? (
-                      <ChevronUp className="h-5 w-5 shrink-0 text-slate-400" />
+          {/* KHU VỰC NỘI DUNG CHI TIẾT THEO MỤC ĐƯỢC CHỌN */}
+          <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="mb-3 flex items-center gap-2">
+              <h2 className="flex-1 text-base font-black text-slate-800">{sectionMeta.label}</h2>
+              <ZoneVoiceButton visible text={PROFILE_ZONE[section] || sectionMeta.label} label="Nghe" />
+            </div>
+
+            {/* MỤC 1: HỌ TÊN */}
+            {section === 'identity' ? (
+              <div className="space-y-3">
+                <Field label="Họ và tên trên gia phả">
+                  <input className={inputCls} value={form.full_name} onChange={(e) => setField('full_name', e.target.value)} required />
+                </Field>
+                <Field label="Tên gọi khác" hint="Tên ở nhà, biệt danh.">
+                  <input className={inputCls} value={form.alias} onChange={(e) => setField('alias', e.target.value)} />
+                </Field>
+                <Field label="Ghi chú ngắn">
+                  <textarea className={inputCls} rows={2} value={form.note} onChange={(e) => setField('note', e.target.value)} />
+                </Field>
+              </div>
+            ) : null}
+
+            {/* MỤC 2: NGÀY SINH */}
+            {section === 'birth' ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-2">
+                  <Field label="Ngày">
+                    <input className={inputCls} inputMode="numeric" value={form.birth_day} onChange={(e) => setField('birth_day', e.target.value)} />
+                  </Field>
+                  <Field label="Tháng">
+                    <input className={inputCls} inputMode="numeric" value={form.birth_month} onChange={(e) => setField('birth_month', e.target.value)} />
+                  </Field>
+                  <Field label="Năm">
+                    <input className={inputCls} inputMode="numeric" value={form.birth_year} onChange={(e) => setField('birth_year', e.target.value)} />
+                  </Field>
+                </div>
+                <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3 text-base font-semibold text-slate-700">
+                  <input type="checkbox" className="h-5 w-5" checked={form.is_birth_lunar} onChange={(e) => setField('is_birth_lunar', e.target.checked)} />
+                  Ngày âm lịch
+                </label>
+              </div>
+            ) : null}
+
+            {/* MỤC 3: LIÊN LẠC */}
+            {section === 'contact' ? (
+              <div className="space-y-3">
+                <Field label="Số điện thoại gia phả" hint="Không phải số đăng nhập.">
+                  <input className={inputCls} value={form.phone_number} onChange={(e) => setField('phone_number', e.target.value)} />
+                </Field>
+                <Field label="Email hồ sơ">
+                  <input className={inputCls} type="email" value={form.email} onChange={(e) => setField('email', e.target.value)} />
+                </Field>
+                <Field label="Zalo">
+                  <input className={inputCls} value={form.zalo} onChange={(e) => setField('zalo', e.target.value)} />
+                </Field>
+                <Field label="Facebook">
+                  <input className={inputCls} value={form.facebook} onChange={(e) => setField('facebook', e.target.value)} />
+                </Field>
+                <Field label="Website">
+                  <input className={inputCls} value={form.website} onChange={(e) => setField('website', e.target.value)} />
+                </Field>
+              </div>
+            ) : null}
+
+            {/* MỤC 4: ĐỊA CHỈ */}
+            {section === 'address' ? (
+              <div className="space-y-4">
+                {/* Khối Quê quán */}
+                <div>
+                  <p className="mb-1 text-sm font-black text-slate-800">Quê quán</p>
+                  <dl>
+                    <ReadRow label="Địa chỉ" value={hasPlace(form.origin) ? formatAddressSummary(form.origin) : 'Chưa có'} />
+                    <ReadRow label="Ghi chú" value={form.origin.notes || '—'} />
+                  </dl>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={!hasPlace(form.origin)}
+                      onClick={() => goAddress('origin', 'edit')}
+                      className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                    >
+                      Sửa
+                    </button>
+                    {!hasPlace(form.origin) ? (
+                      <button type="button" onClick={() => goAddress('origin', 'create')} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">Thêm</button>
                     ) : (
-                      <ChevronDown className="h-5 w-5 shrink-0 text-slate-400" />
+                      <span />
                     )}
-                  </button>
+                  </div>
+                </div>
 
-                  {expanded && isBp && (
-                    <div className="space-y-3 border-t border-indigo-100/80 px-5 pb-5 pt-3">
-                      <ZoneVoiceButton
-                        visible
-                        text={howToText}
-                        label="Nghe hướng dẫn thực hiện"
+                {/* Khối Nơi ở hiện tại / Nơi ở cuối */}
+                <div className="border-t border-slate-100 pt-3">
+                  <p className="mb-1 text-sm font-black text-slate-800">{currentTitle}</p>
+                  <dl>
+                    <ReadRow
+                      label="Địa chỉ"
+                      value={hasPlace(form.current) ? formatAddressSummary(form.current) : (alive ? 'Chưa có' : 'Chưa rõ')}
+                    />
+                    <ReadRow label="Ghi chú" value={form.current.notes || '—'} />
+                  </dl>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={!hasPlace(form.current)}
+                      onClick={() => goAddress('current', 'edit')}
+                      className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                    >
+                      Sửa
+                    </button>
+                    {alive ? (
+                      <button type="button" onClick={() => goAddress('current', 'create')} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
+                        {hasPlace(form.current) ? 'Thay đổi / Tạo mới' : 'Thêm'}
+                      </button>
+                    ) : (
+                      <button type="button" onClick={() => goAddress('current', 'create')} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
+                        {hasPlace(form.current) ? 'Thay đổi' : 'Thêm nơi ở cuối'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ) : null}
+
+            {/* MỤC 5: CHỈNH SỬA TIỂU SỬ */}
+            {section === 'bio' ? (
+              <div className="space-y-3">
+                <Field label="Chủ đề tiểu sử">
+                  <select className={inputCls} value={bioTopic} onChange={(e) => setBioTopic(e.target.value)}>
+                    {BIO_TOPICS.map((it) => (
+                      <option key={it.key} value={it.key}>{it.label}</option>
+                    ))}
+                  </select>
+                </Field>
+                {BIO_TOPICS.filter((it) => it.key === bioTopic).map((it) => {
+                  const text = form[it.key] || '';
+                  const voice = text.trim() ? `${it.voice} ${text}` : `${it.voice} Chưa có nội dung.`;
+                  return (
+                    <div key={it.key} className="space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="text-sm font-black text-slate-800">{text.trim() ? 'Sửa nội dung' : 'Nhập nội dung'}</p>
+                        <ZoneVoiceButton visible text={voice} label="Nghe chủ đề" />
+                      </div>
+                      <textarea
+                        className={inputCls}
+                        rows={8}
+                        maxLength={it.max || undefined}
+                        value={text}
+                        onChange={(e) => setField(it.key, e.target.value)}
                       />
+                      {it.max ? <p className="text-xs text-slate-500">{text.length}/{it.max}</p> : null}
+                      <p className="text-xs text-slate-400">Tài liệu đính kèm: lát media.</p>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
 
-                      {shortLine ? (
-                        <div className="space-y-2">
-                          <p className="text-sm font-medium text-slate-700">
-                            {shortLine}
-                          </p>
-                          <ZoneVoiceButton
-                            visible
-                            text={processMessage || shortLine}
-                            label="Nghe trạng thái hồ sơ"
-                          />
+            {/* MỤC 6: ĐỌC TOÀN BỘ TIỂU SỬ */}
+            {section === 'bio_read' ? (
+              <div className="space-y-2">
+                {BIO_TOPICS.map((it) => {
+                  const text = (form[it.key] || '').trim();
+                  const open = !!bioOpen[it.key];
+                  const voice = text ? `${it.voice} ${text}` : `${it.voice} Chưa có nội dung.`;
+                  return (
+                    <div key={it.key} className="rounded-2xl border border-slate-200 bg-slate-50/80">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-3 py-3 text-left"
+                        onClick={() => setBioOpen((prev) => ({ ...prev, [it.key]: !prev[it.key] }))}
+                      >
+                        <span className="flex-1 text-sm font-black text-slate-800">{it.label}</span>
+                        <span className="max-w-[40%] truncate text-xs text-slate-500">{text ? text : 'Chưa có'}</span>
+                        {open ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+                      </button>
+                      {open ? (
+                        <div className="space-y-2 border-t border-slate-200 px-3 py-3">
+                          <div className="flex justify-end">
+                            <ZoneVoiceButton visible text={voice} label="Nghe chủ đề" />
+                          </div>
+                          <p className="whitespace-pre-wrap text-sm font-medium text-slate-800">{text || 'Chưa có nội dung.'}</p>
+                          <button
+                            type="button"
+                            className="w-full rounded-2xl border border-indigo-200 bg-white py-2 text-sm font-bold text-indigo-700"
+                            onClick={() => {
+                              setBioTopic(it.key);
+                              setSection('bio');
+                            }}
+                          >
+                            {text ? 'Sửa chủ đề này' : 'Nhập chủ đề này'}
+                          </button>
                         </div>
                       ) : null}
-
-                      {caseStatus === 'NEEDS_REVISION' &&
-                        adminNotes.revision_request && (
-                          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-left">
-                            <p className="text-[10px] font-black uppercase tracking-wide text-amber-800">
-                              Yêu cầu từ ban quản trị
-                            </p>
-                            <p className="mt-1.5 text-sm font-semibold leading-relaxed text-amber-950">
-                              {adminNotes.revision_request}
-                            </p>
-                            {adminNotes.review_note ? (
-                              <p className="mt-1.5 text-xs text-amber-800/80">
-                                Ghi chú: {adminNotes.review_note}
-                              </p>
-                            ) : null}
-                            <div className="mt-2">
-                              <ZoneVoiceButton
-                                visible
-                                text={[
-                                  adminNotes.revision_request,
-                                  adminNotes.review_note
-                                    ? `Ghi chú: ${adminNotes.review_note}`
-                                    : null,
-                                ]
-                                  .filter(Boolean)
-                                  .join('. ')}
-                                label="Nghe yêu cầu quản trị"
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                      {caseStatus === 'REJECTED' &&
-                        adminNotes.rejection_reason && (
-                          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-3 text-left">
-                            <p className="text-[10px] font-black uppercase tracking-wide text-rose-800">
-                              {adminNotes.reopenable
-                                ? 'Lý do từ chối'
-                                : 'Từ chối lần cuối'}
-                            </p>
-                            <p className="mt-1.5 text-sm font-semibold leading-relaxed text-rose-950">
-                              {adminNotes.rejection_reason}
-                            </p>
-                            <div className="mt-2">
-                              <ZoneVoiceButton
-                                visible
-                                text={adminNotes.rejection_reason}
-                                label="Nghe lý do từ chối"
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                      {caseStatus === 'DRAFT' &&
-                        !profileComplete &&
-                        missingLabels.length > 0 && (
-                          <p className="text-xs text-slate-500">
-                            Còn thiếu: {missingLabels.join(', ')}.
-                          </p>
-                        )}
-
-                      {canOpenForm && item.path && !doneOnly && (
-                        <Link
-                          to={item.path}
-                          className="flex w-full items-center justify-center rounded-2xl bg-indigo-600 px-4 py-3.5 text-sm font-bold text-white shadow-lg shadow-indigo-200 transition active:scale-[0.98]"
-                        >
-                          Thực hiện
-                        </Link>
-                      )}
                     </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+                  );
+                })}
+              </div>
+            ) : null}
 
-          {caseStatusLabel && !loadError ? (
-            <p className="mt-4 px-1 text-center text-xs font-medium text-slate-400">
-              Trạng thái: {caseStatusLabel}
-            </p>
+            {/* MỤC 7: TRÌNH CHỈNH SỬA / THÊM THÀNH TỰU */}
+            {section === 'ach' ? (
+              <AchievementEditor
+                draft={achDraft}
+                setDraft={setAchDraft}
+                saving={savingAch}
+                onCancel={() => setAchDraft({ ...EMPTY_ACHIEVEMENT })}
+                onSave={async (payload) => {
+                  if (!payload.title || !payload.achieved_year) {
+                    toast.error('Cần tiêu đề và năm.');
+                    return;
+                  }
+                  setSavingAch(true);
+                  try {
+                    if (achDraft.id) {
+                      await apiClient.patch(`/me/achievements/${achDraft.id}`, payload);
+                      toast.success('Đã lưu thành tích.');
+                    } else {
+                      await apiClient.post('/me/achievements', payload);
+                      toast.success('Đã thêm thành tích.');
+                    }
+                    const ach = await apiClient.get('/me/achievements');
+                    setAchievements(ach.data?.data?.items || []);
+                    setAchDraft({ ...EMPTY_ACHIEVEMENT });
+                    setSection('ach_read');
+                  } catch (e) {
+                    toast.error(e.response?.data?.message || 'Không lưu được thành tích.');
+                  } finally {
+                    setSavingAch(false);
+                  }
+                }}
+              />
+            ) : null}
+
+            {/* MỤC 8: ĐỌC DANH SÁCH THÀNH TỰU */}
+            {section === 'ach_read' ? (
+              <AchievementReader
+                items={achievements}
+                openMap={achOpen}
+                setOpenMap={setAchOpen}
+                onCreate={() => {
+                  setAchDraft({ ...EMPTY_ACHIEVEMENT });
+                  setSection('ach');
+                }}
+                onEdit={(row) => {
+                  setAchDraft(achievementFromApi(row));
+                  setSection('ach');
+                }}
+                onDelete={async (row) => {
+                  if (!window.confirm('Xóa thành tích này?')) return;
+                  try {
+                    await apiClient.delete(`/me/achievements/${row.id}`);
+                    setAchievements((prev) => prev.filter((x) => x.id !== row.id));
+                    toast.success('Đã xóa thành tích.');
+                  } catch (e) {
+                    toast.error(e.response?.data?.message || 'Không xóa được.');
+                  }
+                }}
+              />
+            ) : null}
+
+            {/* MỤC 9: BẢO MẬT VÀ QUYỀN RIÊNG TƯ */}
+            {section === 'privacy' ? (
+              <div className="space-y-3">
+                <Field label="Mục thông tin">
+                  <select className={inputCls} value={privacyGroup} onChange={(e) => setPrivacyGroup(e.target.value)}>
+                    {PRIVACY_ITEMS.map((it) => (
+                      <option key={it.key} value={it.key}>{it.label}</option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Ai được xem?" hint="Mặc định: nội bộ dòng họ.">
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className={`rounded-2xl border px-3 py-3 text-sm font-bold ${form[`privacy_${privacyGroup}`] === 'TENANT' ? 'border-indigo-400 bg-indigo-50 text-indigo-800' : 'border-slate-200 text-slate-600'}`}>
+                      <input
+                        type="radio"
+                        className="mr-2"
+                        checked={form[`privacy_${privacyGroup}`] === 'TENANT'}
+                        onChange={() => setField(`privacy_${privacyGroup}`, 'TENANT')}
+                      />
+                      Nội bộ dòng họ
+                    </label>
+                    <label className={`rounded-2xl border px-3 py-3 text-sm font-bold ${form[`privacy_${privacyGroup}`] === 'SELF' ? 'border-indigo-400 bg-indigo-50 text-indigo-800' : 'border-slate-200 text-slate-600'}`}>
+                      <input
+                        type="radio"
+                        className="mr-2"
+                        checked={form[`privacy_${privacyGroup}`] === 'SELF'}
+                        onChange={() => setField(`privacy_${privacyGroup}`, 'SELF')}
+                      />
+                      Chỉ mình tôi
+                    </label>
+                  </div>
+                </Field>
+              </div>
+            ) : null}
+          </section>
+
+          {/* NÚT LƯU CỦA FORM (Chỉ hiển thị với các mục chỉnh sửa dạng form chính) */}
+          {section !== 'address' && section !== 'bio_read' && section !== 'ach' && section !== 'ach_read' ? (
+            <button
+              type="submit"
+              disabled={saving}
+              className="rounded-2xl bg-indigo-600 py-4 text-base font-black text-white shadow-lg shadow-indigo-200 disabled:opacity-60"
+            >
+              {saving ? 'Đang lưu...' : 'Lưu mục này'}
+            </button>
           ) : null}
+        </form>
+      )}
 
-          <AppFooterNav
-            {...footerNav}
-            onLogout={handleLogout}
-          />
-        </div>
+      {/* FOOTER ĐIỀU HƯỚNG BÊN DƯỚI */}
+      <div className="px-4 pb-6">
+        <AppFooterNav
+          {...footerNav}
+          onLogout={() => {
+            logout();
+            navigate('/auth', { replace: true });
+          }}
+        />
       </div>
     </div>
   );

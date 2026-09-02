@@ -1,11 +1,12 @@
 /**
  * PATH       : src/pages/MemberProfilePage.jsx
  * DATETIME   : 2026-08-29T18:00:00+07:00
- * VERSION    : 1.6.0-A01-ACH
+ * VERSION    : 1.7.0-A01-AVATAR-P0
  * DESCRIPTION: Shell tóm tắt + một mục. Địa chỉ đọc 2 cột. Form địa chỉ trang con.
+ *              P0: vòng tròn avatar → JPEG/PNG/WebP ≤ 2MB → POST /me/avatar.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
@@ -146,6 +147,10 @@ export default function MemberProfilePage() {
   const [achDraft, setAchDraft] = useState({ ...EMPTY_ACHIEVEMENT });
   const [achOpen, setAchOpen] = useState({});
   const [savingAch, setSavingAch] = useState(false);
+  /* P0 avatar — không lẫn state form hồ sơ */
+  const fileRef = useRef(null);
+  const [avatarUrl, setAvatarUrl] = useState(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
 
   const setField = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
   const alive = meta.is_alive !== false;
@@ -199,6 +204,8 @@ export default function MemberProfilePage() {
           is_alive: m.is_alive !== false,
           generation: m.generation ?? null,
         });
+        /* P0: GET /me/profile.data.avatar.url (presign R2) */
+        setAvatarUrl(d.avatar?.url || null);
         try {
           const ach = await apiClient.get('/me/achievements');
           if (!cancelled) setAchievements(ach.data?.data?.items || []);
@@ -263,6 +270,51 @@ export default function MemberProfilePage() {
     navigate(`/me/profile/address?usage=${usage}&mode=${mode}`);
   }
 
+  /* P0 avatar: field name "file" khớp upload.single('file') */
+  async function onPickAvatar(ev) {
+    const file = ev.target.files && ev.target.files[0];
+    ev.target.value = '';
+    if (!file) return;
+    if (!/^image\/(jpeg|jpg|png|webp)$/i.test(file.type)) {
+      toast.error('Chỉ nhận JPEG, PNG hoặc WebP.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      toast.error('Ảnh không quá 2MB.');
+      return;
+    }
+    setAvatarBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const res = await apiClient.post('/me/avatar', fd, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      setAvatarUrl(res.data?.data?.avatar?.url || URL.createObjectURL(file));
+      toast.success('Đã cập nhật ảnh đại diện.');
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Không tải được ảnh.');
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+
+  async function onRemoveAvatar(ev) {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (!window.confirm('Xóa ảnh đại diện?')) return;
+    setAvatarBusy(true);
+    try {
+      await apiClient.delete('/me/avatar');
+      setAvatarUrl(null);
+      toast.success('Đã xóa ảnh đại diện.');
+    } catch (e) {
+      toast.error(e.response?.data?.message || 'Không xóa được ảnh.');
+    } finally {
+      setAvatarBusy(false);
+    }
+  }
+
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-slate-50">
       <TenantHeader tenant={sessionTenant} subtitle="Hồ sơ dòng họ" />
@@ -275,14 +327,43 @@ export default function MemberProfilePage() {
         <form onSubmit={onSubmit} className="flex flex-1 flex-col gap-4 px-4 py-4 pb-10">
           <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex gap-4">
-              <button
-                type="button"
-                className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-lg font-black text-indigo-700"
-                onClick={() => toast.message('Ảnh đại diện sẽ thêm ở lát media (chưa mở upload).')}
-                aria-label="Ảnh đại diện"
-              >
-                {initials(form.full_name)}
-              </button>
+              <div className="relative shrink-0">
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp"
+                  className="hidden"
+                  onChange={onPickAvatar}
+                />
+                <button
+                  type="button"
+                  disabled={avatarBusy}
+                  className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-indigo-100 text-lg font-black text-indigo-700 disabled:opacity-60"
+                  onClick={() => fileRef.current && fileRef.current.click()}
+                  aria-label="Ảnh đại diện"
+                >
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    initials(form.full_name)
+                  )}
+                  {avatarBusy ? (
+                    <span className="absolute inset-0 flex items-center justify-center bg-white/60">
+                      <Loader2 className="h-5 w-5 animate-spin text-indigo-600" />
+                    </span>
+                  ) : null}
+                </button>
+                {avatarUrl ? (
+                  <button
+                    type="button"
+                    disabled={avatarBusy}
+                    className="absolute -bottom-1 left-1/2 -translate-x-1/2 rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-bold text-slate-600 disabled:opacity-60"
+                    onClick={onRemoveAvatar}
+                  >
+                    Xóa
+                  </button>
+                ) : null}
+              </div>
               <div className="min-w-0 flex-1">
                 <h1 className="text-xl font-black text-slate-800">{form.full_name || 'Chưa có tên'}</h1>
                 <p className="mt-1 text-sm text-slate-600">

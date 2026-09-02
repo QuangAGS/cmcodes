@@ -459,6 +459,29 @@ const BusinessLogSchemas = {
       address_id: payload.address_id || null,
     };
   },
+
+  MEDIA_AVATAR_UPSERT: (payload = {}) => {
+    if (!payload.member_id) {
+      throw new Error('MEDIA_AVATAR_UPSERT requires member_id');
+    }
+    return {
+      member_id: payload.member_id,
+      media_id: payload.media_id || null,
+      op: payload.op || 'UPSERT',
+      mime_type: payload.mime_type || null,
+      file_ext: payload.file_ext || null,
+    };
+  },
+
+  MEDIA_AVATAR_DELETE: (payload = {}) => {
+    if (!payload.member_id) {
+      throw new Error('MEDIA_AVATAR_DELETE requires member_id');
+    }
+    return {
+      member_id: payload.member_id,
+      media_id: payload.media_id || null,
+    };
+  },
 };
 
 module.exports = { BusinessLogSchemas };
