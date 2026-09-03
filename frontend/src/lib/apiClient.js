@@ -1,12 +1,11 @@
 /**
  * PPATH      : src/lib/apiClient.js
  * OLD PATH   : src/lib/axios.js
- * DATETIME   : 18-04-2026 21:55
- * VERSION    : 14.0.0
+ * DATETIME   : 2026-09-02T22:30:00+07:00
+ * VERSION    : 14.1.0-FORMDATA
  * DESCRIPTION:
  * - Chuẩn hóa axios instance cho frontend auth.
- * - Ưu tiên VITE_API_URL, fallback localhost.
- * - Tự gắn Bearer token nếu có.
+ * - FormData: xóa Content-Type mặc định để browser gắn boundary (multer).
  */
 
 import axios from 'axios';
@@ -31,6 +30,16 @@ apiClient.interceptors.request.use(
 
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+
+    /* Logo tenant + avatar /me: không ép application/json lên multipart */
+    if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+      if (config.headers && typeof config.headers.delete === 'function') {
+        config.headers.delete('Content-Type');
+      } else if (config.headers) {
+        delete config.headers['Content-Type'];
+        delete config.headers['content-type'];
+      }
     }
 
     return config;

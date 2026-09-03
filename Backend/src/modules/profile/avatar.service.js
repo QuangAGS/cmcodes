@@ -1,16 +1,17 @@
 /**
  * PATH       : src/modules/profile/avatar.service.js
  * DATETIME   : 2026-09-02T20:20:00+07:00
- * VERSION    : 1.1.0-A01-AVATAR-P0
- * DESCRIPTION: Facade /me. Ủy quyền media.service (cùng cửa logo tenant).
- *              Không ghi R2/retire. Không sửa members. CL = NONE.
+ * VERSION    : 1.2.0-A01-AVATAR-ONE
+ * DESCRIPTION: 1 member = 1 hàng media AVATAR. Có rồi thì ghi đè R2 + update.
+ *              Lần đầu mới create qua media.service. CL = NONE.
  */
 
 'use strict';
 
-const { correlation, runWithTenantContext } = require('../../lib/prisma.js');
+const { prisma, correlation, runWithTenantContext } = require('../../lib/prisma.js');
 const { writeBpl } = require('../../services/bpl.service.js');
 const mediaService = require('../interactions/media.service.js');
+const r2Storage = require('../../shared/storage/r2.storage.service');
 
 const ALLOWED = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
 const MAX_BYTES = 2 * 1024 * 1024;
@@ -98,6 +99,52 @@ async function attachToProfile(member) {
   }
 }
 
+async function findLiveAvatars(member) {
+  return prisma.media.findMany({
+    where: {
+      tenant_id: member.tenant_id,
+      entity_type: 'MEMBER',
+      entity_id: member.id,
+      purpose: 'AVATAR',
+      deleted_at: null,
+    },
+    orderBy: [{ is_primary: 'desc' }, { created_at: 'desc' }],
+  });
+}
+
+async function replaceExisting(file, member, user, keep) {
+  const stored = await r2Storage.uploadObject({
+    buffer: file.buffer,
+    contentType: file.mimetype,
+    originalName: file.originalname || 'avatar.png',
+    tenantId: member.tenant_id,
+  });
+  const updated = await prisma.media.update({
+    where: { id: keep.id },
+    data: {
+      is_primary: true,
+      file_name: stored.file_name,
+      mime_type: stored.mime_type,
+      file_ext: stored.file_ext,
+      file_size: stored.file_size,
+      storage_provider: stored.storage_provider || 'CLOUDFLARE_R2',
+      storage_key: stored.storage_key,
+      file_url: stored.file_url || null,
+      caption: 'Ảnh đại diện',
+      changed_by: user.id,
+      updated_at: new Date(),
+    },
+  });
+  if (keep.storage_key && keep.storage_key !== stored.storage_key) {
+    try {
+      await r2Storage.deleteObject(keep.storage_key);
+    } catch (e) {
+      console.error('[avatar.replaceExisting][R2]', keep.storage_key, e.message || e);
+    }
+  }
+  return updated;
+}
+
 async function uploadMine(reqUser, file) {
   const actor = pickActor(reqUser);
   return withAls(actor, async () => {
@@ -109,24 +156,38 @@ async function uploadMine(reqUser, file) {
     }
 
     const { user, member } = await resolveActor(reqUser);
+    const lives = await findLiveAvatars(member);
+    const keep = lives[0] || null;
+    let saved;
+    let op = 'CREATE';
 
-    /* Cùng hợp đồng media.controller.uploadFile */
-    const created = await mediaService.uploadAndRegister(
-      file,
-      {
-        entity_type: 'MEMBER',
-        entity_id: member.id,
-        purpose: 'AVATAR',
-        is_primary: true,
-        tenant_id: member.tenant_id,
-        change_reason: 'A01 P0 avatar',
-        caption: 'Ảnh đại diện',
-      },
-      actor
-    );
+    if (keep) {
+      saved = await replaceExisting(file, member, user, keep);
+      op = 'UPDATE';
+      for (const extra of lives.slice(1)) {
+        try {
+          await mediaService.deleteMedia(extra.id, actor, 'A01 avatar singleton');
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    } else {
+      saved = await mediaService.uploadAndRegister(
+        file,
+        {
+          entity_type: 'MEMBER',
+          entity_id: member.id,
+          purpose: 'AVATAR',
+          is_primary: true,
+          tenant_id: member.tenant_id,
+          change_reason: 'A01 avatar create',
+          caption: 'Ảnh đại diện',
+        },
+        actor
+      );
+    }
 
     const correlationId = correlation.create();
-    const { prisma } = require('../../lib/prisma.js');
     await prisma.$transaction(async (tx) => {
       await writeBpl({
         processType: 'MEDIA_AVATAR_UPSERT',
@@ -136,15 +197,15 @@ async function uploadMine(reqUser, file) {
           tenant_id: member.tenant_id,
           correlation_id: correlationId,
         },
-        action: 'UPSERT',
+        action: op,
         attemptNo: 1,
-        context: { target_id: member.id, target_name: created.file_name || null },
+        context: { target_id: member.id, target_name: saved.file_name || null },
         payload: {
           member_id: member.id,
-          media_id: created.id,
-          op: 'UPSERT',
-          mime_type: created.mime_type || mime,
-          file_ext: created.file_ext || null,
+          media_id: saved.id,
+          op,
+          mime_type: saved.mime_type || mime,
+          file_ext: saved.file_ext || null,
         },
         tx,
       });

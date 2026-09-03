@@ -1,9 +1,9 @@
 /**
  * PATH       : src/pages/MemberProfilePage.jsx
  * DATETIME   : 2026-08-29T18:00:00+07:00
- * VERSION    : 1.7.0-A01-AVATAR-P0
+ * VERSION    : 1.8.0-A01-AVATAR-CROP
  * DESCRIPTION: Shell tóm tắt + một mục. Địa chỉ đọc 2 cột. Form địa chỉ trang con.
- *              P0: vòng tròn avatar → JPEG/PNG/WebP ≤ 2MB → POST /me/avatar.
+ *              Avatar: chọn file → LogoCropModal (cùng logo tenant) → POST /me/avatar.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -34,6 +34,7 @@ import {
   EMPTY_ACHIEVEMENT,
 } from '../features/member/components/AchievementSection.jsx';
 import { achievementFromApi } from '../features/member/constants/achievementCatalog.js';
+import LogoCropModal from '../features/admin/components/LogoCropModal.jsx';
 
 const EMPTY = {
   full_name: '',
@@ -151,6 +152,7 @@ export default function MemberProfilePage() {
   const fileRef = useRef(null);
   const [avatarUrl, setAvatarUrl] = useState(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
+  const [cropFile, setCropFile] = useState(null);
 
   const setField = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
   const alive = meta.is_alive !== false;
@@ -270,8 +272,8 @@ export default function MemberProfilePage() {
     navigate(`/me/profile/address?usage=${usage}&mode=${mode}`);
   }
 
-  /* P0 avatar: field name "file" khớp upload.single('file') */
-  async function onPickAvatar(ev) {
+  /* Chọn file → LogoCropModal (cùng component logo tenant). POST sau onConfirm. */
+  function onPickAvatar(ev) {
     const file = ev.target.files && ev.target.files[0];
     ev.target.value = '';
     if (!file) return;
@@ -279,18 +281,26 @@ export default function MemberProfilePage() {
       toast.error('Chỉ nhận JPEG, PNG hoặc WebP.');
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      toast.error('Ảnh không quá 2MB.');
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error('Ảnh gốc không quá 8MB.');
       return;
     }
+    setCropFile(file);
+  }
+
+  async function onCropConfirm(blob) {
+    if (!blob) {
+      setCropFile(null);
+      return;
+    }
+    setCropFile(null);
     setAvatarBusy(true);
     try {
       const fd = new FormData();
-      fd.append('file', file);
-      const res = await apiClient.post('/me/avatar', fd, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setAvatarUrl(res.data?.data?.avatar?.url || URL.createObjectURL(file));
+      /* field "file" = upload.single('file'); interceptor gỡ application/json */
+      fd.append('file', blob, 'avatar.png');
+      const res = await apiClient.post('/me/avatar', fd);
+      setAvatarUrl(res.data?.data?.avatar?.url || URL.createObjectURL(blob));
       toast.success('Đã cập nhật ảnh đại diện.');
     } catch (e) {
       toast.error(e.response?.data?.message || 'Không tải được ảnh.');
@@ -700,6 +710,14 @@ export default function MemberProfilePage() {
           }}
         />
       </div>
+
+      {cropFile ? (
+        <LogoCropModal
+          file={cropFile}
+          onCancel={() => setCropFile(null)}
+          onConfirm={onCropConfirm}
+        />
+      ) : null}
     </div>
   );
 }
