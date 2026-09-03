@@ -15,6 +15,7 @@ import apiClient from '../lib/apiClient.js';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
+import { fetchTenantLogo, isHttpUrl } from '../lib/tenantLogo.js';
 import { resolveFooterNav } from '../lib/resolveFooterNav.js';
 import AudioHelpButton from '../features/elder-doctrine/components/AudioHelpButton.jsx';
 import ZoneVoiceButton from '../features/elder-doctrine/components/ZoneVoiceButton.jsx';
@@ -137,7 +138,9 @@ export default function MemberProfilePage() {
   });
 
   const [form, setForm] = useState(EMPTY);
-  const [meta, setMeta] = useState({ gender: '', hint: null, is_alive: true, generation: null });
+  const [savedForm, setSavedForm] = useState(EMPTY);
+  const [meta, setMeta] = useState({ gender: '', hint: null, is_alive: true, generation: null, memberId: null });
+  const [headerLogo, setHeaderLogo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [section, setSection] = useState('identity');
@@ -158,6 +161,42 @@ export default function MemberProfilePage() {
   const alive = meta.is_alive !== false;
   const currentTitle = alive ? 'Nơi ở hiện tại' : 'Nơi ở cuối';
   const sectionMeta = useMemo(() => SECTIONS.find((s) => s.key === section) || SECTIONS[0], [section]);
+  const dirty = useMemo(() => {
+    const keys = {
+      identity: ['full_name', 'alias', 'note'],
+      birth: ['birth_year', 'birth_month', 'birth_day', 'is_birth_lunar', 'birth_note'],
+      contact: ['phone_number', 'email', 'zalo', 'facebook', 'website'],
+      bio: BIO_TOPICS.map((t) => t.key),
+      privacy: ['privacy_CONTACT', 'privacy_ACHIEVEMENT', 'privacy_BIRTH_DATE'],
+    }[section] || [];
+    return keys.some((k) => String(form[k] ?? '') !== String(savedForm[k] ?? ''));
+  }, [form, savedForm, section]);
+
+  async function resolveAvatarSrc(memberId, hint) {
+    if (isHttpUrl(hint)) return hint;
+    try {
+      const me = await apiClient.get('/me/avatar');
+      const u = me.data?.data?.avatar?.url;
+      if (isHttpUrl(u)) return u;
+    } catch (_) { /* fallback media */ }
+    if (!memberId) return null;
+    try {
+      const res = await apiClient.get(`/media/entity/MEMBER/${encodeURIComponent(memberId)}`);
+      const raw = res.data?.data ?? res.data ?? [];
+      const rows = Array.isArray(raw) ? raw : raw.items || [];
+      const row =
+        rows.find((m) => m.purpose === 'AVATAR' && m.is_primary) ||
+        rows.find((m) => m.purpose === 'AVATAR') ||
+        null;
+      if (!row?.id) return null;
+      if (isHttpUrl(row.read_url)) return row.read_url;
+      const urlRes = await apiClient.get(`/media/${row.id}/url`);
+      const u = urlRes.data?.data?.url || urlRes.data?.url || null;
+      return isHttpUrl(u) ? u : null;
+    } catch (_) {
+      return null;
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -173,7 +212,7 @@ export default function MemberProfilePage() {
           priv[`privacy_${r.field_group}`] = r.visibility;
         });
         if (cancelled) return;
-        setForm({
+        const nextForm = {
           ...EMPTY,
           full_name: m.full_name || '',
           alias: m.alias || '',
@@ -199,15 +238,25 @@ export default function MemberProfilePage() {
           privacy_CONTACT: priv.privacy_CONTACT || 'TENANT',
           privacy_ACHIEVEMENT: priv.privacy_ACHIEVEMENT || 'TENANT',
           privacy_BIRTH_DATE: priv.privacy_BIRTH_DATE || 'TENANT',
-        });
+        };
+        setForm(nextForm);
+        setSavedForm(nextForm);
         setMeta({
           gender: m.gender || '',
           hint: d.login_contact_hint,
           is_alive: m.is_alive !== false,
           generation: m.generation ?? null,
+          memberId: m.id || null,
         });
-        /* P0: GET /me/profile.data.avatar.url (presign R2) */
-        setAvatarUrl(d.avatar?.url || null);
+        const src = await resolveAvatarSrc(m.id, d.avatar?.url);
+        if (!cancelled) setAvatarUrl(src);
+        try {
+          const tid = sessionTenant.id;
+          if (tid) {
+            const { readUrl } = await fetchTenantLogo(tid);
+            if (!cancelled && readUrl) setHeaderLogo(readUrl);
+          }
+        } catch (_) { /* logo header */ }
         try {
           const ach = await apiClient.get('/me/achievements');
           if (!cancelled) setAchievements(ach.data?.data?.items || []);
@@ -227,6 +276,7 @@ export default function MemberProfilePage() {
 
   async function onSubmit(ev) {
     ev.preventDefault();
+    if (!dirty) return;
     setSaving(true);
     try {
       await apiClient.patch('/me/profile', {
@@ -260,6 +310,7 @@ export default function MemberProfilePage() {
         ],
       });
       toast.success('Đã lưu hồ sơ dòng họ.');
+      setSavedForm(form);
       if (section === 'bio') setSection('bio_read');
     } catch (e) {
       toast.error(e.response?.data?.message || 'Không lưu được hồ sơ.');
@@ -300,7 +351,9 @@ export default function MemberProfilePage() {
       /* field "file" = upload.single('file'); interceptor gỡ application/json */
       fd.append('file', blob, 'avatar.png');
       const res = await apiClient.post('/me/avatar', fd);
-      setAvatarUrl(res.data?.data?.avatar?.url || URL.createObjectURL(blob));
+      const hint = res.data?.data?.avatar?.url || null;
+      const src = await resolveAvatarSrc(meta.memberId, hint);
+      setAvatarUrl(src || (isHttpUrl(hint) ? hint : URL.createObjectURL(blob)));
       toast.success('Đã cập nhật ảnh đại diện.');
     } catch (e) {
       toast.error(e.response?.data?.message || 'Không tải được ảnh.');
@@ -327,7 +380,10 @@ export default function MemberProfilePage() {
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-slate-50">
-      <TenantHeader tenant={sessionTenant} subtitle="Hồ sơ dòng họ" />
+      <TenantHeader
+        tenant={{ ...sessionTenant, logo_url: headerLogo || sessionTenant.logo_url }}
+        subtitle="Hồ sơ dòng họ"
+      />
 
       {loading ? (
         <div className="flex flex-1 items-center justify-center py-20">
@@ -353,7 +409,12 @@ export default function MemberProfilePage() {
                   aria-label="Ảnh đại diện"
                 >
                   {avatarUrl ? (
-                    <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                    <img
+                      src={avatarUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      onError={() => setAvatarUrl(null)}
+                    />
                   ) : (
                     initials(form.full_name)
                   )}
@@ -692,10 +753,10 @@ export default function MemberProfilePage() {
           {section !== 'address' && section !== 'bio_read' && section !== 'ach' && section !== 'ach_read' ? (
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || !dirty}
               className="rounded-2xl bg-indigo-600 py-4 text-base font-black text-white shadow-lg shadow-indigo-200 disabled:opacity-60"
             >
-              {saving ? 'Đang lưu...' : 'Lưu mục này'}
+              {saving ? 'Đang lưu...' : dirty ? 'Lưu mục này' : 'Chưa có thay đổi'}
             </button>
           ) : null}
         </form>
