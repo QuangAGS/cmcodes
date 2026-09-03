@@ -1,8 +1,8 @@
 /**
  * PATH       : src/modules/profile/profile.routes.js
  * DATETIME   : 2026-09-02T14:05:00+07:00
- * VERSION    : 1.2.0-A01-AVATAR-P0
- * DESCRIPTION: /me/profile + achievements + avatar P0.
+ * VERSION    : 1.3.0-A01-PROOF-P0
+ * DESCRIPTION: /me/profile + achievements + avatar + proof P0.
  */
 
 'use strict';
@@ -15,6 +15,7 @@ const upload = require('../../middlewares/upload.middleware');
 const profileService = require('./profile.service');
 const achievementsService = require('./achievements.service.js');
 const avatarService = require('./avatar.service.js');
+const documentsService = require('./documents.service.js');
 
 function actorFromReq(req) {
   const u = req.user || {};
@@ -130,6 +131,82 @@ router.delete(
   asyncHandler(async (req, res) => {
     const data = await achievementsService.removeMine(req.user, req.params.id);
     res.status(200).json({ success: true, status: 'success', message: 'Đã xóa thành tích.', data });
+  })
+);
+
+router.post(
+  '/achievements/:id/proofs',
+  verifyToken,
+  upload.single('file'),
+  asyncHandler(async (req, res) => {
+    const data = await achievementsService.addProof(
+      actorFromReq(req),
+      req.params.id,
+      req.file,
+      req.body || {}
+    );
+    res.status(201).json({
+      success: true,
+      status: 'success',
+      message: 'Đã thêm minh chứng.',
+      data,
+    });
+  })
+);
+
+router.delete(
+  '/achievements/:id/proofs/:mediaId',
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    const data = await achievementsService.removeProof(
+      actorFromReq(req),
+      req.params.id,
+      req.params.mediaId
+    );
+    res.status(200).json({
+      success: true,
+      status: 'success',
+      message: 'Đã xóa minh chứng.',
+      data,
+    });
+  })
+);
+
+router.get(
+  '/documents',
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    const data = await documentsService.listMine(actorFromReq(req));
+    res.status(200).json({ success: true, status: 'success', data });
+  })
+);
+
+router.post(
+  '/documents',
+  verifyToken,
+  upload.single('file'),
+  asyncHandler(async (req, res) => {
+    const data = await documentsService.addMine(actorFromReq(req), req.file, req.body || {});
+    res.status(201).json({
+      success: true,
+      status: 'success',
+      message: 'Đã lưu tài liệu.',
+      data,
+    });
+  })
+);
+
+router.delete(
+  '/documents/:mediaId',
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    const data = await documentsService.removeMine(actorFromReq(req), req.params.mediaId);
+    res.status(200).json({
+      success: true,
+      status: 'success',
+      message: 'Đã xóa tài liệu.',
+      data,
+    });
   })
 );
 

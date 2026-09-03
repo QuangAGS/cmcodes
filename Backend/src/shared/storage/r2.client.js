@@ -1,10 +1,10 @@
 /**
  * PATH       : src/shared/storage/r2.client.js
- * DATETIME   : 2026-08-25T10:15:00+07:00
- * VERSION    : 1.0.0-R2
+ * DATETIME   : 2026-09-03T14:35:00+07:00
+ * VERSION    : 1.1.0-R2-CHECKSUM
  * DESCRIPTION:
- * - Singleton S3Client trỏ Cloudflare R2 (API S3-compatible).
- * - Hạ tầng dùng chung — không chứa logic nghiệp vụ media/DB.
+ * - Singleton S3Client → Cloudflare R2.
+ * - Tắt checksum mặc định AWS SDK v3 (R2 SignatureDoesNotMatch).
  */
 
 'use strict';
@@ -15,9 +15,6 @@ const { loadR2Config } = require('../../config/r2.config');
 let _client = null;
 let _cfg = null;
 
-/**
- * @returns {{ client: import('@aws-sdk/client-s3').S3Client, config: ReturnType<typeof loadR2Config> }}
- */
 function getR2Client() {
   if (_client && _cfg) {
     return { client: _client, config: _cfg };
@@ -28,17 +25,17 @@ function getR2Client() {
     region: _cfg.region,
     endpoint: _cfg.endpoint,
     credentials: {
-      accessKeyId: _cfg.accessKeyId,
-      secretAccessKey: _cfg.secretAccessKey,
+      accessKeyId: String(_cfg.accessKeyId || '').trim(),
+      secretAccessKey: String(_cfg.secretAccessKey || '').trim(),
     },
-    // R2: path-style ổn định hơn virtual-hosted với custom endpoint
     forcePathStyle: true,
+    requestChecksumCalculation: 'WHEN_REQUIRED',
+    responseChecksumValidation: 'WHEN_REQUIRED',
   });
 
   return { client: _client, config: _cfg };
 }
 
-/** Test / hot-reload */
 function resetR2Client() {
   _client = null;
   _cfg = null;

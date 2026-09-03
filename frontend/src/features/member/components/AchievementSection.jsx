@@ -1,7 +1,7 @@
 /**
  * PATH       : src/features/member/components/AchievementSection.jsx
- * DATETIME   : 2026-09-01T08:00:00+07:00
- * VERSION    : 1.0.0-A01-ACH
+ * DATETIME   : 2026-09-03T11:45:00+07:00
+ * VERSION    : 1.1.0-A01-PROOF-P0
  */
 
 import { ChevronDown, ChevronUp } from 'lucide-react';
@@ -39,7 +39,71 @@ function voiceText(row) {
   return bits.join('. ') || 'Chưa có thành tích.';
 }
 
-export function AchievementEditor({ draft, setDraft, onSave, onCancel, saving }) {
+function isImage(p) {
+  return String(p.mime_type || '').startsWith('image/');
+}
+
+export function ProofStrip({ proofs = [], onAdd, onRemove, busy }) {
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Minh chứng</p>
+      {proofs.length ? (
+        <ul className="space-y-2">
+          {proofs.map((p) => (
+            <li key={p.id} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2 py-2">
+              {p.url && isImage(p) ? (
+                <a href={p.url} target="_blank" rel="noreferrer" className="shrink-0">
+                  <img src={p.url} alt="" className="h-12 w-12 rounded-lg object-cover" />
+                </a>
+              ) : (
+                <span className="flex h-12 w-12 items-center justify-center rounded-lg bg-slate-100 text-[10px] font-bold text-slate-500">
+                  PDF
+                </span>
+              )}
+              <div className="min-w-0 flex-1">
+                <a
+                  href={p.url || '#'}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="block truncate text-xs font-semibold text-indigo-700"
+                >
+                  {p.file_name || 'Tệp'}
+                </a>
+                {p.caption ? (
+                  <p className="truncate text-[11px] text-slate-500">{p.caption}</p>
+                ) : null}
+              </div>
+              {onRemove ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="shrink-0 text-xs font-bold text-rose-600"
+                  onClick={() => onRemove(p)}
+                >
+                  Xóa
+                </button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-xs text-slate-400">Chưa có minh chứng.</p>
+      )}
+      {onAdd && proofs.length < 5 ? (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onAdd}
+          className="w-full rounded-2xl border border-dashed border-indigo-200 py-2 text-xs font-black text-indigo-700 disabled:opacity-60"
+        >
+          Thêm minh chứng
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+export function AchievementEditor({ draft, setDraft, onSave, onCancel, saving, onAddProof, onRemoveProof, proofBusy }) {
   const subs = subsOfCategory(draft.category);
   return (
     <div className="space-y-3">
@@ -107,6 +171,16 @@ export function AchievementEditor({ draft, setDraft, onSave, onCancel, saving })
       <Field label="Mô tả">
         <textarea className={inputCls} rows={5} value={draft.description} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />
       </Field>
+      {draft.id ? (
+        <ProofStrip
+          proofs={draft.proofs || []}
+          busy={proofBusy}
+          onAdd={onAddProof}
+          onRemove={onRemoveProof}
+        />
+      ) : (
+        <p className="text-xs text-slate-400">Lưu thành tựu trước, rồi thêm minh chứng.</p>
+      )}
       <div className="flex justify-end">
         <ZoneVoiceButton visible text={voiceText(draft)} label="Nghe" />
       </div>
@@ -126,7 +200,7 @@ export function AchievementEditor({ draft, setDraft, onSave, onCancel, saving })
   );
 }
 
-export function AchievementReader({ items, openMap, setOpenMap, onEdit, onCreate, onDelete }) {
+export function AchievementReader({ items, openMap, setOpenMap, onEdit, onCreate, onDelete, onAddProof, onRemoveProof, proofBusyId }) {
   if (!items.length) {
     return (
       <div className="space-y-3">
@@ -163,6 +237,12 @@ export function AchievementReader({ items, openMap, setOpenMap, onEdit, onCreate
                   {row.achieved_year}{row.is_lunar ? ' (âm)' : ''}{row.is_current ? ' · đương nhiệm' : row.ended_year ? ` – ${row.ended_year}` : ''}
                 </p>
                 {row.description ? <p className="whitespace-pre-wrap text-sm font-medium text-slate-800">{row.description}</p> : null}
+                <ProofStrip
+                  proofs={row.proofs || []}
+                  busy={proofBusyId === row.id}
+                  onAdd={onAddProof ? () => onAddProof(row) : undefined}
+                  onRemove={onRemoveProof ? (p) => onRemoveProof(row, p) : undefined}
+                />
                 <div className="grid grid-cols-2 gap-2">
                   <button type="button" className="rounded-2xl border border-indigo-200 bg-white py-2 text-sm font-bold text-indigo-700" onClick={() => onEdit(row)}>Sửa</button>
                   <button type="button" className="rounded-2xl border border-rose-200 bg-white py-2 text-sm font-bold text-rose-700" onClick={() => onDelete(row)}>Xóa</button>

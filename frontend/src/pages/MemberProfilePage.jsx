@@ -73,6 +73,7 @@ const SECTIONS = [
   { key: 'bio_read', label: 'Đọc toàn bộ tiểu sử' },
   { key: 'ach', label: 'Thành tựu' },
   { key: 'ach_read', label: 'Đọc toàn bộ thành tựu' },
+  { key: 'docs', label: 'Tài liệu khác' },
   { key: 'privacy', label: 'Ai được xem' },
 ];
 
@@ -151,6 +152,9 @@ export default function MemberProfilePage() {
   const [achDraft, setAchDraft] = useState({ ...EMPTY_ACHIEVEMENT });
   const [achOpen, setAchOpen] = useState({});
   const [savingAch, setSavingAch] = useState(false);
+  const [proofBusyId, setProofBusyId] = useState(null);
+  const [docs, setDocs] = useState([]);
+  const [docsUsed, setDocsUsed] = useState(0);
   /* P0 avatar — không lẫn state form hồ sơ */
   const fileRef = useRef(null);
   const [avatarUrl, setAvatarUrl] = useState(null);
@@ -262,6 +266,15 @@ export default function MemberProfilePage() {
           if (!cancelled) setAchievements(ach.data?.data?.items || []);
         } catch {
           if (!cancelled) setAchievements([]);
+        }
+        try {
+          const docRes = await apiClient.get('/me/documents');
+          if (!cancelled) {
+            setDocs(docRes.data?.data?.items || []);
+            setDocsUsed(docRes.data?.data?.used_bytes || 0);
+          }
+        } catch {
+          if (!cancelled) setDocs([]);
         }
       } catch (e) {
         toast.error(e.response?.data?.message || 'Không tải được hồ sơ.');
@@ -661,6 +674,30 @@ export default function MemberProfilePage() {
                 draft={achDraft}
                 setDraft={setAchDraft}
                 saving={savingAch}
+                proofBusy={proofBusyId === achDraft.id}
+                onAddProof={() => {
+                  if (!achDraft.id) {
+                    toast.error('Lưu thành tựu trước khi thêm minh chứng.');
+                    return;
+                  }
+                  navigate(`/me/profile/achievement/${achDraft.id}/proof`);
+                }}
+                onRemoveProof={async (proof) => {
+                  if (!achDraft.id) return;
+                  if (!window.confirm('Xóa minh chứng này?')) return;
+                  setProofBusyId(achDraft.id);
+                  try {
+                    const res = await apiClient.delete(`/me/achievements/${achDraft.id}/proofs/${proof.id}`);
+                    const proofs = res.data?.data?.proofs || [];
+                    setAchDraft((prev) => ({ ...prev, proofs }));
+                    setAchievements((prev) => prev.map((x) => (x.id === achDraft.id ? { ...x, proofs } : x)));
+                    toast.success('Đã xóa minh chứng.');
+                  } catch (e) {
+                    toast.error(e.response?.data?.message || 'Không xóa được minh chứng.');
+                  } finally {
+                    setProofBusyId(null);
+                  }
+                }}
                 onCancel={() => setAchDraft({ ...EMPTY_ACHIEVEMENT })}
                 onSave={async (payload) => {
                   if (!payload.title || !payload.achieved_year) {
@@ -677,9 +714,13 @@ export default function MemberProfilePage() {
                       toast.success('Đã thêm thành tích.');
                     }
                     const ach = await apiClient.get('/me/achievements');
-                    setAchievements(ach.data?.data?.items || []);
-                    setAchDraft({ ...EMPTY_ACHIEVEMENT });
-                    setSection('ach_read');
+                    const items = ach.data?.data?.items || [];
+                    setAchievements(items);
+                    const keepId = achDraft.id;
+                    const next = keepId
+                      ? items.find((x) => x.id === keepId)
+                      : items[0];
+                    if (next) setAchDraft({ ...achievementFromApi(next), proofs: next.proofs || [] });
                   } catch (e) {
                     toast.error(e.response?.data?.message || 'Không lưu được thành tích.');
                   } finally {
@@ -699,7 +740,7 @@ export default function MemberProfilePage() {
                   setSection('ach');
                 }}
                 onEdit={(row) => {
-                  setAchDraft(achievementFromApi(row));
+                  setAchDraft({ ...achievementFromApi(row), proofs: row.proofs || [] });
                   setSection('ach');
                 }}
                 onDelete={async (row) => {
@@ -712,7 +753,71 @@ export default function MemberProfilePage() {
                     toast.error(e.response?.data?.message || 'Không xóa được.');
                   }
                 }}
+                proofBusyId={proofBusyId}
+                onAddProof={(row) => {
+                  navigate(`/me/profile/achievement/${row.id}/proof`);
+                }}
+                onRemoveProof={async (row, proof) => {
+                  if (!window.confirm('Xóa minh chứng này?')) return;
+                  setProofBusyId(row.id);
+                  try {
+                    const res = await apiClient.delete(`/me/achievements/${row.id}/proofs/${proof.id}`);
+                    const proofs = res.data?.data?.proofs || [];
+                    setAchievements((prev) => prev.map((x) => (x.id === row.id ? { ...x, proofs } : x)));
+                    toast.success('Đã xóa minh chứng.');
+                  } catch (e) {
+                    toast.error(e.response?.data?.message || 'Không xóa được minh chứng.');
+                  } finally {
+                    setProofBusyId(null);
+                  }
+                }}
               />
+            ) : null}
+
+            {section === 'docs' ? (
+              <div className="space-y-3">
+                <p className="text-xs text-slate-500">
+                  Đã dùng {(docsUsed / (1024 * 1024)).toFixed(1)} / 30 MB
+                </p>
+                {docs.length ? (
+                  <ul className="space-y-2">
+                    {docs.map((p) => (
+                      <li key={p.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
+                        <p className="text-sm font-black text-slate-800">{p.caption || 'Không mô tả'}</p>
+                        <a href={p.url || '#'} target="_blank" rel="noreferrer" className="block truncate text-xs font-semibold text-indigo-700">
+                          {p.file_name || 'Tệp'}
+                        </a>
+                        <button
+                          type="button"
+                          className="mt-2 text-xs font-bold text-rose-600"
+                          onClick={async () => {
+                            if (!window.confirm('Xóa tài liệu này khỏi hồ sơ và kho lưu trữ?')) return;
+                            try {
+                              const res = await apiClient.delete(`/me/documents/${p.id}`);
+                              setDocs(res.data?.data?.items || []);
+                              setDocsUsed(res.data?.data?.used_bytes || 0);
+                              toast.success('Đã xóa tài liệu.');
+                            } catch (e) {
+                              toast.error(e.response?.data?.message || 'Không xóa được.');
+                            }
+                          }}
+                        >
+                          Xóa
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-slate-500">Chưa có tài liệu khác.</p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => navigate('/me/profile/document')}
+                  className="w-full rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white"
+                >
+                  Thêm tài liệu
+                </button>
+              </div>
             ) : null}
 
             {section === 'privacy' ? (
@@ -750,7 +855,7 @@ export default function MemberProfilePage() {
             ) : null}
           </section>
 
-          {section !== 'address' && section !== 'bio_read' && section !== 'ach' && section !== 'ach_read' ? (
+          {section !== 'address' && section !== 'bio_read' && section !== 'ach' && section !== 'ach_read' && section !== 'docs' ? (
             <button
               type="submit"
               disabled={saving || !dirty}

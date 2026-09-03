@@ -25,6 +25,8 @@ const AdminTenantSettingsPage = lazy(() => import('./pages/AdminTenantSettingsPa
 const AdminTenantDirectoryPage = lazy(() => import('./pages/AdminTenantDirectoryPage.jsx'));
 const MemberProfilePage = lazy(() => import('./pages/MemberProfilePage.jsx'));
 const AddressFormPage = lazy(() => import('./pages/AddressFormPage.jsx'));
+const ProofUploadPage = lazy(() => import('./pages/ProofUploadPage.jsx'));
+const DocumentUploadPage = lazy(() => import('./pages/DocumentUploadPage.jsx'));
 
 const ProtectedRoute = ({ children, allowedStatus = 'DA_DUYET' }) => {
   const { user, loading } = useAuth();
@@ -88,6 +90,19 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
+
+        <Route
+          path="/me/profile/achievement/:id/proof"
+          element={
+            <ProtectedRoute allowedStatus="DA_DUYET">
+              <ProofUploadPage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route path="/me/profile/document" element={
+          <ProtectedRoute allowedStatus="DA_DUYET"><DocumentUploadPage /></ProtectedRoute>
+        } />
 
         <Route
           path="/waiting"

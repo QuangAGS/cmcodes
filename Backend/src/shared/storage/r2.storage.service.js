@@ -1,11 +1,11 @@
 /**
  * PATH       : src/shared/storage/r2.storage.service.js
- * DATETIME   : 2026-08-25T15:05:00+07:00
- * VERSION    : 1.2.0-R2
+ * DATETIME   : 2026-09-03T14:50:00+07:00
+ * VERSION    : 1.3.0-R2-VN-NAME
  * DESCRIPTION:
- * - R2 private: put / delete / head / presigned GET|PUT.
- * - Key: {tenantId}/{uuid}{ext}  (không sub-folder; metadata ở bảng media).
- * - Không phụ thuộc Public URL.
+ * - Key ổn định: {tenantId}/{uuid}{ext} — không nhét tên gốc vào Key.
+ * - Tên tiếng Việt: NFC + Content-Disposition filename*=UTF-8'' (RFC 5987).
+ * - Metadata S3 chỉ ASCII (encodeURIComponent) — tránh SignatureDoesNotMatch.
  */
 
 'use strict';
@@ -24,21 +24,42 @@ const { getR2Client } = require('./r2.client');
 
 const PROVIDER = 'CLOUDFLARE_R2';
 
-function sanitizeFileName(name) {
-  const base = path.basename(String(name || 'file'));
-  return (
-    base
-      .replace(/[^\w.\-()+\u00C0-\u024F\u1E00-\u1EFF ]+/gi, '_')
-      .replace(/\s+/g, '_')
-      .slice(0, 180) || 'file'
-  );
+function decodeOriginalName(name) {
+  let s = String(name || 'file');
+  try {
+    const fromLatin1 = Buffer.from(s, 'latin1').toString('utf8');
+    if (fromLatin1 && /[^\u0000-\u007F]/.test(fromLatin1)) {
+      s = fromLatin1;
+    }
+  } catch (_) {
+    /* keep s */
+  }
+  try {
+    s = s.normalize('NFC');
+  } catch (_) {
+    /* ignore */
+  }
+  return s.replace(/[\u0000-\u001F\u007F]/g, '').trim() || 'file';
 }
 
-/**
- * Extension chuẩn: ".png" | "" 
- * @param {string} originalName
- * @param {string} [mimeType]
- */
+function toNfc(name) {
+  return decodeOriginalName(name);
+}
+
+function sanitizeFileName(name) {
+  const base = path.basename(decodeOriginalName(name));
+  return base.replace(/[/\\]/g, '_').slice(0, 255) || 'file';
+}
+
+/** RFC 5987 — Content-Disposition filename*=UTF-8''... */
+function contentDisposition(safeName, mode = 'inline') {
+  const nfc = toNfc(safeName);
+  const encoded = encodeURIComponent(nfc).replace(/['()]/g, escape);
+  const ascii = nfc.replace(/[^\x20-\x7E]/g, '_').slice(0, 80) || 'file';
+  const kind = mode === 'attachment' ? 'attachment' : 'inline';
+  return `${kind}; filename="${ascii}"; filename*=UTF-8''${encoded}`;
+}
+
 function resolveExt(originalName, mimeType) {
   const fromName = path.extname(String(originalName || '')).toLowerCase();
   if (fromName && /^\.[a-z0-9]{1,10}$/i.test(fromName)) {
@@ -60,10 +81,6 @@ function resolveExt(originalName, mimeType) {
   return map[String(mimeType || '').toLowerCase()] || '';
 }
 
-/**
- * Key R2: {tenantId}/{uuid}{ext}
- * @param {{ tenantId: string, originalName?: string, mimeType?: string }} p
- */
 function buildObjectKey({ tenantId, originalName, mimeType }) {
   if (!tenantId) {
     const err = new Error('[R2] Thiếu tenantId khi tạo storage key.');
@@ -75,34 +92,19 @@ function buildObjectKey({ tenantId, originalName, mimeType }) {
   return `${tenantId}/${id}${ext}`;
 }
 
-/**
- * @deprecated private bucket — luôn null nếu không cấu hình publicBaseUrl
- */
 function buildPublicUrl(key, publicBaseUrl) {
   if (!publicBaseUrl) return null;
   const k = String(key).replace(/^\//, '');
   return `${publicBaseUrl.replace(/\/$/, '')}/${k}`;
 }
 
-/**
- * Upload buffer → R2.
- * @returns {Promise<{
- *   storage_provider: string,
- *   storage_key: string,
- *   file_url: string|null,
- *   file_name: string,
- *   mime_type: string,
- *   file_ext: string,
- *   file_size: number,
- *   bucket: string
- * }>}
- */
 async function uploadObject({
   buffer,
   contentType,
   originalName,
   tenantId,
   cacheControl = 'private, max-age=0',
+  disposition = 'inline',
 }) {
   if (!buffer || !Buffer.isBuffer(buffer)) {
     const err = new Error('[R2] buffer không hợp lệ.');
@@ -127,9 +129,10 @@ async function uploadObject({
       Body: buffer,
       ContentType: mime,
       CacheControl: cacheControl,
+      ContentDisposition: contentDisposition(safeName, disposition),
       Metadata: {
         tenant_id: String(tenantId),
-        original_name: safeName.slice(0, 200),
+        original_name: encodeURIComponent(safeName).slice(0, 200),
       },
     })
   );
@@ -188,12 +191,19 @@ async function headObject(storageKey) {
   }
 }
 
-async function getPresignedGetUrl(storageKey, expiresIn = 3600) {
+async function getPresignedGetUrl(storageKey, expiresIn = 3600, downloadName = null) {
   const { client, config } = getR2Client();
-  const cmd = new GetObjectCommand({
+  const input = {
     Bucket: config.bucket,
     Key: storageKey,
-  });
+  };
+  if (downloadName) {
+    input.ResponseContentDisposition = contentDisposition(
+      sanitizeFileName(downloadName),
+      'attachment'
+    );
+  }
+  const cmd = new GetObjectCommand(input);
   const url = await getSignedUrl(client, cmd, { expiresIn });
   return { url, expiresIn, storage_key: storageKey };
 }
@@ -209,13 +219,9 @@ async function getPresignedPutUrl(storageKey, contentType, expiresIn = 900) {
   return { url, expiresIn, storage_key: storageKey };
 }
 
-/**
- * Private bucket: luôn presign nếu có storage_key.
- * file_url legacy chỉ dùng khi không có key.
- */
-async function resolveReadUrl(storageKey, storedFileUrl = null, expiresIn = 3600) {
+async function resolveReadUrl(storageKey, storedFileUrl = null, expiresIn = 3600, downloadName = null) {
   if (storageKey) {
-    const signed = await getPresignedGetUrl(storageKey, expiresIn);
+    const signed = await getPresignedGetUrl(storageKey, expiresIn, downloadName);
     return {
       url: signed.url,
       mode: 'presigned',
@@ -231,6 +237,7 @@ async function resolveReadUrl(storageKey, storedFileUrl = null, expiresIn = 3600
 module.exports = {
   PROVIDER,
   sanitizeFileName,
+  contentDisposition,
   resolveExt,
   buildObjectKey,
   buildPublicUrl,
