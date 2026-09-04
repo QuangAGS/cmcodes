@@ -633,6 +633,11 @@ model members {
   tenant_id            String                 @db.VarChar(36)
   role                 members_roles?         @default(THANH_VIEN)
   status               members_status         @default(DU_BI)
+  created_by            String?               @db.VarChar(36)
+  created_by_member_id  String?               @db.VarChar(36)
+  created_by_user       users?                @relation("members_created_by", fields: [created_by], references: [id], onUpdate: NoAction)
+  created_by_member     members?              @relation("members_created_by_member", fields: [created_by_member_id], references: [id], onUpdate: NoAction)
+  created_members       members[]             @relation("members_created_by_member")
   achievements         achievements[]
   assets               assets[]
   biographies          biographies[]
@@ -718,6 +723,7 @@ model users {
   marriages                                                           marriages[]
   media                                                               media[]
   members_members_changed_byTousers                                   members[]                        @relation("members_changed_byTousers")
+  members_created                                                     members[]                        @relation("members_created_by")
   notification_deliveries_notification_deliveries_changed_byTousers   notification_deliveries[]        @relation("notification_deliveries_changed_byTousers")
   notification_deliveries_notification_deliveries_handled_byTousers   notification_deliveries[]        @relation("notification_deliveries_handled_byTousers")
   notification_recipients_notification_recipients_changed_byTousers   notification_recipients[]        @relation("notification_recipients_changed_byTousers")
@@ -1250,6 +1256,54 @@ model member_privacy_rules {
   @@map("member_privacy_rules")
 }
 
+model profile_edit_grants {
+  id                 String               @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  tenant_id          String               @db.VarChar(36)
+  target_member_id   String               @db.VarChar(36)
+  target_branch_id   String?              @db.VarChar(36)
+  grantor_member_id  String?              @db.VarChar(36)
+  grantee_member_id  String               @db.VarChar(36)
+  scope              profile_grant_scope  @default(PROFILE)
+  status             profile_grant_status @default(CHO_DUYET)
+  expires_at         DateTime?            @db.Timestamptz(6)
+  reason             String?              @db.VarChar(255)
+  approved_by        String?              @db.VarChar(36)
+  decided_at         DateTime?            @db.Timestamptz(6)
+  created_at         DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime             @default(now()) @updatedAt @db.Timestamptz(6)
+  changed_by         String?              @db.VarChar(36)
+  deleted_at         DateTime?            @db.Timestamptz(6)
+
+  @@index([tenant_id])
+  @@index([target_member_id])
+  @@index([grantee_member_id])
+  @@map("profile_edit_grants")
+}
+
+model member_offices {
+  id           String               @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  tenant_id    String               @db.VarChar(36)
+  member_id    String               @db.VarChar(36)
+  office       member_office_code
+  branch_id    String?              @db.VarChar(36)
+  status       member_office_status @default(HIEU_LUC)
+  valid_from   DateTime             @db.Date
+  valid_to     DateTime?            @db.Date
+  appointed_by String?              @db.VarChar(36)
+  note         String?              @db.VarChar(255)
+  created_at   DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at   DateTime             @default(now()) @updatedAt @db.Timestamptz(6)
+  changed_by   String?              @db.VarChar(36)
+  deleted_at   DateTime?            @db.Timestamptz(6)
+
+  @@index([tenant_id])
+  @@index([member_id])
+  @@index([branch_id])
+  @@map("member_offices")
+}
+
+
+
 enum achievements_category {
   KHOA_BANG
   QUAN_SU
@@ -1694,3 +1748,31 @@ enum blood_group_code {
   O_NEG
   UNKNOWN
 }
+
+enum profile_grant_status {
+  CHO_DUYET
+  HIEU_LUC
+  HET_HAN
+  TU_CHOI
+  THU_HOI
+}
+
+enum profile_grant_scope {
+  PROFILE
+  BRANCH_PROFILE
+}
+
+enum member_office_code {
+  TRUONG_HO
+  TRUONG_TOC
+  TRUONG_NGANH
+  TRUONG_CHI
+  TRUONG_BRANCH
+}
+
+enum member_office_status {
+  HIEU_LUC
+  HET_NHIEM
+  THU_HOI
+}
+

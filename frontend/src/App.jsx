@@ -28,6 +28,7 @@ const AddressFormPage = lazy(() => import('./pages/AddressFormPage.jsx'));
 const ProofUploadPage = lazy(() => import('./pages/ProofUploadPage.jsx'));
 const DocumentUploadPage = lazy(() => import('./pages/DocumentUploadPage.jsx'));
 const BioFileUploadPage = lazy(() => import('./pages/BioFileUploadPage.jsx'));
+const AdminMemberVitalPage = lazy(() => import('./pages/AdminMemberVitalPage.jsx'));
 
 const ProtectedRoute = ({ children, allowedStatus = 'DA_DUYET' }) => {
   const { user, loading } = useAuth();
@@ -98,6 +99,23 @@ const AppRouter = () => {
             <ProtectedRoute allowedStatus="DA_DUYET">
               <ProofUploadPage />
             </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/members/vital"
+          element={
+            <AdminProtectedRoute>
+              <AdminMemberVitalPage />
+            </AdminProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/members/:id/vital"
+          element={
+            <AdminProtectedRoute>
+              <AdminMemberVitalPage />
+            </AdminProtectedRoute>
           }
         />
 

@@ -1,12 +1,14 @@
 /**
  * PATH       : src/modules/interactions/media.routes.js
- * DATETIME   : 2026-09-03T19:17:00+07:00
- * VERSION    : 1.2.0-R2-STREAM-DOWNLOAD
+ * DATETIME   : 2026-09-04T12:05:00+07:00
+ * VERSION    : 1.3.0-M10B-PRESIGN
  * DESCRIPTION:
- * - POST   /api/media/upload              multipart field "file"
+ * - POST   /api/media/upload
+ * - POST   /api/media/presign
+ * - POST   /api/media/register
  * - GET    /api/media/entity/:type/:id
- * - GET    /api/media/:id/url             presign preview
- * - GET    /api/media/:id/download        stream + Content-Disposition UTF-8
+ * - GET    /api/media/:id/url
+ * - GET    /api/media/:id/download
  * - DELETE /api/media/:id
  */
 
@@ -25,6 +27,9 @@ router.post(
   upload.single('file'),
   mediaController.uploadFile
 );
+
+router.post('/presign', verifyToken, mediaController.presignPut);
+router.post('/register', verifyToken, mediaController.confirmPresign);
 
 router.get(
   '/entity/:type/:id',

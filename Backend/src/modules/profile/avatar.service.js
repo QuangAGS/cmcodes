@@ -11,7 +11,7 @@
 const { prisma, correlation, runWithTenantContext } = require('../../lib/prisma.js');
 const { writeBpl } = require('../../services/bpl.service.js');
 const mediaService = require('../interactions/media.service.js');
-const r2Storage = require('../../shared/storage/r2.storage.service');
+const r2Storage = require('../../shared/storage/storage.facade');
 
 const ALLOWED = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
 const MAX_BYTES = 2 * 1024 * 1024;

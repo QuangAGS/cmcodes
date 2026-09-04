@@ -98,6 +98,26 @@ const mediaController = {
     }
   },
 
+  presignPut: async (req, res) => {
+    try {
+      const data = await mediaService.presignPut(req.body || {}, pickUser(req));
+      return res.status(200).json({ success: true, status: 'success', data });
+    } catch (error) {
+      console.error('[media.presignPut]', error.message || error);
+      return sendError(res, error);
+    }
+  },
+
+  confirmPresign: async (req, res) => {
+    try {
+      const data = await mediaService.confirmPresign(req.body || {}, pickUser(req));
+      return res.status(201).json({ success: true, status: 'success', data });
+    } catch (error) {
+      console.error('[media.confirmPresign]', error.message || error);
+      return sendError(res, error);
+    }
+  },
+
   readUrl: async (req, res) => {
     try {
       const { id } = req.params;

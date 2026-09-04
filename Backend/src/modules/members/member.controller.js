@@ -6,6 +6,7 @@
  * Đảm bảo đầy đủ các hàm getAll, getById, create, update, delete, getStats.
  */
 const memberService = require('./member.service');
+const vitalService = require('./vital.service.js');
 
 const memberController = {
   // Lấy danh sách toàn bộ thành viên trong Tenant
@@ -99,6 +100,21 @@ const memberController = {
   },
 
   // Xóa thành viên
+  patchVital: async (req, res) => {
+    try {
+      const data = await vitalService.patchVital(req.user, req.params.id, req.body || {});
+      res.status(200).json({ status: 'success', success: true, message: 'Đã cập nhật tình trạng sống.', data });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+      res.status(statusCode).json({
+        status: 'error',
+        success: false,
+        code: error.code || 'INTERNAL_ERROR',
+        message: error.message || 'Lỗi server',
+      });
+    }
+  },
+
   delete: async (req, res) => {
     try {
       const { id } = req.params;

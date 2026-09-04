@@ -36,6 +36,13 @@ export const SYSTEM_ADMIN_WORK_ITEMS = [
     path: '/admin/tenant/settings',
     icon: 'Settings',
   },
+  {
+    id: 'member-vital',
+    title: 'Tình trạng sống / đã mất',
+    description: 'Ghi nhận ngày mất, không mở lại hồ sơ nhập tộc',
+    path: '/admin/members/vital',
+    icon: 'UserCheck',
+  },
 ];
 
 export const CLAN_ADMIN_WORK_ITEMS = [
@@ -78,6 +85,14 @@ export const CLAN_ADMIN_WORK_ITEMS = [
     description: 'Xem và quản lý cây phả hệ của dòng họ',
     path: '/tree',
     icon: 'ShieldCheck',
+    when: ['HOAT_DONG'],
+  },
+  {
+    id: 'member-vital',
+    title: 'Tình trạng sống / đã mất',
+    description: 'Ghi nhận ngày mất, không mở lại hồ sơ nhập tộc',
+    path: '/admin/members/vital',
+    icon: 'UserCheck',
     when: ['HOAT_DONG'],
   },
 ];

@@ -19,6 +19,7 @@ router.get('/focal-tree/:id', verifyToken, memberController.getFocalTree);
 // --- NHÓM 2: ĐỌC DỮ LIỆU CƠ BẢN ---
 router.get('/', verifyToken, memberController.getAll);
 router.get('/:id', verifyToken, memberController.getById);
+router.patch('/:id/vital', verifyToken, checkRole(['SYSTEM_ADMIN', 'CLAN_ADMIN']), memberController.patchVital);
 
 // --- NHÓM 3: THAY ĐỔI DỮ LIỆU (TẠM KHÔNG CHẶN VIEWER) ---
 router.post('/', verifyToken, checkRole(['USER', 'CLAN_ADMIN']), memberController.create);
@@ -72,6 +73,7 @@ router.get('/', verifyToken, memberController.getAll);
 
 // Chi tiết 1 thành viên
 router.get('/:id', verifyToken, memberController.getById);
+router.patch('/:id/vital', verifyToken, checkRole(['SYSTEM_ADMIN', 'CLAN_ADMIN']), memberController.patchVital);
 
 
 // --- NHÓM 3: THAY ĐỔI DỮ LIỆU (CHẶN VIEWER) ---

@@ -566,6 +566,103 @@ const mediaService = {
       file_size: row.file_size || obj.contentLength,
     };
   },
+
+  presignPut: async (body, currentUser) => {
+    const { userId, tenantId: actorTenantId, role } = actorOf(currentUser);
+    const entity_type = normalizeEntityType(body?.entity_type);
+    const entity_id = String(body?.entity_id || userId || '').slice(0, 36);
+    const tenantId = resolveTargetTenant(body, entity_type, entity_id, actorTenantId);
+    if (!userId || !tenantId) {
+      const err = new Error('Thiếu phiên hoặc tenant.');
+      err.statusCode = 401;
+      err.code = 'AUTH_UNAUTHORIZED';
+      throw err;
+    }
+    if (role !== 'SYSTEM_ADMIN' && actorTenantId && actorTenantId !== tenantId) {
+      const err = new Error('Không được tải file sang dòng họ khác.');
+      err.statusCode = 403;
+      err.code = 'FORBIDDEN';
+      throw err;
+    }
+    const mime = String(body?.mime_type || body?.content_type || '').toLowerCase();
+    if (!mime) {
+      const err = new Error('Thiếu mime_type.');
+      err.statusCode = 400;
+      err.code = 'MEDIA_TYPE';
+      throw err;
+    }
+    const size = Number(body?.file_size || 0);
+    if (!Number.isFinite(size) || size <= 0 || size > 30 * 1024 * 1024) {
+      const err = new Error('Dung lượng file không hợp lệ (tối đa 30MB).');
+      err.statusCode = 400;
+      err.code = 'MEDIA_TOO_LARGE';
+      throw err;
+    }
+    const file_name = String(body?.file_name || 'file').slice(0, 255);
+    const purpose = normalizePurpose(body?.purpose);
+    const key = r2Storage.buildObjectKey({
+      tenantId,
+      originalName: file_name,
+      mimeType: mime,
+    });
+    const signed = await r2Storage.getPresignedPutUrl(key, mime, 900);
+    return {
+      put_url: signed.url,
+      storage_key: key,
+      content_type: mime,
+      expires_in: signed.expiresIn,
+      purpose,
+      entity_type,
+      entity_id,
+      tenant_id: tenantId,
+      file_name,
+      file_size: size,
+      headers: { 'Content-Type': mime },
+    };
+  },
+
+  confirmPresign: async (body, currentUser) => {
+    const { userId, tenantId: actorTenantId, role } = actorOf(currentUser);
+    const storage_key = String(body?.storage_key || '');
+    const entity_type = normalizeEntityType(body?.entity_type);
+    const tenantId = resolveTargetTenant(body, entity_type, body?.entity_id, actorTenantId);
+    if (!userId || !tenantId) {
+      const err = new Error('Thiếu phiên hoặc tenant.');
+      err.statusCode = 401;
+      err.code = 'AUTH_UNAUTHORIZED';
+      throw err;
+    }
+    if (!storage_key.startsWith(tenantId + '/')) {
+      const err = new Error('storage_key không thuộc tenant.');
+      err.statusCode = 403;
+      err.code = 'FORBIDDEN';
+      throw err;
+    }
+    if (role !== 'SYSTEM_ADMIN' && actorTenantId && actorTenantId !== tenantId) {
+      const err = new Error('Không được đăng ký file dòng họ khác.');
+      err.statusCode = 403;
+      err.code = 'FORBIDDEN';
+      throw err;
+    }
+    const head = await r2Storage.headObject(storage_key);
+    if (!head.exists) {
+      const err = new Error('Chưa thấy file trên kho. PUT presign trước khi đăng ký.');
+      err.statusCode = 400;
+      err.code = 'MEDIA_NOT_ON_STORAGE';
+      throw err;
+    }
+    return mediaService.registerMedia(
+      {
+        ...body,
+        tenant_id: tenantId,
+        storage_key,
+        storage_provider: 'CLOUDFLARE_R2',
+        file_size: head.contentLength || body.file_size,
+        mime_type: body.mime_type || head.contentType,
+      },
+      currentUser
+    );
+  },
 };
 
 module.exports = mediaService;
