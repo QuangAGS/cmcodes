@@ -237,32 +237,32 @@ model audit_logs {
 }
 
 model biographies {
-  id                 String    @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
-  member_id          String?   @db.VarChar(36)
+  id                 String            @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  member_id          String?           @db.VarChar(36)
   childhood_summary  String?
   education_history  String?
   career_history     String?
   later_life_summary String?
-  personality_traits String?   @db.VarChar(500)
+  personality_traits String?           @db.VarChar(500)
   notable_quotes     String?
-  created_at         DateTime? @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime? @default(now()) @db.Timestamptz(6)
-  changed_by         String?   @db.VarChar(36)
-  deleted_at         DateTime? @db.Timestamptz(6)
-  tenant_id          String?   @db.VarChar(36)
+  created_at         DateTime?         @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime?         @default(now()) @db.Timestamptz(6)
+  changed_by         String?           @db.VarChar(36)
+  deleted_at         DateTime?         @db.Timestamptz(6)
+  tenant_id          String?           @db.VarChar(36)
   ///nhóm máu & Bệnh tật
-  blood_group          blood_group_code?
-  blood_note           String?   @db.VarChar(255)
-  health_none          Boolean?  @default(false)
-  health_flags         Json?
-  health_summary       String?
-  congenital_none      Boolean?  @default(false)
-  congenital_flags     Json?
-  congenital_summary   String?
+  blood_group        blood_group_code?
+  blood_note         String?           @db.VarChar(255)
+  health_none        Boolean?          @default(false)
+  health_flags       Json?
+  health_summary     String?
+  congenital_none    Boolean?          @default(false)
+  congenital_flags   Json?
+  congenital_summary String?
 
-  tenants            tenants?  @relation(fields: [tenant_id], references: [id], map: "fk_bibliography_tenant")
-  users              users?    @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_biographies_user")
-  members            members?  @relation(fields: [member_id], references: [id], onUpdate: NoAction, map: "fk_biography_member")
+  tenants tenants? @relation(fields: [tenant_id], references: [id], map: "fk_bibliography_tenant")
+  users   users?   @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_biographies_user")
+  members members? @relation(fields: [member_id], references: [id], onUpdate: NoAction, map: "fk_biography_member")
 
   @@index([tenant_id], map: "idx_bibliography_tenant")
   @@index([changed_by], map: "idx_biographies_user")
@@ -1563,7 +1563,7 @@ enum business_process_type {
   ACHIEVEMENT_DELETE
   MEMBER_ADDRESS_LINK //Link address
   MEDIA_AVATAR_UPSERT
-  MEDIA_AVATAR_DELETE 
+  MEDIA_AVATAR_DELETE
 }
 
 enum process_status_type {
@@ -1671,12 +1671,17 @@ enum privacy_field_group {
   CONTACT
   ACHIEVEMENT
   BIRTH_DATE
+  ADDRESS
+  BIO
+  HEALTH
+  DOCS
 }
 
 enum privacy_visibility {
   SELF
   TENANT
 }
+
 /// Nhóm máu
 enum blood_group_code {
   A_POS
