@@ -31,6 +31,9 @@ const TOPIC_ENTITY = {
   later_life_summary: 'BIO_LATER',
   personality_traits: 'BIO_PERSONALITY',
   notable_quotes: 'BIO_QUOTES',
+  blood_group: 'BIO_BLOOD',
+  health_summary: 'BIO_HEALTH',
+  congenital_summary: 'BIO_CONGENITAL',
 };
 
 const TOPICS = Object.keys(TOPIC_ENTITY);

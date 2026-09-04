@@ -53,7 +53,71 @@ const BIO_PATCH = [
   'later_life_summary',
   'personality_traits',
   'notable_quotes',
+  'blood_group',
+  'blood_note',
+  'health_flags',
+  'health_summary',
+  'health_none',
+  'congenital_flags',
+  'congenital_summary',
+  'congenital_none',
 ];
+
+const BLOOD_GROUPS = new Set([
+  'A_POS', 'A_NEG', 'B_POS', 'B_NEG', 'AB_POS', 'AB_NEG', 'O_POS', 'O_NEG', 'UNKNOWN',
+]);
+const HEALTH_FLAG_SET = new Set([
+  'CARDIO', 'DIABETES', 'CANCER', 'RESPIRATORY', 'NEURO', 'JOINT', 'ALLERGY', 'OTHER',
+]);
+const CONGENITAL_FLAG_SET = new Set([
+  'HEART', 'CLEFT', 'HEARING_VISION', 'LIMB_SPINE', 'NEURO', 'SYNDROME', 'OTHER',
+]);
+
+function asFlagList(raw, allowed) {
+  const arr = Array.isArray(raw) ? raw : [];
+  return arr.map((x) => String(x || '').trim().toUpperCase()).filter((x) => allowed.has(x));
+}
+
+function normalizeBioPatch(raw) {
+  const out = { ...raw };
+  if (out.blood_group !== undefined) {
+    let g = String(out.blood_group || '').trim().toUpperCase();
+    g = g.replace(/\+$/, '_POS').replace(/-$/, '_NEG');
+    if (g === 'A+') g = 'A_POS';
+    if (g === 'A-') g = 'A_NEG';
+    if (!g) out.blood_group = null;
+    else if (!BLOOD_GROUPS.has(g)) deny('BAD_REQUEST', 'Nhóm máu không hợp lệ.', 400);
+    else out.blood_group = g;
+  }
+  if (out.blood_note !== undefined) {
+    out.blood_note = String(out.blood_note || '').trim().slice(0, 255) || null;
+  }
+  if (out.health_flags !== undefined) out.health_flags = asFlagList(out.health_flags, HEALTH_FLAG_SET);
+  if (out.health_summary !== undefined) {
+    out.health_summary = String(out.health_summary || '').trim() || null;
+  }
+  if (out.health_none !== undefined) {
+    out.health_none = !!out.health_none;
+    if (out.health_none) {
+      out.health_flags = [];
+      out.health_summary = null;
+    }
+  }
+  if (out.congenital_flags !== undefined) {
+    out.congenital_flags = asFlagList(out.congenital_flags, CONGENITAL_FLAG_SET);
+  }
+  if (out.congenital_summary !== undefined) {
+    out.congenital_summary = String(out.congenital_summary || '').trim() || null;
+  }
+  if (out.congenital_none !== undefined) {
+    out.congenital_none = !!out.congenital_none;
+    if (out.congenital_none) {
+      out.congenital_flags = [];
+      out.congenital_summary = null;
+    }
+  }
+  return out;
+}
 
 const SOCIAL_KEYS = new Set(['zalo', 'facebook', 'website']);
 const PRIVACY_GROUPS = new Set(['CONTACT', 'ACHIEVEMENT', 'BIRTH_DATE']);
@@ -357,7 +421,7 @@ async function patchMyProfile(reqUser, rawBody = {}) {
     memberPatch.email = memberPatch.email.trim().slice(0, 100) || null;
   }
 
-  const bioPatch = pick(body.biography || body, BIO_PATCH);
+  const bioPatch = normalizeBioPatch(pick(body.biography || body, BIO_PATCH));
   a01Log('pick', { memberPatch, bioPatch });
 
   const hasAddr = !!(body.origin_address || body.current_address);

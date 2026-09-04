@@ -23,6 +23,9 @@ const LABELS = {
   later_life_summary: 'Về già / giai đoạn sau',
   personality_traits: 'Tính cách',
   notable_quotes: 'Danh ngôn',
+  blood_group: 'Nhóm máu',
+  health_summary: 'Bệnh tật',
+  congenital_summary: 'Bệnh / dị tật bẩm sinh',
 };
 
 export default function BioFileUploadPage() {

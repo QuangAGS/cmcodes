@@ -61,6 +61,16 @@ const EMPTY = {
   later_life_summary: '',
   personality_traits: '',
   notable_quotes: '',
+  blood_group: '',
+  blood_abo: '',
+  blood_rh: '',
+  blood_note: '',
+  health_flags: [],
+  health_summary: '',
+  health_none: false,
+  congenital_flags: [],
+  congenital_summary: '',
+  congenital_none: false,
   origin: { ...EMPTY_ADDRESS },
   current: { ...EMPTY_ADDRESS },
   privacy_CONTACT: 'TENANT',
@@ -88,7 +98,91 @@ const BIO_TOPICS = [
   { key: 'later_life_summary', label: 'Về già / giai đoạn sau', voice: 'Về già và giai đoạn sau.', max: null },
   { key: 'personality_traits', label: 'Tính cách', voice: 'Tính cách.', max: 500 },
   { key: 'notable_quotes', label: 'Danh ngôn', voice: 'Danh ngôn.', max: null },
+  { key: 'blood_group', label: 'Nhóm máu', voice: 'Nhóm máu.', kind: 'blood' },
+  { key: 'health_summary', label: 'Bệnh tật', voice: 'Bệnh tật.', kind: 'health' },
+  { key: 'congenital_summary', label: 'Bệnh / dị tật bẩm sinh', voice: 'Bệnh dị tật bẩm sinh.', kind: 'congenital' },
 ];
+
+const BLOOD_ABO = [
+  { value: '', label: 'Chưa chọn' },
+  { value: 'A', label: 'A' },
+  { value: 'B', label: 'B' },
+  { value: 'AB', label: 'AB' },
+  { value: 'O', label: 'O' },
+  { value: 'UNKNOWN', label: 'Chưa rõ' },
+];
+const BLOOD_RH = [
+  { value: '', label: 'Chưa chọn' },
+  { value: 'POS', label: 'Rh +' },
+  { value: 'NEG', label: 'Rh -' },
+  { value: 'UNKNOWN', label: 'Chưa rõ' },
+];
+const HEALTH_FLAG_OPTS = [
+  { value: 'CARDIO', label: 'Tim mạch / huyết áp' },
+  { value: 'DIABETES', label: 'Tiểu đường' },
+  { value: 'CANCER', label: 'Ung thư' },
+  { value: 'RESPIRATORY', label: 'Hô hấp' },
+  { value: 'NEURO', label: 'Thần kinh / đột quỵ' },
+  { value: 'JOINT', label: 'Xương khớp' },
+  { value: 'ALLERGY', label: 'Dị ứng' },
+  { value: 'OTHER', label: 'Khác / chưa rõ' },
+];
+const CONGENITAL_FLAG_OPTS = [
+  { value: 'HEART', label: 'Tim bẩm sinh' },
+  { value: 'CLEFT', label: 'Khe hở môi / vòm' },
+  { value: 'HEARING_VISION', label: 'Khiếm thính / khiếm thị bẩm sinh' },
+  { value: 'LIMB_SPINE', label: 'Bất thường chi / cột sống' },
+  { value: 'NEURO', label: 'Thần kinh bẩm sinh' },
+  { value: 'SYNDROME', label: 'Hội chứng di truyền đã biết' },
+  { value: 'OTHER', label: 'Khác / chưa rõ' },
+];
+
+function splitBlood(group) {
+  const g = String(group || '').trim().toUpperCase();
+  if (!g) return { abo: '', rh: '' };
+  if (g === 'UNKNOWN') return { abo: 'UNKNOWN', rh: 'UNKNOWN' };
+  const m = g.match(/^(A|B|AB|O)_(POS|NEG)$/);
+  if (!m) return { abo: '', rh: '' };
+  return { abo: m[1], rh: m[2] };
+}
+
+function joinBlood(abo, rh) {
+  if (abo === 'UNKNOWN' || rh === 'UNKNOWN') return 'UNKNOWN';
+  if (!abo || !rh) return '';
+  return `${abo}_${rh}`;
+}
+
+function bloodParts(form) {
+  if (form.blood_abo || form.blood_rh) {
+    return { abo: form.blood_abo || '', rh: form.blood_rh || '' };
+  }
+  return splitBlood(form.blood_group);
+}
+
+function bloodVoice(form) {
+  const { abo, rh } = bloodParts(form);
+  if (!abo && !rh) return 'Nhóm máu. Chưa có nội dung.';
+  if (abo === 'UNKNOWN') return `Nhóm máu. Chưa rõ. ${form.blood_note || ''}`.trim();
+  const rhLabel = rh === 'POS' ? 'dương' : rh === 'NEG' ? 'âm' : '';
+  return `Nhóm máu. ${abo} ${rhLabel}. ${form.blood_note || ''}`.trim();
+}
+
+function flagVoice(form, noneKey, flagsKey, summaryKey, opts, title, noneLabel) {
+  if (form[noneKey]) return `${title}. ${noneLabel}`;
+  const flags = Array.isArray(form[flagsKey]) ? form[flagsKey] : [];
+  const names = opts.filter((o) => flags.includes(o.value)).map((o) => o.label);
+  const summary = String(form[summaryKey] || '').trim();
+  if (!names.length && !summary) return `${title}. Chưa có nội dung.`;
+  return `${title}. ${names.join(', ')}. ${summary}`.trim();
+}
+
+function healthVoice(form) {
+  return flagVoice(form, 'health_none', 'health_flags', 'health_summary', HEALTH_FLAG_OPTS, 'Bệnh tật', 'Không mắc bệnh đáng kể.');
+}
+
+function congenitalVoice(form) {
+  return flagVoice(form, 'congenital_none', 'congenital_flags', 'congenital_summary', CONGENITAL_FLAG_OPTS, 'Bệnh dị tật bẩm sinh', 'Không có bệnh hoặc dị tật bẩm sinh đã biết.');
+}
 
 const PRIVACY_ITEMS = [
   { key: 'CONTACT', label: 'Liên lạc' },
@@ -188,12 +282,18 @@ export default function MemberProfilePage() {
   const sectionVoice = useMemo(() => {
     if (section === 'bio_read') {
       return BIO_TOPICS.map((it) => {
-        const text = String(form[it.key] || '').trim() || 'Chưa có nội dung.';
+        const body = it.kind === 'blood'
+          ? bloodVoice(form)
+          : it.kind === 'health'
+            ? healthVoice(form)
+            : it.kind === 'congenital'
+              ? congenitalVoice(form)
+              : `${it.voice} ${String(form[it.key] || '').trim() || 'Chưa có nội dung.'}`;
         const files = (bioFiles[it.key] || [])
           .map((p) => p.caption || p.file_name)
           .filter(Boolean)
           .join(', ');
-        return `${it.voice} ${text}${files ? ` Tư liệu: ${files}.` : ''}`;
+        return `${body}${files ? ` Tư liệu: ${files}.` : ''}`;
       }).join(' ');
     }
     if (section === 'ach_read') {
@@ -213,7 +313,11 @@ export default function MemberProfilePage() {
       identity: ['full_name', 'alias', 'note'],
       birth: ['birth_year', 'birth_month', 'birth_day', 'is_birth_lunar', 'birth_note'],
       contact: ['phone_number', 'email', 'zalo', 'facebook', 'website'],
-      bio: BIO_TOPICS.map((t) => t.key),
+      bio: [
+        ...BIO_TOPICS.map((t) => t.key),
+        'blood_note', 'blood_abo', 'blood_rh', 'health_flags', 'health_none',
+        'congenital_flags', 'congenital_none',
+      ],
       privacy: ['privacy_CONTACT', 'privacy_ACHIEVEMENT', 'privacy_BIRTH_DATE'],
     }[section] || [];
     return keys.some((k) => String(form[k] ?? '') !== String(savedForm[k] ?? ''));
@@ -280,6 +384,16 @@ export default function MemberProfilePage() {
           later_life_summary: b.later_life_summary || '',
           personality_traits: b.personality_traits || '',
           notable_quotes: b.notable_quotes || '',
+          blood_group: b.blood_group || '',
+          blood_abo: splitBlood(b.blood_group || '').abo,
+          blood_rh: splitBlood(b.blood_group || '').rh,
+          blood_note: b.blood_note || '',
+          health_flags: Array.isArray(b.health_flags) ? b.health_flags : [],
+          health_summary: b.health_summary || '',
+          health_none: !!b.health_none,
+          congenital_flags: Array.isArray(b.congenital_flags) ? b.congenital_flags : [],
+          congenital_summary: b.congenital_summary || '',
+          congenital_none: !!b.congenital_none,
           origin: addressFromApi(d.origin_address),
           current: addressFromApi(d.current_address),
           privacy_CONTACT: priv.privacy_CONTACT || 'TENANT',
@@ -364,6 +478,14 @@ export default function MemberProfilePage() {
           later_life_summary: form.later_life_summary || null,
           personality_traits: form.personality_traits || null,
           notable_quotes: form.notable_quotes || null,
+          blood_group: joinBlood(form.blood_abo, form.blood_rh) || null,
+          blood_note: form.blood_note || null,
+          health_flags: form.health_none ? [] : (form.health_flags || []),
+          health_summary: form.health_none ? null : (form.health_summary || null),
+          health_none: !!form.health_none,
+          congenital_flags: form.congenital_none ? [] : (form.congenital_flags || []),
+          congenital_summary: form.congenital_none ? null : (form.congenital_summary || null),
+          congenital_none: !!form.congenital_none,
         },
         privacy: [
           { field_group: 'CONTACT', visibility: form.privacy_CONTACT },
@@ -654,21 +776,118 @@ export default function MemberProfilePage() {
                 </Field>
                 {BIO_TOPICS.filter((it) => it.key === bioTopic).map((it) => {
                   const text = form[it.key] || '';
-                  const voice = text.trim() ? `${it.voice} ${text}` : `${it.voice} Chưa có nội dung.`;
+                  const voice = it.kind === 'blood'
+                    ? bloodVoice(form)
+                    : it.kind === 'health'
+                      ? healthVoice(form)
+                      : it.kind === 'congenital'
+                        ? congenitalVoice(form)
+                        : (String(text).trim() ? `${it.voice} ${text}` : `${it.voice} Chưa có nội dung.`);
+                  const blood = bloodParts(form);
+                  const structured = it.kind === 'blood' || it.kind === 'health' || it.kind === 'congenital';
                   return (
                     <div key={it.key} className="space-y-2">
                       <div className="flex items-center justify-between gap-2">
-                        <p className="text-sm font-black text-slate-800">{text.trim() ? 'Sửa nội dung' : 'Nhập nội dung'}</p>
+                        <p className="text-sm font-black text-slate-800">{structured || String(text).trim() ? 'Sửa nội dung' : 'Nhập nội dung'}</p>
                         <ZoneVoiceButton visible text={voice} label="Nghe chủ đề" />
                       </div>
-                      <textarea
-                        className={inputCls}
-                        rows={8}
-                        maxLength={it.max || undefined}
-                        value={text}
-                        onChange={(e) => setField(it.key, e.target.value)}
-                      />
-                      {it.max ? <p className="text-xs text-slate-500">{text.length}/{it.max}</p> : null}
+                      {it.kind === 'blood' ? (
+                        <div className="space-y-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <Field label="Nhóm">
+                              <select
+                                className={inputCls}
+                                value={blood.abo}
+                                onChange={(e) => {
+                                  const abo = e.target.value;
+                                  const rh = abo === 'UNKNOWN' ? 'UNKNOWN' : (blood.rh === 'UNKNOWN' ? '' : blood.rh);
+                                  setForm((prev) => ({
+                                    ...prev,
+                                    blood_abo: abo,
+                                    blood_rh: rh,
+                                    blood_group: joinBlood(abo, rh),
+                                  }));
+                                }}
+                              >
+                                {BLOOD_ABO.map((o) => <option key={o.value || 'empty'} value={o.value}>{o.label}</option>)}
+                              </select>
+                            </Field>
+                            <Field label="Rh">
+                              <select
+                                className={inputCls}
+                                value={blood.rh}
+                                onChange={(e) => {
+                                  const rh = e.target.value;
+                                  const abo = rh === 'UNKNOWN' ? 'UNKNOWN' : (blood.abo === 'UNKNOWN' ? '' : blood.abo);
+                                  setForm((prev) => ({
+                                    ...prev,
+                                    blood_abo: abo,
+                                    blood_rh: rh,
+                                    blood_group: joinBlood(abo, rh),
+                                  }));
+                                }}
+                              >
+                                {BLOOD_RH.map((o) => <option key={o.value || 'empty'} value={o.value}>{o.label}</option>)}
+                              </select>
+                            </Field>
+                          </div>
+                          <Field label="Mô tả ngắn" hint="Nơi xét, năm, lưu ý truyền máu.">
+                            <textarea className={inputCls} rows={3} maxLength={255} value={form.blood_note} onChange={(e) => setField('blood_note', e.target.value)} />
+                            <p className="text-xs text-slate-500">{(form.blood_note || '').length}/255</p>
+                          </Field>
+                        </div>
+                      ) : it.kind === 'health' || it.kind === 'congenital' ? (
+                        <div className="space-y-2">
+                          <label className="flex items-center gap-2 text-sm font-bold text-slate-800">
+                            <input
+                              type="checkbox"
+                              checked={!!form[it.kind === 'health' ? 'health_none' : 'congenital_none']}
+                              onChange={(e) => {
+                                const on = e.target.checked;
+                                if (it.kind === 'health') {
+                                  setForm((prev) => ({ ...prev, health_none: on, health_flags: on ? [] : prev.health_flags, health_summary: on ? '' : prev.health_summary }));
+                                } else {
+                                  setForm((prev) => ({ ...prev, congenital_none: on, congenital_flags: on ? [] : prev.congenital_flags, congenital_summary: on ? '' : prev.congenital_summary }));
+                                }
+                              }}
+                            />
+                            {it.kind === 'health' ? 'Không mắc bệnh đáng kể' : 'Không có bệnh hoặc dị tật bẩm sinh đã biết'}
+                          </label>
+                          {(it.kind === 'health' ? HEALTH_FLAG_OPTS : CONGENITAL_FLAG_OPTS).map((o) => {
+                            const flagsKey = it.kind === 'health' ? 'health_flags' : 'congenital_flags';
+                            const none = it.kind === 'health' ? form.health_none : form.congenital_none;
+                            const cur = form[flagsKey] || [];
+                            return (
+                              <label key={o.value} className="flex items-center gap-2 text-sm font-medium text-slate-700">
+                                <input
+                                  type="checkbox"
+                                  disabled={!!none}
+                                  checked={cur.includes(o.value)}
+                                  onChange={(e) => {
+                                    const next = e.target.checked ? [...cur, o.value] : cur.filter((x) => x !== o.value);
+                                    setField(flagsKey, next);
+                                  }}
+                                />
+                                {o.label}
+                              </label>
+                            );
+                          })}
+                          <Field label="Mô tả">
+                            <textarea
+                              className={inputCls}
+                              rows={5}
+                              disabled={!!(it.kind === 'health' ? form.health_none : form.congenital_none)}
+                              value={it.kind === 'health' ? form.health_summary : form.congenital_summary}
+                              onChange={(e) => setField(it.kind === 'health' ? 'health_summary' : 'congenital_summary', e.target.value)}
+                            />
+                          </Field>
+                        </div>
+                      ) : (
+                        <>
+                          <textarea className={inputCls} rows={8} maxLength={it.max || undefined} value={text} onChange={(e) => setField(it.key, e.target.value)} />
+                          {it.max ? <p className="text-xs text-slate-500">{text.length}/{it.max}</p> : null}
+                        </>
+                      )}
                       <ProofStrip
                         title="Tư liệu"
                         addLabel="Thêm tư liệu"
@@ -702,9 +921,21 @@ export default function MemberProfilePage() {
             {section === 'bio_read' ? (
               <div className="space-y-2">
                 {BIO_TOPICS.map((it) => {
-                  const text = (form[it.key] || '').trim();
+                  const text = it.kind === 'blood'
+                    ? [form.blood_group === 'UNKNOWN' ? 'Chưa rõ' : form.blood_group.replace('_POS', '+').replace('_NEG', '-'), form.blood_note].filter(Boolean).join(' — ')
+                    : it.kind === 'health'
+                      ? (form.health_none ? 'Không mắc bệnh đáng kể' : [HEALTH_FLAG_OPTS.filter((o) => (form.health_flags || []).includes(o.value)).map((o) => o.label).join(', '), form.health_summary].filter(Boolean).join('. '))
+                      : it.kind === 'congenital'
+                        ? (form.congenital_none ? 'Không có bệnh hoặc dị tật bẩm sinh đã biết' : [CONGENITAL_FLAG_OPTS.filter((o) => (form.congenital_flags || []).includes(o.value)).map((o) => o.label).join(', '), form.congenital_summary].filter(Boolean).join('. '))
+                        : (form[it.key] || '').trim();
                   const open = !!bioOpen[it.key];
-                  const voice = text ? `${it.voice} ${text}` : `${it.voice} Chưa có nội dung.`;
+                  const voice = it.kind === 'blood'
+                    ? bloodVoice(form)
+                    : it.kind === 'health'
+                      ? healthVoice(form)
+                      : it.kind === 'congenital'
+                        ? congenitalVoice(form)
+                        : (text ? `${it.voice} ${text}` : `${it.voice} Chưa có nội dung.`);
                   return (
                     <div key={it.key} className="rounded-2xl border border-slate-200 bg-slate-50/80">
                       <div className="flex items-center gap-2 px-3 py-3">
