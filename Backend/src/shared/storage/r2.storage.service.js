@@ -1,17 +1,20 @@
 /**
  * PATH       : src/shared/storage/r2.storage.service.js
- * DATETIME   : 2026-09-03T14:50:00+07:00
- * VERSION    : 1.3.0-R2-VN-NAME
+ * DATETIME   : 2026-09-03T19:45:00+07:00
+ * VERSION    : 1.4.1-R2-NAME-SMART
  * DESCRIPTION:
  * - Key ổn định: {tenantId}/{uuid}{ext} — không nhét tên gốc vào Key.
- * - Tên tiếng Việt: NFC + Content-Disposition filename*=UTF-8'' (RFC 5987).
- * - Metadata S3 chỉ ASCII (encodeURIComponent) — tránh SignatureDoesNotMatch.
+ * - Tên: NFC. Multer latin1 → UTF-8 chỉ khi chuỗi còn 0–255; đã Unicode thì giữ.
+ * - Content-Disposition: filename= ASCII + filename*=UTF-8'' (RFC 5987).
+ * - Metadata S3 chỉ ASCII (encodeURIComponent).
+ * - getObjectStream: BE stream download (không nhờ R2 Save as).
  */
 
 'use strict';
 
 const { randomUUID } = require('crypto');
 const path = require('path');
+const { Readable } = require('stream');
 const {
   PutObjectCommand,
   DeleteObjectCommand,
@@ -26,13 +29,17 @@ const PROVIDER = 'CLOUDFLARE_R2';
 
 function decodeOriginalName(name) {
   let s = String(name || 'file');
-  try {
-    const fromLatin1 = Buffer.from(s, 'latin1').toString('utf8');
-    if (fromLatin1 && /[^\u0000-\u007F]/.test(fromLatin1)) {
-      s = fromLatin1;
+  /* Multer/busboy hay đưa filename UTF-8 đã đọc như latin1 (mọi code point ≤ 255).
+     Chỉ đảo khi CHƯA có Unicode thật — tránh cắt ế/ứ → �. */
+  if (s && !/[^\u0000-\u00FF]/.test(s)) {
+    try {
+      const asUtf8 = Buffer.from(s, 'latin1').toString('utf8');
+      if (asUtf8 && !/\uFFFD/.test(asUtf8) && asUtf8 !== s) {
+        s = asUtf8;
+      }
+    } catch (_) {
+      /* giữ s */
     }
-  } catch (_) {
-    /* keep s */
   }
   try {
     s = s.normalize('NFC');
@@ -51,7 +58,7 @@ function sanitizeFileName(name) {
   return base.replace(/[/\\]/g, '_').slice(0, 255) || 'file';
 }
 
-/** RFC 5987 — Content-Disposition filename*=UTF-8''... */
+/** RFC 5987 — filename= ASCII fallback; filename*= UTF-8 */
 function contentDisposition(safeName, mode = 'inline') {
   const nfc = toNfc(safeName);
   const encoded = encodeURIComponent(nfc).replace(/['()]/g, escape);
@@ -96,6 +103,15 @@ function buildPublicUrl(key, publicBaseUrl) {
   if (!publicBaseUrl) return null;
   const k = String(key).replace(/^\//, '');
   return `${publicBaseUrl.replace(/\/$/, '')}/${k}`;
+}
+
+function asNodeStream(body) {
+  if (!body) return null;
+  if (typeof body.pipe === 'function') return body;
+  if (typeof Readable.fromWeb === 'function' && body.getReader) {
+    return Readable.fromWeb(body);
+  }
+  return Readable.from(body);
 }
 
 async function uploadObject({
@@ -191,18 +207,34 @@ async function headObject(storageKey) {
   }
 }
 
+async function getObjectStream(storageKey) {
+  if (!storageKey) {
+    const err = new Error('[R2] Thiếu storage_key.');
+    err.code = 'R2_KEY_INVALID';
+    throw err;
+  }
+  const { client, config } = getR2Client();
+  const out = await client.send(
+    new GetObjectCommand({
+      Bucket: config.bucket,
+      Key: storageKey,
+    })
+  );
+  return {
+    stream: asNodeStream(out.Body),
+    contentType: out.ContentType || 'application/octet-stream',
+    contentLength: out.ContentLength ?? null,
+  };
+}
+
+/** Preview only. Không gắn ResponseContentDisposition — Save as đi BE stream. */
 async function getPresignedGetUrl(storageKey, expiresIn = 3600, downloadName = null) {
   const { client, config } = getR2Client();
   const input = {
     Bucket: config.bucket,
     Key: storageKey,
   };
-  if (downloadName) {
-    input.ResponseContentDisposition = contentDisposition(
-      sanitizeFileName(downloadName),
-      'attachment'
-    );
-  }
+  void downloadName;
   const cmd = new GetObjectCommand(input);
   const url = await getSignedUrl(client, cmd, { expiresIn });
   return { url, expiresIn, storage_key: storageKey };
@@ -244,6 +276,7 @@ module.exports = {
   uploadObject,
   deleteObject,
   headObject,
+  getObjectStream,
   getPresignedGetUrl,
   getPresignedPutUrl,
   resolveReadUrl,

@@ -8,10 +8,12 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
+import { MediaPeek, downloadMediaSafe } from '../lib/MediaPeek.jsx';
+import { toastSpeak } from '../lib/toastSpeak.js';
+import { readAchOpenId, readBioTopic, readProfileSection, writeAchOpenId, writeBioTopic, writeProfileSection } from '../lib/profileSection.js';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
@@ -33,6 +35,8 @@ import {
   AchievementEditor,
   AchievementReader,
   EMPTY_ACHIEVEMENT,
+  ProofStrip,
+  voiceText,
 } from '../features/member/components/AchievementSection.jsx';
 import { achievementFromApi } from '../features/member/constants/achievementCatalog.js';
 import LogoCropModal from '../features/admin/components/LogoCropModal.jsx';
@@ -144,13 +148,21 @@ export default function MemberProfilePage() {
   const [headerLogo, setHeaderLogo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [section, setSection] = useState('identity');
+  const [section, setSection] = useState(() => readProfileSection('identity'));
   const [privacyGroup, setPrivacyGroup] = useState('CONTACT');
-  const [bioTopic, setBioTopic] = useState('childhood_summary');
-  const [bioOpen, setBioOpen] = useState({});
+  const [bioTopic, setBioTopic] = useState(() => readBioTopic('childhood_summary'));
+  const [bioFiles, setBioFiles] = useState({});
+  const [bioFileBusy, setBioFileBusy] = useState(false);
+  const [bioOpen, setBioOpen] = useState(() => {
+    const t = readBioTopic('');
+    return t ? { [t]: true } : {};
+  });
   const [achievements, setAchievements] = useState([]);
   const [achDraft, setAchDraft] = useState({ ...EMPTY_ACHIEVEMENT });
-  const [achOpen, setAchOpen] = useState({});
+  const [achOpen, setAchOpen] = useState(() => {
+    const id = readAchOpenId();
+    return id ? { [id]: true } : {};
+  });
   const [savingAch, setSavingAch] = useState(false);
   const [proofBusyId, setProofBusyId] = useState(null);
   const [docs, setDocs] = useState([]);
@@ -161,10 +173,41 @@ export default function MemberProfilePage() {
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [cropFile, setCropFile] = useState(null);
 
+  useEffect(() => {
+    writeProfileSection(section);
+  }, [section]);
+
+  useEffect(() => {
+    writeBioTopic(bioTopic);
+  }, [bioTopic]);
+
   const setField = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
   const alive = meta.is_alive !== false;
   const currentTitle = alive ? 'Nơi ở hiện tại' : 'Nơi ở cuối';
   const sectionMeta = useMemo(() => SECTIONS.find((s) => s.key === section) || SECTIONS[0], [section]);
+  const sectionVoice = useMemo(() => {
+    if (section === 'bio_read') {
+      return BIO_TOPICS.map((it) => {
+        const text = String(form[it.key] || '').trim() || 'Chưa có nội dung.';
+        const files = (bioFiles[it.key] || [])
+          .map((p) => p.caption || p.file_name)
+          .filter(Boolean)
+          .join(', ');
+        return `${it.voice} ${text}${files ? ` Tư liệu: ${files}.` : ''}`;
+      }).join(' ');
+    }
+    if (section === 'ach_read') {
+      if (!achievements.length) return 'Chưa có thành tích.';
+      return achievements.map((row) => voiceText(row)).join('. ');
+    }
+    if (section === 'docs') {
+      if (!docs.length) return 'Chưa có tài liệu khác.';
+      return docs
+        .map((p) => `${p.caption || 'Tài liệu'}. ${p.file_name || ''}`.trim())
+        .join('. ');
+    }
+    return PROFILE_ZONE[section] || sectionMeta.label;
+  }, [section, sectionMeta.label, form, bioFiles, achievements, docs]);
   const dirty = useMemo(() => {
     const keys = {
       identity: ['full_name', 'alias', 'note'],
@@ -276,8 +319,14 @@ export default function MemberProfilePage() {
         } catch {
           if (!cancelled) setDocs([]);
         }
+        try {
+          const bioRes = await apiClient.get('/me/biography/files');
+          if (!cancelled) setBioFiles(bioRes.data?.data?.items || {});
+        } catch {
+          if (!cancelled) setBioFiles({});
+        }
       } catch (e) {
-        toast.error(e.response?.data?.message || 'Không tải được hồ sơ.');
+        toastSpeak('error', e.response?.data?.message || 'Không tải được hồ sơ.');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -322,11 +371,11 @@ export default function MemberProfilePage() {
           { field_group: 'BIRTH_DATE', visibility: form.privacy_BIRTH_DATE },
         ],
       });
-      toast.success('Đã lưu hồ sơ dòng họ.');
+      toastSpeak('ok', 'Đã lưu hồ sơ dòng họ.');
       setSavedForm(form);
       if (section === 'bio') setSection('bio_read');
     } catch (e) {
-      toast.error(e.response?.data?.message || 'Không lưu được hồ sơ.');
+      toastSpeak('error', e.response?.data?.message || 'Không lưu được hồ sơ.');
     } finally {
       setSaving(false);
     }
@@ -342,11 +391,11 @@ export default function MemberProfilePage() {
     ev.target.value = '';
     if (!file) return;
     if (!/^image\/(jpeg|jpg|png|webp)$/i.test(file.type)) {
-      toast.error('Chỉ nhận JPEG, PNG hoặc WebP.');
+      toastSpeak('error', 'Chỉ nhận JPEG, PNG hoặc WebP.');
       return;
     }
     if (file.size > 8 * 1024 * 1024) {
-      toast.error('Ảnh gốc không quá 8MB.');
+      toastSpeak('error', 'Ảnh gốc không quá 8MB.');
       return;
     }
     setCropFile(file);
@@ -367,9 +416,9 @@ export default function MemberProfilePage() {
       const hint = res.data?.data?.avatar?.url || null;
       const src = await resolveAvatarSrc(meta.memberId, hint);
       setAvatarUrl(src || (isHttpUrl(hint) ? hint : URL.createObjectURL(blob)));
-      toast.success('Đã cập nhật ảnh đại diện.');
+      toastSpeak('ok', 'Đã cập nhật ảnh đại diện.');
     } catch (e) {
-      toast.error(e.response?.data?.message || 'Không tải được ảnh.');
+      toastSpeak('error', e.response?.data?.message || 'Không tải được ảnh.');
     } finally {
       setAvatarBusy(false);
     }
@@ -383,9 +432,9 @@ export default function MemberProfilePage() {
     try {
       await apiClient.delete('/me/avatar');
       setAvatarUrl(null);
-      toast.success('Đã xóa ảnh đại diện.');
+      toastSpeak('ok', 'Đã xóa ảnh đại diện.');
     } catch (e) {
-      toast.error(e.response?.data?.message || 'Không xóa được ảnh.');
+      toastSpeak('error', e.response?.data?.message || 'Không xóa được ảnh.');
     } finally {
       setAvatarBusy(false);
     }
@@ -481,7 +530,7 @@ export default function MemberProfilePage() {
           <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-3 flex items-center gap-2">
               <h2 className="flex-1 text-base font-black text-slate-800">{sectionMeta.label}</h2>
-              <ZoneVoiceButton visible text={PROFILE_ZONE[section] || sectionMeta.label} label="Nghe" />
+              <ZoneVoiceButton visible text={sectionVoice} label="Nghe" />
             </div>
 
             {section === 'identity' ? (
@@ -620,7 +669,30 @@ export default function MemberProfilePage() {
                         onChange={(e) => setField(it.key, e.target.value)}
                       />
                       {it.max ? <p className="text-xs text-slate-500">{text.length}/{it.max}</p> : null}
-                      <p className="text-xs text-slate-400">Tài liệu đính kèm: lát media.</p>
+                      <ProofStrip
+                        title="Tư liệu"
+                        addLabel="Thêm tư liệu"
+                        proofs={bioFiles[it.key] || []}
+                        busy={bioFileBusy}
+                        onAdd={() => {
+                          writeProfileSection('bio');
+                          writeBioTopic(it.key);
+                          navigate(`/me/profile/biography/${it.key}/file`);
+                        }}
+                        onRemove={async (p) => {
+                          if (!window.confirm('Xóa tư liệu này khỏi chủ đề?')) return;
+                          setBioFileBusy(true);
+                          try {
+                            const res = await apiClient.delete(`/me/biography/${it.key}/files/${p.id}`);
+                            setBioFiles(res.data?.data?.items || {});
+                            toastSpeak('ok', 'Đã xóa tư liệu.');
+                          } catch (e) {
+                            toastSpeak('error', e.response?.data?.message || 'Không xóa được tư liệu.');
+                          } finally {
+                            setBioFileBusy(false);
+                          }
+                        }}
+                      />
                     </div>
                   );
                 })}
@@ -635,21 +707,46 @@ export default function MemberProfilePage() {
                   const voice = text ? `${it.voice} ${text}` : `${it.voice} Chưa có nội dung.`;
                   return (
                     <div key={it.key} className="rounded-2xl border border-slate-200 bg-slate-50/80">
-                      <button
-                        type="button"
-                        className="flex w-full items-center gap-2 px-3 py-3 text-left"
-                        onClick={() => setBioOpen((prev) => ({ ...prev, [it.key]: !prev[it.key] }))}
-                      >
-                        <span className="flex-1 text-sm font-black text-slate-800">{it.label}</span>
-                        <span className="max-w-[40%] truncate text-xs text-slate-500">{text ? text : 'Chưa có'}</span>
-                        {open ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
-                      </button>
+                      <div className="flex items-center gap-2 px-3 py-3">
+                        <button
+                          type="button"
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                          onClick={() => setBioOpen((prev) => ({ ...prev, [it.key]: !prev[it.key] }))}
+                        >
+                          <span className="flex-1 truncate text-sm font-black text-slate-800">{it.label}</span>
+                          {open ? <ChevronUp className="h-4 w-4 shrink-0 text-slate-400" /> : <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />}
+                        </button>
+                        <div className="shrink-0" onClick={(e) => e.stopPropagation()}>
+                          <ZoneVoiceButton visible text={voice} label="Nghe" />
+                        </div>
+                      </div>
                       {open ? (
                         <div className="space-y-2 border-t border-slate-200 px-3 py-3">
-                          <div className="flex justify-end">
-                            <ZoneVoiceButton visible text={voice} label="Nghe chủ đề" />
-                          </div>
                           <p className="whitespace-pre-wrap text-sm font-medium text-slate-800">{text || 'Chưa có nội dung.'}</p>
+                          <ProofStrip
+                            title="Tư liệu"
+                            addLabel="Thêm tư liệu"
+                            proofs={bioFiles[it.key] || []}
+                            busy={bioFileBusy}
+                            onAdd={() => {
+                              writeProfileSection('bio_read');
+                              writeBioTopic(it.key);
+                              navigate(`/me/profile/biography/${it.key}/file`);
+                            }}
+                            onRemove={async (p) => {
+                              if (!window.confirm('Xóa tư liệu này khỏi chủ đề?')) return;
+                              setBioFileBusy(true);
+                              try {
+                                const res = await apiClient.delete(`/me/biography/${it.key}/files/${p.id}`);
+                                setBioFiles(res.data?.data?.items || {});
+                                toastSpeak('ok', 'Đã xóa tư liệu.');
+                              } catch (e) {
+                                toastSpeak('error', e.response?.data?.message || 'Không xóa được tư liệu.');
+                              } finally {
+                                setBioFileBusy(false);
+                              }
+                            }}
+                          />
                           <button
                             type="button"
                             className="w-full rounded-2xl border border-indigo-200 bg-white py-2 text-sm font-bold text-indigo-700"
@@ -677,9 +774,11 @@ export default function MemberProfilePage() {
                 proofBusy={proofBusyId === achDraft.id}
                 onAddProof={() => {
                   if (!achDraft.id) {
-                    toast.error('Lưu thành tựu trước khi thêm minh chứng.');
+                    toastSpeak('error', 'Lưu thành tựu trước khi thêm minh chứng.');
                     return;
                   }
+                  writeProfileSection('ach');
+                  writeAchOpenId(achDraft.id);
                   navigate(`/me/profile/achievement/${achDraft.id}/proof`);
                 }}
                 onRemoveProof={async (proof) => {
@@ -691,9 +790,9 @@ export default function MemberProfilePage() {
                     const proofs = res.data?.data?.proofs || [];
                     setAchDraft((prev) => ({ ...prev, proofs }));
                     setAchievements((prev) => prev.map((x) => (x.id === achDraft.id ? { ...x, proofs } : x)));
-                    toast.success('Đã xóa minh chứng.');
+                    toastSpeak('ok', 'Đã xóa minh chứng.');
                   } catch (e) {
-                    toast.error(e.response?.data?.message || 'Không xóa được minh chứng.');
+                    toastSpeak('error', e.response?.data?.message || 'Không xóa được minh chứng.');
                   } finally {
                     setProofBusyId(null);
                   }
@@ -701,17 +800,17 @@ export default function MemberProfilePage() {
                 onCancel={() => setAchDraft({ ...EMPTY_ACHIEVEMENT })}
                 onSave={async (payload) => {
                   if (!payload.title || !payload.achieved_year) {
-                    toast.error('Cần tiêu đề và năm.');
+                    toastSpeak('error', 'Cần tiêu đề và năm.');
                     return;
                   }
                   setSavingAch(true);
                   try {
                     if (achDraft.id) {
                       await apiClient.patch(`/me/achievements/${achDraft.id}`, payload);
-                      toast.success('Đã lưu thành tích.');
+                      toastSpeak('ok', 'Đã lưu thành tích.');
                     } else {
                       await apiClient.post('/me/achievements', payload);
-                      toast.success('Đã thêm thành tích.');
+                      toastSpeak('ok', 'Đã thêm thành tích.');
                     }
                     const ach = await apiClient.get('/me/achievements');
                     const items = ach.data?.data?.items || [];
@@ -722,7 +821,7 @@ export default function MemberProfilePage() {
                       : items[0];
                     if (next) setAchDraft({ ...achievementFromApi(next), proofs: next.proofs || [] });
                   } catch (e) {
-                    toast.error(e.response?.data?.message || 'Không lưu được thành tích.');
+                    toastSpeak('error', e.response?.data?.message || 'Không lưu được thành tích.');
                   } finally {
                     setSavingAch(false);
                   }
@@ -748,13 +847,15 @@ export default function MemberProfilePage() {
                   try {
                     await apiClient.delete(`/me/achievements/${row.id}`);
                     setAchievements((prev) => prev.filter((x) => x.id !== row.id));
-                    toast.success('Đã xóa thành tích.');
+                    toastSpeak('ok', 'Đã xóa thành tích.');
                   } catch (e) {
-                    toast.error(e.response?.data?.message || 'Không xóa được.');
+                    toastSpeak('error', e.response?.data?.message || 'Không xóa được.');
                   }
                 }}
                 proofBusyId={proofBusyId}
                 onAddProof={(row) => {
+                  writeProfileSection('ach_read');
+                  writeAchOpenId(row.id);
                   navigate(`/me/profile/achievement/${row.id}/proof`);
                 }}
                 onRemoveProof={async (row, proof) => {
@@ -764,9 +865,9 @@ export default function MemberProfilePage() {
                     const res = await apiClient.delete(`/me/achievements/${row.id}/proofs/${proof.id}`);
                     const proofs = res.data?.data?.proofs || [];
                     setAchievements((prev) => prev.map((x) => (x.id === row.id ? { ...x, proofs } : x)));
-                    toast.success('Đã xóa minh chứng.');
+                    toastSpeak('ok', 'Đã xóa minh chứng.');
                   } catch (e) {
-                    toast.error(e.response?.data?.message || 'Không xóa được minh chứng.');
+                    toastSpeak('error', e.response?.data?.message || 'Không xóa được minh chứng.');
                   } finally {
                     setProofBusyId(null);
                   }
@@ -784,26 +885,50 @@ export default function MemberProfilePage() {
                     {docs.map((p) => (
                       <li key={p.id} className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3">
                         <p className="text-sm font-black text-slate-800">{p.caption || 'Không mô tả'}</p>
-                        <a href={p.url || '#'} target="_blank" rel="noreferrer" className="block truncate text-xs font-semibold text-indigo-700">
-                          {p.file_name || 'Tệp'}
-                        </a>
-                        <button
-                          type="button"
-                          className="mt-2 text-xs font-bold text-rose-600"
-                          onClick={async () => {
-                            if (!window.confirm('Xóa tài liệu này khỏi hồ sơ và kho lưu trữ?')) return;
-                            try {
-                              const res = await apiClient.delete(`/me/documents/${p.id}`);
-                              setDocs(res.data?.data?.items || []);
-                              setDocsUsed(res.data?.data?.used_bytes || 0);
-                              toast.success('Đã xóa tài liệu.');
-                            } catch (e) {
-                              toast.error(e.response?.data?.message || 'Không xóa được.');
-                            }
-                          }}
-                        >
-                          Xóa
-                        </button>
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-slate-400">
+                          {String(p.mime_type || '').startsWith('video/')
+                            ? 'Video'
+                            : String(p.mime_type || '').startsWith('audio/')
+                              ? 'Audio'
+                              : String(p.mime_type || '').startsWith('image/')
+                                ? 'Ảnh'
+                                : String(p.mime_type || '') === 'application/pdf'
+                                  ? 'PDF'
+                                  : 'Tệp'}
+                        </p>
+                        <MediaPeek item={p} />
+                        <div className="mt-1 flex items-center gap-4">
+                          <button
+                            type="button"
+                            className="text-xs font-bold text-indigo-700"
+                            onClick={async () => {
+                              try {
+                                await downloadMediaSafe(p);
+                              } catch (e) {
+                                toastSpeak('error', e.response?.data?.message || 'Không tải được tệp.');
+                              }
+                            }}
+                          >
+                            Tải về
+                          </button>
+                          <button
+                            type="button"
+                            className="text-xs font-bold text-rose-600"
+                            onClick={async () => {
+                              if (!window.confirm('Xóa tài liệu này khỏi hồ sơ và kho lưu trữ?')) return;
+                              try {
+                                const res = await apiClient.delete(`/me/documents/${p.id}`);
+                                setDocs(res.data?.data?.items || []);
+                                setDocsUsed(res.data?.data?.used_bytes || 0);
+                                toastSpeak('ok', 'Đã xóa tài liệu.');
+                              } catch (e) {
+                                toastSpeak('error', e.response?.data?.message || 'Không xóa được.');
+                              }
+                            }}
+                          >
+                            Xóa
+                          </button>
+                        </div>
                       </li>
                     ))}
                   </ul>
@@ -812,7 +937,10 @@ export default function MemberProfilePage() {
                 )}
                 <button
                   type="button"
-                  onClick={() => navigate('/me/profile/document')}
+                  onClick={() => {
+                    writeProfileSection('docs');
+                    navigate('/me/profile/document');
+                  }}
                   className="w-full rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white"
                 >
                   Thêm tài liệu

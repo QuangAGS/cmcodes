@@ -6,6 +6,8 @@
 
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx';
+import { MediaPeek, downloadMediaSafe } from '../../../lib/MediaPeek.jsx';
+import { toastSpeak } from '../../../lib/toastSpeak.js';
 import {
   ACHIEVEMENT_CATEGORIES,
   EMPTY_ACHIEVEMENT,
@@ -43,14 +45,14 @@ function isImage(p) {
   return String(p.mime_type || '').startsWith('image/');
 }
 
-export function ProofStrip({ proofs = [], onAdd, onRemove, busy }) {
+export function ProofStrip({ proofs = [], onAdd, onRemove, busy, title = 'Minh chứng', addLabel = 'Thêm minh chứng' }) {
   return (
     <div className="space-y-2">
-      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Minh chứng</p>
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">{title}</p>
       {proofs.length ? (
         <ul className="space-y-2">
           {proofs.map((p) => (
-            <li key={p.id} className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-2 py-2">
+            <li key={p.id} className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white px-2 py-2">
               {p.url && isImage(p) ? (
                 <a href={p.url} target="_blank" rel="noreferrer" className="shrink-0">
                   <img src={p.url} alt="" className="h-12 w-12 rounded-lg object-cover" />
@@ -61,28 +63,36 @@ export function ProofStrip({ proofs = [], onAdd, onRemove, busy }) {
                 </span>
               )}
               <div className="min-w-0 flex-1">
-                <a
-                  href={p.url || '#'}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block truncate text-xs font-semibold text-indigo-700"
-                >
-                  {p.file_name || 'Tệp'}
-                </a>
+                <MediaPeek item={p} />
                 {p.caption ? (
-                  <p className="truncate text-[11px] text-slate-500">{p.caption}</p>
+                  <p className="mt-0.5 text-xs text-slate-500">{p.caption}</p>
                 ) : null}
+                <div className="mt-1 flex items-center gap-4">
+                  <button
+                    type="button"
+                    className="text-xs font-bold text-indigo-700"
+                    onClick={async () => {
+                      try {
+                        await downloadMediaSafe(p);
+                      } catch (e) {
+                        toastSpeak('error', e.response?.data?.message || 'Không tải được tệp.');
+                      }
+                    }}
+                  >
+                    Tải về
+                  </button>
+                  {onRemove ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="text-xs font-bold text-rose-600 disabled:opacity-60"
+                      onClick={() => onRemove(p)}
+                    >
+                      Xóa
+                    </button>
+                  ) : null}
+                </div>
               </div>
-              {onRemove ? (
-                <button
-                  type="button"
-                  disabled={busy}
-                  className="shrink-0 text-xs font-bold text-rose-600"
-                  onClick={() => onRemove(p)}
-                >
-                  Xóa
-                </button>
-              ) : null}
             </li>
           ))}
         </ul>
@@ -96,7 +106,7 @@ export function ProofStrip({ proofs = [], onAdd, onRemove, busy }) {
           onClick={onAdd}
           className="w-full rounded-2xl border border-dashed border-indigo-200 py-2 text-xs font-black text-indigo-700 disabled:opacity-60"
         >
-          Thêm minh chứng
+          {addLabel}
         </button>
       ) : null}
     </div>
@@ -214,23 +224,26 @@ export function AchievementReader({ items, openMap, setOpenMap, onEdit, onCreate
       <button type="button" onClick={onCreate} className="w-full rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700">Thêm thành tích</button>
       {items.map((row) => {
         const open = !!openMap[row.id];
-        const preview = [row.title, row.achieved_year].filter(Boolean).join(' · ');
         return (
           <div key={row.id} className="rounded-2xl border border-slate-200 bg-slate-50/80">
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 px-3 py-3 text-left"
-              onClick={() => setOpenMap((prev) => ({ ...prev, [row.id]: !prev[row.id] }))}
-            >
-              <span className="flex-1 text-sm font-black text-slate-800">{row.title || 'Không tên'}</span>
-              <span className="max-w-[40%] truncate text-xs text-slate-500">{preview}</span>
-              {open ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
-            </button>
+            <div className="flex items-center gap-2 px-3 py-3">
+              <button
+                type="button"
+                className="flex min-w-0 flex-1 items-center gap-2 text-left"
+                onClick={() => setOpenMap((prev) => ({ ...prev, [row.id]: !prev[row.id] }))}
+              >
+                <span className="flex-1 truncate text-sm font-black text-slate-800">{row.title || 'Không tên'}</span>
+                {open ? <ChevronUp className="h-4 w-4 shrink-0 text-slate-400" /> : <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />}
+              </button>
+              <div
+                className="shrink-0"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ZoneVoiceButton visible text={voiceText(row)} label="Nghe" />
+              </div>
+            </div>
             {open ? (
               <div className="space-y-2 border-t border-slate-200 px-3 py-3">
-                <div className="flex justify-end">
-                  <ZoneVoiceButton visible text={voiceText(row)} label="Nghe" />
-                </div>
                 <p className="text-sm text-slate-600">{categoryLabel(row.category)} · {subLabel(row.category, row.sub_category) || 'Chưa phân loại'}</p>
                 {row.issued_by ? <p className="text-sm text-slate-700">Nơi cấp: {row.issued_by}</p> : null}
                 <p className="text-sm text-slate-700">
@@ -256,4 +269,4 @@ export function AchievementReader({ items, openMap, setOpenMap, onEdit, onCreate
   );
 }
 
-export { EMPTY_ACHIEVEMENT };
+export { EMPTY_ACHIEVEMENT, voiceText };

@@ -13,7 +13,6 @@ const { logAction } = require('../../services/audit.service.js');
 const { isValidCategory, isValidSub } = require('./achievementCatalog.js');
 const { resolveMemberActor } = require('./profile.service.js');
 const mediaService = require('../interactions/media.service.js');
-const r2Storage = require('../../shared/storage/r2.storage.service.js');
 
 const MAX_PROOFS = 5;
 const MAX_BYTES = 5 * 1024 * 1024;
@@ -173,20 +172,7 @@ async function loadProofs(actor, achievementId) {
       purpose: 'CERTIFICATE',
       tenant_id: actor.tenantId,
     });
-    const out = [];
-    for (const row of rows || []) {
-      let url = row.read_url || row.file_url || null;
-      if (row.storage_key && row.file_name) {
-        try {
-          const signed = await r2Storage.getPresignedGetUrl(row.storage_key, 3600, row.file_name);
-          url = signed.url;
-        } catch (_) {
-          /* giữ url cũ */
-        }
-      }
-      out.push(mapProof({ ...row, read_url: url }));
-    }
-    return out.filter(Boolean);
+    return (rows || []).map((row) => mapProof(row)).filter(Boolean);
   } catch (_) {
     return [];
   }

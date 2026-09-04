@@ -1,9 +1,10 @@
 /**
  * PATH       : src/modules/profile/documents.service.js
- * DATETIME   : 2026-09-03T16:15:00+07:00
- * VERSION    : 1.0.0-A01-DOCS
+ * DATETIME   : 2026-09-03T19:50:00+07:00
+ * VERSION    : 1.2.0-A01-DOCS-MEDIA
  * DESCRIPTION: Tài liệu khác của member. media DOCUMENT, không singleton.
- *              Quota 30MB. MIME rộng. Xóa = R2 + soft media.
+ *              Quota 30MB / file 10MB. Ảnh, PDF, Office, zip, audio/video phổ biến.
+ *              url = presign preview. Tải về qua /api/media/:id/download.
  */
 
 'use strict';
@@ -11,7 +12,6 @@
 const { runWithTenantContext } = require('../../lib/prisma.js');
 const { resolveMemberActor } = require('./profile.service.js');
 const mediaService = require('../interactions/media.service.js');
-const r2Storage = require('../../shared/storage/r2.storage.service.js');
 
 const QUOTA = 30 * 1024 * 1024;
 const MAX_BYTES = 10 * 1024 * 1024;
@@ -32,6 +32,12 @@ const ALLOWED = new Set([
   'text/csv',
   'application/json',
   'application/zip',
+  'video/mp4',
+  'video/webm',
+  'audio/mpeg',
+  'audio/mp3',
+  'audio/wav',
+  'audio/x-wav',
 ]);
 
 function deny(code, message, statusCode = 400) {
@@ -82,20 +88,7 @@ async function loadDocs(actor, memberId) {
     purpose: 'DOCUMENT',
     tenant_id: actor.tenantId,
   });
-  const out = [];
-  for (const row of rows || []) {
-    let url = row.read_url || row.file_url || null;
-    if (row.storage_key && row.file_name) {
-      try {
-        const signed = await r2Storage.getPresignedGetUrl(row.storage_key, 3600, row.file_name);
-        url = signed.url;
-      } catch (_) {
-        /* giữ url cũ */
-      }
-    }
-    out.push(mapDoc({ ...row, read_url: url }));
-  }
-  return out.filter(Boolean);
+  return (rows || []).map((row) => mapDoc(row)).filter(Boolean);
 }
 
 async function listMine(reqUser) {

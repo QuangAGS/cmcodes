@@ -16,6 +16,7 @@ const profileService = require('./profile.service');
 const achievementsService = require('./achievements.service.js');
 const avatarService = require('./avatar.service.js');
 const documentsService = require('./documents.service.js');
+const biographyFilesService = require('./biographyFiles.service.js');
 
 function actorFromReq(req) {
   const u = req.user || {};
@@ -205,6 +206,53 @@ router.delete(
       success: true,
       status: 'success',
       message: 'Đã xóa tài liệu.',
+      data,
+    });
+  })
+);
+
+router.get(
+  '/biography/files',
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    const data = await biographyFilesService.listMine(actorFromReq(req));
+    res.status(200).json({ success: true, status: 'success', data });
+  })
+);
+
+router.post(
+  '/biography/:topic/files',
+  verifyToken,
+  upload.single('file'),
+  asyncHandler(async (req, res) => {
+    const data = await biographyFilesService.addMine(
+      actorFromReq(req),
+      req.params.topic,
+      req.file,
+      req.body || {}
+    );
+    res.status(201).json({
+      success: true,
+      status: 'success',
+      message: 'Đã lưu tư liệu tiểu sử.',
+      data,
+    });
+  })
+);
+
+router.delete(
+  '/biography/:topic/files/:mediaId',
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    const data = await biographyFilesService.removeMine(
+      actorFromReq(req),
+      req.params.topic,
+      req.params.mediaId
+    );
+    res.status(200).json({
+      success: true,
+      status: 'success',
+      message: 'Đã xóa tư liệu tiểu sử.',
       data,
     });
   })

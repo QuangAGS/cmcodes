@@ -27,6 +27,7 @@ const MemberProfilePage = lazy(() => import('./pages/MemberProfilePage.jsx'));
 const AddressFormPage = lazy(() => import('./pages/AddressFormPage.jsx'));
 const ProofUploadPage = lazy(() => import('./pages/ProofUploadPage.jsx'));
 const DocumentUploadPage = lazy(() => import('./pages/DocumentUploadPage.jsx'));
+const BioFileUploadPage = lazy(() => import('./pages/BioFileUploadPage.jsx'));
 
 const ProtectedRoute = ({ children, allowedStatus = 'DA_DUYET' }) => {
   const { user, loading } = useAuth();
@@ -103,6 +104,15 @@ const AppRouter = () => {
         <Route path="/me/profile/document" element={
           <ProtectedRoute allowedStatus="DA_DUYET"><DocumentUploadPage /></ProtectedRoute>
         } />
+
+        <Route
+          path="/me/profile/biography/:topic/file"
+          element={
+            <ProtectedRoute allowedStatus="DA_DUYET">
+              <BioFileUploadPage />
+            </ProtectedRoute>
+          }
+        />
 
         <Route
           path="/waiting"

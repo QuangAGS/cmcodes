@@ -14,6 +14,7 @@ import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
 import { resolveFooterNav } from '../lib/resolveFooterNav.js';
+import { writeAchOpenId, writeProfileSection } from '../lib/profileSection.js';
 
 export default function ProofUploadPage() {
   const { user, logout } = useAuth();
@@ -47,6 +48,8 @@ export default function ProofUploadPage() {
       fd.append('caption', caption.trim());
       await apiClient.post(`/me/achievements/${id}/proofs`, fd);
       toast.success('Đã thêm minh chứng.');
+      writeProfileSection('ach_read');
+      writeAchOpenId(id);
       navigate('/me/profile', { replace: true });
     } catch (e) {
       toast.error(e.response?.data?.message || 'Không tải được minh chứng.');

@@ -15,6 +15,7 @@ import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
 import { resolveFooterNav } from '../lib/resolveFooterNav.js';
+import { writeProfileSection } from '../lib/profileSection.js';
 import AddressForm from '../features/member/components/AddressForm.jsx';
 import { EMPTY_ADDRESS, addressFromApi, addressToPatch, addressToUpdate } from '../features/member/constants/addressCatalog.js';
 
@@ -76,6 +77,7 @@ export default function AddressFormPage() {
       const body = usage === 'current' ? { current_address: payload } : { origin_address: payload };
       await apiClient.patch('/me/profile', body);
       toast.success('Đã lưu địa chỉ.');
+      writeProfileSection('address');
       navigate('/me/profile', { replace: true });
     } catch (e) {
       toast.error(e.response?.data?.message || 'Không lưu được địa chỉ.');

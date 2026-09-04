@@ -1,11 +1,12 @@
 /**
  * PATH       : src/modules/interactions/media.service.js
- * DATETIME   : 2026-08-28T10:25:00+07:00
- * VERSION    : 2.2.0-S0-TENANT-ALS
+ * DATETIME   : 2026-09-03T19:17:00+07:00
+ * VERSION    : 2.3.0-S0-STREAM-DOWNLOAD
  * DESCRIPTION:
  * - Upload R2 + prisma.media trong ALS tenant đích.
  * - SYS logo: tenant = meta.tenant_id hoặc entity_id khi entity_type=TENANT.
  * - LOGO / AVATAR: soft-delete bản cũ + xóa R2.
+ * - streamDownload: findFirst (không inject tenant vào unique) + stream R2.
  */
 
 'use strict';
@@ -515,6 +516,55 @@ const mediaService = {
       throw err;
     }
     return r2Storage.resolveReadUrl(row.storage_key, row.file_url, 3600);
+  },
+
+  streamDownload: async (id, currentUser = null) => {
+    const { tenantId: actorTenantId, role } = actorOf(currentUser || {});
+
+    const row = await runWithTenantContext(
+      {
+        tenantId: actorTenantId,
+        allowUnscoped: role === 'SYSTEM_ADMIN',
+      },
+      () =>
+        prisma.media.findFirst({
+          where: {
+            id,
+            deleted_at: null,
+            ...(actorTenantId && role !== 'SYSTEM_ADMIN'
+              ? { tenant_id: actorTenantId }
+              : {}),
+          },
+        })
+    );
+
+    if (!row) {
+      const err = new Error('File không tồn tại.');
+      err.statusCode = 404;
+      err.code = 'MEDIA_NOT_FOUND';
+      throw err;
+    }
+    if (!row.storage_key) {
+      const err = new Error('File không còn trên kho lưu trữ.');
+      err.statusCode = 404;
+      err.code = 'MEDIA_NO_KEY';
+      throw err;
+    }
+
+    const obj = await r2Storage.getObjectStream(row.storage_key);
+    if (!obj.stream) {
+      const err = new Error('Không đọc được nội dung file.');
+      err.statusCode = 502;
+      err.code = 'MEDIA_STREAM_FAILED';
+      throw err;
+    }
+
+    return {
+      stream: obj.stream,
+      mime_type: row.mime_type || obj.contentType,
+      file_name: row.file_name || 'file',
+      file_size: row.file_size || obj.contentLength,
+    };
   },
 };
 
