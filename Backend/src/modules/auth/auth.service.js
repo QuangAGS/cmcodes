@@ -1,3 +1,4 @@
+const { creatorStamp } = require('../members/profileAccess.service.js');
 /**
  * PATH       : src/modules/auth/auth.service.js
  * DATETIME   : 2026-08-15T18:30:00+07:00
@@ -1982,6 +1983,7 @@ const authService = {
               birth_year: targetUser.temp_birth_year || null,
               note: targetUser.temp_note || null,
               changed_by: actorId,
+              ...creatorStamp({ id: actorId, member_id: null }),
             },
           });
           newMemberId = member.id;

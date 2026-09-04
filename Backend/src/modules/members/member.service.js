@@ -15,13 +15,15 @@ const { prisma } = require('../../lib/prisma.js');
 const auditService = require('../../services/audit.service');
 const dataIntegrityService = require('../../services/dataIntegrity.service');
 
+const { creatorStamp } = require('./profileAccess.service.js');
+
 const memberService = {
   /**
    * CREATE FULL MEMBER: Lưu đồng thời vào nhiều bảng (Transaction).
    * @param {Object} payload - Dữ liệu từ Controller gửi xuống (bao gồm Metadata).
    * @param {String} tenantId - ID dòng họ lấy từ Context.
    */
-  createFullMember: async (payload, tenantId) => {
+  createFullMember: async (payload, tenantId, actor = null) => {
   const { memberData, currentAddr, biographyData, changed_by, change_reason } = payload;
 
     return await prisma.$transaction(async (tx) => {
@@ -50,15 +52,37 @@ const memberService = {
        * @dateTime 2026-06-16T21:18:15+07:00
        * Thực hiện comment rõ ràng dòng `id` cũ để đội ngũ làm tài liệu dễ đối chiếu.
        */
+      //M12a-M12b: resolve member của user (JWT thường không có member_id)
+      let createdByMemberId = payload.created_by_member_id || null;
+      if (changed_by && !createdByMemberId) {
+        const actorUser = await tx.users.findFirst({
+          where: { id: changed_by, deleted_at: null },
+          select: { member_id: true },
+        });
+        createdByMemberId = actorUser?.member_id || null;
+      }
       // 2. Tạo Member (Sử dụng curId vừa lấy)
+      /*
       const member = await tx.members.create({
         data: {
           ...memberData,
           //id: uuidv4(), // 🚫 ĐÃ COMMENT: DB PostgreSQL tự động chạy hàm gen_random_uuid() cho trường này
           tenant_id: tenantId,
           current_address_id: curId,
-          changed_by
+          changed_by,
+          ...creatorStamp(actor || { id: changed_by, member_id: memberData?.created_by_member_id }),
         }
+      });
+      */
+      const member = await tx.members.create({
+        data: {
+          ...memberData,
+          tenant_id: tenantId,
+          current_address_id: curId,
+          changed_by,
+          created_by: changed_by || null,
+          created_by_member_id: createdByMemberId,
+        },
       });
 
       /**

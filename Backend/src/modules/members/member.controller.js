@@ -46,13 +46,25 @@ const memberController = {
   },
 
   // Tạo mới thành viên (Dùng lại logic createFullMember cũ)
+  //M12a-M12b
   create: async (req, res) => {
     try {
-      const tenantId = req.user?.tenantId;
-      const result = await memberService.createFullMember(req.body, tenantId);
+      const userId = req.user?.userId || req.user?.id;
+      const tenantId = req.user?.tenantId || req.user?.tenant_id;
+      const result = await memberService.createFullMember(
+        {
+          ...req.body,
+          changed_by: userId,
+          created_by_member_id: req.user?.member_id || null,
+        },
+        tenantId
+      );
       res.status(201).json({ status: 'success', data: result });
     } catch (error) {
-      res.status(500).json({ status: 'error', message: error.message });
+      res.status(error.statusCode || 500).json({
+        status: 'error',
+        message: error.message,
+      });
     }
   },
 

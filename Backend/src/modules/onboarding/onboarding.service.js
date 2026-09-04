@@ -1,3 +1,4 @@
+const { creatorStamp } = require('../members/profileAccess.service.js');
 /**
  * PATH       : src/modules/onboarding/onboarding.service.js
  * DATETIME: 2026-08-22T14:10:00+07:00
@@ -607,6 +608,7 @@ async function completeMemberProfile({
           status: 'DU_BI',
           role: 'THANH_VIEN',
           changed_by: userId,
+          ...creatorStamp({ id: userId, member_id: user.member_id || null }),
         },
       });
 
@@ -2379,6 +2381,7 @@ async function createProvisionalBranch({
           // Lưu quan hệ tạm trong note/metadata nếu chưa có bảng relationships
           note: m.relation_to_root ? `relation_to_root:${m.relation_to_root}` : null,
           changed_by: userId,
+          ...creatorStamp({ id: userId, member_id: onboardingCase.primary_member_id || null }),
         },
       });
 
@@ -2599,6 +2602,7 @@ async function updateProvisionalBranch({
           branch_id: branchId,
           note: m.relation_to_root ? `relation_to_root:${m.relation_to_root}` : null,
           changed_by: userId,
+          ...creatorStamp({ id: userId, member_id: onboardingCase.primary_member_id || null }),
         },
       });
       addedIds.push(newMember.id);
