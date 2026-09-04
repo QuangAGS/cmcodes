@@ -251,7 +251,7 @@ model biographies {
   deleted_at         DateTime? @db.Timestamptz(6)
   tenant_id          String?   @db.VarChar(36)
   ///nhóm máu & Bệnh tật
-  blood_group          String?   @db.VarChar(16)
+  blood_group          blood_group_code?
   blood_note           String?   @db.VarChar(255)
   health_none          Boolean?  @default(false)
   health_flags         Json?
