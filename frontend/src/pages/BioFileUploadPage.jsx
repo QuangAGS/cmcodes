@@ -10,6 +10,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
+import { compressImageFile } from '../lib/compressImage.js';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
@@ -57,7 +58,8 @@ export default function BioFileUploadPage() {
     setSaving(true);
     try {
       const fd = new FormData();
-      fd.append('file', file);
+      const packed = await compressImageFile(file, { maxEdge: 1600, quality: 0.82 });
+      fd.append('file', packed);
       fd.append('caption', caption.trim());
       await apiClient.post(`/me/biography/${topic}/files`, fd);
       toast.success('Đã thêm tư liệu tiểu sử.');
@@ -65,7 +67,7 @@ export default function BioFileUploadPage() {
       writeBioTopic(topic);
       navigate('/me/profile', { replace: true });
     } catch (e) {
-      toast.error(e.response?.data?.message || 'Không lưu được tư liệu.');
+      toast.error(e.response?.data?.message || e.message || 'Không lưu được tư liệu.');
     } finally {
       setSaving(false);
     }
@@ -86,7 +88,7 @@ export default function BioFileUploadPage() {
             <span className="mb-1 block text-sm font-bold text-slate-700">File</span>
             <input
               type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
+              accept="image/jpeg,image/png,image/webp,image/gif,image/heic,image/heif,.heic,.heif,application/pdf"
               className="w-full text-sm"
               onChange={(e) => setFile((e.target.files && e.target.files[0]) || null)}
             />

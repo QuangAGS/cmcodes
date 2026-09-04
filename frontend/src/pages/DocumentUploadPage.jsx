@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
+import { compressImageFile } from '../lib/compressImage.js';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
@@ -21,6 +22,8 @@ const ACCEPT = [
   'image/png',
   'image/webp',
   'image/gif',
+  'image/heic',
+  'image/heif',
   'application/pdf',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -66,14 +69,15 @@ export default function DocumentUploadPage() {
     setSaving(true);
     try {
       const fd = new FormData();
-      fd.append('file', file);
+      const packed = await compressImageFile(file, { maxEdge: 1600, quality: 0.82 });
+      fd.append('file', packed);
       fd.append('caption', caption.trim());
       await apiClient.post('/me/documents', fd);
       toast.success('Đã lưu tài liệu.');
       writeProfileSection('docs');
       navigate('/me/profile', { replace: true });
     } catch (e) {
-      toast.error(e.response?.data?.message || 'Không lưu được tài liệu.');
+      toast.error(e.response?.data?.message || e.message || 'Không lưu được tài liệu.');
     } finally {
       setSaving(false);
     }

@@ -11,6 +11,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { X, ZoomIn, ZoomOut } from 'lucide-react';
+import { canvasToPhotoBlob } from '../../../lib/compressImage.js';
 
 const OUT = 512;
 const Z_MIN = 0.5;
@@ -221,13 +222,7 @@ export default function LogoCropModal({ file, onCancel, onConfirm }) {
       ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(img, sx, sy, sSide, sSide, 0, 0, OUT, OUT);
 
-      const blob = await new Promise((resolve, reject) => {
-        canvas.toBlob(
-          (b) => (b ? resolve(b) : reject(new Error('toBlob failed'))),
-          'image/png',
-          0.92
-        );
-      });
+      const { blob } = await canvasToPhotoBlob(canvas, { quality: 0.86 });
       onConfirm?.(blob);
     } catch (err) {
       console.error('[LogoCropModal]', err);

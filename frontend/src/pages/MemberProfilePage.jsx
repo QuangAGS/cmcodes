@@ -13,6 +13,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
 import { MediaPeek, downloadMediaSafe } from '../lib/MediaPeek.jsx';
 import { toastSpeak } from '../lib/toastSpeak.js';
+import { compressImageFile, isHeicLike, isRasterImage } from '../lib/compressImage.js';
 import { readAchOpenId, readBioTopic, readProfileSection, writeAchOpenId, writeBioTopic, writeProfileSection } from '../lib/profileSection.js';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
@@ -529,19 +530,26 @@ export default function MemberProfilePage() {
   }
 
   /* Chọn file → LogoCropModal (cùng component logo tenant). POST sau onConfirm. */
-  function onPickAvatar(ev) {
+  async function onPickAvatar(ev) {
     const file = ev.target.files && ev.target.files[0];
     ev.target.value = '';
     if (!file) return;
-    if (!/^image\/(jpeg|jpg|png|webp)$/i.test(file.type)) {
-      toastSpeak('error', 'Chỉ nhận JPEG, PNG hoặc WebP.');
+    if (!isRasterImage(file) && !isHeicLike(file)) {
+      toastSpeak('error', 'Chỉ nhận JPEG, PNG, WebP hoặc HEIC.');
       return;
     }
     if (file.size > 8 * 1024 * 1024) {
       toastSpeak('error', 'Ảnh gốc không quá 8MB.');
       return;
     }
-    setCropFile(file);
+    try {
+      const ready = isHeicLike(file)
+        ? await compressImageFile(file, { maxEdge: 2400, quality: 0.9 })
+        : file;
+      setCropFile(ready);
+    } catch (e) {
+      toastSpeak('error', e.message || 'Không đọc được ảnh HEIC.');
+    }
   }
 
   async function onCropConfirm(blob) {
@@ -554,7 +562,8 @@ export default function MemberProfilePage() {
     try {
       const fd = new FormData();
       /* field "file" = upload.single('file'); interceptor gỡ application/json */
-      fd.append('file', blob, 'avatar.png');
+      const ext = blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/webp' ? 'webp' : 'jpg';
+      fd.append('file', blob, `avatar.${ext}`);
       const res = await apiClient.post('/me/avatar', fd);
       const hint = res.data?.data?.avatar?.url || null;
       const src = await resolveAvatarSrc(meta.memberId, hint);
@@ -602,7 +611,7 @@ export default function MemberProfilePage() {
                 <input
                   ref={fileRef}
                   type="file"
-                  accept="image/jpeg,image/png,image/webp"
+                  accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif"
                   className="hidden"
                   onChange={onPickAvatar}
                 />
