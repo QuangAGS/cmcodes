@@ -120,8 +120,38 @@ function normalizeBioPatch(raw) {
 }
 
 const SOCIAL_KEYS = new Set(['zalo', 'facebook', 'website']);
-const PRIVACY_GROUPS = new Set(['CONTACT', 'ACHIEVEMENT', 'BIRTH_DATE']);
+const PRIVACY_GROUPS = new Set([
+  'CONTACT',
+  'BIRTH_DATE',
+  'ADDRESS',
+  'BIO',
+  'ACHIEVEMENT',
+  'HEALTH',
+  'DOCS',
+]);
 const PRIVACY_VIS = new Set(['SELF', 'TENANT']);
+const PRIVACY_DEFAULT = {
+  CONTACT: 'TENANT',
+  BIRTH_DATE: 'TENANT',
+  ADDRESS: 'TENANT',
+  BIO: 'TENANT',
+  ACHIEVEMENT: 'TENANT',
+  HEALTH: 'SELF',
+  DOCS: 'SELF',
+};
+
+function mergePrivacyRules(rows) {
+  const map = { ...PRIVACY_DEFAULT };
+  for (const r of rows || []) {
+    if (r && PRIVACY_GROUPS.has(r.field_group) && PRIVACY_VIS.has(r.visibility)) {
+      map[r.field_group] = r.visibility;
+    }
+  }
+  return Object.keys(PRIVACY_DEFAULT).map((field_group) => ({
+    field_group,
+    visibility: map[field_group],
+  }));
+}
 
 function deny(code, message, statusCode = 403) {
   const err = new Error(message);
@@ -345,10 +375,11 @@ async function getMyProfile(reqUser) {
     orderBy: { updated_at: 'desc' },
   });
 
-  const privacy = await prisma.member_privacy_rules.findMany({
+  const privacyRows = await prisma.member_privacy_rules.findMany({
     where: { member_id: member.id, tenant_id: member.tenant_id, deleted_at: null },
     select: { field_group: true, visibility: true },
   });
+  const privacy = mergePrivacyRules(privacyRows);
 
   return {
     member: {

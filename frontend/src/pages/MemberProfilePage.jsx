@@ -74,8 +74,12 @@ const EMPTY = {
   origin: { ...EMPTY_ADDRESS },
   current: { ...EMPTY_ADDRESS },
   privacy_CONTACT: 'TENANT',
-  privacy_ACHIEVEMENT: 'TENANT',
   privacy_BIRTH_DATE: 'TENANT',
+  privacy_ADDRESS: 'TENANT',
+  privacy_BIO: 'TENANT',
+  privacy_ACHIEVEMENT: 'TENANT',
+  privacy_HEALTH: 'SELF',
+  privacy_DOCS: 'SELF',
 };
 
 const SECTIONS = [
@@ -187,8 +191,22 @@ function congenitalVoice(form) {
 const PRIVACY_ITEMS = [
   { key: 'CONTACT', label: 'Liên lạc' },
   { key: 'BIRTH_DATE', label: 'Ngày sinh' },
-  { key: 'ACHIEVEMENT', label: 'Thành tựu' },
+  { key: 'ADDRESS', label: 'Địa chỉ' },
+  { key: 'BIO', label: 'Tiểu sử chữ và tư liệu chữ' },
+  { key: 'ACHIEVEMENT', label: 'Thành tựu và minh chứng' },
+  { key: 'HEALTH', label: 'Nhóm máu, bệnh tật, dị tật bẩm sinh' },
+  { key: 'DOCS', label: 'Tài liệu khác' },
 ];
+
+const PRIVACY_DEFAULT = {
+  CONTACT: 'TENANT',
+  BIRTH_DATE: 'TENANT',
+  ADDRESS: 'TENANT',
+  BIO: 'TENANT',
+  ACHIEVEMENT: 'TENANT',
+  HEALTH: 'SELF',
+  DOCS: 'SELF',
+};
 
 const inputCls =
   'w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-medium outline-none focus:border-indigo-400';
@@ -318,7 +336,7 @@ export default function MemberProfilePage() {
         'blood_note', 'blood_abo', 'blood_rh', 'health_flags', 'health_none',
         'congenital_flags', 'congenital_none',
       ],
-      privacy: ['privacy_CONTACT', 'privacy_ACHIEVEMENT', 'privacy_BIRTH_DATE'],
+      privacy: PRIVACY_ITEMS.map((it) => `privacy_${it.key}`),
     }[section] || [];
     return keys.some((k) => String(form[k] ?? '') !== String(savedForm[k] ?? ''));
   }, [form, savedForm, section]);
@@ -396,9 +414,13 @@ export default function MemberProfilePage() {
           congenital_none: !!b.congenital_none,
           origin: addressFromApi(d.origin_address),
           current: addressFromApi(d.current_address),
-          privacy_CONTACT: priv.privacy_CONTACT || 'TENANT',
-          privacy_ACHIEVEMENT: priv.privacy_ACHIEVEMENT || 'TENANT',
-          privacy_BIRTH_DATE: priv.privacy_BIRTH_DATE || 'TENANT',
+          privacy_CONTACT: priv.privacy_CONTACT || PRIVACY_DEFAULT.CONTACT,
+          privacy_BIRTH_DATE: priv.privacy_BIRTH_DATE || PRIVACY_DEFAULT.BIRTH_DATE,
+          privacy_ADDRESS: priv.privacy_ADDRESS || PRIVACY_DEFAULT.ADDRESS,
+          privacy_BIO: priv.privacy_BIO || PRIVACY_DEFAULT.BIO,
+          privacy_ACHIEVEMENT: priv.privacy_ACHIEVEMENT || PRIVACY_DEFAULT.ACHIEVEMENT,
+          privacy_HEALTH: priv.privacy_HEALTH || PRIVACY_DEFAULT.HEALTH,
+          privacy_DOCS: priv.privacy_DOCS || PRIVACY_DEFAULT.DOCS,
         };
         setForm(nextForm);
         setSavedForm(nextForm);
@@ -487,11 +509,10 @@ export default function MemberProfilePage() {
           congenital_summary: form.congenital_none ? null : (form.congenital_summary || null),
           congenital_none: !!form.congenital_none,
         },
-        privacy: [
-          { field_group: 'CONTACT', visibility: form.privacy_CONTACT },
-          { field_group: 'ACHIEVEMENT', visibility: form.privacy_ACHIEVEMENT },
-          { field_group: 'BIRTH_DATE', visibility: form.privacy_BIRTH_DATE },
-        ],
+        privacy: PRIVACY_ITEMS.map((it) => ({
+          field_group: it.key,
+          visibility: form[`privacy_${it.key}`],
+        })),
       });
       toastSpeak('ok', 'Đã lưu hồ sơ dòng họ.');
       setSavedForm(form);
