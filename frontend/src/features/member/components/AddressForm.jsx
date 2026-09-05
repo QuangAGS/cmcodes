@@ -1,7 +1,7 @@
 /**
  * PATH       : src/features/member/components/AddressForm.jsx
  * DATETIME   : 2026-08-29T16:40:00+07:00
- * VERSION    : 1.2.0-A01-ADDR2
+ * VERSION    : 1.3.0-M12L-GEO
  * DESCRIPTION: Form chỗ ISO. VN: 34 tỉnh + xã, ẩn huyện. Search chỗ đã gắn member.
  */
 
@@ -15,6 +15,7 @@ import {
   addressFromApi,
   matchProvinceName,
   matchWardName,
+  mapHref,
 } from '../constants/addressCatalog.js';
 
 const inputCls =
@@ -173,6 +174,58 @@ export default function AddressForm({ value, onChange }) {
       </Field>
       <Field label="Zip code (mã bưu chính)">
         <input className={inputCls} value={addr.postal_code} onChange={(e) => patch({ postal_code: e.target.value })} />
+      </Field>
+      <div className="grid grid-cols-2 gap-2">
+        <Field label="Vĩ độ (lat)" hint="-90 … 90">
+          <input
+            className={inputCls}
+            inputMode="decimal"
+            value={addr.latitude || ''}
+            onChange={(e) => patch({ latitude: e.target.value })}
+            placeholder="18.444"
+          />
+        </Field>
+        <Field label="Kinh độ (lng)" hint="-180 … 180">
+          <input
+            className={inputCls}
+            inputMode="decimal"
+            value={addr.longitude || ''}
+            onChange={(e) => patch({ longitude: e.target.value })}
+            placeholder="105.374"
+          />
+        </Field>
+      </div>
+      <button
+        type="button"
+        className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700"
+        onClick={() => {
+          if (!navigator.geolocation) return;
+          navigator.geolocation.getCurrentPosition(
+            (pos) => patch({
+              latitude: String(pos.coords.latitude),
+              longitude: String(pos.coords.longitude),
+            }),
+            () => {},
+            { enableHighAccuracy: true, timeout: 12000 },
+          );
+        }}
+      >
+        Lấy vị trí máy
+      </button>
+      <Field label="Link bản đồ" hint="Dán URL hoặc dùng tọa độ. Bấm để mở bản đồ.">
+        <input className={inputCls} value={addr.location_url || ''} onChange={(e) => patch({ location_url: e.target.value })} placeholder="https://maps.google.com/..." />
+        {mapHref(addr) ? (
+          <a
+            className="mt-2 inline-block text-sm font-black text-indigo-700 underline"
+            href={mapHref(addr)}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            Mở bản đồ
+          </a>
+        ) : (
+          <span className="mt-2 block text-xs text-slate-500">Chưa có link hoặc tọa độ.</span>
+        )}
       </Field>
       <Field label="Note (Ghi chú)" hint="Tên cũ, chữ gia phả / bia, hoặc ghi chú khác của chỗ này.">
         <textarea className={inputCls} rows={3} value={addr.notes} onChange={(e) => patch({ notes: e.target.value })} />

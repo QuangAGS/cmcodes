@@ -71,6 +71,9 @@ export const EMPTY_ADDRESS = {
   postal_code: '',
   notes: '',
   full_address: '',
+  latitude: '',
+  longitude: '',
+  location_url: '',
 };
 
 export function addressFromApi(row) {
@@ -86,7 +89,17 @@ export function addressFromApi(row) {
     postal_code: row.postal_code || '',
     notes: row.notes || '',
     full_address: row.full_address || '',
+    latitude: row.latitude == null || row.latitude === '' ? '' : String(row.latitude),
+    longitude: row.longitude == null || row.longitude === '' ? '' : String(row.longitude),
+    location_url: row.location_url || '',
   };
+}
+
+function parseCoord(raw, absMax) {
+  if (raw == null || raw === '') return null;
+  const n = Number(String(raw).replace(',', '.'));
+  if (!Number.isFinite(n) || Math.abs(n) > absMax) return null;
+  return Math.round(n * 1e8) / 1e8;
 }
 
 export function addressToUpdate(addr) {
@@ -109,6 +122,9 @@ export function addressToPatch(addr) {
     line2: addr.line2 || null,
     postal_code: addr.postal_code || null,
     notes: String(addr.notes || '').trim() ? String(addr.notes).trim().slice(0, 255) : null,
+    latitude: parseCoord(addr.latitude, 90),
+    longitude: parseCoord(addr.longitude, 180),
+    location_url: String(addr.location_url || '').trim().slice(0, 500) || null,
   };
   if (addr.address_id) {
     body.address_id = addr.address_id;
@@ -132,6 +148,9 @@ export function formatAddressLines(addr) {
     if (addr.sub_locality) lines.push(['Xã/Phường', addr.sub_locality]);
     if (addr.admin_area) lines.push(['Tỉnh/Thành', addr.admin_area]);
     if (addr.postal_code) lines.push(['Zip code (mã bưu chính)', addr.postal_code]);
+    if (addr.latitude !== '' && addr.latitude != null && addr.longitude !== '' && addr.longitude != null) {
+      lines.push(['Tọa độ', `${addr.latitude}, ${addr.longitude}`]);
+    }
     if (addr.notes) lines.push(['Ghi chú', addr.notes]);
     if (!lines.length && addr.full_address) lines.push(['Địa chỉ', addr.full_address]);
     return lines;
@@ -168,4 +187,14 @@ export function formatAddressSummary(addr) {
 export function hasPlace(addr) {
   if (!addr) return false;
   return Boolean(addr.address_id || addr.full_address || addr.admin_area || addr.sub_locality || addr.line1);
+}
+
+export function mapHref(addr) {
+  if (!addr) return null;
+  const url = String(addr.location_url || '').trim();
+  if (url && /^https?:\/\//i.test(url)) return url;
+  const lat = addr.latitude;
+  const lng = addr.longitude;
+  if (lat === '' || lat == null || lng === '' || lng == null) return null;
+  return `https://www.google.com/maps?q=${encodeURIComponent(lat)},${encodeURIComponent(lng)}`;
 }

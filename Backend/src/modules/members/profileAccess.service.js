@@ -118,4 +118,26 @@ async function canEditProfile(reqUser, targetMemberId) {
   return { ok: false, code: 'FORBIDDEN', reason: 'Không có quyền sửa hồ sơ này.', member };
 }
 
-module.exports = { actorOf, creatorStamp, canEditProfile, resolveActorMemberId };
+
+async function canViewProfile(reqUser, targetMemberId) {
+  const actor = actorOf(reqUser);
+  if (!actor.userId) {
+    return { ok: false, code: 'UNAUTHORIZED', reason: 'Thiếu phiên.' };
+  }
+  const member = await prisma.members.findFirst({
+    where: { id: String(targetMemberId), deleted_at: null },
+  });
+  if (!member) {
+    return { ok: false, code: 'NOT_FOUND', reason: 'Không tìm thấy thành viên.' };
+  }
+  if (actor.role === 'SYSTEM_ADMIN') {
+    return { ok: true, via: 'SYS', member };
+  }
+  const tenantId = actor.tenantId;
+  if (!tenantId || tenantId !== member.tenant_id) {
+    return { ok: false, code: 'FORBIDDEN', reason: 'Khác dòng họ.', member };
+  }
+  return { ok: true, via: 'TENANT', member };
+}
+
+module.exports = { actorOf, creatorStamp, canEditProfile, canViewProfile, resolveActorMemberId };

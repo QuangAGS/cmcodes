@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { toast } from 'sonner';
+import { toastSpeak } from '../lib/toastSpeak.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
 import { memberIdFromSearch, profileHome } from '../lib/profileTarget.js';
@@ -52,11 +52,11 @@ export default function BioFileUploadPage() {
   async function onSubmit(ev) {
     ev.preventDefault();
     if (!file) {
-      toast.error('Chọn ảnh hoặc PDF.');
+      toastSpeak('error', 'Chọn ảnh hoặc PDF.');
       return;
     }
     if (!caption.trim()) {
-      toast.error('Nhập mô tả ngắn.');
+      toastSpeak('error', 'Nhập mô tả ngắn.');
       return;
     }
     setSaving(true);
@@ -67,12 +67,12 @@ export default function BioFileUploadPage() {
       fd.append('caption', caption.trim());
       if (targetId) fd.append('member_id', targetId);
       await apiClient.post(`/me/biography/${topic}/files`, fd, { params: targetId ? { member_id: targetId } : {} });
-      toast.success('Đã thêm tư liệu tiểu sử.');
+      toastSpeak('ok', 'Đã thêm tư liệu tiểu sử.');
       writeProfileSection('bio_read');
       writeBioTopic(topic);
       navigate(home, { replace: true });
     } catch (e) {
-      toast.error(e.response?.data?.message || e.message || 'Không lưu được tư liệu.');
+      toastSpeak('error', e.response?.data?.message || e.message || 'Không lưu được tư liệu.');
     } finally {
       setSaving(false);
     }

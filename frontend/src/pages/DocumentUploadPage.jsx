@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { toast } from 'sonner';
+import { toastSpeak } from '../lib/toastSpeak.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
 import { compressImageFile } from '../lib/compressImage.js';
@@ -63,11 +63,11 @@ export default function DocumentUploadPage() {
   async function onSubmit(ev) {
     ev.preventDefault();
     if (!file) {
-      toast.error('Chọn file.');
+      toastSpeak('error', 'Chọn file.');
       return;
     }
     if (!caption.trim()) {
-      toast.error('Nhập mô tả ngắn.');
+      toastSpeak('error', 'Nhập mô tả ngắn.');
       return;
     }
     setSaving(true);
@@ -78,11 +78,11 @@ export default function DocumentUploadPage() {
       fd.append('caption', caption.trim());
       if (targetId) fd.append('member_id', targetId);
       await apiClient.post('/me/documents', fd, { params: targetId ? { member_id: targetId } : {} });
-      toast.success('Đã lưu tài liệu.');
+      toastSpeak('ok', 'Đã lưu tài liệu.');
       writeProfileSection('docs');
       navigate(home, { replace: true });
     } catch (e) {
-      toast.error(e.response?.data?.message || e.message || 'Không lưu được tài liệu.');
+      toastSpeak('error', e.response?.data?.message || e.message || 'Không lưu được tài liệu.');
     } finally {
       setSaving(false);
     }

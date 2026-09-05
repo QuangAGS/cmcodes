@@ -10,7 +10,7 @@ const { prisma, correlation } = require('../../lib/prisma.js');
 const { writeBpl } = require('../../services/bpl.service.js');
 const { logAction } = require('../../services/audit.service.js');
 const { a01Log } = require('./a01Debug.js');
-const { canEditProfile } = require('../members/profileAccess.service.js');
+const { canEditProfile, canViewProfile } = require('../members/profileAccess.service.js');
 
 async function writeAudit(tx, {
   action, tableName, recordId, oldData, newData, actorId, tenantId, correlationId, reason,
@@ -207,7 +207,8 @@ async function resolveMemberActor(reqUser) {
 
   const targetId = String(reqUser?.targetMemberId || '').trim();
   if (targetId && targetId !== user.member_id) {
-    const access = await canEditProfile(reqUser, targetId);
+    const checker = reqUser.viewOnly ? canViewProfile : canEditProfile;
+    const access = await checker(reqUser, targetId);
     if (!access.ok || !access.member) {
       deny(access.code || 'FORBIDDEN', access.reason || 'Không có quyền trên hồ sơ này.', access.code === 'NOT_FOUND' ? 404 : 403);
     }
@@ -434,12 +435,52 @@ async function getMyProfile(reqUser) {
       };
     })(),
     privacy,
-    login_contact_hint:
-      !row.phone_number
-        ? 'Thêm số liên lạc vào hồ sơ dòng họ (không dùng số đăng nhập trừ khi bạn chọn).'
-        : null,
+    login_contact_hint: null,
     actor: { user_id: user.id, member_id: member.id },
+    can_edit: false,
+    can_edit_via: null,
   };
+}
+
+function redactByPrivacy(payload, privacy, canEdit) {
+  if (canEdit) return payload;
+  const vis = {};
+  (privacy || []).forEach((r) => { vis[r.field_group] = r.visibility; });
+  const hide = (g) => vis[g] === 'SELF';
+  if (hide('CONTACT')) {
+    payload.member.phone_number = null;
+    payload.member.email = null;
+    payload.member.social_profiles = {};
+  }
+  if (hide('BIRTH_DATE')) {
+    payload.member.birth_year = null;
+    payload.member.birth_month = null;
+    payload.member.birth_day = null;
+    payload.member.birth_note = null;
+  }
+  if (hide('ADDRESS')) {
+    payload.origin_address = null;
+    payload.current_address = null;
+    payload.resting_address = null;
+    payload.grave = null;
+  }
+  if (hide('BIO') && payload.biography) {
+    const keep = ['id', 'member_id', 'blood_group', 'blood_note', 'health_none', 'health_flags', 'health_summary', 'congenital_none', 'congenital_flags', 'congenital_summary'];
+    const next = { ...payload.biography };
+    ['childhood_summary', 'education_history', 'career_history', 'later_life_summary', 'personality_traits', 'notable_quotes'].forEach((k) => { next[k] = null; });
+    payload.biography = next;
+  }
+  if (hide('HEALTH') && payload.biography) {
+    payload.biography.blood_group = null;
+    payload.biography.blood_note = null;
+    payload.biography.health_flags = null;
+    payload.biography.health_summary = null;
+    payload.biography.health_none = null;
+    payload.biography.congenital_flags = null;
+    payload.biography.congenital_summary = null;
+    payload.biography.congenital_none = null;
+  }
+  return payload;
 }
 
 async function patchMyProfile(reqUser, rawBody = {}) {
@@ -805,11 +846,18 @@ async function searchMyAddresses(reqUser, query = {}) {
 
 async function getMemberProfile(reqUser, memberId) {
   if (!memberId) deny('BAD_REQUEST', 'Thiếu member_id.', 400);
-  return getMyProfile({ ...reqUser, targetMemberId: String(memberId) });
+  const data = await getMyProfile({ ...reqUser, targetMemberId: String(memberId), viewOnly: true });
+  const edit = await canEditProfile(reqUser, memberId);
+  data.can_edit = !!edit.ok;
+  data.can_edit_via = edit.ok ? edit.via : null;
+  data.login_contact_hint = null;
+  return redactByPrivacy(data, data.privacy, edit.ok);
 }
 
 async function patchMemberProfile(reqUser, memberId, rawBody = {}) {
   if (!memberId) deny('BAD_REQUEST', 'Thiếu member_id.', 400);
+  const edit = await canEditProfile(reqUser, memberId);
+  if (!edit.ok) deny(edit.code || 'FORBIDDEN', edit.reason || 'Không có quyền sửa hồ sơ này.', edit.code === 'NOT_FOUND' ? 404 : 403);
   return patchMyProfile({ ...reqUser, targetMemberId: String(memberId) }, rawBody);
 }
 

@@ -7,7 +7,7 @@
 
 import { useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { toast } from 'sonner';
+import { toastSpeak } from '../lib/toastSpeak.js';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
 import { memberIdFromSearch, profileHome } from '../lib/profileTarget.js';
@@ -39,11 +39,11 @@ export default function ProofUploadPage() {
   async function onSubmit(ev) {
     ev.preventDefault();
     if (!file) {
-      toast.error('Chọn ảnh hoặc PDF.');
+      toastSpeak('error', 'Chọn ảnh hoặc PDF.');
       return;
     }
     if (!caption.trim()) {
-      toast.error('Nhập mô tả ngắn.');
+      toastSpeak('error', 'Nhập mô tả ngắn.');
       return;
     }
     setSaving(true);
@@ -54,12 +54,12 @@ export default function ProofUploadPage() {
       fd.append('caption', caption.trim());
       if (targetId) fd.append('member_id', targetId);
       await apiClient.post(`/me/achievements/${id}/proofs`, fd, { params: targetId ? { member_id: targetId } : {} });
-      toast.success('Đã thêm minh chứng.');
+      toastSpeak('ok', 'Đã thêm minh chứng.');
       writeProfileSection('ach_read');
       writeAchOpenId(id);
       navigate(home, { replace: true });
     } catch (e) {
-      toast.error(e.response?.data?.message || e.message || 'Không tải được minh chứng.');
+      toastSpeak('error', e.response?.data?.message || e.message || 'Không tải được minh chứng.');
     } finally {
       setSaving(false);
     }

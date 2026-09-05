@@ -278,7 +278,7 @@ export default function MemberProfilePage() {
 
   const [form, setForm] = useState(EMPTY);
   const [savedForm, setSavedForm] = useState(EMPTY);
-  const [meta, setMeta] = useState({ gender: '', hint: null, is_alive: true, generation: null, memberId: null });
+  const [meta, setMeta] = useState({ gender: '', hint: null, is_alive: true, generation: null, memberId: null, canEdit: true });
   const [headerLogo, setHeaderLogo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -317,6 +317,7 @@ export default function MemberProfilePage() {
 
   const setField = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
   const alive = meta.is_alive !== false;
+  const canEdit = meta.canEdit !== false;
   const currentTitle = alive ? 'Nơi ở hiện tại' : 'Nơi ở cuối';
   const sectionMeta = useMemo(() => SECTIONS.find((s) => s.key === section) || SECTIONS[0], [section]);
   const sectionVoice = useMemo(() => {
@@ -450,10 +451,11 @@ export default function MemberProfilePage() {
         setSavedForm(nextForm);
         setMeta({
           gender: m.gender || '',
-          hint: d.login_contact_hint,
+          hint: routeMemberId ? null : d.login_contact_hint,
           is_alive: m.is_alive !== false,
           generation: m.generation ?? null,
           memberId: m.id || null,
+          canEdit: d.can_edit !== false,
         });
         const src = await resolveAvatarSrc(m.id, d.avatar?.url);
         if (!cancelled) setAvatarUrl(src);
@@ -498,7 +500,7 @@ export default function MemberProfilePage() {
 
   async function onSubmit(ev) {
     ev.preventDefault();
-    if (!dirty) return;
+    if (!canEdit || !dirty) return;
     setSaving(true);
     try {
       await api.patch(profilePath, {
@@ -549,6 +551,7 @@ export default function MemberProfilePage() {
   }
 
   function goAddress(usage, mode) {
+    if (!canEdit) return;
     const q = new URLSearchParams({ usage, mode });
     if (routeMemberId) q.set('member_id', routeMemberId);
     navigate(`/me/profile/address?${q.toString()}`);
@@ -642,9 +645,9 @@ export default function MemberProfilePage() {
                 />
                 <button
                   type="button"
-                  disabled={avatarBusy}
+                  disabled={avatarBusy || !canEdit}
                   className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-full bg-indigo-100 text-lg font-black text-indigo-700 disabled:opacity-60"
-                  onClick={() => fileRef.current && fileRef.current.click()}
+                  onClick={() => canEdit && fileRef.current && fileRef.current.click()}
                   aria-label="Ảnh đại diện"
                 >
                   {avatarUrl ? (
@@ -685,6 +688,11 @@ export default function MemberProfilePage() {
                 <p className="text-sm text-slate-600">
                   Đời thứ: <span className="font-semibold">{meta.generation != null ? meta.generation : 'Chưa có'}</span>
                 </p>
+                {!alive ? (
+                  <p className="mt-2">
+                    <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-black text-white">Đã chết</span>
+                  </p>
+                ) : null}
               </div>
             </div>
             <div className="mt-3">
@@ -713,13 +721,13 @@ export default function MemberProfilePage() {
             {section === 'identity' ? (
               <div className="space-y-3">
                 <Field label="Họ và tên trên gia phả">
-                  <input className={inputCls} value={form.full_name} onChange={(e) => setField('full_name', e.target.value)} required />
+                  <input className={inputCls} readOnly={!canEdit} value={form.full_name} onChange={(e) => setField('full_name', e.target.value)} required />
                 </Field>
                 <Field label="Tên gọi khác" hint="Tên ở nhà, biệt danh.">
-                  <input className={inputCls} value={form.alias} onChange={(e) => setField('alias', e.target.value)} />
+                  <input className={inputCls} readOnly={!canEdit} value={form.alias} onChange={(e) => setField('alias', e.target.value)} />
                 </Field>
                 <Field label="Ghi chú ngắn">
-                  <textarea className={inputCls} rows={2} value={form.note} onChange={(e) => setField('note', e.target.value)} />
+                  <textarea className={inputCls} readOnly={!canEdit} rows={2} value={form.note} onChange={(e) => setField('note', e.target.value)} />
                 </Field>
               </div>
             ) : null}
@@ -728,13 +736,13 @@ export default function MemberProfilePage() {
               <div className="space-y-3">
                 <div className="grid grid-cols-3 gap-2">
                   <Field label="Ngày">
-                    <input className={inputCls} inputMode="numeric" value={form.birth_day} onChange={(e) => setField('birth_day', e.target.value)} />
+                    <input className={inputCls} readOnly={!canEdit} inputMode="numeric" value={form.birth_day} onChange={(e) => setField('birth_day', e.target.value)} />
                   </Field>
                   <Field label="Tháng">
-                    <input className={inputCls} inputMode="numeric" value={form.birth_month} onChange={(e) => setField('birth_month', e.target.value)} />
+                    <input className={inputCls} readOnly={!canEdit} inputMode="numeric" value={form.birth_month} onChange={(e) => setField('birth_month', e.target.value)} />
                   </Field>
                   <Field label="Năm">
-                    <input className={inputCls} inputMode="numeric" value={form.birth_year} onChange={(e) => setField('birth_year', e.target.value)} />
+                    <input className={inputCls} readOnly={!canEdit} inputMode="numeric" value={form.birth_year} onChange={(e) => setField('birth_year', e.target.value)} />
                   </Field>
                 </div>
                 <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3 text-base font-semibold text-slate-700">
@@ -747,19 +755,19 @@ export default function MemberProfilePage() {
             {section === 'contact' ? (
               <div className="space-y-3">
                 <Field label="Số điện thoại gia phả" hint="Không phải số đăng nhập.">
-                  <input className={inputCls} value={form.phone_number} onChange={(e) => setField('phone_number', e.target.value)} />
+                  <input className={inputCls} readOnly={!canEdit} value={form.phone_number} onChange={(e) => setField('phone_number', e.target.value)} />
                 </Field>
                 <Field label="Email hồ sơ">
-                  <input className={inputCls} type="email" value={form.email} onChange={(e) => setField('email', e.target.value)} />
+                  <input className={inputCls} readOnly={!canEdit} type="email" value={form.email} onChange={(e) => setField('email', e.target.value)} />
                 </Field>
                 <Field label="Zalo">
-                  <input className={inputCls} value={form.zalo} onChange={(e) => setField('zalo', e.target.value)} />
+                  <input className={inputCls} readOnly={!canEdit} value={form.zalo} onChange={(e) => setField('zalo', e.target.value)} />
                 </Field>
                 <Field label="Facebook">
-                  <input className={inputCls} value={form.facebook} onChange={(e) => setField('facebook', e.target.value)} />
+                  <input className={inputCls} readOnly={!canEdit} value={form.facebook} onChange={(e) => setField('facebook', e.target.value)} />
                 </Field>
                 <Field label="Website">
-                  <input className={inputCls} value={form.website} onChange={(e) => setField('website', e.target.value)} />
+                  <input className={inputCls} readOnly={!canEdit} value={form.website} onChange={(e) => setField('website', e.target.value)} />
                 </Field>
               </div>
             ) : null}
@@ -775,14 +783,14 @@ export default function MemberProfilePage() {
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      disabled={!hasPlace(form.origin)}
+                      disabled={!canEdit || !hasPlace(form.origin)}
                       onClick={() => goAddress('origin', 'edit')}
                       className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
                     >
                       Sửa
                     </button>
                     {!hasPlace(form.origin) ? (
-                      <button type="button" onClick={() => goAddress('origin', 'create')} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">Thêm</button>
+                      <button type="button" onClick={() => goAddress('origin', 'create')} disabled={!canEdit} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">Thêm</button>
                     ) : (
                       <span />
                     )}
@@ -800,18 +808,18 @@ export default function MemberProfilePage() {
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      disabled={!hasPlace(form.current)}
+                      disabled={!canEdit || !hasPlace(form.current)}
                       onClick={() => goAddress('current', 'edit')}
                       className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
                     >
                       Sửa
                     </button>
                     {alive ? (
-                      <button type="button" onClick={() => goAddress('current', 'create')} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
+                      <button type="button" onClick={() => goAddress('current', 'create')} disabled={!canEdit} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
                         {hasPlace(form.current) ? 'Thay đổi / Tạo mới' : 'Thêm'}
                       </button>
                     ) : (
-                      <button type="button" onClick={() => goAddress('current', 'create')} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
+                      <button type="button" onClick={() => goAddress('current', 'create')} disabled={!canEdit} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
                         {hasPlace(form.current) ? 'Thay đổi' : 'Thêm nơi ở cuối'}
                       </button>
                     )}
@@ -830,13 +838,13 @@ export default function MemberProfilePage() {
                   <div className="mt-2 grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      disabled={!hasPlace(form.resting)}
+                      disabled={!canEdit || !hasPlace(form.resting)}
                       onClick={() => goAddress('resting', 'edit')}
                       className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
                     >
                       Sửa
                     </button>
-                    <button type="button" onClick={() => goAddress('resting', 'create')} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
+                    <button type="button" onClick={() => goAddress('resting', 'create')} disabled={!canEdit} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
                       {hasPlace(form.resting) ? 'Thay đổi' : 'Thêm nơi an nghỉ'}
                     </button>
                   </div>
@@ -848,7 +856,7 @@ export default function MemberProfilePage() {
             {section === 'bio' ? (
               <div className="space-y-3">
                 <Field label="Chủ đề tiểu sử">
-                  <select className={inputCls} value={bioTopic} onChange={(e) => setBioTopic(e.target.value)}>
+                  <select className={inputCls} disabled={!canEdit} value={bioTopic} onChange={(e) => setBioTopic(e.target.value)}>
                     {BIO_TOPICS.map((it) => (
                       <option key={it.key} value={it.key}>{it.label}</option>
                     ))}
@@ -912,7 +920,7 @@ export default function MemberProfilePage() {
                             </Field>
                           </div>
                           <Field label="Mô tả ngắn" hint="Nơi xét, năm, lưu ý truyền máu.">
-                            <textarea className={inputCls} rows={3} maxLength={255} value={form.blood_note} onChange={(e) => setField('blood_note', e.target.value)} />
+                            <textarea className={inputCls} readOnly={!canEdit} rows={3} maxLength={255} value={form.blood_note} onChange={(e) => setField('blood_note', e.target.value)} />
                             <p className="text-xs text-slate-500">{(form.blood_note || '').length}/255</p>
                           </Field>
                         </div>
@@ -964,7 +972,7 @@ export default function MemberProfilePage() {
                         </div>
                       ) : (
                         <>
-                          <textarea className={inputCls} rows={8} maxLength={it.max || undefined} value={text} onChange={(e) => setField(it.key, e.target.value)} />
+                          <textarea className={inputCls} readOnly={!canEdit} rows={8} maxLength={it.max || undefined} value={text} onChange={(e) => setField(it.key, e.target.value)} />
                           {it.max ? <p className="text-xs text-slate-500">{text.length}/{it.max}</p> : null}
                         </>
                       )}
@@ -976,7 +984,7 @@ export default function MemberProfilePage() {
                         onAdd={() => {
                           writeProfileSection('bio');
                           writeBioTopic(it.key);
-                          navigate(`/me/profile/biography/${it.key}/file${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
+                          if (!canEdit) return; navigate(`/me/profile/biography/${it.key}/file${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
                         }}
                         onRemove={async (p) => {
                           if (!window.confirm('Xóa tư liệu này khỏi chủ đề?')) return;
@@ -1042,7 +1050,7 @@ export default function MemberProfilePage() {
                             onAdd={() => {
                               writeProfileSection('bio_read');
                               writeBioTopic(it.key);
-                              navigate(`/me/profile/biography/${it.key}/file${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
+                              if (!canEdit) return; navigate(`/me/profile/biography/${it.key}/file${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
                             }}
                             onRemove={async (p) => {
                               if (!window.confirm('Xóa tư liệu này khỏi chủ đề?')) return;
@@ -1090,7 +1098,7 @@ export default function MemberProfilePage() {
                   }
                   writeProfileSection('ach');
                   writeAchOpenId(achDraft.id);
-                  navigate(`/me/profile/achievement/${achDraft.id}/proof${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
+                  if (!canEdit) return; navigate(`/me/profile/achievement/${achDraft.id}/proof${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
                 }}
                 onRemoveProof={async (proof) => {
                   if (!achDraft.id) return;
@@ -1167,7 +1175,7 @@ export default function MemberProfilePage() {
                 onAddProof={(row) => {
                   writeProfileSection('ach_read');
                   writeAchOpenId(row.id);
-                  navigate(`/me/profile/achievement/${row.id}/proof${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
+                  if (!canEdit) return; navigate(`/me/profile/achievement/${row.id}/proof${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
                 }}
                 onRemoveProof={async (row, proof) => {
                   if (!window.confirm('Xóa minh chứng này?')) return;
@@ -1246,6 +1254,7 @@ export default function MemberProfilePage() {
                 ) : (
                   <p className="text-sm text-slate-500">Chưa có tài liệu khác.</p>
                 )}
+                {canEdit ? (
                 <button
                   type="button"
                   onClick={() => {
@@ -1256,13 +1265,14 @@ export default function MemberProfilePage() {
                 >
                   Thêm tài liệu
                 </button>
+                ) : null}
               </div>
             ) : null}
 
             {section === 'privacy' ? (
               <div className="space-y-3">
                 <Field label="Mục thông tin">
-                  <select className={inputCls} value={privacyGroup} onChange={(e) => setPrivacyGroup(e.target.value)}>
+                  <select className={inputCls} disabled={!canEdit} value={privacyGroup} onChange={(e) => setPrivacyGroup(e.target.value)}>
                     {PRIVACY_ITEMS.map((it) => (
                       <option key={it.key} value={it.key}>{it.label}</option>
                     ))}
@@ -1297,7 +1307,7 @@ export default function MemberProfilePage() {
           {section !== 'address' && section !== 'bio_read' && section !== 'ach' && section !== 'ach_read' && section !== 'docs' ? (
             <button
               type="submit"
-              disabled={saving || !dirty}
+              disabled={saving || !dirty || !canEdit}
               className="rounded-2xl bg-indigo-600 py-4 text-base font-black text-white shadow-lg shadow-indigo-200 disabled:opacity-60"
             >
               {saving ? 'Đang lưu...' : dirty ? 'Lưu mục này' : 'Chưa có thay đổi'}

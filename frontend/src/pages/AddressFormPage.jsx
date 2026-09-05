@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { toast } from 'sonner';
+import { toastSpeak } from '../lib/toastSpeak.js';
 import { Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
@@ -62,7 +62,7 @@ export default function AddressFormPage() {
           else setAddr(addressFromApi(row));
         }
       } catch (e) {
-        toast.error(e.response?.data?.message || 'Không tải được địa chỉ.');
+        toastSpeak('error', e.response?.data?.message || 'Không tải được địa chỉ.');
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -76,7 +76,7 @@ export default function AddressFormPage() {
     ev.preventDefault();
     const payload = addressToPatch(addr);
     if (!payload) {
-      toast.error('Chọn tỉnh/xã hoặc nhập ít nhất một phần địa chỉ.');
+      toastSpeak('error', 'Chọn tỉnh/xã hoặc nhập ít nhất một phần địa chỉ.');
       return;
     }
     setSaving(true);
@@ -88,11 +88,11 @@ export default function AddressFormPage() {
           : { origin_address: payload };
 
       await apiClient.patch(apiPath, body);
-      toast.success('Đã lưu địa chỉ.');
+      toastSpeak('ok', 'Đã lưu địa chỉ.');
       writeProfileSection('address');
       navigate(home, { replace: true });
     } catch (e) {
-      toast.error(e.response?.data?.message || 'Không lưu được địa chỉ.');
+      toastSpeak('error', e.response?.data?.message || 'Không lưu được địa chỉ.');
     } finally {
       setSaving(false);
     }
