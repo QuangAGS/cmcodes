@@ -10,6 +10,7 @@ const { prisma, correlation } = require('../../lib/prisma.js');
 const { writeBpl } = require('../../services/bpl.service.js');
 const { logAction } = require('../../services/audit.service.js');
 const { a01Log } = require('./a01Debug.js');
+const { canEditProfile } = require('../members/profileAccess.service.js');
 
 async function writeAudit(tx, {
   action, tableName, recordId, oldData, newData, actorId, tenantId, correlationId, reason,
@@ -203,6 +204,21 @@ async function resolveMemberActor(reqUser) {
   if (user.status !== 'DA_DUYET') {
     deny('FORBIDDEN', 'Tài khoản chưa được duyệt.', 403);
   }
+
+  const targetId = String(reqUser?.targetMemberId || '').trim();
+  if (targetId && targetId !== user.member_id) {
+    const access = await canEditProfile(reqUser, targetId);
+    if (!access.ok || !access.member) {
+      deny(access.code || 'FORBIDDEN', access.reason || 'Không có quyền trên hồ sơ này.', access.code === 'NOT_FOUND' ? 404 : 403);
+    }
+    return {
+      user,
+      member: { id: access.member.id, tenant_id: access.member.tenant_id, status: access.member.status },
+      tenant: { id: access.member.tenant_id, status: 'HOAT_DONG' },
+      self: false,
+    };
+  }
+
   if (!user.member_id || !user.tenant_id) {
     deny('NOT_MEMBER_ACTOR', 'Tài khoản chưa gắn thành viên dòng họ.', 403);
   }

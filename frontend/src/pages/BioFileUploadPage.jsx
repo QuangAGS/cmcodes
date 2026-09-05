@@ -6,10 +6,11 @@
  */
 
 import { useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
+import { memberIdFromSearch, profileHome } from '../lib/profileTarget.js';
 import { compressImageFile } from '../lib/compressImage.js';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
@@ -32,11 +33,14 @@ const LABELS = {
 export default function BioFileUploadPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const targetId = memberIdFromSearch(params);
+  const home = profileHome(targetId);
   const { topic } = useParams();
   const sessionTenant = resolveTenant(user);
   const footerNav = resolveFooterNav(user, {
     pageKey: 'public',
-    backTo: '/me/profile',
+    backTo: home,
     showBack: true,
   });
 
@@ -61,11 +65,12 @@ export default function BioFileUploadPage() {
       const packed = await compressImageFile(file, { maxEdge: 1600, quality: 0.82 });
       fd.append('file', packed);
       fd.append('caption', caption.trim());
+      if (targetId) fd.append('member_id', targetId);
       await apiClient.post(`/me/biography/${topic}/files`, fd);
       toast.success('Đã thêm tư liệu tiểu sử.');
       writeProfileSection('bio_read');
       writeBioTopic(topic);
-      navigate('/me/profile', { replace: true });
+      navigate(home, { replace: true });
     } catch (e) {
       toast.error(e.response?.data?.message || e.message || 'Không lưu được tư liệu.');
     } finally {

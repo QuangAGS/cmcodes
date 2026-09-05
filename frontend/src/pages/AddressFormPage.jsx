@@ -16,6 +16,7 @@ import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
 import { resolveFooterNav } from '../lib/resolveFooterNav.js';
 import { writeProfileSection } from '../lib/profileSection.js';
+import { memberIdFromSearch, profileHome, profileApi } from '../lib/profileTarget.js';
 import AddressForm from '../features/member/components/AddressForm.jsx';
 import { EMPTY_ADDRESS, addressFromApi, addressToPatch, addressToUpdate } from '../features/member/constants/addressCatalog.js';
 
@@ -31,12 +32,15 @@ export default function AddressFormPage() {
   const [params] = useSearchParams();
   const rawUsage = params.get('usage');
   const usage = rawUsage === 'current' || rawUsage === 'resting' ? rawUsage : 'origin';
+  const targetId = memberIdFromSearch(params);
+  const home = profileHome(targetId);
+  const apiPath = profileApi(targetId);
 
   const mode = params.get('mode') === 'edit' ? 'edit' : 'create';
   const sessionTenant = resolveTenant(user);
   const footerNav = resolveFooterNav(user, {
     pageKey: 'public',
-    backTo: '/me/profile',
+    backTo: home,
     showBack: true,
   });
 
@@ -48,9 +52,9 @@ export default function AddressFormPage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await apiClient.get('/me/profile');
+        const res = await apiClient.get(apiPath);
         const d = res.data?.data || {};
-        const row = usage === 'current' ? d.current_address : d.origin_address;
+        const row = usage === 'current' ? d.current_address : usage === 'resting' ? d.resting_address : d.origin_address;
         const alive = d.member?.is_alive !== false;
         if (usage === 'current' && !alive) TITLES.current = 'Nơi ở cuối';
         if (!cancelled) {
@@ -66,7 +70,7 @@ export default function AddressFormPage() {
     return () => {
       cancelled = true;
     };
-  }, [usage, mode]);
+  }, [usage, mode, apiPath]);
 
   async function onSubmit(ev) {
     ev.preventDefault();
@@ -83,10 +87,10 @@ export default function AddressFormPage() {
           ? { resting_address: payload }
           : { origin_address: payload };
 
-      await apiClient.patch('/me/profile', body);
+      await apiClient.patch(apiPath, body);
       toast.success('Đã lưu địa chỉ.');
       writeProfileSection('address');
-      navigate('/me/profile', { replace: true });
+      navigate(home, { replace: true });
     } catch (e) {
       toast.error(e.response?.data?.message || 'Không lưu được địa chỉ.');
     } finally {

@@ -6,7 +6,7 @@
  */
 
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
@@ -15,6 +15,7 @@ import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
 import { resolveFooterNav } from '../lib/resolveFooterNav.js';
+import { memberIdFromSearch, profileHome } from '../lib/profileTarget.js';
 import { writeProfileSection } from '../lib/profileSection.js';
 
 const ACCEPT = [
@@ -45,10 +46,13 @@ const ACCEPT = [
 export default function DocumentUploadPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const targetId = memberIdFromSearch(params);
+  const home = profileHome(targetId);
   const sessionTenant = resolveTenant(user);
   const footerNav = resolveFooterNav(user, {
     pageKey: 'public',
-    backTo: '/me/profile',
+    backTo: home,
     showBack: true,
   });
 
@@ -72,10 +76,11 @@ export default function DocumentUploadPage() {
       const packed = await compressImageFile(file, { maxEdge: 1600, quality: 0.82 });
       fd.append('file', packed);
       fd.append('caption', caption.trim());
+      if (targetId) fd.append('member_id', targetId);
       await apiClient.post('/me/documents', fd);
       toast.success('Đã lưu tài liệu.');
       writeProfileSection('docs');
-      navigate('/me/profile', { replace: true });
+      navigate(home, { replace: true });
     } catch (e) {
       toast.error(e.response?.data?.message || e.message || 'Không lưu được tài liệu.');
     } finally {
