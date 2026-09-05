@@ -53,7 +53,7 @@ export default function ProofUploadPage() {
       fd.append('file', packed);
       fd.append('caption', caption.trim());
       if (targetId) fd.append('member_id', targetId);
-      await apiClient.post(`/me/achievements/${id}/proofs`, fd);
+      await apiClient.post(`/me/achievements/${id}/proofs`, fd, { params: targetId ? { member_id: targetId } : {} });
       toast.success('Đã thêm minh chứng.');
       writeProfileSection('ach_read');
       writeAchOpenId(id);

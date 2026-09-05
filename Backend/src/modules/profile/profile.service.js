@@ -486,7 +486,7 @@ async function patchMyProfile(reqUser, rawBody = {}) {
   const bioPatch = normalizeBioPatch(pick(body.biography || body, BIO_PATCH));
   a01Log('pick', { memberPatch, bioPatch });
 
-  const hasAddr = !!(body.origin_address || body.current_address);
+  const hasAddr = !!(body.origin_address || body.current_address || body.resting_address);
   const hasPrivacy = Array.isArray(body.privacy) && body.privacy.length > 0;
   if (!Object.keys(memberPatch).length && !Object.keys(bioPatch).length && !hasAddr && !hasPrivacy) {
     deny('EMPTY_PATCH', 'Không nhận được trường hồ sơ. Kiểm tra Request Payload (Network).', 400);

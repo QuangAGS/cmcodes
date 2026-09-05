@@ -88,8 +88,8 @@ router.get(
 router.post(
   '/avatar',
   verifyToken,
-  withTarget,
   upload.single('file'),
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await avatarService.uploadMine(actorFromReq(req), req.file);
     res.status(201).json({
@@ -159,8 +159,8 @@ router.delete(
 router.post(
   '/achievements/:id/proofs',
   verifyToken,
-  withTarget,
   upload.single('file'),
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await achievementsService.addProof(
       actorFromReq(req),
@@ -209,8 +209,8 @@ router.get(
 router.post(
   '/documents',
   verifyToken,
-  withTarget,
   upload.single('file'),
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await documentsService.addMine(actorFromReq(req), req.file, req.body || {});
     res.status(201).json({
@@ -250,8 +250,8 @@ router.get(
 router.post(
   '/biography/:topic/files',
   verifyToken,
-  withTarget,
   upload.single('file'),
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await biographyFilesService.addMine(
       actorFromReq(req),

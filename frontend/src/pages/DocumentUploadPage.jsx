@@ -77,7 +77,7 @@ export default function DocumentUploadPage() {
       fd.append('file', packed);
       fd.append('caption', caption.trim());
       if (targetId) fd.append('member_id', targetId);
-      await apiClient.post('/me/documents', fd);
+      await apiClient.post('/me/documents', fd, { params: targetId ? { member_id: targetId } : {} });
       toast.success('Đã lưu tài liệu.');
       writeProfileSection('docs');
       navigate(home, { replace: true });

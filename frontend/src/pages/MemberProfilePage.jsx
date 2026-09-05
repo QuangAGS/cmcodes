@@ -254,11 +254,12 @@ export default function MemberProfilePage() {
   const api = {
     get: (url, cfg = {}) => apiClient.get(url, { ...cfg, params: { ...memberQs, ...(cfg.params || {}) } }),
     post: (url, body, cfg = {}) => {
+      const next = { ...cfg, params: { ...memberQs, ...(cfg.params || {}) } };
       if (typeof FormData !== 'undefined' && body instanceof FormData) {
-        if (routeMemberId) body.append('member_id', routeMemberId);
-        return apiClient.post(url, body, cfg);
+        if (routeMemberId && !body.has('member_id')) body.append('member_id', routeMemberId);
+        return apiClient.post(url, body, next);
       }
-      return apiClient.post(url, { ...(body || {}), ...memberQs }, cfg);
+      return apiClient.post(url, { ...(body || {}), ...memberQs }, next);
     },
     patch: (url, body, cfg = {}) => apiClient.patch(url, { ...(body || {}), ...memberQs }, cfg),
     delete: (url, cfg = {}) =>
