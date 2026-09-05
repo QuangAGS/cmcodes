@@ -1,13 +1,12 @@
 /**
  * PATH       : src/pages/MemberProfilePage.jsx
  * DATETIME   : 2026-08-29T18:00:00+07:00
- * VERSION    : 1.8.0-A01-AVATAR-CROP
- * DESCRIPTION: Shell tóm tắt + một mục. Địa chỉ đọc 2 cột. Form địa chỉ trang con.
- *              Avatar: chọn file → LogoCropModal (cùng logo tenant) → POST /me/avatar.
+ * VERSION    : 1.9.0-M12H-TARGET
+ * DESCRIPTION: /me/profile hoặc /members/:id/profile. Cùng UI. Target theo URL.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
@@ -74,6 +73,7 @@ const EMPTY = {
   congenital_none: false,
   origin: { ...EMPTY_ADDRESS },
   current: { ...EMPTY_ADDRESS },
+  resting: { ...EMPTY_ADDRESS },
   privacy_CONTACT: 'TENANT',
   privacy_BIRTH_DATE: 'TENANT',
   privacy_ADDRESS: 'TENANT',
@@ -248,6 +248,26 @@ function initials(name) {
 export default function MemberProfilePage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { id: routeMemberId } = useParams();
+  const memberQs = routeMemberId ? { member_id: routeMemberId } : {};
+  const profilePath = routeMemberId ? `/members/${routeMemberId}/profile` : '/me/profile';
+  const api = {
+    get: (url, cfg = {}) => apiClient.get(url, { ...cfg, params: { ...memberQs, ...(cfg.params || {}) } }),
+    post: (url, body, cfg = {}) => {
+      if (typeof FormData !== 'undefined' && body instanceof FormData) {
+        if (routeMemberId) body.append('member_id', routeMemberId);
+        return apiClient.post(url, body, cfg);
+      }
+      return apiClient.post(url, { ...(body || {}), ...memberQs }, cfg);
+    },
+    patch: (url, body, cfg = {}) => apiClient.patch(url, { ...(body || {}), ...memberQs }, cfg),
+    delete: (url, cfg = {}) =>
+      apiClient.delete(url, {
+        ...cfg,
+        params: { ...memberQs, ...(cfg.params || {}) },
+        data: { ...(cfg.data || {}), ...memberQs },
+      }),
+  };
   const sessionTenant = resolveTenant(user);
   const footerNav = resolveFooterNav(user, {
     pageKey: 'public',
@@ -345,13 +365,14 @@ export default function MemberProfilePage() {
   async function resolveAvatarSrc(memberId, hint) {
     if (isHttpUrl(hint)) return hint;
     try {
-      const me = await apiClient.get('/me/avatar');
+      if (routeMemberId) throw new Error('skip-self-avatar');
+      const me = await api.get('/me/avatar');
       const u = me.data?.data?.avatar?.url;
       if (isHttpUrl(u)) return u;
     } catch (_) { /* fallback media */ }
     if (!memberId) return null;
     try {
-      const res = await apiClient.get(`/media/entity/MEMBER/${encodeURIComponent(memberId)}`);
+      const res = await api.get(`/media/entity/MEMBER/${encodeURIComponent(memberId)}`);
       const raw = res.data?.data ?? res.data ?? [];
       const rows = Array.isArray(raw) ? raw : raw.items || [];
       const row =
@@ -360,7 +381,7 @@ export default function MemberProfilePage() {
         null;
       if (!row?.id) return null;
       if (isHttpUrl(row.read_url)) return row.read_url;
-      const urlRes = await apiClient.get(`/media/${row.id}/url`);
+      const urlRes = await api.get(`/media/${row.id}/url`);
       const u = urlRes.data?.data?.url || urlRes.data?.url || null;
       return isHttpUrl(u) ? u : null;
     } catch (_) {
@@ -372,7 +393,7 @@ export default function MemberProfilePage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await apiClient.get('/me/profile');
+        const res = await api.get(profilePath);
         const d = res.data?.data || {};
         const m = d.member || {};
         const b = d.biography || {};
@@ -415,6 +436,7 @@ export default function MemberProfilePage() {
           congenital_none: !!b.congenital_none,
           origin: addressFromApi(d.origin_address),
           current: addressFromApi(d.current_address),
+          resting: addressFromApi(d.resting_address),
           privacy_CONTACT: priv.privacy_CONTACT || PRIVACY_DEFAULT.CONTACT,
           privacy_BIRTH_DATE: priv.privacy_BIRTH_DATE || PRIVACY_DEFAULT.BIRTH_DATE,
           privacy_ADDRESS: priv.privacy_ADDRESS || PRIVACY_DEFAULT.ADDRESS,
@@ -442,13 +464,13 @@ export default function MemberProfilePage() {
           }
         } catch (_) { /* logo header */ }
         try {
-          const ach = await apiClient.get('/me/achievements');
+          const ach = await api.get('/me/achievements');
           if (!cancelled) setAchievements(ach.data?.data?.items || []);
         } catch {
           if (!cancelled) setAchievements([]);
         }
         try {
-          const docRes = await apiClient.get('/me/documents');
+          const docRes = await api.get('/me/documents');
           if (!cancelled) {
             setDocs(docRes.data?.data?.items || []);
             setDocsUsed(docRes.data?.data?.used_bytes || 0);
@@ -457,7 +479,7 @@ export default function MemberProfilePage() {
           if (!cancelled) setDocs([]);
         }
         try {
-          const bioRes = await apiClient.get('/me/biography/files');
+          const bioRes = await api.get('/me/biography/files');
           if (!cancelled) setBioFiles(bioRes.data?.data?.items || {});
         } catch {
           if (!cancelled) setBioFiles({});
@@ -471,14 +493,14 @@ export default function MemberProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [routeMemberId]);
 
   async function onSubmit(ev) {
     ev.preventDefault();
     if (!dirty) return;
     setSaving(true);
     try {
-      await apiClient.patch('/me/profile', {
+      await api.patch(profilePath, {
         full_name: form.full_name,
         alias: form.alias || null,
         note: form.note || null,
@@ -526,7 +548,9 @@ export default function MemberProfilePage() {
   }
 
   function goAddress(usage, mode) {
-    navigate(`/me/profile/address?usage=${usage}&mode=${mode}`);
+    const q = new URLSearchParams({ usage, mode });
+    if (routeMemberId) q.set('member_id', routeMemberId);
+    navigate(`/me/profile/address?${q.toString()}`);
   }
 
   /* Chọn file → LogoCropModal (cùng component logo tenant). POST sau onConfirm. */
@@ -564,7 +588,7 @@ export default function MemberProfilePage() {
       /* field "file" = upload.single('file'); interceptor gỡ application/json */
       const ext = blob.type === 'image/jpeg' ? 'jpg' : blob.type === 'image/webp' ? 'webp' : 'jpg';
       fd.append('file', blob, `avatar.${ext}`);
-      const res = await apiClient.post('/me/avatar', fd);
+      const res = await api.post('/me/avatar', fd);
       const hint = res.data?.data?.avatar?.url || null;
       const src = await resolveAvatarSrc(meta.memberId, hint);
       setAvatarUrl(src || (isHttpUrl(hint) ? hint : URL.createObjectURL(blob)));
@@ -582,7 +606,7 @@ export default function MemberProfilePage() {
     if (!window.confirm('Xóa ảnh đại diện?')) return;
     setAvatarBusy(true);
     try {
-      await apiClient.delete('/me/avatar');
+      await api.delete('/me/avatar');
       setAvatarUrl(null);
       toastSpeak('ok', 'Đã xóa ảnh đại diện.');
     } catch (e) {
@@ -792,6 +816,31 @@ export default function MemberProfilePage() {
                     )}
                   </div>
                 </div>
+                {!alive ? (
+                <div className="border-t border-slate-100 pt-3">
+                  <p className="mb-1 text-sm font-black text-slate-800">Nơi an nghỉ</p>
+                  <dl>
+                    <ReadRow
+                      label="Địa chỉ / nghĩa trang"
+                      value={hasPlace(form.resting) ? formatAddressSummary(form.resting) : 'Chưa có'}
+                    />
+                    <ReadRow label="Ghi chú" value={form.resting?.notes || '—'} />
+                  </dl>
+                  <div className="mt-2 grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      disabled={!hasPlace(form.resting)}
+                      onClick={() => goAddress('resting', 'edit')}
+                      className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                    >
+                      Sửa
+                    </button>
+                    <button type="button" onClick={() => goAddress('resting', 'create')} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
+                      {hasPlace(form.resting) ? 'Thay đổi' : 'Thêm nơi an nghỉ'}
+                    </button>
+                  </div>
+                </div>
+                ) : null}
               </div>
             ) : null}
 
@@ -926,13 +975,13 @@ export default function MemberProfilePage() {
                         onAdd={() => {
                           writeProfileSection('bio');
                           writeBioTopic(it.key);
-                          navigate(`/me/profile/biography/${it.key}/file`);
+                          navigate(`/me/profile/biography/${it.key}/file${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
                         }}
                         onRemove={async (p) => {
                           if (!window.confirm('Xóa tư liệu này khỏi chủ đề?')) return;
                           setBioFileBusy(true);
                           try {
-                            const res = await apiClient.delete(`/me/biography/${it.key}/files/${p.id}`);
+                            const res = await api.delete(`/me/biography/${it.key}/files/${p.id}`);
                             setBioFiles(res.data?.data?.items || {});
                             toastSpeak('ok', 'Đã xóa tư liệu.');
                           } catch (e) {
@@ -992,13 +1041,13 @@ export default function MemberProfilePage() {
                             onAdd={() => {
                               writeProfileSection('bio_read');
                               writeBioTopic(it.key);
-                              navigate(`/me/profile/biography/${it.key}/file`);
+                              navigate(`/me/profile/biography/${it.key}/file${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
                             }}
                             onRemove={async (p) => {
                               if (!window.confirm('Xóa tư liệu này khỏi chủ đề?')) return;
                               setBioFileBusy(true);
                               try {
-                                const res = await apiClient.delete(`/me/biography/${it.key}/files/${p.id}`);
+                                const res = await api.delete(`/me/biography/${it.key}/files/${p.id}`);
                                 setBioFiles(res.data?.data?.items || {});
                                 toastSpeak('ok', 'Đã xóa tư liệu.');
                               } catch (e) {
@@ -1040,14 +1089,14 @@ export default function MemberProfilePage() {
                   }
                   writeProfileSection('ach');
                   writeAchOpenId(achDraft.id);
-                  navigate(`/me/profile/achievement/${achDraft.id}/proof`);
+                  navigate(`/me/profile/achievement/${achDraft.id}/proof${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
                 }}
                 onRemoveProof={async (proof) => {
                   if (!achDraft.id) return;
                   if (!window.confirm('Xóa minh chứng này?')) return;
                   setProofBusyId(achDraft.id);
                   try {
-                    const res = await apiClient.delete(`/me/achievements/${achDraft.id}/proofs/${proof.id}`);
+                    const res = await api.delete(`/me/achievements/${achDraft.id}/proofs/${proof.id}`);
                     const proofs = res.data?.data?.proofs || [];
                     setAchDraft((prev) => ({ ...prev, proofs }));
                     setAchievements((prev) => prev.map((x) => (x.id === achDraft.id ? { ...x, proofs } : x)));
@@ -1067,13 +1116,13 @@ export default function MemberProfilePage() {
                   setSavingAch(true);
                   try {
                     if (achDraft.id) {
-                      await apiClient.patch(`/me/achievements/${achDraft.id}`, payload);
+                      await api.patch(`/me/achievements/${achDraft.id}`, payload);
                       toastSpeak('ok', 'Đã lưu thành tích.');
                     } else {
-                      await apiClient.post('/me/achievements', payload);
+                      await api.post('/me/achievements', payload);
                       toastSpeak('ok', 'Đã thêm thành tích.');
                     }
-                    const ach = await apiClient.get('/me/achievements');
+                    const ach = await api.get('/me/achievements');
                     const items = ach.data?.data?.items || [];
                     setAchievements(items);
                     const keepId = achDraft.id;
@@ -1106,7 +1155,7 @@ export default function MemberProfilePage() {
                 onDelete={async (row) => {
                   if (!window.confirm('Xóa thành tích này?')) return;
                   try {
-                    await apiClient.delete(`/me/achievements/${row.id}`);
+                    await api.delete(`/me/achievements/${row.id}`);
                     setAchievements((prev) => prev.filter((x) => x.id !== row.id));
                     toastSpeak('ok', 'Đã xóa thành tích.');
                   } catch (e) {
@@ -1117,13 +1166,13 @@ export default function MemberProfilePage() {
                 onAddProof={(row) => {
                   writeProfileSection('ach_read');
                   writeAchOpenId(row.id);
-                  navigate(`/me/profile/achievement/${row.id}/proof`);
+                  navigate(`/me/profile/achievement/${row.id}/proof${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
                 }}
                 onRemoveProof={async (row, proof) => {
                   if (!window.confirm('Xóa minh chứng này?')) return;
                   setProofBusyId(row.id);
                   try {
-                    const res = await apiClient.delete(`/me/achievements/${row.id}/proofs/${proof.id}`);
+                    const res = await api.delete(`/me/achievements/${row.id}/proofs/${proof.id}`);
                     const proofs = res.data?.data?.proofs || [];
                     setAchievements((prev) => prev.map((x) => (x.id === row.id ? { ...x, proofs } : x)));
                     toastSpeak('ok', 'Đã xóa minh chứng.');
@@ -1178,7 +1227,7 @@ export default function MemberProfilePage() {
                             onClick={async () => {
                               if (!window.confirm('Xóa tài liệu này khỏi hồ sơ và kho lưu trữ?')) return;
                               try {
-                                const res = await apiClient.delete(`/me/documents/${p.id}`);
+                                const res = await api.delete(`/me/documents/${p.id}`);
                                 setDocs(res.data?.data?.items || []);
                                 setDocsUsed(res.data?.data?.used_bytes || 0);
                                 toastSpeak('ok', 'Đã xóa tài liệu.');
@@ -1200,7 +1249,7 @@ export default function MemberProfilePage() {
                   type="button"
                   onClick={() => {
                     writeProfileSection('docs');
-                    navigate('/me/profile/document');
+                    navigate(`/me/profile/document${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
                   }}
                   className="w-full rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white"
                 >

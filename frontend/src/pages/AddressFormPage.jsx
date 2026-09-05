@@ -22,13 +22,16 @@ import { EMPTY_ADDRESS, addressFromApi, addressToPatch, addressToUpdate } from '
 const TITLES = {
   origin: 'Quê quán',
   current: 'Nơi ở hiện tại',
+  resting: 'Nơi an nghỉ',
 };
 
 export default function AddressFormPage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const usage = params.get('usage') === 'current' ? 'current' : 'origin';
+  const rawUsage = params.get('usage');
+  const usage = rawUsage === 'current' || rawUsage === 'resting' ? rawUsage : 'origin';
+
   const mode = params.get('mode') === 'edit' ? 'edit' : 'create';
   const sessionTenant = resolveTenant(user);
   const footerNav = resolveFooterNav(user, {
@@ -74,7 +77,12 @@ export default function AddressFormPage() {
     }
     setSaving(true);
     try {
-      const body = usage === 'current' ? { current_address: payload } : { origin_address: payload };
+      const body = usage === 'current'
+        ? { current_address: payload }
+        : usage === 'resting'
+          ? { resting_address: payload }
+          : { origin_address: payload };
+
       await apiClient.patch('/me/profile', body);
       toast.success('Đã lưu địa chỉ.');
       writeProfileSection('address');

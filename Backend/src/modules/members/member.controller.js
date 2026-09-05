@@ -7,6 +7,7 @@
  */
 const memberService = require('./member.service');
 const vitalService = require('./vital.service.js');
+const profileService = require('../profile/profile.service.js');
 
 const memberController = {
   // Lấy danh sách toàn bộ thành viên trong Tenant
@@ -27,6 +28,36 @@ const memberController = {
       const statusCode = error.statusCode || 500;
       res.status(statusCode).json({
         status: 'error',
+        code: error.code || 'INTERNAL_ERROR',
+        message: error.message || 'Lỗi server',
+      });
+    }
+  },
+
+  getProfile: async (req, res) => {
+    try {
+      const data = await profileService.getMemberProfile(req.user, req.params.id);
+      res.status(200).json({ status: 'success', success: true, data });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+      res.status(statusCode).json({
+        status: 'error',
+        success: false,
+        code: error.code || 'INTERNAL_ERROR',
+        message: error.message || 'Lỗi server',
+      });
+    }
+  },
+
+  patchProfile: async (req, res) => {
+    try {
+      const data = await profileService.patchMemberProfile(req.user, req.params.id, req.body || {});
+      res.status(200).json({ status: 'success', success: true, message: 'Đã lưu hồ sơ.', data });
+    } catch (error) {
+      const statusCode = error.statusCode || 500;
+      res.status(statusCode).json({
+        status: 'error',
+        success: false,
         code: error.code || 'INTERNAL_ERROR',
         message: error.message || 'Lỗi server',
       });

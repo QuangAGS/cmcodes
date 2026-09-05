@@ -367,6 +367,7 @@ async function getMyProfile(reqUser) {
     include: {
       currentAddress: true,
       originAddress: true,
+      graves: { include: { addresses: true, cemetery: true } },
     },
   });
 
@@ -402,6 +403,20 @@ async function getMyProfile(reqUser) {
     biography: biography || null,
     origin_address: row.originAddress || null,
     current_address: row.currentAddress || null,
+    resting_address: (function () {
+      const g = Array.isArray(row.graves) ? row.graves[0] : row.graves;
+      return (g && g.addresses) || null;
+    })(),
+    grave: (function () {
+      const g = Array.isArray(row.graves) ? row.graves[0] : row.graves;
+      if (!g) return null;
+      return {
+        id: g.id,
+        cemetery_id: g.cemetery_id,
+        cemetery_name: g.cemetery && g.cemetery.name,
+        plot_details: g.plot_details,
+      };
+    })(),
     privacy,
     login_contact_hint:
       !row.phone_number
@@ -584,7 +599,40 @@ async function patchMyProfile(reqUser, rawBody = {}) {
       }
     }
 
-    if (Array.isArray(body.privacy)) {
+    
+    if (body.resting_address) {
+      const addr = await upsertAddress(tx, tenantId, actorId, body.resting_address);
+      if (addr) {
+        const existingGrave = await tx.graves.findFirst({
+          where: { member_id: member.id, tenant_id: tenantId, deleted_at: null },
+        });
+        if (existingGrave) {
+          await tx.graves.updateMany({
+            where: { id: existingGrave.id, tenant_id: tenantId, deleted_at: null },
+            data: {
+              grave_address_id: addr.id,
+              plot_details: body.resting_address.plot_details || existingGrave.plot_details,
+              cemetery_id: body.resting_address.cemetery_id || existingGrave.cemetery_id,
+              changed_by: actorId,
+              updated_at: new Date(),
+            },
+          });
+        } else {
+          await tx.graves.create({
+            data: {
+              member_id: member.id,
+              tenant_id: tenantId,
+              grave_address_id: addr.id,
+              plot_details: body.resting_address.plot_details || null,
+              cemetery_id: body.resting_address.cemetery_id || null,
+              changed_by: actorId,
+            },
+          });
+        }
+      }
+    }
+
+if (Array.isArray(body.privacy)) {
       for (const rule of body.privacy) {
         if (!PRIVACY_GROUPS.has(rule.field_group) || !PRIVACY_VIS.has(rule.visibility)) {
           deny('BAD_REQUEST', 'privacy rule không hợp lệ.', 400);

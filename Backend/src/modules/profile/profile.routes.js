@@ -20,18 +20,30 @@ const biographyFilesService = require('./biographyFiles.service.js');
 
 function actorFromReq(req) {
   const u = req.user || {};
+  const targetMemberId =
+    req.query?.member_id ||
+    req.body?.member_id ||
+    req.params?.member_id ||
+    null;
   return {
     ...u,
     id: u.id || u.userId,
     userId: u.userId || u.id,
     tenantId: u.tenantId || u.tenant_id || req.tenantId || null,
     tenant_id: u.tenant_id || u.tenantId || req.tenantId || null,
+    targetMemberId: targetMemberId ? String(targetMemberId) : null,
   };
+}
+
+function withTarget(req, res, next) {
+  req.user = actorFromReq(req);
+  next();
 }
 
 router.get(
   '/profile',
   verifyToken,
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await profileService.getMyProfile(req.user);
     res.status(200).json({ success: true, status: 'success', data });
@@ -41,6 +53,7 @@ router.get(
 router.patch(
   '/profile',
   verifyToken,
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await profileService.patchMyProfile(req.user, req.body || {});
     res.status(200).json({
@@ -55,6 +68,7 @@ router.patch(
 router.get(
   '/addresses',
   verifyToken,
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await profileService.searchMyAddresses(req.user, req.query || {});
     res.status(200).json({ success: true, status: 'success', data });
@@ -64,6 +78,7 @@ router.get(
 router.get(
   '/avatar',
   verifyToken,
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await avatarService.getMine(actorFromReq(req));
     res.status(200).json({ success: true, status: 'success', data });
@@ -73,6 +88,7 @@ router.get(
 router.post(
   '/avatar',
   verifyToken,
+  withTarget,
   upload.single('file'),
   asyncHandler(async (req, res) => {
     const data = await avatarService.uploadMine(actorFromReq(req), req.file);
@@ -88,6 +104,7 @@ router.post(
 router.delete(
   '/avatar',
   verifyToken,
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await avatarService.removeMine(actorFromReq(req));
     res.status(200).json({
@@ -102,6 +119,7 @@ router.delete(
 router.get(
   '/achievements',
   verifyToken,
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await achievementsService.listMine(req.user);
     res.status(200).json({ success: true, status: 'success', data });
@@ -111,6 +129,7 @@ router.get(
 router.post(
   '/achievements',
   verifyToken,
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await achievementsService.createMine(req.user, req.body || {});
     res.status(201).json({ success: true, status: 'success', message: 'Đã thêm thành tích.', data });
@@ -120,6 +139,7 @@ router.post(
 router.patch(
   '/achievements/:id',
   verifyToken,
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await achievementsService.updateMine(req.user, req.params.id, req.body || {});
     res.status(200).json({ success: true, status: 'success', message: 'Đã lưu thành tích.', data });
@@ -129,6 +149,7 @@ router.patch(
 router.delete(
   '/achievements/:id',
   verifyToken,
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await achievementsService.removeMine(req.user, req.params.id);
     res.status(200).json({ success: true, status: 'success', message: 'Đã xóa thành tích.', data });
@@ -138,6 +159,7 @@ router.delete(
 router.post(
   '/achievements/:id/proofs',
   verifyToken,
+  withTarget,
   upload.single('file'),
   asyncHandler(async (req, res) => {
     const data = await achievementsService.addProof(
@@ -158,6 +180,7 @@ router.post(
 router.delete(
   '/achievements/:id/proofs/:mediaId',
   verifyToken,
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await achievementsService.removeProof(
       actorFromReq(req),
@@ -176,6 +199,7 @@ router.delete(
 router.get(
   '/documents',
   verifyToken,
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await documentsService.listMine(actorFromReq(req));
     res.status(200).json({ success: true, status: 'success', data });
@@ -185,6 +209,7 @@ router.get(
 router.post(
   '/documents',
   verifyToken,
+  withTarget,
   upload.single('file'),
   asyncHandler(async (req, res) => {
     const data = await documentsService.addMine(actorFromReq(req), req.file, req.body || {});
@@ -200,6 +225,7 @@ router.post(
 router.delete(
   '/documents/:mediaId',
   verifyToken,
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await documentsService.removeMine(actorFromReq(req), req.params.mediaId);
     res.status(200).json({
@@ -214,6 +240,7 @@ router.delete(
 router.get(
   '/biography/files',
   verifyToken,
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await biographyFilesService.listMine(actorFromReq(req));
     res.status(200).json({ success: true, status: 'success', data });
@@ -223,6 +250,7 @@ router.get(
 router.post(
   '/biography/:topic/files',
   verifyToken,
+  withTarget,
   upload.single('file'),
   asyncHandler(async (req, res) => {
     const data = await biographyFilesService.addMine(
@@ -243,6 +271,7 @@ router.post(
 router.delete(
   '/biography/:topic/files/:mediaId',
   verifyToken,
+  withTarget,
   asyncHandler(async (req, res) => {
     const data = await biographyFilesService.removeMine(
       actorFromReq(req),

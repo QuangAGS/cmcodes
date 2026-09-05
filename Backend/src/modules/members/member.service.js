@@ -15,8 +15,6 @@ const { prisma } = require('../../lib/prisma.js');
 const auditService = require('../../services/audit.service');
 const dataIntegrityService = require('../../services/dataIntegrity.service');
 
-const { creatorStamp } = require('./profileAccess.service.js');
-
 const memberService = {
   /**
    * CREATE FULL MEMBER: Lưu đồng thời vào nhiều bảng (Transaction).
@@ -52,7 +50,15 @@ const memberService = {
        * @dateTime 2026-06-16T21:18:15+07:00
        * Thực hiện comment rõ ràng dòng `id` cũ để đội ngũ làm tài liệu dễ đối chiếu.
        */
-      //M12a-M12b: resolve member của user (JWT thường không có member_id)
+      // M12a: JWT thường không có member_id — đọc users.member_id.
+      const {
+        created_by: _ignoreCreatedBy,
+        created_by_member_id: _ignoreCreatedByMember,
+        changed_by: _ignoreChangedBy,
+        tenant_id: _ignoreTenant,
+        ...safeMemberData
+      } = memberData || {};
+
       let createdByMemberId = payload.created_by_member_id || null;
       if (changed_by && !createdByMemberId) {
         const actorUser = await tx.users.findFirst({
@@ -61,22 +67,10 @@ const memberService = {
         });
         createdByMemberId = actorUser?.member_id || null;
       }
-      // 2. Tạo Member (Sử dụng curId vừa lấy)
-      /*
+
       const member = await tx.members.create({
         data: {
-          ...memberData,
-          //id: uuidv4(), // 🚫 ĐÃ COMMENT: DB PostgreSQL tự động chạy hàm gen_random_uuid() cho trường này
-          tenant_id: tenantId,
-          current_address_id: curId,
-          changed_by,
-          ...creatorStamp(actor || { id: changed_by, member_id: memberData?.created_by_member_id }),
-        }
-      });
-      */
-      const member = await tx.members.create({
-        data: {
-          ...memberData,
+          ...safeMemberData,
           tenant_id: tenantId,
           current_address_id: curId,
           changed_by,

@@ -76,6 +76,15 @@ const AppRouter = () => {
         />
 
         <Route
+          path="/members/:id/profile"
+          element={
+            <ProtectedRoute allowedStatus="DA_DUYET">
+              <MemberProfilePage />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/me/profile"
           element={
             <ProtectedRoute allowedStatus="DA_DUYET">
