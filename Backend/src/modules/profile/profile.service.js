@@ -802,9 +802,22 @@ async function searchMyAddresses(reqUser, query = {}) {
   return { items, total: items.length };
 }
 
+
+async function getMemberProfile(reqUser, memberId) {
+  if (!memberId) deny('BAD_REQUEST', 'Thiếu member_id.', 400);
+  return getMyProfile({ ...reqUser, targetMemberId: String(memberId) });
+}
+
+async function patchMemberProfile(reqUser, memberId, rawBody = {}) {
+  if (!memberId) deny('BAD_REQUEST', 'Thiếu member_id.', 400);
+  return patchMyProfile({ ...reqUser, targetMemberId: String(memberId) }, rawBody);
+}
+
 module.exports = {
   resolveMemberActor,
   getMyProfile,
+  getMemberProfile,
   patchMyProfile,
+  patchMemberProfile,
   searchMyAddresses,
 };
