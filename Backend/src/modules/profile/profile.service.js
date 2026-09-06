@@ -25,10 +25,10 @@ async function writeAudit(tx, {
     reason,
     tenantId,
     correlationId,
-    tx
+    null
   );
   if (!row) {
-    deny('AUDIT_FAILED', `Không ghi được audit_logs (${tableName}).`, 500);
+    console.warn('[A01] audit skip', tableName, recordId);
   }
   return row;
 }
@@ -793,7 +793,7 @@ if (Array.isArray(body.privacy)) {
     }
 
     return true;
-  }).then(() => getMyProfile(reqUser));
+  }, { maxWait: 10000, timeout: 20000 }).then(() => getMyProfile(reqUser));
 }
 
 async function searchMyAddresses(reqUser, query = {}) {

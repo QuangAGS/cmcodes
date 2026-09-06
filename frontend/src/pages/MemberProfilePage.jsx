@@ -318,6 +318,11 @@ export default function MemberProfilePage() {
   const setField = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
   const alive = meta.is_alive !== false;
   const canEdit = meta.canEdit !== false;
+  useEffect(() => {
+    if (!canEdit && section === 'bio') setSection('bio_read');
+    if (!canEdit && section === 'ach') setSection('ach_read');
+    if (!canEdit && section === 'privacy') setSection('identity');
+  }, [canEdit, section]);
   const currentTitle = alive ? 'Nơi ở hiện tại' : 'Nơi ở cuối';
   const sectionMeta = useMemo(() => SECTIONS.find((s) => s.key === section) || SECTIONS[0], [section]);
   const sectionVoice = useMemo(() => {
@@ -666,7 +671,7 @@ export default function MemberProfilePage() {
                     </span>
                   ) : null}
                 </button>
-                {avatarUrl ? (
+                {avatarUrl && canEdit ? (
                   <button
                     type="button"
                     disabled={avatarBusy}
@@ -780,10 +785,10 @@ export default function MemberProfilePage() {
                     <ReadRow label="Địa chỉ" value={hasPlace(form.origin) ? formatAddressSummary(form.origin) : 'Chưa có'} />
                     <ReadRow label="Ghi chú" value={form.origin.notes || '—'} />
                   </dl>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
+                  {canEdit ? <div className="mt-2 grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      disabled={!canEdit || !hasPlace(form.origin)}
+                      disabled={!hasPlace(form.origin)}
                       onClick={() => goAddress('origin', 'edit')}
                       className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
                     >
@@ -794,7 +799,7 @@ export default function MemberProfilePage() {
                     ) : (
                       <span />
                     )}
-                  </div>
+                  </div> : null}
                 </div>
                 <div className="border-t border-slate-100 pt-3">
                   <p className="mb-1 text-sm font-black text-slate-800">{currentTitle}</p>
@@ -805,10 +810,10 @@ export default function MemberProfilePage() {
                     />
                     <ReadRow label="Ghi chú" value={form.current.notes || '—'} />
                   </dl>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
+                  {canEdit ? <div className="mt-2 grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      disabled={!canEdit || !hasPlace(form.current)}
+                      disabled={!hasPlace(form.current)}
                       onClick={() => goAddress('current', 'edit')}
                       className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
                     >
@@ -823,7 +828,7 @@ export default function MemberProfilePage() {
                         {hasPlace(form.current) ? 'Thay đổi' : 'Thêm nơi ở cuối'}
                       </button>
                     )}
-                  </div>
+                  </div> : null}
                 </div>
                 {!alive ? (
                 <div className="border-t border-slate-100 pt-3">
@@ -835,19 +840,19 @@ export default function MemberProfilePage() {
                     />
                     <ReadRow label="Ghi chú" value={form.resting?.notes || '—'} />
                   </dl>
-                  <div className="mt-2 grid grid-cols-2 gap-2">
+                  {canEdit ? <div className="mt-2 grid grid-cols-2 gap-2">
                     <button
                       type="button"
-                      disabled={!canEdit || !hasPlace(form.resting)}
+                      disabled={!hasPlace(form.resting)}
                       onClick={() => goAddress('resting', 'edit')}
                       className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
                     >
                       Sửa
                     </button>
-                    <button type="button" onClick={() => goAddress('resting', 'create')} disabled={!canEdit} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
+                    <button type="button" onClick={() => goAddress('resting', 'create')} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
                       {hasPlace(form.resting) ? 'Thay đổi' : 'Thêm nơi an nghỉ'}
                     </button>
-                  </div>
+                  </div> : null}
                 </div>
                 ) : null}
               </div>
@@ -981,12 +986,12 @@ export default function MemberProfilePage() {
                         addLabel="Thêm tư liệu"
                         proofs={bioFiles[it.key] || []}
                         busy={bioFileBusy}
-                        onAdd={() => {
+                        onAdd={canEdit ? () => {
                           writeProfileSection('bio');
                           writeBioTopic(it.key);
-                          if (!canEdit) return; navigate(`/me/profile/biography/${it.key}/file${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
-                        }}
-                        onRemove={async (p) => {
+                          navigate(`/me/profile/biography/${it.key}/file${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
+                        } : undefined}
+                        onRemove={canEdit ? async (p) => {
                           if (!window.confirm('Xóa tư liệu này khỏi chủ đề?')) return;
                           setBioFileBusy(true);
                           try {
@@ -998,7 +1003,7 @@ export default function MemberProfilePage() {
                           } finally {
                             setBioFileBusy(false);
                           }
-                        }}
+                        } : undefined}
                       />
                     </div>
                   );
@@ -1047,12 +1052,12 @@ export default function MemberProfilePage() {
                             addLabel="Thêm tư liệu"
                             proofs={bioFiles[it.key] || []}
                             busy={bioFileBusy}
-                            onAdd={() => {
+                            onAdd={canEdit ? () => {
                               writeProfileSection('bio_read');
                               writeBioTopic(it.key);
-                              if (!canEdit) return; navigate(`/me/profile/biography/${it.key}/file${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
-                            }}
-                            onRemove={async (p) => {
+                              navigate(`/me/profile/biography/${it.key}/file${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
+                            } : undefined}
+                            onRemove={canEdit ? async (p) => {
                               if (!window.confirm('Xóa tư liệu này khỏi chủ đề?')) return;
                               setBioFileBusy(true);
                               try {
@@ -1064,9 +1069,9 @@ export default function MemberProfilePage() {
                               } finally {
                                 setBioFileBusy(false);
                               }
-                            }}
+                            } : undefined}
                           />
-                          <button
+                          {canEdit ? <button
                             type="button"
                             className="w-full rounded-2xl border border-indigo-200 bg-white py-2 text-sm font-bold text-indigo-700"
                             onClick={() => {
@@ -1075,7 +1080,7 @@ export default function MemberProfilePage() {
                             }}
                           >
                             {text ? 'Sửa chủ đề này' : 'Nhập chủ đề này'}
-                          </button>
+                          </button> : null}
                         </div>
                       ) : null}
                     </div>
@@ -1085,7 +1090,7 @@ export default function MemberProfilePage() {
             ) : null}
 
 
-            {section === 'ach' ? (
+            {section === 'ach' && canEdit ? (
               <AchievementEditor
                 draft={achDraft}
                 setDraft={setAchDraft}
@@ -1153,15 +1158,15 @@ export default function MemberProfilePage() {
                 items={achievements}
                 openMap={achOpen}
                 setOpenMap={setAchOpen}
-                onCreate={() => {
+                onCreate={canEdit ? () => {
                   setAchDraft({ ...EMPTY_ACHIEVEMENT });
                   setSection('ach');
-                }}
-                onEdit={(row) => {
+                } : undefined}
+                onEdit={canEdit ? (row) => {
                   setAchDraft({ ...achievementFromApi(row), proofs: row.proofs || [] });
                   setSection('ach');
-                }}
-                onDelete={async (row) => {
+                } : undefined}
+                onDelete={canEdit ? async (row) => {
                   if (!window.confirm('Xóa thành tích này?')) return;
                   try {
                     await api.delete(`/me/achievements/${row.id}`);
@@ -1170,14 +1175,14 @@ export default function MemberProfilePage() {
                   } catch (e) {
                     toastSpeak('error', e.response?.data?.message || 'Không xóa được.');
                   }
-                }}
+                } : undefined}
                 proofBusyId={proofBusyId}
-                onAddProof={(row) => {
+                onAddProof={canEdit ? (row) => {
                   writeProfileSection('ach_read');
                   writeAchOpenId(row.id);
-                  if (!canEdit) return; navigate(`/me/profile/achievement/${row.id}/proof${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
-                }}
-                onRemoveProof={async (row, proof) => {
+                  navigate(`/me/profile/achievement/${row.id}/proof${routeMemberId ? `?member_id=${routeMemberId}` : ''}`);
+                } : undefined}
+                onRemoveProof={canEdit ? async (row, proof) => {
                   if (!window.confirm('Xóa minh chứng này?')) return;
                   setProofBusyId(row.id);
                   try {
@@ -1190,7 +1195,7 @@ export default function MemberProfilePage() {
                   } finally {
                     setProofBusyId(null);
                   }
-                }}
+                } : undefined}
               />
             ) : null}
 
@@ -1230,7 +1235,7 @@ export default function MemberProfilePage() {
                           >
                             Tải về
                           </button>
-                          <button
+                          {canEdit ? <button
                             type="button"
                             className="text-xs font-bold text-rose-600"
                             onClick={async () => {
@@ -1246,7 +1251,7 @@ export default function MemberProfilePage() {
                             }}
                           >
                             Xóa
-                          </button>
+                          </button> : null}
                         </div>
                       </li>
                     ))}
@@ -1304,10 +1309,10 @@ export default function MemberProfilePage() {
             ) : null}
           </section>
 
-          {section !== 'address' && section !== 'bio_read' && section !== 'ach' && section !== 'ach_read' && section !== 'docs' ? (
+          {canEdit && section !== 'address' && section !== 'bio_read' && section !== 'ach' && section !== 'ach_read' && section !== 'docs' ? (
             <button
               type="submit"
-              disabled={saving || !dirty || !canEdit}
+              disabled={saving || !dirty}
               className="rounded-2xl bg-indigo-600 py-4 text-base font-black text-white shadow-lg shadow-indigo-200 disabled:opacity-60"
             >
               {saving ? 'Đang lưu...' : dirty ? 'Lưu mục này' : 'Chưa có thay đổi'}

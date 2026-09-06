@@ -215,13 +215,13 @@ export function AchievementReader({ items, openMap, setOpenMap, onEdit, onCreate
     return (
       <div className="space-y-3">
         <p className="text-sm text-slate-500">Chưa có thành tích.</p>
-        <button type="button" onClick={onCreate} className="w-full rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">Thêm</button>
+        {onCreate ? <button type="button" onClick={onCreate} className="w-full rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">Thêm</button> : null}
       </div>
     );
   }
   return (
     <div className="space-y-2">
-      <button type="button" onClick={onCreate} className="w-full rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700">Thêm thành tích</button>
+      {onCreate ? <button type="button" onClick={onCreate} className="w-full rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700">Thêm thành tích</button> : null}
       {items.map((row) => {
         const open = !!openMap[row.id];
         return (
@@ -256,10 +256,12 @@ export function AchievementReader({ items, openMap, setOpenMap, onEdit, onCreate
                   onAdd={onAddProof ? () => onAddProof(row) : undefined}
                   onRemove={onRemoveProof ? (p) => onRemoveProof(row, p) : undefined}
                 />
+                {onEdit || onDelete ? (
                 <div className="grid grid-cols-2 gap-2">
-                  <button type="button" className="rounded-2xl border border-indigo-200 bg-white py-2 text-sm font-bold text-indigo-700" onClick={() => onEdit(row)}>Sửa</button>
-                  <button type="button" className="rounded-2xl border border-rose-200 bg-white py-2 text-sm font-bold text-rose-700" onClick={() => onDelete(row)}>Xóa</button>
+                  {onEdit ? <button type="button" className="rounded-2xl border border-indigo-200 bg-white py-2 text-sm font-bold text-indigo-700" onClick={() => onEdit(row)}>Sửa</button> : null}
+                  {onDelete ? <button type="button" className="rounded-2xl border border-rose-200 bg-white py-2 text-sm font-bold text-rose-700" onClick={() => onDelete(row)}>Xóa</button> : null}
                 </div>
+                ) : null}
               </div>
             ) : null}
           </div>
