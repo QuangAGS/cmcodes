@@ -42,6 +42,17 @@ async function canEditProfile(reqUser, targetMemberId) {
   if (!actor.userId) {
     return { ok: false, code: 'UNAUTHORIZED', reason: 'Thiếu phiên.' };
   }
+  if (!actor.role || !actor.tenantId) {
+    const u = await prisma.users.findFirst({
+      where: { id: actor.userId, deleted_at: null },
+      select: { role: true, tenant_id: true, member_id: true },
+    });
+    if (u) {
+      actor.role = actor.role || u.role;
+      actor.tenantId = actor.tenantId || u.tenant_id;
+      actor.memberId = actor.memberId || u.member_id;
+    }
+  }
   const member = await prisma.members.findFirst({
     where: { id: String(targetMemberId), deleted_at: null },
   });

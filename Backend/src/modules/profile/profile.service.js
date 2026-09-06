@@ -42,6 +42,11 @@ const MEMBER_PATCH = [
   'birth_day',
   'is_birth_lunar',
   'birth_note',
+  'death_year',
+  'death_month',
+  'death_day',
+  'is_death_lunar',
+  'death_note',
   'phone_number',
   'email',
   'social_profiles',
@@ -420,6 +425,11 @@ async function getMyProfile(reqUser) {
       social_profiles: row.social_profiles || {},
       is_alive: row.is_alive,
       generation: row.generation,
+      death_year: row.death_year,
+      death_month: row.death_month,
+      death_day: row.death_day,
+      is_death_lunar: row.is_death_lunar,
+      death_note: row.death_note,
     },
     biography: biography || null,
     origin_address: row.originAddress || null,
@@ -503,7 +513,7 @@ async function patchMyProfile(reqUser, rawBody = {}) {
   if (body.gender !== undefined) {
     deny('FIELD_LOCKED', 'Giới tính không tự sửa sau OP. Dùng đề xuất (G01).', 400);
   }
-  if (body.is_alive !== undefined || body.death_year !== undefined) {
+  if (body.is_alive !== undefined) {
     deny('FIELD_LOCKED', 'Tình trạng sống không thuộc A01.', 400);
   }
   if (body.users || body.user_phone || body.user_email) {
@@ -511,10 +521,17 @@ async function patchMyProfile(reqUser, rawBody = {}) {
   }
 
   const memberPatch = pick(body, MEMBER_PATCH);
+  if (member.is_alive !== false) {
+    delete memberPatch.death_year;
+    delete memberPatch.death_month;
+    delete memberPatch.death_day;
+    delete memberPatch.is_death_lunar;
+    delete memberPatch.death_note;
+  }
   if (memberPatch.social_profiles !== undefined) {
     memberPatch.social_profiles = normalizeSocial(memberPatch.social_profiles);
   }
-  for (const k of ['birth_year', 'birth_month', 'birth_day']) {
+  for (const k of ['birth_year', 'birth_month', 'birth_day', 'death_year', 'death_month', 'death_day']) {
     if (memberPatch[k] === '' || memberPatch[k] === undefined) continue;
     if (memberPatch[k] == null) {
       memberPatch[k] = null;

@@ -50,6 +50,11 @@ const EMPTY = {
   birth_day: '',
   is_birth_lunar: false,
   birth_note: '',
+  death_year: '',
+  death_month: '',
+  death_day: '',
+  is_death_lunar: true,
+  death_note: '',
   phone_number: '',
   email: '',
   zalo: '',
@@ -86,6 +91,7 @@ const EMPTY = {
 const SECTIONS = [
   { key: 'identity', label: 'Họ tên' },
   { key: 'birth', label: 'Ngày sinh' },
+  { key: 'death', label: 'Ngày mất / ngày giỗ' },
   { key: 'contact', label: 'Liên lạc' },
   { key: 'address', label: 'Địa chỉ' },
   { key: 'bio', label: 'Tiểu sử' },
@@ -238,6 +244,14 @@ function formatDob(form) {
   return form.is_birth_lunar ? `${s} (âm lịch)` : s;
 }
 
+function formatGio(form) {
+  const parts = [form.death_day, form.death_month, form.death_year].filter((x) => x !== '' && x != null);
+  if (!parts.length) return 'Chưa có ngày giỗ';
+  const text = [form.death_day, form.death_month, form.death_year].filter((x) => x !== '' && x != null).join('/');
+  const cal = form.is_death_lunar !== false ? 'âm lịch' : 'dương lịch';
+  return `Giỗ ${text} (${cal})`;
+}
+
 function initials(name) {
   const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return '?';
@@ -358,6 +372,7 @@ export default function MemberProfilePage() {
     const keys = {
       identity: ['full_name', 'alias', 'note'],
       birth: ['birth_year', 'birth_month', 'birth_day', 'is_birth_lunar', 'birth_note'],
+      death: ['death_year', 'death_month', 'death_day', 'is_death_lunar', 'death_note'],
       contact: ['phone_number', 'email', 'zalo', 'facebook', 'website'],
       bio: [
         ...BIO_TOPICS.map((t) => t.key),
@@ -420,6 +435,11 @@ export default function MemberProfilePage() {
           birth_day: m.birth_day ?? '',
           is_birth_lunar: !!m.is_birth_lunar,
           birth_note: m.birth_note || '',
+          death_year: m.death_year ?? '',
+          death_month: m.death_month ?? '',
+          death_day: m.death_day ?? '',
+          is_death_lunar: m.is_death_lunar !== false,
+          death_note: m.death_note || '',
           phone_number: m.phone_number || '',
           email: m.email || '',
           zalo: social.zalo || '',
@@ -460,7 +480,10 @@ export default function MemberProfilePage() {
           is_alive: m.is_alive !== false,
           generation: m.generation ?? null,
           memberId: m.id || null,
-          canEdit: d.can_edit !== false,
+          canEdit: d.can_edit === true
+            || user?.role === 'CLAN_ADMIN'
+            || user?.role === 'SYSTEM_ADMIN'
+            || (!routeMemberId && d.can_edit !== false),
         });
         const src = await resolveAvatarSrc(m.id, d.avatar?.url);
         if (!cancelled) setAvatarUrl(src);
@@ -517,6 +540,11 @@ export default function MemberProfilePage() {
         birth_day: form.birth_day === '' ? null : form.birth_day,
         is_birth_lunar: !!form.is_birth_lunar,
         birth_note: form.birth_note || null,
+        death_year: form.death_year === '' ? null : form.death_year,
+        death_month: form.death_month === '' ? null : form.death_month,
+        death_day: form.death_day === '' ? null : form.death_day,
+        is_death_lunar: form.is_death_lunar !== false,
+        death_note: form.death_note || null,
         phone_number: form.phone_number || null,
         email: form.email || null,
         social_profiles: {
@@ -694,8 +722,9 @@ export default function MemberProfilePage() {
                   Đời thứ: <span className="font-semibold">{meta.generation != null ? meta.generation : 'Chưa có'}</span>
                 </p>
                 {!alive ? (
-                  <p className="mt-2">
+                  <p className="mt-2 flex flex-wrap items-center gap-2">
                     <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-black text-white">Đã chết</span>
+                    <span className="text-sm font-semibold text-slate-700">{formatGio(form)}</span>
                   </p>
                 ) : null}
               </div>
@@ -733,6 +762,29 @@ export default function MemberProfilePage() {
                 </Field>
                 <Field label="Ghi chú ngắn">
                   <textarea className={inputCls} readOnly={!canEdit} rows={2} value={form.note} onChange={(e) => setField('note', e.target.value)} />
+                </Field>
+              </div>
+            ) : null}
+
+            {section === 'death' ? (
+              <div className="space-y-3">
+                <div className="grid grid-cols-3 gap-2">
+                  <Field label="Ngày">
+                    <input className={inputCls} readOnly={!canEdit} inputMode="numeric" value={form.death_day} onChange={(e) => setField('death_day', e.target.value)} />
+                  </Field>
+                  <Field label="Tháng">
+                    <input className={inputCls} readOnly={!canEdit} inputMode="numeric" value={form.death_month} onChange={(e) => setField('death_month', e.target.value)} />
+                  </Field>
+                  <Field label="Năm mất">
+                    <input className={inputCls} readOnly={!canEdit} inputMode="numeric" value={form.death_year} onChange={(e) => setField('death_year', e.target.value)} />
+                  </Field>
+                </div>
+                <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3 text-base font-semibold text-slate-700">
+                  <input type="checkbox" className="h-5 w-5" disabled={!canEdit} checked={form.is_death_lunar !== false} onChange={(e) => setField('is_death_lunar', e.target.checked)} />
+                  Ngày âm lịch (ngày giỗ)
+                </label>
+                <Field label="Ghi chú giỗ">
+                  <input className={inputCls} readOnly={!canEdit} value={form.death_note} onChange={(e) => setField('death_note', e.target.value)} />
                 </Field>
               </div>
             ) : null}
