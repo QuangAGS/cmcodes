@@ -240,7 +240,7 @@ async function resolveMemberActor(reqUser) {
     deny('TENANT_INACTIVE', 'Dòng họ chưa hoạt động.', 403);
   }
 
-  return { user, member, tenant };
+  return { user, member, tenant, self: true };
 }
 
 function pick(src, keys) {
@@ -377,7 +377,11 @@ async function upsertAddress(tx, tenantId, actorId, payload) {
 }
 
 async function getMyProfile(reqUser) {
-  const { user, member } = await resolveMemberActor(reqUser);
+  const { user, member, self } = await resolveMemberActor(reqUser);
+  const isSelf = self !== false;
+  const edit = isSelf
+    ? { ok: true, via: 'SELF' }
+    : await canEditProfile(reqUser, member.id);
 
   const row = await prisma.members.findFirst({
     where: { id: member.id, tenant_id: member.tenant_id, deleted_at: null },
@@ -435,10 +439,12 @@ async function getMyProfile(reqUser) {
       };
     })(),
     privacy,
-    login_contact_hint: null,
+    login_contact_hint: isSelf && !row.phone_number
+      ? 'Thêm số liên lạc vào hồ sơ dòng họ (không dùng số đăng nhập trừ khi bạn chọn).'
+      : null,
     actor: { user_id: user.id, member_id: member.id },
-    can_edit: false,
-    can_edit_via: null,
+    can_edit: !!edit.ok,
+    can_edit_via: edit.ok ? edit.via : null,
   };
 }
 
