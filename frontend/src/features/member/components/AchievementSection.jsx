@@ -1,9 +1,11 @@
 /**
  * PATH       : src/features/member/components/AchievementSection.jsx
- * DATETIME   : 2026-09-03T11:45:00+07:00
- * VERSION    : 1.1.0-A01-PROOF-P0
+ * DATETIME   : 2026-09-07T14:30:00+07:00
+ * VERSION    : 1.3.0-ACH-SIBLINGS
+ * DESCRIPTION: Cùng nhóm+chi tiết nhiều dòng → list rồi mới Sửa/Thêm.
  */
 
+import { useEffect, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx';
 import { MediaPeek, downloadMediaSafe } from '../../../lib/MediaPeek.jsx';
@@ -11,6 +13,7 @@ import { toastSpeak } from '../../../lib/toastSpeak.js';
 import {
   ACHIEVEMENT_CATEGORIES,
   EMPTY_ACHIEVEMENT,
+  achievementFromApi,
   achievementToPayload,
   categoryLabel,
   subLabel,
@@ -113,16 +116,50 @@ export function ProofStrip({ proofs = [], onAdd, onRemove, busy, title = 'Minh c
   );
 }
 
-export function AchievementEditor({ draft, setDraft, onSave, onCancel, saving, onAddProof, onRemoveProof, proofBusy }) {
+export function AchievementEditor({ draft, setDraft, items = [], onSave, onCancel, saving, onAddProof, onRemoveProof, proofBusy, onDelete }) {
   const subs = subsOfCategory(draft.category);
+  const [pickList, setPickList] = useState(false);
+
+  useEffect(() => {
+    if (draft.id || draft.title || draft.sub_category) return;
+    if (draft.category && draft.category !== 'KHOA_BANG') return;
+    setDraft({ ...EMPTY_ACHIEVEMENT, category: '', sub_category: '__pick__' });
+  }, []);
+
+  const catalogReady = draft.category && draft.sub_category !== '__pick__';
+
+  const siblings = (items || []).filter(
+    (x) => x.category === draft.category && String(x.sub_category || '') === String(draft.sub_category || ''),
+  );
+
+  function bindCatalog(category, sub_category) {
+    const sub = sub_category || '';
+    const hits = (items || []).filter(
+      (x) => x.category === category && String(x.sub_category || '') === sub,
+    );
+    setDraft({ ...EMPTY_ACHIEVEMENT, category, sub_category: sub });
+    setPickList(hits.length >= 1);
+  }
+
+  function openRow(row) {
+    setPickList(false);
+    setDraft({ ...achievementFromApi(row), proofs: row.proofs || [] });
+  }
+
+  function startCreate() {
+    setPickList(false);
+    setDraft({ ...EMPTY_ACHIEVEMENT, category: draft.category, sub_category: draft.sub_category || '' });
+  }
+
   return (
     <div className="space-y-3">
       <Field label="Nhóm">
         <select
           className={inputCls}
           value={draft.category}
-          onChange={(e) => setDraft({ ...draft, category: e.target.value, sub_category: '' })}
+          onChange={(e) => bindCatalog(e.target.value, '__pick__')}
         >
+          <option value="">Chọn nhóm</option>
           {ACHIEVEMENT_CATEGORIES.map((c) => (
             <option key={c.code} value={c.code}>{c.label}</option>
           ))}
@@ -132,14 +169,59 @@ export function AchievementEditor({ draft, setDraft, onSave, onCancel, saving, o
         <select
           className={inputCls}
           value={draft.sub_category}
-          onChange={(e) => setDraft({ ...draft, sub_category: e.target.value })}
+          disabled={!draft.category}
+          onChange={(e) => bindCatalog(draft.category, e.target.value)}
         >
-          <option value="">— Chưa phân loại —</option>
+          <option value="__pick__">Chọn chi tiết</option>
+          <option value="">Chưa phân loại</option>
           {subs.map((s) => (
             <option key={s.code} value={s.code}>{s.label}</option>
           ))}
         </select>
       </Field>
+      {!catalogReady ? null : pickList && siblings.length >= 1 ? (
+        <div className="space-y-2">
+          <p className="text-sm text-slate-600">
+            Có {siblings.length} mục cùng loại. Chọn một dòng để sửa hoặc thêm mới.
+          </p>
+          <ul className="space-y-2">
+            {siblings.map((row) => (
+              <li key={row.id} className="rounded-2xl border border-slate-200 bg-white px-3 py-3">
+                <p className="font-bold text-slate-800">{row.title || 'Không tiêu đề'}</p>
+                <p className="text-sm text-slate-500">
+                  {[row.issued_by, row.achieved_year].filter(Boolean).join(' · ') || '—'}
+                </p>
+                <div className="mt-2 flex gap-3">
+                  <button type="button" className="text-sm font-black text-indigo-700" onClick={() => openRow(row)}>
+                    Sửa
+                  </button>
+                  {onDelete ? (
+                    <button type="button" className="text-sm font-black text-rose-600" onClick={() => onDelete(row)}>
+                      Xóa
+                    </button>
+                  ) : null}
+                </div>
+              </li>
+            ))}
+          </ul>
+          <button type="button" onClick={startCreate} className="w-full rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
+            Thêm mục cùng loại
+          </button>
+        </div>
+      ) : (
+      <>
+      {siblings.length >= 1 && draft.id ? (
+        <button
+          type="button"
+          className="text-sm font-bold text-indigo-700"
+          onClick={() => {
+            setPickList(true);
+            setDraft({ ...EMPTY_ACHIEVEMENT, category: draft.category, sub_category: draft.sub_category || '' });
+          }}
+        >
+          Xem {siblings.length} mục cùng loại
+        </button>
+      ) : null}
       <Field label="Tiêu đề">
         <input className={inputCls} value={draft.title} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
       </Field>
@@ -206,6 +288,8 @@ export function AchievementEditor({ draft, setDraft, onSave, onCancel, saving, o
           {saving ? 'Đang lưu...' : draft.id ? 'Lưu sửa' : 'Thêm thành tích'}
         </button>
       </div>
+      </>
+      )}
     </div>
   );
 }

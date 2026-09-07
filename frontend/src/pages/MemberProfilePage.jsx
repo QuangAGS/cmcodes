@@ -1,8 +1,8 @@
 /**
  * PATH       : src/pages/MemberProfilePage.jsx
  * DATETIME   : 2026-09-07T11:25:00+07:00
- * VERSION    : 1.9.3-B1-B2
- * DESCRIPTION: B1 death không toast ảo khi còn sống. B2 Lưu bio giữ section=bio + topic.
+ * VERSION    : 1.9.5-ACH-SIBLINGS
+ * DESCRIPTION: Đổi nhóm/chi tiết thành tích nạp đúng dòng hoặc form trống.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -1204,6 +1204,18 @@ export default function MemberProfilePage() {
               <AchievementEditor
                 draft={achDraft}
                 setDraft={setAchDraft}
+                items={achievements}
+                onDelete={canEdit ? async (row) => {
+                  if (!window.confirm('Xóa thành tích này?')) return;
+                  try {
+                    await api.delete(`/me/achievements/${row.id}`);
+                    setAchievements((prev) => prev.filter((x) => x.id !== row.id));
+                    if (achDraft.id === row.id) setAchDraft({ ...EMPTY_ACHIEVEMENT, category: row.category, sub_category: row.sub_category || '' });
+                    toastSpeak('ok', 'Đã xóa thành tích.');
+                  } catch (e) {
+                    toastSpeak('error', e.response?.data?.message || 'Không xóa được.');
+                  }
+                } : undefined}
                 saving={savingAch}
                 proofBusy={proofBusyId === achDraft.id}
                 onAddProof={() => {
