@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/DocumentUploadPage.jsx
  * DATETIME   : 2026-09-03T19:50:00+07:00
- * VERSION    : 1.1.0-A01-DOCS-MEDIA
+ * VERSION    : 1.1.1-P0-section-url
  * DESCRIPTION: Upload tài liệu khác. Ảnh, PDF, Office, zip, mp3/wav, mp4/webm. Caption bắt buộc.
  */
 
@@ -48,7 +48,7 @@ export default function DocumentUploadPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const targetId = memberIdFromSearch(params);
-  const home = profileHome(targetId);
+  const home = profileHome(targetId, 'docs');
   const sessionTenant = resolveTenant(user);
   const footerNav = resolveFooterNav(user, {
     pageKey: 'public',

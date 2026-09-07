@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/BioFileUploadPage.jsx
  * DATETIME   : 2026-09-04T06:55:00+07:00
- * VERSION    : 1.0.0-A01-BIO-FILES
+ * VERSION    : 1.0.1-P0-section-url
  * DESCRIPTION: Trang con upload tư liệu tiểu sử theo chủ đề. Quay /me/profile.
  */
 
@@ -35,7 +35,7 @@ export default function BioFileUploadPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const targetId = memberIdFromSearch(params);
-  const home = profileHome(targetId);
+  const home = profileHome(targetId, 'bio_read');
   const { topic } = useParams();
   const sessionTenant = resolveTenant(user);
   const footerNav = resolveFooterNav(user, {

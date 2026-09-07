@@ -1,16 +1,16 @@
 /**
  * PATH       : src/lib/profileSection.js
- * DATETIME   : 2026-09-03T20:20:00+07:00
- * VERSION    : 1.0.0-M03
- * DESCRIPTION: Giữ mục đang mở trên /me/profile qua sessionStorage.
- *              Upload/địa chỉ quay lại không rơi về identity.
+ * DATETIME   : 2026-09-06T22:05:00+07:00
+ * VERSION    : 1.1.0-P0-3b-FE
+ * DESCRIPTION: Giữ mục đang mở qua sessionStorage.
+ *              Fallback rỗng = shell (chưa chọn mục). Trang con ghi mục trước khi về.
  */
 
 const SECTION_KEY = 'myclan.me.profile.section';
 const ACH_OPEN_KEY = 'myclan.me.profile.achOpen';
 const BIO_TOPIC_KEY = 'myclan.me.profile.bioTopic';
 
-export function readProfileSection(fallback = 'identity') {
+export function readProfileSection(fallback = '') {
   try {
     return sessionStorage.getItem(SECTION_KEY) || fallback;
   } catch (_) {
@@ -19,9 +19,9 @@ export function readProfileSection(fallback = 'identity') {
 }
 
 export function writeProfileSection(key) {
-  if (!key) return;
   try {
-    sessionStorage.setItem(SECTION_KEY, String(key));
+    if (!key) sessionStorage.removeItem(SECTION_KEY);
+    else sessionStorage.setItem(SECTION_KEY, String(key));
   } catch (_) {
     /* ignore */
   }

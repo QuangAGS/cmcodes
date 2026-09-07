@@ -1,12 +1,12 @@
 /**
  * PATH       : src/pages/MemberProfilePage.jsx
- * DATETIME   : 2026-08-29T18:00:00+07:00
- * VERSION    : 1.9.0-M12H-TARGET
- * DESCRIPTION: /me/profile hoặc /members/:id/profile. Cùng UI. Target theo URL.
+ * DATETIME   : 2026-09-07T11:25:00+07:00
+ * VERSION    : 1.9.3-B1-B2
+ * DESCRIPTION: B1 death không toast ảo khi còn sống. B2 Lưu bio giữ section=bio + topic.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
@@ -101,6 +101,13 @@ const SECTIONS = [
   { key: 'docs', label: 'Tài liệu khác' },
   { key: 'privacy', label: 'Ai được xem' },
 ];
+
+const SECTION_KEYS = new Set(SECTIONS.map((s) => s.key));
+
+function parseSectionParam(raw) {
+  const v = String(raw || '').trim();
+  return SECTION_KEYS.has(v) ? v : '';
+}
 
 const BIO_TOPICS = [
   { key: 'childhood_summary', label: 'Thiếu thời', voice: 'Thiếu thời.', max: null },
@@ -263,6 +270,7 @@ export default function MemberProfilePage() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const { id: routeMemberId } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const memberQs = routeMemberId ? { member_id: routeMemberId } : {};
   const profilePath = routeMemberId ? `/members/${routeMemberId}/profile` : '/me/profile';
   const api = {
@@ -296,7 +304,15 @@ export default function MemberProfilePage() {
   const [headerLogo, setHeaderLogo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [section, setSection] = useState(() => readProfileSection('identity'));
+  const [section, setSection] = useState(() => {
+    const fromUrl = parseSectionParam(
+      typeof window !== 'undefined'
+        ? new URLSearchParams(window.location.search).get('section')
+        : '',
+    );
+    if (fromUrl) return fromUrl;
+    return readProfileSection('');
+  });
   const [privacyGroup, setPrivacyGroup] = useState('CONTACT');
   const [bioTopic, setBioTopic] = useState(() => readBioTopic('childhood_summary'));
   const [bioFiles, setBioFiles] = useState({});
@@ -323,7 +339,13 @@ export default function MemberProfilePage() {
 
   useEffect(() => {
     writeProfileSection(section);
-  }, [section]);
+    const urlSection = parseSectionParam(searchParams.get('section'));
+    if (urlSection === (section || '')) return;
+    const next = new URLSearchParams(searchParams);
+    if (section) next.set('section', section);
+    else next.delete('section');
+    setSearchParams(next, { replace: true });
+  }, [section, searchParams, setSearchParams]);
 
   useEffect(() => {
     writeBioTopic(bioTopic);
@@ -332,14 +354,19 @@ export default function MemberProfilePage() {
   const setField = (k, v) => setForm((prev) => ({ ...prev, [k]: v }));
   const alive = meta.is_alive !== false;
   const canEdit = meta.canEdit !== false;
+  const canEditDeath = canEdit && !alive;
   useEffect(() => {
     if (!canEdit && section === 'bio') setSection('bio_read');
     if (!canEdit && section === 'ach') setSection('ach_read');
     if (!canEdit && section === 'privacy') setSection('identity');
   }, [canEdit, section]);
   const currentTitle = alive ? 'Nơi ở hiện tại' : 'Nơi ở cuối';
-  const sectionMeta = useMemo(() => SECTIONS.find((s) => s.key === section) || SECTIONS[0], [section]);
+  const sectionMeta = useMemo(
+    () => SECTIONS.find((s) => s.key === section) || { key: '', label: 'Chọn mục hồ sơ' },
+    [section],
+  );
   const sectionVoice = useMemo(() => {
+    if (!section) return PROFILE_PAGE_HELP;
     if (section === 'bio_read') {
       return BIO_TOPICS.map((it) => {
         const body = it.kind === 'blood'
@@ -494,27 +521,6 @@ export default function MemberProfilePage() {
             if (!cancelled && readUrl) setHeaderLogo(readUrl);
           }
         } catch (_) { /* logo header */ }
-        try {
-          const ach = await api.get('/me/achievements');
-          if (!cancelled) setAchievements(ach.data?.data?.items || []);
-        } catch {
-          if (!cancelled) setAchievements([]);
-        }
-        try {
-          const docRes = await api.get('/me/documents');
-          if (!cancelled) {
-            setDocs(docRes.data?.data?.items || []);
-            setDocsUsed(docRes.data?.data?.used_bytes || 0);
-          }
-        } catch {
-          if (!cancelled) setDocs([]);
-        }
-        try {
-          const bioRes = await api.get('/me/biography/files');
-          if (!cancelled) setBioFiles(bioRes.data?.data?.items || {});
-        } catch {
-          if (!cancelled) setBioFiles({});
-        }
       } catch (e) {
         toastSpeak('error', e.response?.data?.message || 'Không tải được hồ sơ.');
       } finally {
@@ -526,11 +532,61 @@ export default function MemberProfilePage() {
     };
   }, [routeMemberId]);
 
+  useEffect(() => {
+    if (!section) return undefined;
+    let cancelled = false;
+    (async () => {
+      if (section === 'ach' || section === 'ach_read') {
+        try {
+          const ach = await api.get('/me/achievements');
+          if (!cancelled) setAchievements(ach.data?.data?.items || []);
+        } catch {
+          if (!cancelled) setAchievements([]);
+        }
+      }
+      if (section === 'docs') {
+        try {
+          const docRes = await api.get('/me/documents');
+          if (!cancelled) {
+            setDocs(docRes.data?.data?.items || []);
+            setDocsUsed(docRes.data?.data?.used_bytes || 0);
+          }
+        } catch {
+          if (!cancelled) setDocs([]);
+        }
+      }
+      if (section === 'bio' || section === 'bio_read') {
+        try {
+          const bioRes = await api.get('/me/biography/files');
+          if (!cancelled) setBioFiles(bioRes.data?.data?.items || {});
+        } catch {
+          if (!cancelled) setBioFiles({});
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [section, routeMemberId]);
+
   async function onSubmit(ev) {
     ev.preventDefault();
     if (!canEdit || !dirty) return;
+    if (section === 'death' && alive) {
+      toastSpeak('error', 'Ngày mất chỉ ghi khi thành viên đã được đánh dấu đã mất (quản trị).');
+      return;
+    }
     setSaving(true);
     try {
+      const deathFields = alive
+        ? {}
+        : {
+            death_year: form.death_year === '' ? null : form.death_year,
+            death_month: form.death_month === '' ? null : form.death_month,
+            death_day: form.death_day === '' ? null : form.death_day,
+            is_death_lunar: form.is_death_lunar !== false,
+            death_note: form.death_note || null,
+          };
       await api.patch(profilePath, {
         full_name: form.full_name,
         alias: form.alias || null,
@@ -540,11 +596,7 @@ export default function MemberProfilePage() {
         birth_day: form.birth_day === '' ? null : form.birth_day,
         is_birth_lunar: !!form.is_birth_lunar,
         birth_note: form.birth_note || null,
-        death_year: form.death_year === '' ? null : form.death_year,
-        death_month: form.death_month === '' ? null : form.death_month,
-        death_day: form.death_day === '' ? null : form.death_day,
-        is_death_lunar: form.is_death_lunar !== false,
-        death_note: form.death_note || null,
+        ...deathFields,
         phone_number: form.phone_number || null,
         email: form.email || null,
         social_profiles: {
@@ -573,9 +625,8 @@ export default function MemberProfilePage() {
           visibility: form[`privacy_${it.key}`],
         })),
       });
-      toastSpeak('ok', 'Đã lưu hồ sơ dòng họ.');
+      toastSpeak('ok', 'Đã lưu mục này.');
       setSavedForm(form);
-      if (section === 'bio') setSection('bio_read');
     } catch (e) {
       toastSpeak('error', e.response?.data?.message || 'Không lưu được hồ sơ.');
     } finally {
@@ -740,12 +791,14 @@ export default function MemberProfilePage() {
           <label className="block">
             <span className="mb-1 block text-sm font-bold text-slate-700">Mục hồ sơ</span>
             <select className={inputCls} value={section} onChange={(e) => setSection(e.target.value)}>
+              <option value="">Chọn mục hồ sơ</option>
               {SECTIONS.map((s) => (
                 <option key={s.key} value={s.key}>{s.label}</option>
               ))}
             </select>
           </label>
 
+          {section ? (
           <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-3 flex items-center gap-2">
               <h2 className="flex-1 text-base font-black text-slate-800">{sectionMeta.label}</h2>
@@ -768,23 +821,28 @@ export default function MemberProfilePage() {
 
             {section === 'death' ? (
               <div className="space-y-3">
+                {alive ? (
+                  <p className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    Thành viên còn sống. Ngày mất / ngày giỗ chỉ ghi sau khi quản trị đánh dấu đã mất.
+                  </p>
+                ) : null}
                 <div className="grid grid-cols-3 gap-2">
                   <Field label="Ngày">
-                    <input className={inputCls} readOnly={!canEdit} inputMode="numeric" value={form.death_day} onChange={(e) => setField('death_day', e.target.value)} />
+                    <input className={inputCls} readOnly={!canEditDeath} inputMode="numeric" value={form.death_day} onChange={(e) => setField('death_day', e.target.value)} />
                   </Field>
                   <Field label="Tháng">
-                    <input className={inputCls} readOnly={!canEdit} inputMode="numeric" value={form.death_month} onChange={(e) => setField('death_month', e.target.value)} />
+                    <input className={inputCls} readOnly={!canEditDeath} inputMode="numeric" value={form.death_month} onChange={(e) => setField('death_month', e.target.value)} />
                   </Field>
                   <Field label="Năm mất">
-                    <input className={inputCls} readOnly={!canEdit} inputMode="numeric" value={form.death_year} onChange={(e) => setField('death_year', e.target.value)} />
+                    <input className={inputCls} readOnly={!canEditDeath} inputMode="numeric" value={form.death_year} onChange={(e) => setField('death_year', e.target.value)} />
                   </Field>
                 </div>
                 <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3 text-base font-semibold text-slate-700">
-                  <input type="checkbox" className="h-5 w-5" disabled={!canEdit} checked={form.is_death_lunar !== false} onChange={(e) => setField('is_death_lunar', e.target.checked)} />
+                  <input type="checkbox" className="h-5 w-5" disabled={!canEditDeath} checked={form.is_death_lunar !== false} onChange={(e) => setField('is_death_lunar', e.target.checked)} />
                   Ngày âm lịch (ngày giỗ)
                 </label>
                 <Field label="Ghi chú giỗ">
-                  <input className={inputCls} readOnly={!canEdit} value={form.death_note} onChange={(e) => setField('death_note', e.target.value)} />
+                  <input className={inputCls} readOnly={!canEditDeath} value={form.death_note} onChange={(e) => setField('death_note', e.target.value)} />
                 </Field>
               </div>
             ) : null}
@@ -1360,8 +1418,9 @@ export default function MemberProfilePage() {
               </div>
             ) : null}
           </section>
+          ) : null}
 
-          {canEdit && section !== 'address' && section !== 'bio_read' && section !== 'ach' && section !== 'ach_read' && section !== 'docs' ? (
+          {canEdit && section && section !== 'address' && section !== 'bio_read' && section !== 'ach' && section !== 'ach_read' && section !== 'docs' && !(section === 'death' && alive) ? (
             <button
               type="submit"
               disabled={saving || !dirty}

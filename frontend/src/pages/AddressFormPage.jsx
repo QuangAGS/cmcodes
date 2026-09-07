@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/AddressFormPage.jsx
  * DATETIME   : 2026-08-29T16:40:00+07:00
- * VERSION    : 1.1.0-A01-ADDR2
+ * VERSION    : 1.1.1-P0-section-url
  * DESCRIPTION: Trang con tạo/sửa chỗ. usage=origin|current.
  */
 
@@ -33,7 +33,7 @@ export default function AddressFormPage() {
   const rawUsage = params.get('usage');
   const usage = rawUsage === 'current' || rawUsage === 'resting' ? rawUsage : 'origin';
   const targetId = memberIdFromSearch(params);
-  const home = profileHome(targetId);
+  const home = profileHome(targetId, 'address');
   const apiPath = profileApi(targetId);
 
   const mode = params.get('mode') === 'edit' ? 'edit' : 'create';

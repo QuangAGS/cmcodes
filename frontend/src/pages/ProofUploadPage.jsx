@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/ProofUploadPage.jsx
  * DATETIME   : 2026-09-03T14:00:00+07:00
- * VERSION    : 1.0.0-A01-PROOF-FORM
+ * VERSION    : 1.0.1-P0-section-url
  * DESCRIPTION: Trang con upload minh chứng thành tích. Quay /me/profile.
  */
 
@@ -23,7 +23,7 @@ export default function ProofUploadPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const targetId = memberIdFromSearch(params);
-  const home = profileHome(targetId);
+  const home = profileHome(targetId, 'ach_read');
   const { id } = useParams();
   const sessionTenant = resolveTenant(user);
   const footerNav = resolveFooterNav(user, {
