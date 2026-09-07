@@ -1,8 +1,8 @@
 /**
  * PATH       : src/pages/MemberProfilePage.jsx
  * DATETIME   : 2026-09-07T11:25:00+07:00
- * VERSION    : 1.9.7-BIO-PICK
- * DESCRIPTION: Bio chọn chủ đề rồi mới hiện form. Lưu/F5 giữ topic.
+ * VERSION    : 1.9.8b-P0-2.3
+ * DESCRIPTION: 2.3 — đổi mục: T2 luôn; T1 nếu không dirty. Không reload avatar khi đổi mục.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -336,6 +336,8 @@ export default function MemberProfilePage() {
   const [avatarUrl, setAvatarUrl] = useState(null);
   const [avatarBusy, setAvatarBusy] = useState(false);
   const [cropFile, setCropFile] = useState(null);
+  const dirtyRef = useRef(false);
+  const t0DoneRef = useRef(false);
 
   useEffect(() => {
     writeProfileSection(section);
@@ -410,6 +412,7 @@ export default function MemberProfilePage() {
     }[section] || [];
     return keys.some((k) => String(form[k] ?? '') !== String(savedForm[k] ?? ''));
   }, [form, savedForm, section]);
+  dirtyRef.current = dirty;
 
   async function resolveAvatarSrc(memberId, hint) {
     if (isHttpUrl(hint)) return hint;
@@ -514,6 +517,7 @@ export default function MemberProfilePage() {
         });
         const src = await resolveAvatarSrc(m.id, d.avatar?.url);
         if (!cancelled) setAvatarUrl(src);
+        t0DoneRef.current = true;
         try {
           const tid = sessionTenant.id;
           if (tid) {
