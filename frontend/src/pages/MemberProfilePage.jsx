@@ -1,8 +1,8 @@
 /**
  * PATH       : src/pages/MemberProfilePage.jsx
  * DATETIME   : 2026-09-07T11:25:00+07:00
- * VERSION    : 1.9.5-ACH-SIBLINGS
- * DESCRIPTION: Đổi nhóm/chi tiết thành tích nạp đúng dòng hoặc form trống.
+ * VERSION    : 1.9.7-BIO-PICK
+ * DESCRIPTION: Bio chọn chủ đề rồi mới hiện form. Lưu/F5 giữ topic.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -314,7 +314,7 @@ export default function MemberProfilePage() {
     return readProfileSection('');
   });
   const [privacyGroup, setPrivacyGroup] = useState('CONTACT');
-  const [bioTopic, setBioTopic] = useState(() => readBioTopic('childhood_summary'));
+  const [bioTopic, setBioTopic] = useState(() => readBioTopic(''));
   const [bioFiles, setBioFiles] = useState({});
   const [bioFileBusy, setBioFileBusy] = useState(false);
   const [bioOpen, setBioOpen] = useState(() => {
@@ -971,7 +971,8 @@ export default function MemberProfilePage() {
             {section === 'bio' ? (
               <div className="space-y-3">
                 <Field label="Chủ đề tiểu sử">
-                  <select className={inputCls} disabled={!canEdit} value={bioTopic} onChange={(e) => setBioTopic(e.target.value)}>
+                  <select className={inputCls} value={bioTopic} onChange={(e) => setBioTopic(e.target.value)}>
+                    <option value="">Chọn chủ đề</option>
                     {BIO_TOPICS.map((it) => (
                       <option key={it.key} value={it.key}>{it.label}</option>
                     ))}
@@ -1247,7 +1248,7 @@ export default function MemberProfilePage() {
                 onSave={async (payload) => {
                   if (!payload.title || !payload.achieved_year) {
                     toastSpeak('error', 'Cần tiêu đề và năm.');
-                    return;
+                    return false;
                   }
                   setSavingAch(true);
                   try {
@@ -1261,13 +1262,15 @@ export default function MemberProfilePage() {
                     const ach = await api.get('/me/achievements');
                     const items = ach.data?.data?.items || [];
                     setAchievements(items);
-                    const keepId = achDraft.id;
-                    const next = keepId
-                      ? items.find((x) => x.id === keepId)
-                      : items[0];
-                    if (next) setAchDraft({ ...achievementFromApi(next), proofs: next.proofs || [] });
+                    setAchDraft({
+                      ...EMPTY_ACHIEVEMENT,
+                      category: payload.category || achDraft.category,
+                      sub_category: payload.sub_category || achDraft.sub_category || '',
+                    });
+                    return true;
                   } catch (e) {
                     toastSpeak('error', e.response?.data?.message || 'Không lưu được thành tích.');
+                    return false;
                   } finally {
                     setSavingAch(false);
                   }
@@ -1432,7 +1435,7 @@ export default function MemberProfilePage() {
           </section>
           ) : null}
 
-          {canEdit && section && section !== 'address' && section !== 'bio_read' && section !== 'ach' && section !== 'ach_read' && section !== 'docs' && !(section === 'death' && alive) ? (
+          {canEdit && section && section !== 'address' && section !== 'bio_read' && section !== 'ach' && section !== 'ach_read' && section !== 'docs' && !(section === 'death' && alive) && !(section === 'bio' && !bioTopic) ? (
             <button
               type="submit"
               disabled={saving || !dirty}

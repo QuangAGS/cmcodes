@@ -1,8 +1,8 @@
 /**
  * PATH       : src/features/member/components/AchievementSection.jsx
  * DATETIME   : 2026-09-07T14:30:00+07:00
- * VERSION    : 1.3.0-ACH-SIBLINGS
- * DESCRIPTION: Cùng nhóm+chi tiết nhiều dòng → list rồi mới Sửa/Thêm.
+ * VERSION    : 1.4.0-ACH-KEEP-DETAIL
+ * DESCRIPTION: Giữ nhóm/chi tiết sau Lưu và F5. ≥1 dòng luôn list.
  */
 
 import { useEffect, useState } from 'react';
@@ -19,6 +19,7 @@ import {
   subLabel,
   subsOfCategory,
 } from '../constants/achievementCatalog.js';
+import { readAchCatalog, writeAchCatalog } from '../../../lib/profileSection.js';
 
 const inputCls =
   'w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-medium outline-none focus:border-indigo-400';
@@ -119,9 +120,21 @@ export function ProofStrip({ proofs = [], onAdd, onRemove, busy, title = 'Minh c
 export function AchievementEditor({ draft, setDraft, items = [], onSave, onCancel, saving, onAddProof, onRemoveProof, proofBusy, onDelete }) {
   const subs = subsOfCategory(draft.category);
   const [pickList, setPickList] = useState(false);
+  const [creating, setCreating] = useState(false);
 
   useEffect(() => {
-    if (draft.id || draft.title || draft.sub_category) return;
+    const saved = readAchCatalog();
+    if (draft.id || draft.title) return;
+    if (saved.category && saved.sub_category !== '__pick__') {
+      setDraft({
+        ...EMPTY_ACHIEVEMENT,
+        category: saved.category,
+        sub_category: saved.sub_category || '',
+      });
+      setPickList(true);
+      return;
+    }
+    if (draft.sub_category && draft.sub_category !== '__pick__') return;
     if (draft.category && draft.category !== 'KHOA_BANG') return;
     setDraft({ ...EMPTY_ACHIEVEMENT, category: '', sub_category: '__pick__' });
   }, []);
@@ -138,17 +151,23 @@ export function AchievementEditor({ draft, setDraft, items = [], onSave, onCance
       (x) => x.category === category && String(x.sub_category || '') === sub,
     );
     setDraft({ ...EMPTY_ACHIEVEMENT, category, sub_category: sub });
-    setPickList(hits.length >= 1);
+    setCreating(false);
+    if (category && sub !== '__pick__') writeAchCatalog(category, sub);
+    else writeAchCatalog('', '');
+    setPickList(sub !== '__pick__' && !!category && hits.length >= 1);
   }
 
   function openRow(row) {
+    setCreating(false);
     setPickList(false);
     setDraft({ ...achievementFromApi(row), proofs: row.proofs || [] });
+    writeAchCatalog(row.category, row.sub_category || '');
   }
 
   function startCreate() {
+    setCreating(true);
     setPickList(false);
-    setDraft({ ...EMPTY_ACHIEVEMENT, category: draft.category, sub_category: draft.sub_category || '' });
+    setDraft({ ...EMPTY_ACHIEVEMENT, category: draft.category, sub_category: draft.sub_category === '__pick__' ? '' : (draft.sub_category || '') });
   }
 
   return (
@@ -284,7 +303,20 @@ export function AchievementEditor({ draft, setDraft, items = [], onSave, onCance
         ) : (
           <span />
         )}
-        <button type="button" disabled={saving} onClick={() => onSave(achievementToPayload(draft))} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white disabled:opacity-60">
+        <button
+          type="button"
+          disabled={saving}
+          onClick={async () => {
+            const payload = achievementToPayload(draft);
+            writeAchCatalog(payload.category, payload.sub_category || '');
+            const ok = await onSave(payload);
+            if (ok === false) return;
+            setCreating(false);
+            setPickList(true);
+            setDraft({ ...EMPTY_ACHIEVEMENT, category: payload.category, sub_category: payload.sub_category || '' });
+          }}
+          className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white disabled:opacity-60"
+        >
           {saving ? 'Đang lưu...' : draft.id ? 'Lưu sửa' : 'Thêm thành tích'}
         </button>
       </div>
