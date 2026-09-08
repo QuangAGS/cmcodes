@@ -1,7 +1,7 @@
 /**
  * PATH       : src/features/member/components/AchievementSection.jsx
  * DATETIME   : 2026-09-07T14:30:00+07:00
- * VERSION    : 1.4.0-ACH-KEEP-DETAIL
+ * VERSION    : 1.5.0-ACH-SLIM
  * DESCRIPTION: Giữ nhóm/chi tiết sau Lưu và F5. ≥1 dòng luôn list.
  */
 
@@ -117,7 +117,7 @@ export function ProofStrip({ proofs = [], onAdd, onRemove, busy, title = 'Minh c
   );
 }
 
-export function AchievementEditor({ draft, setDraft, items = [], onSave, onCancel, saving, onAddProof, onRemoveProof, proofBusy, onDelete }) {
+export function AchievementEditor({ draft, setDraft, items = [], onSave, onCancel, saving, onAddProof, onRemoveProof, proofBusy, onDelete, onHydrate }) {
   const subs = subsOfCategory(draft.category);
   const [pickList, setPickList] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -157,11 +157,15 @@ export function AchievementEditor({ draft, setDraft, items = [], onSave, onCance
     setPickList(sub !== '__pick__' && !!category && hits.length >= 1);
   }
 
-  function openRow(row) {
+  async function openRow(row) {
     setCreating(false);
     setPickList(false);
-    setDraft({ ...achievementFromApi(row), proofs: row.proofs || [] });
     writeAchCatalog(row.category, row.sub_category || '');
+    let full = row;
+    if (onHydrate) {
+      try { full = await onHydrate(row); } catch (_) { full = row; }
+    }
+    setDraft({ ...achievementFromApi(full), proofs: full.proofs || [] });
   }
 
   function startCreate() {
@@ -326,7 +330,7 @@ export function AchievementEditor({ draft, setDraft, items = [], onSave, onCance
   );
 }
 
-export function AchievementReader({ items, openMap, setOpenMap, onEdit, onCreate, onDelete, onAddProof, onRemoveProof, proofBusyId }) {
+export function AchievementReader({ items, openMap, setOpenMap, onEdit, onCreate, onDelete, onAddProof, onRemoveProof, proofBusyId, onHydrate }) {
   if (!items.length) {
     return (
       <div className="space-y-3">
@@ -346,7 +350,13 @@ export function AchievementReader({ items, openMap, setOpenMap, onEdit, onCreate
               <button
                 type="button"
                 className="flex min-w-0 flex-1 items-center gap-2 text-left"
-                onClick={() => setOpenMap((prev) => ({ ...prev, [row.id]: !prev[row.id] }))}
+                onClick={async () => {
+                  const nextOpen = !openMap[row.id];
+                  setOpenMap((prev) => ({ ...prev, [row.id]: nextOpen }));
+                  if (nextOpen && onHydrate && !(row.proofs || []).length) {
+                    try { await onHydrate(row); } catch (_) { /* list gầy */ }
+                  }
+                }}
               >
                 <span className="flex-1 truncate text-sm font-black text-slate-800">{row.title || 'Không tên'}</span>
                 {open ? <ChevronUp className="h-4 w-4 shrink-0 text-slate-400" /> : <ChevronDown className="h-4 w-4 shrink-0 text-slate-400" />}

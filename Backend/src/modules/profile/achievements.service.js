@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/profile/achievements.service.js
  * DATETIME   : 2026-09-03T14:25:00+07:00
- * VERSION    : 1.2.1-A01-PROOF-ALS
+ * VERSION    : 1.3.0-LIST-SLIM
  * DESCRIPTION: Thành tích + proof CERTIFICATE. ALS trước resolveMemberActor.
  */
 
@@ -204,12 +204,20 @@ async function listMine(reqUser) {
       orderBy: [{ achieved_year: 'desc' }, { sort_order: 'asc' }, { created_at: 'desc' }],
       select: SELECT,
     });
-    const actor = mediaActor(user, member);
-    const out = [];
-    for (const row of items) {
-      out.push({ ...row, proofs: await loadProofs(actor, row.id) });
-    }
-    return { items: out };
+    return { items: items.map((row) => ({ ...row, proofs: [] })) };
+  });
+}
+
+async function getMine(reqUser, id) {
+  return withAls(reqUser, async () => {
+    const { user, member } = await resolveMemberActor(reqUser);
+    const row = await prisma.achievements.findFirst({
+      where: { id: String(id), member_id: member.id, tenant_id: member.tenant_id, deleted_at: null },
+      select: SELECT,
+    });
+    if (!row) deny('NOT_FOUND', 'Không tìm thấy thành tích.', 404);
+    const proofs = await loadProofs(mediaActor(user, member), row.id);
+    return { item: { ...row, proofs } };
   });
 }
 
@@ -458,6 +466,7 @@ async function removeProof(reqUser, achievementId, mediaId) {
 
 module.exports = {
   listMine,
+  getMine,
   createMine,
   updateMine,
   removeMine,

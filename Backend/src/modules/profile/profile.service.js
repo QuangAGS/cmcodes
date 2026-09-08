@@ -1,8 +1,8 @@
 /**
  * PATH       : src/modules/profile/profile.service.js
  * DATETIME   : 2026-09-01T17:10:00+07:00
- * VERSION    : 1.4.0-BFA-222-AUDIT
- * DESCRIPTION: A01 audit_logs cùng TX + correlation với BPL. Unwrap body. A01_DEBUG.
+ * VERSION    : 1.5.0-GET-SECTION
+ * DESCRIPTION: Actor select is_alive. Không strip death_* khi đã mất.
  */
 
 'use strict';
@@ -219,7 +219,12 @@ async function resolveMemberActor(reqUser) {
     }
     return {
       user,
-      member: { id: access.member.id, tenant_id: access.member.tenant_id, status: access.member.status },
+      member: {
+        id: access.member.id,
+        tenant_id: access.member.tenant_id,
+        status: access.member.status,
+        is_alive: access.member.is_alive,
+      },
       tenant: { id: access.member.tenant_id, status: 'HOAT_DONG' },
       self: false,
     };
@@ -231,7 +236,7 @@ async function resolveMemberActor(reqUser) {
 
   const member = await prisma.members.findFirst({
     where: { id: user.member_id, tenant_id: user.tenant_id, deleted_at: null },
-    select: { id: true, tenant_id: true, status: true },
+    select: { id: true, tenant_id: true, status: true, is_alive: true },
   });
   if (!member || member.status !== 'CHINH_THUC') {
     deny('NOT_MEMBER_ACTOR', 'Thành viên chưa chính thức.', 403);
@@ -381,26 +386,33 @@ async function upsertAddress(tx, tenantId, actorId, payload) {
   });
 }
 
-async function getMyProfile(reqUser) {
+async function getMyProfile(reqUser, section = '') {
   const { user, member, self } = await resolveMemberActor(reqUser);
   const isSelf = self !== false;
   const edit = isSelf
     ? { ok: true, via: 'SELF' }
     : await canEditProfile(reqUser, member.id);
+  const sec = String(section || '').trim();
+  const needBio = sec === 'bio' || sec === 'bio_read';
+  const needAddr = sec === 'address';
 
   const row = await prisma.members.findFirst({
     where: { id: member.id, tenant_id: member.tenant_id, deleted_at: null },
-    include: {
-      currentAddress: true,
-      originAddress: true,
-      graves: { include: { addresses: true, cemetery: true } },
-    },
+    include: needAddr
+      ? {
+          currentAddress: true,
+          originAddress: true,
+          graves: { include: { addresses: true, cemetery: true } },
+        }
+      : undefined,
   });
 
-  const biography = await prisma.biographies.findFirst({
-    where: { member_id: member.id, tenant_id: member.tenant_id, deleted_at: null },
-    orderBy: { updated_at: 'desc' },
-  });
+  const biography = needBio
+    ? await prisma.biographies.findFirst({
+        where: { member_id: member.id, tenant_id: member.tenant_id, deleted_at: null },
+        orderBy: { updated_at: 'desc' },
+      })
+    : null;
 
   const privacyRows = await prisma.member_privacy_rules.findMany({
     where: { member_id: member.id, tenant_id: member.tenant_id, deleted_at: null },
@@ -432,8 +444,8 @@ async function getMyProfile(reqUser) {
       death_note: row.death_note,
     },
     biography: biography || null,
-    origin_address: row.originAddress || null,
-    current_address: row.currentAddress || null,
+    origin_address: needAddr ? (row.originAddress || null) : null,
+    current_address: needAddr ? (row.currentAddress || null) : null,
     resting_address: (function () {
       const g = Array.isArray(row.graves) ? row.graves[0] : row.graves;
       return (g && g.addresses) || null;
@@ -867,9 +879,9 @@ async function searchMyAddresses(reqUser, query = {}) {
 }
 
 
-async function getMemberProfile(reqUser, memberId) {
+async function getMemberProfile(reqUser, memberId, section = '') {
   if (!memberId) deny('BAD_REQUEST', 'Thiếu member_id.', 400);
-  const data = await getMyProfile({ ...reqUser, targetMemberId: String(memberId), viewOnly: true });
+  const data = await getMyProfile({ ...reqUser, targetMemberId: String(memberId), viewOnly: true }, section);
   const edit = await canEditProfile(reqUser, memberId);
   data.can_edit = !!edit.ok;
   data.can_edit_via = edit.ok ? edit.via : null;

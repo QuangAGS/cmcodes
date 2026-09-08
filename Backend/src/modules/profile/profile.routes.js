@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/profile/profile.routes.js
  * DATETIME   : 2026-09-02T14:05:00+07:00
- * VERSION    : 1.3.0-A01-PROOF-P0
+ * VERSION    : 1.3.1-LIST-SLIM
  * DESCRIPTION: /me/profile + achievements + avatar + proof P0.
  */
 
@@ -45,7 +45,7 @@ router.get(
   verifyToken,
   withTarget,
   asyncHandler(async (req, res) => {
-    const data = await profileService.getMyProfile(req.user);
+    const data = await profileService.getMyProfile(req.user, req.query.section);
     res.status(200).json({ success: true, status: 'success', data });
   })
 );
@@ -133,6 +133,16 @@ router.post(
   asyncHandler(async (req, res) => {
     const data = await achievementsService.createMine(req.user, req.body || {});
     res.status(201).json({ success: true, status: 'success', message: 'Đã thêm thành tích.', data });
+  })
+);
+
+router.get(
+  '/achievements/:id',
+  verifyToken,
+  withTarget,
+  asyncHandler(async (req, res) => {
+    const data = await achievementsService.getMine(req.user, req.params.id);
+    res.status(200).json({ success: true, status: 'success', data });
   })
 );
 

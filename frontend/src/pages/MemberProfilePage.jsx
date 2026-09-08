@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/MemberProfilePage.jsx
  * DATETIME   : 2026-09-07T11:25:00+07:00
- * VERSION    : 1.9.8b-P0-2.3
+ * VERSION    : 1.9.14-BIO-TOPIC-PATCH
  * DESCRIPTION: 2.3 — đổi mục: T2 luôn; T1 nếu không dirty. Không reload avatar khi đổi mục.
  */
 
@@ -338,6 +338,7 @@ export default function MemberProfilePage() {
   const [cropFile, setCropFile] = useState(null);
   const dirtyRef = useRef(false);
   const t0DoneRef = useRef(false);
+  const t1LoadedRef = useRef('');
 
   useEffect(() => {
     writeProfileSection(section);
@@ -445,7 +446,12 @@ export default function MemberProfilePage() {
     let cancelled = false;
     (async () => {
       try {
-        const res = await api.get(profilePath);
+        const bootSec = parseSectionParam(
+          typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('section') : '',
+        );
+        const t1 = bootSec === 'bio' || bootSec === 'bio_read' || bootSec === 'address' || bootSec === 'privacy';
+        const res = await api.get(profilePath, t1 ? { params: { section: bootSec } } : {});
+        if (t1) t1LoadedRef.current = bootSec;
         const d = res.data?.data || {};
         const m = d.member || {};
         const b = d.biography || {};
@@ -507,7 +513,7 @@ export default function MemberProfilePage() {
         setMeta({
           gender: m.gender || '',
           hint: routeMemberId ? null : d.login_contact_hint,
-          is_alive: m.is_alive !== false,
+          is_alive: !(m.is_alive === false || m.is_death === true),
           generation: m.generation ?? null,
           memberId: m.id || null,
           canEdit: d.can_edit === true
@@ -559,6 +565,49 @@ export default function MemberProfilePage() {
           if (!cancelled) setDocs([]);
         }
       }
+      if (section === 'bio' || section === 'bio_read' || section === 'address' || section === 'privacy') {
+        try {
+          if (t1LoadedRef.current === section) {
+            t1LoadedRef.current = '';
+          } else {
+          const extra = await api.get(profilePath, { params: { section } });
+          t1LoadedRef.current = section;
+          const d = extra.data?.data || {};
+          if (!cancelled && !dirtyRef.current) {
+            setForm((prev) => {
+              const next = { ...prev };
+              if (d.biography) {
+                const b = d.biography;
+                next.childhood_summary = b.childhood_summary || '';
+                next.education_history = b.education_history || '';
+                next.career_history = b.career_history || '';
+                next.later_life_summary = b.later_life_summary || '';
+                next.personality_traits = b.personality_traits || '';
+                next.notable_quotes = b.notable_quotes || '';
+                next.blood_group = b.blood_group || '';
+                next.blood_abo = splitBlood(b.blood_group || '').abo;
+                next.blood_rh = splitBlood(b.blood_group || '').rh;
+                next.blood_note = b.blood_note || '';
+                next.health_flags = Array.isArray(b.health_flags) ? b.health_flags : [];
+                next.health_summary = b.health_summary || '';
+                next.health_none = !!b.health_none;
+                next.congenital_flags = Array.isArray(b.congenital_flags) ? b.congenital_flags : [];
+                next.congenital_summary = b.congenital_summary || '';
+                next.congenital_none = !!b.congenital_none;
+              }
+              if (d.origin_address) next.origin = addressFromApi(d.origin_address);
+              if (d.current_address) next.current = addressFromApi(d.current_address);
+              if (d.resting_address) next.resting = addressFromApi(d.resting_address);
+              (d.privacy || []).forEach((r) => {
+                next[`privacy_${r.field_group}`] = r.visibility;
+              });
+              return next;
+            });
+            setSavedForm((prev) => ({ ...prev, ...((section === 'bio' || section === 'bio_read') ? {} : {}) }));
+          }
+          }
+        } catch (_) { /* T1 mục */ }
+      }
       if (section === 'bio' || section === 'bio_read') {
         try {
           const bioRes = await api.get('/me/biography/files');
@@ -573,6 +622,73 @@ export default function MemberProfilePage() {
     };
   }, [section, routeMemberId]);
 
+  function patchBodyForSection(sec, f, isAlive) {
+    if (sec === 'identity') {
+      return { full_name: f.full_name, alias: f.alias || null, note: f.note || null };
+    }
+    if (sec === 'birth') {
+      return {
+        birth_year: f.birth_year === '' ? null : f.birth_year,
+        birth_month: f.birth_month === '' ? null : f.birth_month,
+        birth_day: f.birth_day === '' ? null : f.birth_day,
+        is_birth_lunar: !!f.is_birth_lunar,
+        birth_note: f.birth_note || null,
+      };
+    }
+    if (sec === 'death') {
+      if (isAlive) return {};
+      return {
+        death_year: f.death_year === '' ? null : f.death_year,
+        death_month: f.death_month === '' ? null : f.death_month,
+        death_day: f.death_day === '' ? null : f.death_day,
+        is_death_lunar: f.is_death_lunar !== false,
+        death_note: f.death_note || null,
+      };
+    }
+    if (sec === 'contact') {
+      return {
+        phone_number: f.phone_number || null,
+        email: f.email || null,
+        social_profiles: {
+          zalo: f.zalo || null,
+          facebook: f.facebook || null,
+          website: f.website || null,
+        },
+      };
+    }
+    if (sec === 'privacy') {
+      return {
+        privacy: PRIVACY_ITEMS.map((it) => ({
+          field_group: it.key,
+          visibility: f[`privacy_${it.key}`],
+        })),
+      };
+    }
+    if (sec === 'bio') {
+      const topic = arguments.length > 3 ? arguments[3] : '';
+      if (!topic) return {};
+      if (topic === 'blood_group') {
+        return { biography: { blood_group: joinBlood(f.blood_abo, f.blood_rh) || null, blood_note: f.blood_note || null } };
+      }
+      if (topic === 'health_summary') {
+        return { biography: {
+          health_flags: f.health_none ? [] : (f.health_flags || []),
+          health_summary: f.health_none ? null : (f.health_summary || null),
+          health_none: !!f.health_none,
+        } };
+      }
+      if (topic === 'congenital_summary') {
+        return { biography: {
+          congenital_flags: f.congenital_none ? [] : (f.congenital_flags || []),
+          congenital_summary: f.congenital_none ? null : (f.congenital_summary || null),
+          congenital_none: !!f.congenital_none,
+        } };
+      }
+      return { biography: { [topic]: f[topic] || null } };
+    }
+    return {};
+  }
+
   async function onSubmit(ev) {
     ev.preventDefault();
     if (!canEdit || !dirty) return;
@@ -580,55 +696,14 @@ export default function MemberProfilePage() {
       toastSpeak('error', 'Ngày mất chỉ ghi khi thành viên đã được đánh dấu đã mất (quản trị).');
       return;
     }
+    const body = patchBodyForSection(section, form, alive, bioTopic);
+    if (!body || !Object.keys(body).length) {
+      toastSpeak('error', 'Không có trường nào để lưu ở mục này.');
+      return;
+    }
     setSaving(true);
     try {
-      const deathFields = alive
-        ? {}
-        : {
-            death_year: form.death_year === '' ? null : form.death_year,
-            death_month: form.death_month === '' ? null : form.death_month,
-            death_day: form.death_day === '' ? null : form.death_day,
-            is_death_lunar: form.is_death_lunar !== false,
-            death_note: form.death_note || null,
-          };
-      await api.patch(profilePath, {
-        full_name: form.full_name,
-        alias: form.alias || null,
-        note: form.note || null,
-        birth_year: form.birth_year === '' ? null : form.birth_year,
-        birth_month: form.birth_month === '' ? null : form.birth_month,
-        birth_day: form.birth_day === '' ? null : form.birth_day,
-        is_birth_lunar: !!form.is_birth_lunar,
-        birth_note: form.birth_note || null,
-        ...deathFields,
-        phone_number: form.phone_number || null,
-        email: form.email || null,
-        social_profiles: {
-          zalo: form.zalo || null,
-          facebook: form.facebook || null,
-          website: form.website || null,
-        },
-        biography: {
-          childhood_summary: form.childhood_summary || null,
-          education_history: form.education_history || null,
-          career_history: form.career_history || null,
-          later_life_summary: form.later_life_summary || null,
-          personality_traits: form.personality_traits || null,
-          notable_quotes: form.notable_quotes || null,
-          blood_group: joinBlood(form.blood_abo, form.blood_rh) || null,
-          blood_note: form.blood_note || null,
-          health_flags: form.health_none ? [] : (form.health_flags || []),
-          health_summary: form.health_none ? null : (form.health_summary || null),
-          health_none: !!form.health_none,
-          congenital_flags: form.congenital_none ? [] : (form.congenital_flags || []),
-          congenital_summary: form.congenital_none ? null : (form.congenital_summary || null),
-          congenital_none: !!form.congenital_none,
-        },
-        privacy: PRIVACY_ITEMS.map((it) => ({
-          field_group: it.key,
-          visibility: form[`privacy_${it.key}`],
-        })),
-      });
+      await api.patch(profilePath, body);
       toastSpeak('ok', 'Đã lưu mục này.');
       setSavedForm(form);
     } catch (e) {
@@ -1210,6 +1285,18 @@ export default function MemberProfilePage() {
                 draft={achDraft}
                 setDraft={setAchDraft}
                 items={achievements}
+                onHydrate={async (row) => {
+                  if (!row?.id) return row;
+                  try {
+                    const res = await api.get(`/me/achievements/${row.id}`);
+                    const item = res.data?.data?.item;
+                    if (!item) return row;
+                    setAchievements((prev) => prev.map((x) => (x.id === item.id ? { ...x, ...item } : x)));
+                    return item;
+                  } catch (_) {
+                    return row;
+                  }
+                }}
                 onDelete={canEdit ? async (row) => {
                   if (!window.confirm('Xóa thành tích này?')) return;
                   try {
@@ -1285,14 +1372,31 @@ export default function MemberProfilePage() {
             {section === 'ach_read' ? (
               <AchievementReader
                 items={achievements}
+                onHydrate={async (row) => {
+                  if (!row?.id) return row;
+                  try {
+                    const res = await api.get(`/me/achievements/${row.id}`);
+                    const item = res.data?.data?.item;
+                    if (!item) return row;
+                    setAchievements((prev) => prev.map((x) => (x.id === item.id ? { ...x, ...item } : x)));
+                    return item;
+                  } catch (_) {
+                    return row;
+                  }
+                }}
                 openMap={achOpen}
                 setOpenMap={setAchOpen}
                 onCreate={canEdit ? () => {
                   setAchDraft({ ...EMPTY_ACHIEVEMENT });
                   setSection('ach');
                 } : undefined}
-                onEdit={canEdit ? (row) => {
-                  setAchDraft({ ...achievementFromApi(row), proofs: row.proofs || [] });
+                onEdit={canEdit ? async (row) => {
+                  let full = row;
+                  try {
+                    const res = await api.get(`/me/achievements/${row.id}`);
+                    if (res.data?.data?.item) full = res.data.data.item;
+                  } catch (_) { /* list gầy */ }
+                  setAchDraft({ ...achievementFromApi(full), proofs: full.proofs || [] });
                   setSection('ach');
                 } : undefined}
                 onDelete={canEdit ? async (row) => {

@@ -36,7 +36,7 @@ const memberController = {
 
   getProfile: async (req, res) => {
     try {
-      const data = await profileService.getMemberProfile(req.user, req.params.id);
+      const data = await profileService.getMemberProfile(req.user, req.params.id, req.query.section);
       res.status(200).json({ status: 'success', success: true, data });
     } catch (error) {
       const statusCode = error.statusCode || 500;
