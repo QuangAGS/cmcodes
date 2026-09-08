@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/MemberProfilePage.jsx
  * DATETIME   : 2026-09-07T11:25:00+07:00
- * VERSION    : 1.9.14-BIO-TOPIC-PATCH
+ * VERSION    : 1.9.18-SOCIAL-QR
  * DESCRIPTION: 2.3 — đổi mục: T2 luôn; T1 nếu không dirty. Không reload avatar khi đổi mục.
  */
 
@@ -39,6 +39,7 @@ import {
   voiceText,
 } from '../features/member/components/AchievementSection.jsx';
 import { achievementFromApi } from '../features/member/constants/achievementCatalog.js';
+import { SOCIAL_KINDS, SOCIAL_VALUE_TYPES, emptySocialItem, parseSocialProfiles, socialToPayload, kindLabel, socialHref } from '../features/member/constants/socialCatalog.js';
 import LogoCropModal from '../features/admin/components/LogoCropModal.jsx';
 
 const EMPTY = {
@@ -57,9 +58,7 @@ const EMPTY = {
   death_note: '',
   phone_number: '',
   email: '',
-  zalo: '',
-  facebook: '',
-  website: '',
+  socialItems: [],
   childhood_summary: '',
   education_history: '',
   career_history: '',
@@ -329,6 +328,7 @@ export default function MemberProfilePage() {
   });
   const [savingAch, setSavingAch] = useState(false);
   const [proofBusyId, setProofBusyId] = useState(null);
+  const [socialUi, setSocialUi] = useState({ mode: 'list', idx: null });
   const [docs, setDocs] = useState([]);
   const [docsUsed, setDocsUsed] = useState(0);
   /* P0 avatar — không lẫn state form hồ sơ */
@@ -403,7 +403,7 @@ export default function MemberProfilePage() {
       identity: ['full_name', 'alias', 'note'],
       birth: ['birth_year', 'birth_month', 'birth_day', 'is_birth_lunar', 'birth_note'],
       death: ['death_year', 'death_month', 'death_day', 'is_death_lunar', 'death_note'],
-      contact: ['phone_number', 'email', 'zalo', 'facebook', 'website'],
+      contact: ['phone_number', 'email', 'socialItems'],
       bio: [
         ...BIO_TOPICS.map((t) => t.key),
         'blood_note', 'blood_abo', 'blood_rh', 'health_flags', 'health_none',
@@ -411,7 +411,7 @@ export default function MemberProfilePage() {
       ],
       privacy: PRIVACY_ITEMS.map((it) => `privacy_${it.key}`),
     }[section] || [];
-    return keys.some((k) => String(form[k] ?? '') !== String(savedForm[k] ?? ''));
+    return keys.some((k) => JSON.stringify(form[k] ?? '') !== JSON.stringify(savedForm[k] ?? ''));
   }, [form, savedForm, section]);
   dirtyRef.current = dirty;
 
@@ -478,9 +478,7 @@ export default function MemberProfilePage() {
           death_note: m.death_note || '',
           phone_number: m.phone_number || '',
           email: m.email || '',
-          zalo: social.zalo || '',
-          facebook: social.facebook || '',
-          website: social.website || '',
+          socialItems: parseSocialProfiles(social),
           childhood_summary: b.childhood_summary || '',
           education_history: b.education_history || '',
           career_history: b.career_history || '',
@@ -622,6 +620,17 @@ export default function MemberProfilePage() {
     };
   }, [section, routeMemberId]);
 
+  useEffect(() => {
+    if (section !== 'contact') return;
+    if ((form.socialItems || []).length === 0) {
+      setField('socialItems', [emptySocialItem()]);
+      setSocialUi({ mode: 'form', idx: 0 });
+    } else if (socialUi.mode === 'list' || socialUi.idx == null) {
+      setSocialUi({ mode: 'list', idx: null });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [section]);
+
   function patchBodyForSection(sec, f, isAlive) {
     if (sec === 'identity') {
       return { full_name: f.full_name, alias: f.alias || null, note: f.note || null };
@@ -649,11 +658,7 @@ export default function MemberProfilePage() {
       return {
         phone_number: f.phone_number || null,
         email: f.email || null,
-        social_profiles: {
-          zalo: f.zalo || null,
-          facebook: f.facebook || null,
-          website: f.website || null,
-        },
+        social_profiles: socialToPayload(f.socialItems),
       };
     }
     if (sec === 'privacy') {
@@ -705,7 +710,20 @@ export default function MemberProfilePage() {
     try {
       await api.patch(profilePath, body);
       toastSpeak('ok', 'Đã lưu mục này.');
-      setSavedForm(form);
+      if (section === 'contact') {
+        try {
+          const extra = await api.get(profilePath, { params: { section: 'contact' } });
+          const social = extra.data?.data?.member?.social_profiles || {};
+          const items = parseSocialProfiles(social);
+          setForm((prev) => ({ ...prev, socialItems: items }));
+          setSavedForm((prev) => ({ ...prev, socialItems: items, phone_number: form.phone_number, email: form.email }));
+        } catch (_) {
+          setSavedForm(form);
+        }
+        setSocialUi({ mode: 'list', idx: null });
+      } else {
+        setSavedForm(form);
+      }
     } catch (e) {
       toastSpeak('error', e.response?.data?.message || 'Không lưu được hồ sơ.');
     } finally {
@@ -954,15 +972,181 @@ export default function MemberProfilePage() {
                 <Field label="Email hồ sơ">
                   <input className={inputCls} readOnly={!canEdit} type="email" value={form.email} onChange={(e) => setField('email', e.target.value)} />
                 </Field>
-                <Field label="Zalo">
-                  <input className={inputCls} readOnly={!canEdit} value={form.zalo} onChange={(e) => setField('zalo', e.target.value)} />
-                </Field>
-                <Field label="Facebook">
-                  <input className={inputCls} readOnly={!canEdit} value={form.facebook} onChange={(e) => setField('facebook', e.target.value)} />
-                </Field>
-                <Field label="Website">
-                  <input className={inputCls} readOnly={!canEdit} value={form.website} onChange={(e) => setField('website', e.target.value)} />
-                </Field>
+                <div className="space-y-2">
+                  <p className="text-sm font-black text-slate-800">Mạng xã hội / kênh liên lạc</p>
+                  {socialUi.mode === 'list' && (form.socialItems || []).length > 0 ? (
+                    <>
+                      {(form.socialItems || []).map((row, idx) => (
+                        <div key={`${row.kind}-${idx}`} className="rounded-2xl border border-slate-200 bg-slate-50/80 px-3 py-3">
+                          <p className="text-sm font-black text-slate-800">{kindLabel(row.kind)}</p>
+                          <p className="text-sm text-slate-600">{row.value_type} · {row.value}</p>
+                          {row.value_type === 'QR_MEDIA' && socialHref(row) ? (
+                            <img src={socialHref(row)} alt="QR" className="mt-2 h-24 w-24 rounded-lg object-cover" />
+                          ) : null}
+                          {socialHref(row) ? (
+                            <a href={socialHref(row)} target="_blank" rel="noreferrer" className="mt-1 inline-block text-sm font-bold text-indigo-700">
+                              {row.value_type === 'PHONE' ? 'Gọi' : row.value_type === 'QR_MEDIA' ? 'Mở ảnh QR / danh thiếp' : 'Mở liên kết'}
+                            </a>
+                          ) : null}
+                          {canEdit ? (
+                            <div className="mt-2 flex gap-3">
+                              <button
+                                type="button"
+                                className="text-sm font-bold text-indigo-700"
+                                onClick={() => setSocialUi({ mode: 'form', idx })}
+                              >
+                                Sửa
+                              </button>
+                              <button
+                                type="button"
+                                className="text-sm font-bold text-rose-600"
+                                onClick={async () => {
+                                  if (!window.confirm('Xóa kênh này?')) return;
+                                  const next = form.socialItems.filter((_, i) => i !== idx);
+                                  setField('socialItems', next);
+                                  try {
+                                    await api.patch(profilePath, { social_profiles: socialToPayload(next) });
+                                    setSavedForm((prev) => ({ ...prev, socialItems: next }));
+                                    toastSpeak('ok', 'Đã xóa kênh.');
+                                  } catch (e) {
+                                    toastSpeak('error', e.response?.data?.message || 'Không xóa được kênh.');
+                                  }
+                                }}
+                              >
+                                Xóa
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+                      ))}
+                      {canEdit ? (
+                        <button
+                          type="button"
+                          className="w-full rounded-2xl border border-indigo-200 py-3 text-sm font-black text-indigo-700"
+                          onClick={() => {
+                            setField('socialItems', [...(form.socialItems || []), emptySocialItem()]);
+                            setSocialUi({ mode: 'form', idx: (form.socialItems || []).length });
+                          }}
+                        >
+                          Thêm kênh
+                        </button>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      {(() => {
+                        const idx = socialUi.idx == null ? 0 : socialUi.idx;
+                        const row = (form.socialItems || [])[idx] || emptySocialItem();
+                        const items = form.socialItems && form.socialItems.length
+                          ? form.socialItems
+                          : [emptySocialItem()];
+                        if (!(form.socialItems || []).length) {
+                          /* keep one draft row in form */
+                        }
+                        return (
+                          <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-3">
+                            <Field label="Kênh">
+                              <select
+                                className={inputCls}
+                                disabled={!canEdit}
+                                value={row.kind}
+                                onChange={(e) => {
+                                  const kind = e.target.value;
+                                  const value_type = kind === 'ZALO' ? 'PHONE' : kind === 'TELEGRAM' ? 'ID' : 'URL';
+                                  const next = [...items];
+                                  next[idx] = { kind, value_type, value: '' };
+                                  setField('socialItems', next);
+                                }}
+                              >
+                                {SOCIAL_KINDS.map((k) => <option key={k.code} value={k.code}>{k.label}</option>)}
+                              </select>
+                            </Field>
+                            <Field label="Kiểu dữ liệu">
+                              <select
+                                className={inputCls}
+                                disabled={!canEdit}
+                                value={row.value_type}
+                                onChange={(e) => {
+                                  const next = [...items];
+                                  next[idx] = { ...row, value_type: e.target.value };
+                                  setField('socialItems', next);
+                                }}
+                              >
+                                {SOCIAL_VALUE_TYPES.map((k) => <option key={k.code} value={k.code}>{k.label}</option>)}
+                              </select>
+                            </Field>
+                            <Field label="Giá trị">
+                              <input
+                                className={inputCls}
+                                readOnly={!canEdit}
+                                value={row.value}
+                                onChange={(e) => {
+                                  const next = [...items];
+                                  next[idx] = { ...row, value: e.target.value };
+                                  setField('socialItems', next);
+                                }}
+                              />
+                            </Field>
+                            {socialHref(row) ? (
+                              <a href={socialHref(row)} target="_blank" rel="noreferrer" className="text-sm font-bold text-indigo-700">
+                                {row.value_type === 'PHONE' ? 'Gọi' : row.value_type === 'QR_MEDIA' ? 'Mở ảnh QR / danh thiếp' : 'Mở liên kết'}
+                              </a>
+                            ) : null}
+                            {row.value_type === 'QR_MEDIA' && canEdit ? (
+                              <Field label="Tải ảnh QR / danh thiếp">
+                                <input
+                                  type="file"
+                                  accept="image/jpeg,image/png,image/webp"
+                                  className="block w-full text-sm"
+                                  onChange={async (e) => {
+                                    const file = e.target.files && e.target.files[0];
+                                    e.target.value = '';
+                                    if (!file) return;
+                                    const fd = new FormData();
+                                    fd.append('file', file);
+                                    fd.append('caption', `${row.kind} QR`);
+                                    try {
+                                      const res = await api.post('/me/documents', fd);
+                                      const item = res.data?.data?.item || res.data?.data;
+                                      const url = item?.url || item?.read_url || '';
+                                      if (!url) {
+                                        toastSpeak('error', 'Không nhận được liên kết ảnh.');
+                                        return;
+                                      }
+                                      const next = [...items];
+                                      next[idx] = { ...row, value_type: 'QR_MEDIA', value: url, media_id: item?.id || null };
+                                      setField('socialItems', next);
+                                      toastSpeak('ok', 'Đã gắn ảnh QR / danh thiếp.');
+                                    } catch (err) {
+                                      toastSpeak('error', err.response?.data?.message || 'Không tải được ảnh.');
+                                    }
+                                  }}
+                                />
+                              </Field>
+                            ) : null}
+                            {row.value_type === 'QR_MEDIA' && socialHref(row) ? (
+                              <img src={socialHref(row)} alt="QR" className="h-28 w-28 rounded-lg object-cover" />
+                            ) : null}
+                            {(form.socialItems || []).length > 0 ? (
+                              <button
+                                type="button"
+                                className="text-sm font-bold text-slate-600"
+                                onClick={() => {
+                                  if (socialUi.idx != null && !(form.socialItems[socialUi.idx] || {}).value) {
+                                    setField('socialItems', form.socialItems.filter((_, i) => i !== socialUi.idx));
+                                  }
+                                  setSocialUi({ mode: 'list', idx: null });
+                                }}
+                              >
+                                Xem danh sách kênh
+                              </button>
+                            ) : null}
+                          </div>
+                        );
+                      })()}
+                    </>
+                  )}
+                </div>
               </div>
             ) : null}
 

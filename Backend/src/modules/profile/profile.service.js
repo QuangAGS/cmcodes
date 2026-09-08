@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/profile/profile.service.js
  * DATETIME   : 2026-09-01T17:10:00+07:00
- * VERSION    : 1.5.0-GET-SECTION
+ * VERSION    : 1.6.0-SOCIAL-ITEMS
  * DESCRIPTION: Actor select is_alive. Không strip death_* khi đã mất.
  */
 
@@ -126,6 +126,8 @@ function normalizeBioPatch(raw) {
 }
 
 const SOCIAL_KEYS = new Set(['zalo', 'facebook', 'website']);
+const SOCIAL_KINDS = new Set(['ZALO', 'FACEBOOK', 'WEBSITE', 'YOUTUBE', 'TIKTOK', 'TELEGRAM', 'INSTAGRAM', 'OTHER']);
+const SOCIAL_TYPES = new Set(['PHONE', 'URL', 'ID', 'QR_MEDIA']);
 const PRIVACY_GROUPS = new Set([
   'CONTACT',
   'BIRTH_DATE',
@@ -267,11 +269,33 @@ function normalizeSocial(input) {
   if (typeof input !== 'object' || Array.isArray(input)) {
     deny('BAD_REQUEST', 'social_profiles không hợp lệ.', 400);
   }
-  const out = {};
-  for (const [k, v] of Object.entries(input)) {
-    if (!SOCIAL_KEYS.has(k)) continue;
-    out[k] = v == null ? null : String(v).trim().slice(0, 255) || null;
+  const itemsIn = Array.isArray(input.items) ? input.items : null;
+  const items = [];
+  if (itemsIn) {
+    for (const raw of itemsIn) {
+      if (!raw || typeof raw !== 'object') continue;
+      const kind = String(raw.kind || '').toUpperCase();
+      const value_type = String(raw.value_type || 'ID').toUpperCase();
+      const value = raw.value == null ? '' : String(raw.value).trim().slice(0, 500);
+      const media_id = raw.media_id ? String(raw.media_id).slice(0, 36) : null;
+      if (!SOCIAL_KINDS.has(kind) || !SOCIAL_TYPES.has(value_type) || !value) continue;
+      items.push({ kind, value_type, value, media_id });
+    }
+  } else {
+    for (const [k, v] of Object.entries(input)) {
+      if (!SOCIAL_KEYS.has(k)) continue;
+      const value = v == null ? '' : String(v).trim().slice(0, 255);
+      if (!value) continue;
+      const kind = k.toUpperCase();
+      items.push({ kind, value_type: 'ID', value });
+    }
   }
+  const out = { items, zalo: null, facebook: null, website: null };
+  items.forEach((it) => {
+    if (it.kind === 'ZALO' && !out.zalo) out.zalo = it.value;
+    if (it.kind === 'FACEBOOK' && !out.facebook) out.facebook = it.value;
+    if (it.kind === 'WEBSITE' && !out.website) out.website = it.value;
+  });
   return out;
 }
 
