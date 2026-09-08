@@ -81,6 +81,7 @@ model tenants {
   generation_naming_rules        generation_naming_rules[]
   proposals                      proposals[]
   member_privacy_rules           member_privacy_rules[]
+  member_residences              member_residences[]
 
   @@index([name(ops: raw("gin_trgm_ops"))], map: "trgm_idx_tenants_name", type: Gin)
   @@map("tenants")
@@ -162,16 +163,17 @@ model addresses {
   changed_by   String?   @db.VarChar(36)
   deleted_at   DateTime? @db.Timestamptz(6)
 
-  tenants   tenants    @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_address_tenant")
-  users     users?     @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_addresses_user")
-  assets    assets[]
-  branches  branches[]
-  cemetery  cemetery[]
-  events    events[]
-  graves    graves[]
-  residents members[]  @relation("members_current_address_idToaddresses")
-  natives   members[]  @relation("members_origin_address_idToaddresses")
-  worships  worships[]
+  tenants    tenants             @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_address_tenant")
+  users      users?              @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_addresses_user")
+  assets     assets[]
+  branches   branches[]
+  cemetery   cemetery[]
+  events     events[]
+  graves     graves[]
+  residents  members[]           @relation("members_current_address_idToaddresses")
+  natives    members[]           @relation("members_origin_address_idToaddresses")
+  worships   worships[]
+  residences member_residences[]
 
   @@unique([tenant_id, country_code, full_address], map: "uq_addresses_tenant_country_full")
   @@index([tenant_id], map: "idx_address_tenant")
@@ -633,11 +635,11 @@ model members {
   tenant_id            String                 @db.VarChar(36)
   role                 members_roles?         @default(THANH_VIEN)
   status               members_status         @default(DU_BI)
-  created_by            String?               @db.VarChar(36)
-  created_by_member_id  String?               @db.VarChar(36)
-  created_by_user       users?                @relation("members_created_by", fields: [created_by], references: [id], onUpdate: NoAction)
-  created_by_member     members?              @relation("members_created_by_member", fields: [created_by_member_id], references: [id], onUpdate: NoAction)
-  created_members       members[]             @relation("members_created_by_member")
+  created_by           String?                @db.VarChar(36)
+  created_by_member_id String?                @db.VarChar(36)
+  created_by_user      users?                 @relation("members_created_by", fields: [created_by], references: [id], onUpdate: NoAction)
+  created_by_member    members?               @relation("members_created_by_member", fields: [created_by_member_id], references: [id], onUpdate: NoAction)
+  created_members      members[]              @relation("members_created_by_member")
   achievements         achievements[]
   assets               assets[]
   biographies          biographies[]
@@ -647,6 +649,7 @@ model members {
   graves               graves?
   /// Đợt 2
   member_privacy_rules member_privacy_rules[]
+  residences           member_residences[]
 
   marriages_as_husband               marriages[]        @relation("marriages_husband_idTomembers")
   marriages_as_wife                  marriages[]        @relation("marriages_wife_idTomembers")
@@ -746,6 +749,7 @@ model users {
   /// Đợt 2
   proposals_requested                                                 proposals[]                      @relation("ProposalRequester")
   proposals_reviewed                                                  proposals[]                      @relation("ProposalReviewer")
+  member_residences                                                   member_residences[]
 
   @@unique([member_id], map: "uq_users_member_id")
   @@index([tenant_id], map: "idx_users_tenant")
@@ -1257,22 +1261,22 @@ model member_privacy_rules {
 }
 
 model profile_edit_grants {
-  id                 String               @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
-  tenant_id          String               @db.VarChar(36)
-  target_member_id   String               @db.VarChar(36)
-  target_branch_id   String?              @db.VarChar(36)
-  grantor_member_id  String?              @db.VarChar(36)
-  grantee_member_id  String               @db.VarChar(36)
-  scope              profile_grant_scope  @default(PROFILE)
-  status             profile_grant_status @default(CHO_DUYET)
-  expires_at         DateTime?            @db.Timestamptz(6)
-  reason             String?              @db.VarChar(255)
-  approved_by        String?              @db.VarChar(36)
-  decided_at         DateTime?            @db.Timestamptz(6)
-  created_at         DateTime             @default(now()) @db.Timestamptz(6)
-  updated_at         DateTime             @default(now()) @updatedAt @db.Timestamptz(6)
-  changed_by         String?              @db.VarChar(36)
-  deleted_at         DateTime?            @db.Timestamptz(6)
+  id                String               @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  tenant_id         String               @db.VarChar(36)
+  target_member_id  String               @db.VarChar(36)
+  target_branch_id  String?              @db.VarChar(36)
+  grantor_member_id String?              @db.VarChar(36)
+  grantee_member_id String               @db.VarChar(36)
+  scope             profile_grant_scope  @default(PROFILE)
+  status            profile_grant_status @default(CHO_DUYET)
+  expires_at        DateTime?            @db.Timestamptz(6)
+  reason            String?              @db.VarChar(255)
+  approved_by       String?              @db.VarChar(36)
+  decided_at        DateTime?            @db.Timestamptz(6)
+  created_at        DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime             @default(now()) @updatedAt @db.Timestamptz(6)
+  changed_by        String?              @db.VarChar(36)
+  deleted_at        DateTime?            @db.Timestamptz(6)
 
   @@index([tenant_id])
   @@index([target_member_id])
@@ -1302,7 +1306,55 @@ model member_offices {
   @@map("member_offices")
 }
 
+model member_residences {
+  id         String @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  tenant_id  String @db.VarChar(36)
+  member_id  String @db.VarChar(36)
+  address_id String @db.VarChar(36)
 
+  kind member_residences_kind @default(RESIDENCE)
+
+  from_year  Int?
+  from_month Int?
+  from_day   Int?
+  to_year    Int?
+  to_month   Int?
+  to_day     Int?
+  is_lunar   Boolean @default(false)
+
+  /// Tối đa một dòng true / member (app + partial unique). Đồng bộ members.current_address_id.
+  is_current Boolean @default(false)
+
+  note String? @db.VarChar(255)
+
+  created_at DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  changed_by String?   @db.VarChar(36)
+  deleted_at DateTime? @db.Timestamptz(6)
+
+  members   members   @relation(fields: [member_id], references: [id], onUpdate: NoAction, map: "fk_residence_member")
+  tenants   tenants   @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_residence_tenant")
+  addresses addresses @relation(fields: [address_id], references: [id], onUpdate: NoAction, map: "fk_residence_address")
+  users     users?    @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_residences_user")
+
+  @@index([tenant_id], map: "idx_residence_tenant")
+  @@index([member_id], map: "idx_residence_member")
+  @@index([address_id], map: "idx_residence_address")
+  @@index([tenant_id, member_id], map: "idx_residence_tenant_member")
+  @@index([member_id, from_year], map: "idx_residence_member_from")
+  @@index([changed_by], map: "idx_residences_user")
+  @@index([deleted_at], map: "idx_residences_deleted_at")
+  @@map("member_residences")
+}
+
+enum member_residences_kind {
+  ORIGIN
+  RESIDENCE
+  TEMPORARY
+  LAST
+
+  @@map("member_residences_kind")
+}
 
 enum achievements_category {
   KHOA_BANG
@@ -1775,4 +1827,3 @@ enum member_office_status {
   HET_NHIEM
   THU_HOI
 }
-

@@ -1,7 +1,7 @@
 /**
  * PATH       : src/features/member/components/AchievementSection.jsx
  * DATETIME   : 2026-09-07T14:30:00+07:00
- * VERSION    : 1.5.0-ACH-SLIM
+ * VERSION    : 1.5.1-LABEL-TOAST
  * DESCRIPTION: Giữ nhóm/chi tiết sau Lưu và F5. ≥1 dòng luôn list.
  */
 
@@ -268,7 +268,7 @@ export function AchievementEditor({ draft, setDraft, items = [], onSave, onCance
       </label>
       <label className="flex items-center gap-3 rounded-2xl bg-slate-50 px-3 py-3 text-sm font-semibold text-slate-700">
         <input type="checkbox" className="h-5 w-5" checked={draft.is_current} onChange={(e) => setDraft({ ...draft, is_current: e.target.checked })} />
-        Đang đương nhiệm
+        Đương nhiệm / Còn hiệu lực
       </label>
       {!draft.is_current ? (
         <div className="grid grid-cols-3 gap-2">
@@ -373,7 +373,7 @@ export function AchievementReader({ items, openMap, setOpenMap, onEdit, onCreate
                 <p className="text-sm text-slate-600">{categoryLabel(row.category)} · {subLabel(row.category, row.sub_category) || 'Chưa phân loại'}</p>
                 {row.issued_by ? <p className="text-sm text-slate-700">Nơi cấp: {row.issued_by}</p> : null}
                 <p className="text-sm text-slate-700">
-                  {row.achieved_year}{row.is_lunar ? ' (âm)' : ''}{row.is_current ? ' · đương nhiệm' : row.ended_year ? ` – ${row.ended_year}` : ''}
+                  {row.achieved_year}{row.is_lunar ? ' (âm)' : ''}{row.is_current ? ' · còn hiệu lực' : row.ended_year ? ` – ${row.ended_year}` : ''}
                 </p>
                 {row.description ? <p className="whitespace-pre-wrap text-sm font-medium text-slate-800">{row.description}</p> : null}
                 <ProofStrip
