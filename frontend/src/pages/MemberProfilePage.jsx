@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/MemberProfilePage.jsx
  * DATETIME   : 2026-09-07T11:25:00+07:00
- * VERSION    : 1.9.18-SOCIAL-QR
+ * VERSION    : 1.9.22-GEO-CARD
  * DESCRIPTION: 2.3 — đổi mục: T2 luôn; T1 nếu không dirty. Không reload avatar khi đổi mục.
  */
 
@@ -30,7 +30,9 @@ import {
   addressFromApi,
   formatAddressSummary,
   hasPlace,
+  mapHref,
 } from '../features/member/constants/addressCatalog.js';
+import { genderLabel, residenceKindLabel } from '../features/member/constants/enumLabels.js';
 import {
   AchievementEditor,
   AchievementReader,
@@ -329,6 +331,8 @@ export default function MemberProfilePage() {
   const [savingAch, setSavingAch] = useState(false);
   const [proofBusyId, setProofBusyId] = useState(null);
   const [socialUi, setSocialUi] = useState({ mode: 'list', idx: null });
+  const [addrCard, setAddrCard] = useState('');
+  const [residences, setResidences] = useState([]);
   const [docs, setDocs] = useState([]);
   const [docsUsed, setDocsUsed] = useState(0);
   /* P0 avatar — không lẫn state form hồ sơ */
@@ -552,6 +556,14 @@ export default function MemberProfilePage() {
           if (!cancelled) setAchievements([]);
         }
       }
+      if (section === 'address') {
+        try {
+          const rr = await api.get('/me/residences');
+          if (!cancelled) setResidences(rr.data?.data?.items || rr.data?.data || []);
+        } catch {
+          if (!cancelled) setResidences([]);
+        }
+      }
       if (section === 'docs') {
         try {
           const docRes = await api.get('/me/documents');
@@ -701,6 +713,25 @@ export default function MemberProfilePage() {
       toastSpeak('error', 'Ngày mất chỉ ghi khi thành viên đã được đánh dấu đã mất (quản trị).');
       return;
     }
+    const nowY = new Date().getFullYear();
+    const by = form.birth_year === '' || form.birth_year == null ? null : Number(form.birth_year);
+    const dy = form.death_year === '' || form.death_year == null ? null : Number(form.death_year);
+    if (section === 'birth' && by != null) {
+      if (!Number.isFinite(by) || by < 1000 || by > nowY + 1) {
+        toastSpeak('error', `Năm sinh phải từ 1000 đến ${nowY + 1}.`);
+        return;
+      }
+    }
+    if (section === 'death' && dy != null) {
+      if (!Number.isFinite(dy) || dy < 1000 || dy > nowY) {
+        toastSpeak('error', `Năm mất phải từ 1000 đến ${nowY}.`);
+        return;
+      }
+      if (by != null && Number.isFinite(by) && dy < by) {
+        toastSpeak('error', 'Năm mất không được trước năm sinh.');
+        return;
+      }
+    }
     const body = patchBodyForSection(section, form, alive, bioTopic);
     if (!body || !Object.keys(body).length) {
       toastSpeak('error', 'Không có trường nào để lưu ở mục này.');
@@ -733,6 +764,8 @@ export default function MemberProfilePage() {
 
   function goAddress(usage, mode) {
     if (!canEdit) return;
+    if (mode === 'edit' && !window.confirm('Sửa địa chỉ đang có?')) return;
+    if (mode === 'create' && usage !== 'origin' && !window.confirm(usage === 'resting' ? 'Tạo nơi an nghỉ mới?' : 'Tạo nơi ở mới?')) return;
     const q = new URLSearchParams({ usage, mode });
     if (routeMemberId) q.set('member_id', routeMemberId);
     navigate(`/me/profile/address?${q.toString()}`);
@@ -861,7 +894,7 @@ export default function MemberProfilePage() {
               <div className="min-w-0 flex-1">
                 <h1 className="text-xl font-black text-slate-800">{form.full_name || 'Chưa có tên'}</h1>
                 <p className="mt-1 text-sm text-slate-600">
-                  Giới tính: <span className="font-semibold">{meta.gender || '—'}</span>
+                  Giới tính: <span className="font-semibold">{genderLabel(meta.gender)}</span>
                 </p>
                 <p className="text-sm text-slate-600">
                   Ngày sinh: <span className="font-semibold">{formatDob(form)}</span>
@@ -1151,83 +1184,129 @@ export default function MemberProfilePage() {
             ) : null}
 
             {section === 'address' ? (
-              <div className="space-y-4">
-                <div>
-                  <p className="mb-1 text-sm font-black text-slate-800">Quê quán</p>
-                  <dl>
-                    <ReadRow label="Địa chỉ" value={hasPlace(form.origin) ? formatAddressSummary(form.origin) : 'Chưa có'} />
-                    <ReadRow label="Ghi chú" value={form.origin.notes || '—'} />
-                  </dl>
-                  {canEdit ? <div className="mt-2 grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      disabled={!hasPlace(form.origin)}
-                      onClick={() => goAddress('origin', 'edit')}
-                      className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-                    >
-                      Sửa
-                    </button>
-                    {!hasPlace(form.origin) ? (
-                      <button type="button" onClick={() => goAddress('origin', 'create')} disabled={!canEdit} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">Thêm</button>
-                    ) : (
-                      <span />
-                    )}
-                  </div> : null}
-                </div>
-                <div className="border-t border-slate-100 pt-3">
-                  <p className="mb-1 text-sm font-black text-slate-800">{currentTitle}</p>
-                  <dl>
-                    <ReadRow
-                      label="Địa chỉ"
-                      value={hasPlace(form.current) ? formatAddressSummary(form.current) : (alive ? 'Chưa có' : 'Chưa rõ')}
-                    />
-                    <ReadRow label="Ghi chú" value={form.current.notes || '—'} />
-                  </dl>
-                  {canEdit ? <div className="mt-2 grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      disabled={!hasPlace(form.current)}
-                      onClick={() => goAddress('current', 'edit')}
-                      className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-                    >
-                      Sửa
-                    </button>
-                    {alive ? (
-                      <button type="button" onClick={() => goAddress('current', 'create')} disabled={!canEdit} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
-                        {hasPlace(form.current) ? 'Thay đổi / Tạo mới' : 'Thêm'}
+              <div className="space-y-2">
+                {[
+                  { key: 'origin', title: 'Quê quán' },
+                  { key: 'current', title: currentTitle },
+                  ...(!alive ? [{ key: 'resting', title: 'Nơi an nghỉ' }] : []),
+                  { key: 'history', title: 'Lịch sử thay đổi' },
+                ].map((card) => {
+                  const open = addrCard === card.key;
+                  const place = card.key === 'origin' ? form.origin : card.key === 'current' ? form.current : card.key === 'resting' ? form.resting : null;
+                  const summary = card.key === 'history'
+                    ? (residences.length ? `${residences.length} lần ở` : 'Chưa có dòng lịch sử')
+                    : (hasPlace(place) ? formatAddressSummary(place) : (card.key === 'current' && !alive ? 'Chưa rõ' : 'Chưa có'));
+                  return (
+                    <div key={card.key} className="overflow-hidden rounded-2xl border border-slate-200 bg-white">
+                      <button
+                        type="button"
+                        className="flex w-full items-center gap-2 px-3 py-3 text-left"
+                        onClick={() => setAddrCard(open ? '' : card.key)}
+                      >
+                        <span className="flex-1">
+                          <span className="block text-sm font-black text-slate-800">{card.title}</span>
+                          <span className="block truncate text-xs text-slate-500">{summary}</span>
+                        </span>
+                        {open ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
                       </button>
-                    ) : (
-                      <button type="button" onClick={() => goAddress('current', 'create')} disabled={!canEdit} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
-                        {hasPlace(form.current) ? 'Thay đổi' : 'Thêm nơi ở cuối'}
-                      </button>
-                    )}
-                  </div> : null}
-                </div>
-                {!alive ? (
-                <div className="border-t border-slate-100 pt-3">
-                  <p className="mb-1 text-sm font-black text-slate-800">Nơi an nghỉ</p>
-                  <dl>
-                    <ReadRow
-                      label="Địa chỉ / nghĩa trang"
-                      value={hasPlace(form.resting) ? formatAddressSummary(form.resting) : 'Chưa có'}
-                    />
-                    <ReadRow label="Ghi chú" value={form.resting?.notes || '—'} />
-                  </dl>
-                  {canEdit ? <div className="mt-2 grid grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      disabled={!hasPlace(form.resting)}
-                      onClick={() => goAddress('resting', 'edit')}
-                      className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
-                    >
-                      Sửa
-                    </button>
-                    <button type="button" onClick={() => goAddress('resting', 'create')} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
-                      {hasPlace(form.resting) ? 'Thay đổi' : 'Thêm nơi an nghỉ'}
-                    </button>
-                  </div> : null}
-                </div>
-                ) : null}
+                      {open && card.key !== 'history' ? (
+                        <div className="space-y-2 border-t border-slate-100 px-3 py-3">
+                          <dl>
+                            <ReadRow label="Địa chỉ" value={hasPlace(place) ? formatAddressSummary(place) : summary} />
+                            <ReadRow label="Ghi chú" value={place?.notes || '—'} />
+                            <ReadRow label="Tọa độ" value={(place?.latitude && place?.longitude) ? `${place.latitude}, ${place.longitude}` : '—'} />
+                            {mapHref(place || {}) ? (
+                              <p className="mt-1">
+                                <a className="text-sm font-bold text-indigo-700 underline" href={mapHref(place)} target="_blank" rel="noreferrer">Mở bản đồ</a>
+                              </p>
+                            ) : <ReadRow label="Bản đồ" value="—" />}
+                          </dl>
+                          {canEdit ? (
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                type="button"
+                                disabled={!hasPlace(place)}
+                                onClick={() => goAddress(card.key === 'resting' ? 'resting' : card.key, 'edit')}
+                                className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
+                              >
+                                Sửa
+                              </button>
+                              {card.key === 'origin' ? (
+                                !hasPlace(place) ? (
+                                  <button type="button" onClick={() => goAddress('origin', 'create')} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">Thêm</button>
+                                ) : <span />
+                              ) : card.key === 'current' ? (
+                                <button type="button" onClick={() => goAddress('current', 'create')} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
+                                  {alive ? 'Nơi ở mới' : (hasPlace(place) ? 'Thay đổi' : 'Thêm nơi ở cuối')}
+                                </button>
+                              ) : (
+                                <button type="button" onClick={() => goAddress('resting', 'create')} className="rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white">
+                                  {hasPlace(place) ? 'Thay đổi' : 'Thêm nơi an nghỉ'}
+                                </button>
+                              )}
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : null}
+                      {open && card.key === 'history' ? (
+                        <div className="border-t border-slate-100 px-3 py-3">
+                          <ul className="min-h-[16.5rem] max-h-[16.5rem] overflow-y-auto rounded-2xl border border-slate-100 bg-slate-50">
+                            {residences.length ? [...residences].sort((a,b) => (Number(b.from_year)||0) - (Number(a.from_year)||0)).map((row) => (
+                              <li key={row.id} className="border-b border-slate-100 px-3 py-2 text-sm last:border-0">
+                                <p className="font-bold text-slate-800">{(!alive && row.is_current && row.kind !== 'RESTING')
+                                  ? 'Nơi ở cuối'
+                                  : residenceKindLabel(row.kind || 'RESIDENCE')}
+                                {alive && row.is_current ? ' · đang ở' : ''}</p>
+                                <p className="text-slate-600">{[row.from_year, row.to_year].filter(Boolean).join(' – ') || 'Chưa rõ năm'}</p>
+                                <p className="text-slate-500">{row.full_address || row.address?.full_address || row.note || ''}</p>
+                                <p className="text-xs text-slate-500">
+                                  {(row.address && row.address.latitude && row.address.longitude)
+                                    ? `${row.address.latitude}, ${row.address.longitude}`
+                                    : '—'}
+                                </p>
+                                {mapHref(row.address || {}) ? (
+                                  <p className="mt-1">
+                                    <a className="text-xs font-bold text-indigo-700 underline" href={mapHref(row.address)} target="_blank" rel="noreferrer">Mở bản đồ</a>
+                                  </p>
+                                ) : null}
+                                {canEdit ? (
+                                  <button
+                                    type="button"
+                                    className="mt-1 block text-sm font-bold text-indigo-700"
+                                    onClick={() => {
+                                      if (!window.confirm('Sửa lần ở này (không đổi chỗ dùng chung)?')) return;
+                                      const q = new URLSearchParams({ usage: row.kind === 'RESTING' ? 'resting' : 'current', mode: 'edit', residence_id: row.id });
+                                      if (routeMemberId) q.set('member_id', routeMemberId);
+                                      navigate(`/me/profile/address?${q.toString()}`);
+                                    }}
+                                  >
+                                    Sửa lần ở
+                                  </button>
+                                ) : null}
+                              </li>
+                            )) : (
+                              <li className="px-3 py-6 text-center text-sm text-slate-500">Chưa có lịch sử thay đổi.</li>
+                            )}
+                          </ul>
+                          {canEdit ? (
+                            <button
+                              type="button"
+                              className="mt-2 w-full rounded-2xl bg-indigo-600 py-3 text-sm font-black text-white"
+                              onClick={() => {
+                                if (!window.confirm('Thêm một lần ở trong lịch sử (không đổi nơi ở hiện tại / cuối)?')) return;
+                                const q = new URLSearchParams({ usage: 'current', mode: 'create', history: '1' });
+                                if (routeMemberId) q.set('member_id', routeMemberId);
+                                navigate(`/me/profile/address?${q.toString()}`);
+                              }}
+                            >
+                              Thêm lần ở trong lịch sử
+                            </button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
               </div>
             ) : null}
 

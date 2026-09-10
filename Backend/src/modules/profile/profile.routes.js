@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/profile/profile.routes.js
  * DATETIME   : 2026-09-02T14:05:00+07:00
- * VERSION    : 1.3.1-LIST-SLIM
+ * VERSION    : 1.4.0-RESIDENCES
  * DESCRIPTION: /me/profile + achievements + avatar + proof P0.
  */
 
@@ -17,6 +17,7 @@ const achievementsService = require('./achievements.service.js');
 const avatarService = require('./avatar.service.js');
 const documentsService = require('./documents.service.js');
 const biographyFilesService = require('./biographyFiles.service.js');
+const residencesService = require('./residences.service.js');
 
 function actorFromReq(req) {
   const u = req.user || {};
@@ -72,6 +73,46 @@ router.get(
   asyncHandler(async (req, res) => {
     const data = await profileService.searchMyAddresses(req.user, req.query || {});
     res.status(200).json({ success: true, status: 'success', data });
+  })
+);
+
+router.get(
+  '/residences',
+  verifyToken,
+  withTarget,
+  asyncHandler(async (req, res) => {
+    const data = await residencesService.listMine(req.user);
+    res.status(200).json({ success: true, status: 'success', data });
+  })
+);
+
+router.post(
+  '/residences',
+  verifyToken,
+  withTarget,
+  asyncHandler(async (req, res) => {
+    const data = await residencesService.createMine(req.user, req.body || {});
+    res.status(201).json({ success: true, status: 'success', message: 'Đã thêm lần ở.', data });
+  })
+);
+
+router.patch(
+  '/residences/:id',
+  verifyToken,
+  withTarget,
+  asyncHandler(async (req, res) => {
+    const data = await residencesService.updateMine(req.user, req.params.id, req.body || {});
+    res.status(200).json({ success: true, status: 'success', message: 'Đã lưu lần ở.', data });
+  })
+);
+
+router.delete(
+  '/residences/:id',
+  verifyToken,
+  withTarget,
+  asyncHandler(async (req, res) => {
+    const data = await residencesService.removeMine(req.user, req.params.id);
+    res.status(200).json({ success: true, status: 'success', message: 'Đã xóa lần ở.', data });
   })
 );
 

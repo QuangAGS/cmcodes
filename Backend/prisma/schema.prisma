@@ -39,19 +39,24 @@ model data_suggestions {
 }
 
 model tenants {
-  id                             String                           @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
-  name                           String                           @db.VarChar(100)
-  slug                           String                           @unique @db.VarChar(10)
-  description                    String?
-  logo_url                       String?                          @db.VarChar(255)
-  theme_color                    String?                          @db.VarChar(7)
-  created_at                     DateTime?                        @default(now()) @db.Timestamptz(6)
-  updated_at                     DateTime?                        @default(now()) @db.Timestamptz(6)
-  changed_by                     String?                          @db.VarChar(36)
-  deleted_at                     DateTime?                        @db.Timestamptz(6)
-  social_configs                 Json?                            @default("{}")
-  status                         tenant_status?                   @default(CHO_DUYET)
-  slogan                         String?                          @db.VarChar(255)
+  id             String         @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  name           String         @db.VarChar(100)
+  slug           String         @unique @db.VarChar(10)
+  description    String?
+  logo_url       String?        @db.VarChar(255)
+  theme_color    String?        @db.VarChar(7)
+  created_at     DateTime?      @default(now()) @db.Timestamptz(6)
+  updated_at     DateTime?      @default(now()) @db.Timestamptz(6)
+  changed_by     String?        @db.VarChar(36)
+  deleted_at     DateTime?      @db.Timestamptz(6)
+  social_configs Json?          @default("{}")
+  status         tenant_status? @default(CHO_DUYET)
+  slogan         String?        @db.VarChar(255)
+
+  /// Bổ sung location phát tích
+  origin_address_id String?    @db.VarChar(36)
+  originAddress     addresses? @relation("tenant_origin", fields: [origin_address_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_tenant_origin_addr")
+
   achievements                   achievements[]
   addresses                      addresses[]
   assets                         assets[]
@@ -83,6 +88,7 @@ model tenants {
   member_privacy_rules           member_privacy_rules[]
   member_residences              member_residences[]
 
+  @@index([origin_address_id], map: "idx_tenant_origin_addr")
   @@index([name(ops: raw("gin_trgm_ops"))], map: "trgm_idx_tenants_name", type: Gin)
   @@map("tenants")
 }
@@ -162,6 +168,10 @@ model addresses {
   updated_at   DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
   changed_by   String?   @db.VarChar(36)
   deleted_at   DateTime? @db.Timestamptz(6)
+
+  ///Nơi phát tích của tenant / Branch
+  tenantOrigins tenants[]  @relation("tenant_origin")
+  branchOrigins branches[] @relation("branch_origin")
 
   tenants    tenants             @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_address_tenant")
   users      users?              @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_addresses_user")
@@ -317,6 +327,16 @@ model branches {
   users_users_branch_idTobranches  users[]    @relation("users_branch_idTobranches")
   worships                         worships[]
 
+  //Branch and its children
+  parent   branches?  @relation("BranchTree", fields: [parent_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_branch_parent")
+  children branches[] @relation("BranchTree")
+
+  /// Nơi phát tích
+  origin_address_id String?    @db.VarChar(36)
+  originAddress     addresses? @relation("branch_origin", fields: [origin_address_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_branch_origin_addr")
+
+  @@index([parent_id], map: "idx_branch_parent")
+  @@index([origin_address_id], map: "idx_branch_origin_addr")
   @@index([tenant_id], map: "idx_branch_tenant")
   @@index([headquarters_address_id], map: "idx_branch_address")
   @@index([changed_by], map: "idx_branches_user")
@@ -1352,6 +1372,7 @@ enum member_residences_kind {
   RESIDENCE
   TEMPORARY
   LAST
+  RESTING
 
   @@map("member_residences_kind")
 }

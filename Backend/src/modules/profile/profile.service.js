@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/profile/profile.service.js
  * DATETIME   : 2026-09-01T17:10:00+07:00
- * VERSION    : 1.6.0-SOCIAL-ITEMS
+ * VERSION    : 1.7.5-KIND-RESTING
  * DESCRIPTION: Actor select is_alive. Không strip death_* khi đã mất.
  */
 
@@ -329,13 +329,25 @@ function composeAddressFields(payload) {
   const line2 = pickAddrPart(payload, 'line2', 255);
   const postal_code = pickAddrPart(payload, 'postal_code', 20);
   const notes = pickAddrPart(payload, 'notes', 255);
+  const location_url = pickAddrPart(payload, 'location_url', 2000);
+  function parseCoord(v, maxAbs) {
+    if (v === '' || v == null) return null;
+    const n = Number(v);
+    if (!Number.isFinite(n) || Math.abs(n) > maxAbs) return null;
+    return n;
+  }
+  const latitude = parseCoord(payload.latitude, 90);
+  const longitude = parseCoord(payload.longitude, 180);
   const composed = [line1, line2, sub_locality, locality, admin_area, postal_code, country_code]
     .map((v) => String(v || '').trim())
     .filter(Boolean)
     .join(', ')
     .slice(0, 500);
   const full_address = composed || String(payload.full_address || '').trim().slice(0, 500);
-  return { country_code, admin_area, locality, sub_locality, line1, line2, postal_code, notes, full_address };
+  return {
+    country_code, admin_area, locality, sub_locality, line1, line2, postal_code, notes, full_address,
+    latitude, longitude, location_url,
+  };
 }
 
 async function upsertAddress(tx, tenantId, actorId, payload) {
@@ -349,6 +361,10 @@ async function upsertAddress(tx, tenantId, actorId, payload) {
     });
     if (!existing) deny('FORBIDDEN', 'address_id không thuộc dòng họ này.', 403);
 
+    if (payload.reuse_place === true || payload.reuse_place === '1') {
+      return existing;
+    }
+
     await tx.addresses.updateMany({
       where: { id: existing.id, tenant_id: tenantId, deleted_at: null },
       data: {
@@ -361,6 +377,9 @@ async function upsertAddress(tx, tenantId, actorId, payload) {
         postal_code: fields.postal_code,
         notes: fields.notes,
         full_address: fields.full_address || undefined,
+        latitude: fields.latitude,
+        longitude: fields.longitude,
+        location_url: fields.location_url,
         changed_by: actorId,
         updated_at: new Date(),
       },
@@ -385,6 +404,9 @@ async function upsertAddress(tx, tenantId, actorId, payload) {
         postal_code: fields.postal_code,
         line1: fields.line1,
         line2: fields.line2,
+        latitude: fields.latitude,
+        longitude: fields.longitude,
+        location_url: fields.location_url,
         changed_by: actorId,
         updated_at: new Date(),
       },
@@ -404,6 +426,9 @@ async function upsertAddress(tx, tenantId, actorId, payload) {
       line2: fields.line2,
       notes: fields.notes,
       full_address: fields.full_address,
+      latitude: fields.latitude,
+      longitude: fields.longitude,
+      location_url: fields.location_url,
       changed_by: actorId,
     },
     select: { id: true },
@@ -862,23 +887,104 @@ async function searchMyAddresses(reqUser, query = {}) {
   const country_code = query.country_code
     ? String(query.country_code).trim().toUpperCase().slice(0, 2)
     : null;
+  const admin_area = String(query.admin_area || '').trim();
+  const locality = String(query.locality || '').trim();
+  const sub_locality = String(query.sub_locality || '').trim();
+  const kind = String(query.kind || query.usage || '').trim().toUpperCase();
 
   const where = {
     tenant_id: member.tenant_id,
     deleted_at: null,
   };
+  if (kind && !id) {
+    const KIND_SET = new Set(['ORIGIN', 'RESIDENCE', 'TEMPORARY', 'LAST']);
+    if (kind === 'RESTING') {
+      const clan = await prisma.members.findMany({
+        where: { tenant_id: member.tenant_id, deleted_at: null },
+        select: { id: true },
+        take: 500,
+      });
+      const mids = clan.map((m) => m.id);
+      const graveRows = mids.length
+        ? await prisma.graves.findMany({
+            where: { member_id: { in: mids }, grave_address_id: { not: null } },
+            select: { grave_address_id: true },
+            take: 200,
+          })
+        : [];
+      const graveIds = graveRows.map((g) => g.grave_address_id).filter(Boolean);
+      if (!graveIds.length) return { items: [], total: 0 };
+      where.id = { in: graveIds };
+    } else if (KIND_SET.has(kind)) {
+      const rows = await prisma.member_residences.findMany({
+        where: { tenant_id: member.tenant_id, deleted_at: null, kind },
+        select: { address_id: true },
+        take: 200,
+      });
+      const ids = rows.map((r) => r.address_id).filter(Boolean);
+      if (!ids.length) return { items: [], total: 0 };
+      where.id = { in: ids };
+    }
+  }
   if (id) where.id = id;
   if (country_code && !id) where.country_code = country_code;
+  function foldAdminToken(s) {
+    return String(s || '')
+      .replace(/^(tỉnh|thành phố|tp\.?|quận|huyện|thị xã|phường|xã|thị trấn|đặc khu)\s+/i, '')
+      .trim();
+  }
+  if (!id && admin_area) {
+    const folded = foldAdminToken(admin_area) || admin_area;
+    where.AND = where.AND || [];
+    where.AND.push({
+      OR: [
+        { admin_area: { equals: admin_area, mode: 'insensitive' } },
+        { admin_area: { contains: folded, mode: 'insensitive' } },
+      ],
+    });
+  }
+  if (!id && locality) {
+    const folded = foldAdminToken(locality) || locality;
+    where.AND = where.AND || [];
+    where.AND.push({
+      OR: [
+        { locality: { equals: locality, mode: 'insensitive' } },
+        { locality: { contains: folded, mode: 'insensitive' } },
+      ],
+    });
+  }
+  if (!id && sub_locality) {
+    const folded = foldAdminToken(sub_locality) || sub_locality;
+    where.AND = where.AND || [];
+    where.AND.push({
+      OR: [
+        { sub_locality: { equals: sub_locality, mode: 'insensitive' } },
+        { sub_locality: { contains: folded, mode: 'insensitive' } },
+        { notes: { contains: folded, mode: 'insensitive' } },
+      ],
+    });
+  }
   if (q) {
-    where.OR = [
-      { full_address: { contains: q, mode: 'insensitive' } },
-      { line1: { contains: q, mode: 'insensitive' } },
-      { line2: { contains: q, mode: 'insensitive' } },
-      { sub_locality: { contains: q, mode: 'insensitive' } },
-      { locality: { contains: q, mode: 'insensitive' } },
+    const qFold = foldAdminToken(q) || q;
+    const nameOr = [
       { admin_area: { contains: q, mode: 'insensitive' } },
+      { admin_area: { contains: qFold, mode: 'insensitive' } },
+      { sub_locality: { contains: q, mode: 'insensitive' } },
+      { sub_locality: { contains: qFold, mode: 'insensitive' } },
+      { locality: { contains: q, mode: 'insensitive' } },
       { notes: { contains: q, mode: 'insensitive' } },
+      { notes: { contains: qFold, mode: 'insensitive' } },
     ];
+    if (!id && !admin_area) {
+      where.OR = nameOr;
+    } else {
+      where.OR = [
+        ...nameOr,
+        { full_address: { contains: q, mode: 'insensitive' } },
+        { line1: { contains: q, mode: 'insensitive' } },
+        { line2: { contains: q, mode: 'insensitive' } },
+      ];
+    }
   }
 
   const items = await prisma.addresses.findMany({
@@ -896,6 +1002,9 @@ async function searchMyAddresses(reqUser, query = {}) {
       line2: true,
       postal_code: true,
       notes: true,
+      latitude: true,
+      longitude: true,
+      location_url: true,
     },
   });
 
@@ -927,4 +1036,5 @@ module.exports = {
   patchMyProfile,
   patchMemberProfile,
   searchMyAddresses,
+  upsertAddress,
 };

@@ -1,10 +1,11 @@
 /**
  * PATH       : src/features/member/components/AddressForm.jsx
  * DATETIME   : 2026-08-29T16:40:00+07:00
- * VERSION    : 1.3.0-M12L-GEO
- * DESCRIPTION: Form chỗ ISO. VN: 34 tỉnh + xã, ẩn huyện. Search chỗ đã gắn member.
+ * VERSION    : 1.4.8-KIND-SYNC
+ * DESCRIPTION: Search chỗ: tỉnh (bắt buộc) → xã tùy chọn → gõ ≥2 ký tự trong tập đó.
  */
 
+import { residenceKindLabel, RESIDENCE_KIND_LABELS } from '../constants/enumLabels.js';
 import { useEffect, useMemo, useState } from 'react';
 import apiClient from '../../../lib/apiClient.js';
 import {
@@ -31,13 +32,16 @@ function Field({ label, hint, children }) {
   );
 }
 
-export default function AddressForm({ value, onChange }) {
+export default function AddressForm({ value, onChange, usageKind = '' }) {
   const addr = { ...EMPTY_ADDRESS, ...(value || {}) };
   const isVn = (addr.country_code || 'VN') === 'VN';
   const wards = useMemo(() => (isVn ? wardsOfProvince(addr.admin_area) : []), [isVn, addr.admin_area]);
   const [q, setQ] = useState('');
   const [hits, setHits] = useState([]);
   const [openList, setOpenList] = useState(false);
+  const [pickedId, setPickedId] = useState('');
+  const [searchKind, setSearchKind] = useState(usageKind || '');
+  useEffect(() => { setSearchKind(usageKind || ''); }, [usageKind]);
 
   useEffect(() => {
     const text = q.trim();
@@ -48,7 +52,13 @@ export default function AddressForm({ value, onChange }) {
     const t = setTimeout(async () => {
       try {
         const res = await apiClient.get('/me/addresses', {
-          params: { q: text, country_code: addr.country_code || 'VN', member_only: 1 },
+          params: {
+            q: text,
+            country_code: addr.country_code || 'VN',
+            admin_area: addr.admin_area,
+            sub_locality: addr.sub_locality || undefined,
+            kind: searchKind || undefined,
+          },
         });
         setHits(res.data?.data?.items || []);
         setOpenList(true);
@@ -57,7 +67,7 @@ export default function AddressForm({ value, onChange }) {
       }
     }, 300);
     return () => clearTimeout(t);
-  }, [q, addr.country_code]);
+  }, [q, addr.country_code, addr.admin_area, addr.sub_locality, searchKind]);
 
   function patch(partial) {
     const nextId = Object.prototype.hasOwnProperty.call(partial, 'address_id')
@@ -112,25 +122,9 @@ export default function AddressForm({ value, onChange }) {
         </select>
       </Field>
 
-      <Field label="Tìm địa chỉ đã dùng trong hồ sơ thành viên" hint="Gõ ≥ 2 ký tự. Chỉ chỗ đã gắn quê / nơi ở của member trong họ.">
-        <input className={inputCls} value={q} placeholder="Tìm chỗ đã có" onChange={(e) => setQ(e.target.value)} onFocus={() => hits.length && setOpenList(true)} />
-      </Field>
-      {openList && hits.length > 0 ? (
-        <ul className="max-h-40 overflow-auto rounded-2xl border border-slate-200 bg-white">
-          {hits.map((row) => (
-            <li key={row.id}>
-              <button type="button" className="w-full px-3 py-2 text-left text-sm hover:bg-indigo-50" onClick={() => pickExisting(row)}>
-                {row.full_address}
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {addr.address_id ? <p className="text-xs font-semibold text-emerald-700">Đã chọn chỗ có sẵn.</p> : null}
-
       <Field label="Administrative area (Tỉnh/Thành phố)">
         {isVn ? (
-          <select className={inputCls} value={addr.admin_area || ''} onChange={(e) => patch({ admin_area: e.target.value, sub_locality: '', locality: '' })}>
+          <select className={inputCls} value={addr.admin_area || ''} onChange={(e) => { setQ(''); setHits([]); patch({ admin_area: e.target.value, sub_locality: '', locality: '' }); }}>
             <option value="">— Chọn tỉnh/thành —</option>
             {addr.admin_area && !VN_PROVINCES.includes(addr.admin_area) ? (
               <option value={addr.admin_area}>{addr.admin_area}</option>
@@ -165,6 +159,58 @@ export default function AddressForm({ value, onChange }) {
           <input className={inputCls} value={addr.sub_locality} onChange={(e) => patch({ sub_locality: e.target.value })} />
         )}
       </Field>
+
+      <Field label="Việc dùng chỗ">
+        <select className={inputCls} value={searchKind} onChange={(e) => { setSearchKind(e.target.value); setHits([]); }}>
+          <option value="">Tất cả</option>
+          {Object.entries(RESIDENCE_KIND_LABELS).map(([code, label]) => (
+            <option key={code} value={code}>{label}</option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Tìm trong tỉnh/xã đã chọn" hint="Gõ ≥ 2 ký tự: số nhà, thôn, hoặc tên cũ trong ghi chú. Không thấy thì nhập Line 1–2.">
+        <input
+          className={inputCls}
+          value={q}
+          placeholder="Tỉnh, xã, hoặc tên cũ trong ghi chú"
+          onChange={(e) => setQ(e.target.value)}
+          onFocus={() => hits.length && setOpenList(true)}
+        />
+      </Field>
+      {!addr.admin_area && q.trim().length >= 2 ? (
+        <p className="text-xs text-slate-500">Chưa chọn tỉnh: chỉ tìm theo tên tỉnh/xã/ghi chú.</p>
+      ) : null}
+      {openList && hits.length > 0 ? (
+        <div className="space-y-2 rounded-2xl border border-slate-200 bg-white p-2">
+          <ul className="min-h-[16.5rem] max-h-[16.5rem] overflow-y-auto">
+            {hits.map((row) => (
+              <li key={row.id} className="border-b border-slate-100 last:border-0">
+                <label className="flex cursor-pointer items-start gap-2 px-2 py-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="mt-1 h-4 w-4"
+                    checked={pickedId === row.id}
+                    onChange={() => {
+                      if (pickedId === row.id) {
+                        setPickedId('');
+                        return;
+                      }
+                      if (!window.confirm('Bạn chắc chắn dùng địa chỉ này?')) return;
+                      setPickedId(row.id);
+                      pickExisting(row);
+                    }}
+                  />
+                  <span>
+                    {row.full_address}
+                    {row.notes ? <span className="block text-xs text-slate-500">{row.notes}</span> : null}
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {addr.address_id ? <p className="text-xs font-semibold text-emerald-700">Đã chọn chỗ có sẵn.</p> : null}
 
       <Field label="Address line 1 (Số nhà, đường)">
         <input className={inputCls} value={addr.line1} onChange={(e) => patch({ line1: e.target.value })} />
