@@ -1612,6 +1612,17 @@ enum notification_event {
   ONBOARDING_MERGE_FAILED
   ONBOARDING_BRANCH_MERGED
   ONBOARDING_COMPLETED
+
+  // ==========================================================================
+  // BRANCH PROCESS
+  // ==========================================================================
+  BRANCH_SUBMITTED
+  BRANCH_APPROVED
+  BRANCH_REJECTED
+  BRANCH_MERGED
+  BRANCH_EDITOR_ASSIGNED
+  BRANCH_EDITOR_REVOKED
+  BRANCH_MEMBER_ATTACHED
 }
 
 enum notification_reliability {
@@ -1691,6 +1702,16 @@ enum business_process_type {
   MEMBER_ADDRESS_LINK //Link address
   MEDIA_AVATAR_UPSERT
   MEDIA_AVATAR_DELETE
+
+  //----- Branch process
+  BRANCH_DRAFT_CREATE
+  BRANCH_SUBMIT
+  BRANCH_APPROVE
+  BRANCH_REJECT
+  BRANCH_EDITOR_GRANT
+  BRANCH_EDITOR_REVOKE
+  BRANCH_MERGE
+  BRANCH_MEMBER_ATTACH
 }
 
 enum process_status_type {
@@ -1792,6 +1813,7 @@ enum proposal_ticket_type {
   PROFILE_CORRECTION
   TREE_MERGE
   FUND_CONTRIBUTION
+  BRANCH_REVIEW
 }
 
 enum privacy_field_group {

@@ -37,15 +37,47 @@ export const SYSTEM_ADMIN_WORK_ITEMS = [
     icon: 'Settings',
   },
   {
+    id: 'tenant-origin',
+    title: 'Nơi phát tích',
+    description: 'Địa điểm gốc dòng họ do quản trị khai',
+    path: '/admin/tenant/origin',
+    icon: 'Landmark',
+  },
+
+  {
     id: 'member-vital',
     title: 'Tình trạng sống / đã mất',
     description: 'Ghi nhận ngày mất, không mở lại hồ sơ nhập tộc',
     path: '/admin/members/vital',
     icon: 'UserCheck',
   },
+
+  {
+    id: 'branches',
+    title: 'Chi / ngành',
+    description: 'Cây chi, chi cha, không sinh từ sơ đồ người',
+    path: '/admin/branches',
+    icon: 'GitFork',
+  },
 ];
 
 export const CLAN_ADMIN_WORK_ITEMS = [
+  {
+    id: 'branches',
+    title: 'Chi / ngành',
+    description: 'Cây chi, chi cha, không sinh từ sơ đồ người',
+    path: '/admin/branches',
+    icon: 'GitFork',
+    when: ['HOAT_DONG', 'TAM_NGUNG'],
+  },
+  
+  {
+    id: 'tenant-origin',
+    title: 'Nơi phát tích',
+    description: 'Địa điểm gốc dòng họ do quản trị khai',
+    path: '/admin/tenant/origin',
+    icon: 'Landmark',
+  },
   {
     id: 'activate',
     title: 'Kích hoạt dòng họ',

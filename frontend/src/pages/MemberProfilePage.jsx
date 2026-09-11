@@ -333,6 +333,8 @@ export default function MemberProfilePage() {
   const [socialUi, setSocialUi] = useState({ mode: 'list', idx: null });
   const [addrCard, setAddrCard] = useState('');
   const [residences, setResidences] = useState([]);
+  const [tenantOrigin, setTenantOrigin] = useState(null);
+  const [useClanOrigin, setUseClanOrigin] = useState(false);
   const [docs, setDocs] = useState([]);
   const [docsUsed, setDocsUsed] = useState(0);
   /* P0 avatar — không lẫn state form hồ sơ */
@@ -457,6 +459,8 @@ export default function MemberProfilePage() {
         const res = await api.get(profilePath, t1 ? { params: { section: bootSec } } : {});
         if (t1) t1LoadedRef.current = bootSec;
         const d = res.data?.data || {};
+        if (d.tenant_origin_address) setTenantOrigin(d.tenant_origin_address);
+        if (d.origin_address && d.tenant_origin_address && d.origin_address.id === d.tenant_origin_address.id) setUseClanOrigin(true);
         const m = d.member || {};
         const b = d.biography || {};
         const social = m.social_profiles || {};
@@ -1221,11 +1225,42 @@ export default function MemberProfilePage() {
                               </p>
                             ) : <ReadRow label="Bản đồ" value="—" />}
                           </dl>
+                          {canEdit && card.key === 'origin' && tenantOrigin ? (
+                            <label className="flex items-start gap-2 text-sm font-bold text-slate-700">
+                              <input
+                                type="checkbox"
+                                className="mt-1 h-4 w-4"
+                                checked={useClanOrigin}
+                                onChange={async (e) => {
+                                  const on = e.target.checked;
+                                  if (on) {
+                                    if (!window.confirm('Dùng nơi phát tích dòng họ làm quê quán? Không sửa chỗ này trừ khi quản trị đổi phát tích.')) {
+                                      return;
+                                    }
+                                    try {
+                                      await api.patch(profilePath, {
+                                        origin_address: { address_id: tenantOrigin.id, reuse_place: true },
+                                      });
+                                      setUseClanOrigin(true);
+                                      toastSpeak('ok', 'Quê quán theo phát tích họ.');
+                                      setForm((f) => ({ ...f, origin: { ...f.origin, ...tenantOrigin, address_id: tenantOrigin.id } }));
+                                    } catch (err) {
+                                      toastSpeak('error', err.response?.data?.message || 'Không gắn được phát tích.');
+                                    }
+                                  } else {
+                                    setUseClanOrigin(false);
+                                    toastSpeak('ok', 'Có thể sửa quê quán riêng.');
+                                  }
+                                }}
+                              />
+                              <span>Dùng nơi phát tích dòng họ làm quê quán</span>
+                            </label>
+                          ) : null}
                           {canEdit ? (
                             <div className="grid grid-cols-2 gap-2">
                               <button
                                 type="button"
-                                disabled={!hasPlace(place)}
+                                disabled={!hasPlace(place) || (card.key === 'origin' && useClanOrigin)}
                                 onClick={() => goAddress(card.key === 'resting' ? 'resting' : card.key, 'edit')}
                                 className="rounded-2xl border border-indigo-200 bg-white py-3 text-sm font-black text-indigo-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:text-slate-400"
                               >

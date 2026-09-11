@@ -469,6 +469,18 @@ async function getMyProfile(reqUser, section = '') {
   });
   const privacy = mergePrivacyRules(privacyRows);
 
+  let tenantOrigin = null;
+  if (needAddr) {
+    const ten = await prisma.tenants.findFirst({
+      where: { id: member.tenant_id, deleted_at: null },
+      select: {
+        origin_address_id: true,
+        originAddress: true,
+      },
+    });
+    tenantOrigin = (ten && ten.originAddress) || null;
+  }
+
   return {
     member: {
       id: row.id,
@@ -494,6 +506,7 @@ async function getMyProfile(reqUser, section = '') {
     },
     biography: biography || null,
     origin_address: needAddr ? (row.originAddress || null) : null,
+    tenant_origin_address: tenantOrigin,
     current_address: needAddr ? (row.currentAddress || null) : null,
     resting_address: (function () {
       const g = Array.isArray(row.graves) ? row.graves[0] : row.graves;

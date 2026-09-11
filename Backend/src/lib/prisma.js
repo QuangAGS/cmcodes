@@ -180,6 +180,7 @@ const SOFT_DELETE_MODELS = new Set([
   'fund_transactions', 'funds', 'graves', 'inbound_messages', 'marriages', 'media',
   'members', 'notifications', 'onboarding_cases', 'tenants', 'users', 'worships', 
   'clan_profiles', 'generation_naming_rules', 'proposals','member_privacy_rules',
+  'member_residences',
 ]);
 
 const APPEND_ONLY_MODELS = new Set([

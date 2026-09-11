@@ -1,7 +1,7 @@
 /**
  * PATH       : src/App.jsx
- * DATETIME   : 2026-09-01T09:00:00+07:00
- * VERSION    : 13.2.6-FE-A01-ACH
+ * DATETIME   : 2026-09-10T16:00:00+07:00
+ * VERSION    : 13.2.7-CRUD BRANCH
  * DESCRIPTION: Routes FE. Không mount Express /api/me ở đây.
  */
 
@@ -22,6 +22,7 @@ const OpHubPage = lazy(() => import('./pages/OpHubPage.jsx'));
 const OpBaseProfilePage = lazy(() => import('./pages/OpBaseProfilePage.jsx'));
 const OpCaseDetailPage = lazy(() => import('./pages/OpCaseDetailPage.jsx'));
 const AdminTenantSettingsPage = lazy(() => import('./pages/AdminTenantSettingsPage.jsx'));
+const AdminTenantOriginPage = lazy(() => import('./pages/AdminTenantOriginPage.jsx'));
 const AdminTenantDirectoryPage = lazy(() => import('./pages/AdminTenantDirectoryPage.jsx'));
 const MemberProfilePage = lazy(() => import('./pages/MemberProfilePage.jsx'));
 const AddressFormPage = lazy(() => import('./pages/AddressFormPage.jsx'));
@@ -29,6 +30,7 @@ const ProofUploadPage = lazy(() => import('./pages/ProofUploadPage.jsx'));
 const DocumentUploadPage = lazy(() => import('./pages/DocumentUploadPage.jsx'));
 const BioFileUploadPage = lazy(() => import('./pages/BioFileUploadPage.jsx'));
 const AdminMemberVitalPage = lazy(() => import('./pages/AdminMemberVitalPage.jsx'));
+const AdminBranchesPage = lazy(() => import('./pages/AdminBranchesPage.jsx'));
 
 const ProtectedRoute = ({ children, allowedStatus = 'DA_DUYET' }) => {
   const { user, loading } = useAuth();
@@ -203,6 +205,15 @@ const AppRouter = () => {
           }
         />
 
+      <Route
+          path="/admin/tenant/origin"
+          element={
+            <AdminProtectedRoute>
+              <AdminTenantOriginPage />
+            </AdminProtectedRoute>
+          }
+        />
+
         <Route
           path="/admin/tenant/settings"
           element={
@@ -217,6 +228,15 @@ const AppRouter = () => {
           element={
             <AdminProtectedRoute>
               <AdminTenantDirectoryPage />
+            </AdminProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/admin/branches"
+          element={
+            <AdminProtectedRoute>
+              <AdminBranchesPage />
             </AdminProtectedRoute>
           }
         />

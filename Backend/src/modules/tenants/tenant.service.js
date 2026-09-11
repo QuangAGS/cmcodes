@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/tenants/tenant.service.js
  * DATETIME   : 2026-08-25T16:10:00+07:00
- * VERSION    : 1.1.0-TENANT-SETTINGS
+ * VERSION    : 1.2.0-ORIGIN
  * DESCRIPTION:
  * - OP-2 activateTenant (giữ nguyên).
  * - Tenant settings (ADMIN): name, slogan, description, theme_color, logo_url.
@@ -33,6 +33,20 @@ const SETTINGS_SELECT = {
   status: true,
   social_configs: true,
   updated_at: true,
+  origin_address_id: true,
+  originAddress: {
+    select: {
+      id: true,
+      full_address: true,
+      admin_area: true,
+      sub_locality: true,
+      line1: true,
+      notes: true,
+      latitude: true,
+      longitude: true,
+      location_url: true,
+    },
+  },
 };
 
 function assertAdminCanEditTenant(actor, tenantId) {
@@ -236,6 +250,37 @@ async function updateTenantSettings(tenantId, actor, body = {}) {
     setLink('website', body.social_website);
 
     if (touched) data.social_configs = prev;
+  }
+
+  if (body.origin_address && typeof body.origin_address === 'object') {
+    const { upsertAddress } = require('../profile/profile.service.js');
+    const created = await prisma.$transaction((tx) =>
+      upsertAddress(tx, tenantId, actor.id, body.origin_address)
+    );
+    if (!created || !created.id) {
+      const err = new Error('Không lưu được địa chỉ phát tích.');
+      err.statusCode = 400;
+      err.code = 'TENANT_ORIGIN_PLACE';
+      throw err;
+    }
+    data.origin_address_id = created.id;
+  } else if (body.origin_address_id !== undefined) {
+    const oid = body.origin_address_id == null || body.origin_address_id === ''
+      ? null
+      : String(body.origin_address_id).trim();
+    if (oid) {
+      const place = await prisma.addresses.findFirst({
+        where: { id: oid, tenant_id: tenantId, deleted_at: null },
+        select: { id: true },
+      });
+      if (!place) {
+        const err = new Error('origin_address_id không thuộc dòng họ này.');
+        err.statusCode = 400;
+        err.code = 'TENANT_ORIGIN_BAD';
+        throw err;
+      }
+    }
+    data.origin_address_id = oid;
   }
 
   const hasField = Object.keys(data).some(
