@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/members/branch.controller.js
  * DATETIME   : 2026-09-10T16:10:00+07:00
- * VERSION    : 2.1.0-CYCLE
+ * VERSION    : 2.2.0-M13-REVIEW
  * DESCRIPTION: Cây chi + create/update chặn vòng parent_id.
  */
 

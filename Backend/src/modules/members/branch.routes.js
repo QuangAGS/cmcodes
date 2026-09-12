@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/members/branch.routes.js
  * DATETIME   : 2026-09-10T16:10:00+07:00
- * VERSION    : 1.7.0-CYCLE
+ * VERSION    : 1.8.0-M13-REVIEW
  */
 
 const express = require('express');

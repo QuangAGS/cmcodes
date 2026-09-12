@@ -1,7 +1,7 @@
 /**
  * PATH: src/modules/members/branch.service.js
  * DATETIME: 2026-07-16T12:15:00+07:00
- * VERSION: 1.6.1
+ * VERSION: 1.8.0-M13-REVIEW
  * DESCRIPTION: Xử lý logic cây chi họ chuyên biệt. 
  * Tận dụng Prisma Extension để tự động cô lập dữ liệu theo Tenant.
  */
