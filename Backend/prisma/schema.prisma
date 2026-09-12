@@ -335,6 +335,14 @@ model branches {
   origin_address_id String?    @db.VarChar(36)
   originAddress     addresses? @relation("branch_origin", fields: [origin_address_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_branch_origin_addr")
 
+  /// Tổ nghiệp (người). Khác origin_address_id (địa phát tích).
+  /// Được phép trỏ member đã có branch_id khác. Gắn không đổi branch_id người đó.
+  origin_member_id String?  @db.VarChar(36)
+  originMember     members? @relation("MemberToBranchOrigin", fields: [origin_member_id], references: [id], onUpdate: NoAction, map: "fk_branch_origin_member")
+
+  /// Quota đời sau APPROVE. NULL = chưa tem / chưa chốt.
+  max_generation_span Int?
+
   @@index([parent_id], map: "idx_branch_parent")
   @@index([origin_address_id], map: "idx_branch_origin_addr")
   @@index([tenant_id], map: "idx_branch_tenant")
@@ -345,6 +353,8 @@ model branches {
   @@index([tenant_id, status], map: "idx_branches_tenant_status")
   @@index([onboarding_case_id], map: "idx_branches_onboarding_case")
   @@index([tenant_id, onboarding_case_id, status], map: "idx_branches_tenant_case_status")
+  @@index([origin_member_id], map: "idx_branch_origin_member")
+  @@index([tenant_id, origin_member_id], map: "idx_branches_tenant_origin_member")
 }
 
 model onboarding_cases {
@@ -685,6 +695,8 @@ model members {
   as_user                            users[]            @relation("users_member_idTomembers")
   /// Các onboarding case mà Member này là root member.
   onboarding_cases_as_primary_member onboarding_cases[] @relation("OnboardingCaseToPrimaryMember")
+
+  originated_branches branches[] @relation("MemberToBranchOrigin")
 
   @@index([tenant_id], map: "idx_members_tenant")
   @@index([branch_id], map: "idx_member_branch")

@@ -1,8 +1,8 @@
 /**
  * PATH:
  * backend/src/modules/notifications/orchestrator/notificationOrchestrator.js
- * DATETIME: 2026-07-29 10:15:00
- * VERSION: 1.0.0-PR-OP-1a
+ * DATETIME: 2026-09-11T12:45:00+07:00
+ * VERSION: 1.1.0-M13-BRANCH-CAT
  * PURPOSE:
  * - EGAL-25 Sprint 25.0
  * - Notification orchestration skeleton
@@ -129,6 +129,49 @@ const EVENT_TEXT = {
     content:
       'Bác có thể kết nối kênh liên lạc ưa thích để nhận thông báo thuận tiện hơn.',
   },
+
+  BRANCH_SUBMITTED: {
+    title: 'Chi đã gửi duyệt',
+    content:
+      'Bác đã gửi chi để Ban quản trị xem.',
+  },
+
+  BRANCH_APPROVED: {
+    title: 'Chi được chấp nhận',
+    content:
+      'Chi của bác đã được chấp nhận.',
+  },
+
+  BRANCH_REJECTED: {
+    title: 'Chi chưa được chấp nhận',
+    content:
+      'Chi của bác chưa được chấp nhận.',
+  },
+
+  BRANCH_MERGED: {
+    title: 'Chi đã ghép cây',
+    content:
+      'Chi của bác đã được ghép vào cây tổ chức.',
+  },
+
+  BRANCH_EDITOR_ASSIGNED: {
+    title: 'Bác được giao quyền biên chi',
+    content:
+      'Bác được giao quyền biên hồ sơ chi.',
+  },
+
+  BRANCH_EDITOR_REVOKED: {
+    title: 'Quyền biên chi đã thu hồi',
+    content:
+      'Quyền biên hồ sơ chi của bác đã được thu hồi.',
+  },
+
+  BRANCH_MEMBER_ATTACHED: {
+    title: 'Bác được gắn vào chi',
+    content:
+      'Hồ sơ của bác đã được gắn vào chi.',
+  },
+
 };
 
 function resolveText(eventType, payload = {}) {

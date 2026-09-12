@@ -1,6 +1,8 @@
 /**
  * PATH:
  * backend/src/modules/notifications/policy/channelPolicy.js
+ * DATETIME: 2026-09-11T12:45:00+07:00
+ * VERSION: 1.1.0-M13-BRANCH-CAT
  *
  * PURPOSE:
  * - EGAL-25.x R2
@@ -273,6 +275,76 @@ const EVENT_CHANNEL_POLICY = {
 ],
     
   },
+
+  // =========================================================
+  // M13 BRANCH EVENTS
+  // EMAIL mandatory: SUBMITTED / APPROVED / REJECTED
+  // Delivery vẫn PENDING — không kích hoạt gửi
+  // =========================================================
+
+  BRANCH_SUBMITTED: {
+    mandatory: [OFFICIAL_CHANNEL],
+    preferredAllowed: true,
+    opportunistic: [
+      WEB_PUSH_CHANNEL,
+      IN_APP_CHANNEL,
+    ],
+  },
+
+  BRANCH_APPROVED: {
+    mandatory: [OFFICIAL_CHANNEL],
+    preferredAllowed: true,
+    opportunistic: [
+      WEB_PUSH_CHANNEL,
+      IN_APP_CHANNEL,
+    ],
+  },
+
+  BRANCH_REJECTED: {
+    mandatory: [OFFICIAL_CHANNEL],
+    preferredAllowed: true,
+    opportunistic: [
+      WEB_PUSH_CHANNEL,
+      IN_APP_CHANNEL,
+    ],
+  },
+
+  BRANCH_MERGED: {
+    mandatory: [],
+    preferredAllowed: true,
+    opportunistic: [
+      WEB_PUSH_CHANNEL,
+      IN_APP_CHANNEL,
+    ],
+  },
+
+  BRANCH_EDITOR_ASSIGNED: {
+    mandatory: [],
+    preferredAllowed: true,
+    opportunistic: [
+      WEB_PUSH_CHANNEL,
+      IN_APP_CHANNEL,
+    ],
+  },
+
+  BRANCH_EDITOR_REVOKED: {
+    mandatory: [],
+    preferredAllowed: true,
+    opportunistic: [
+      WEB_PUSH_CHANNEL,
+      IN_APP_CHANNEL,
+    ],
+  },
+
+  BRANCH_MEMBER_ATTACHED: {
+    mandatory: [],
+    preferredAllowed: true,
+    opportunistic: [
+      WEB_PUSH_CHANNEL,
+      IN_APP_CHANNEL,
+    ],
+  },
+
 };
 
 function uniqueChannels(channels = []) {

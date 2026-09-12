@@ -1,10 +1,11 @@
 /**
  * PATH: src/services/businessLogSchemas.js
- * DATETIME: 2026-09-01T15:45:00+07:00
- * VERSION: 1.2.0-BFA-222-B2
+ * DATETIME: 2026-09-11T12:45:00+07:00
+ * VERSION: 1.3.0-M13-BRANCH-CAT
  * DESCRIPTION: Data contract metadata BPL theo process_type.
  *   PR-2: USER_APPROVAL giữ action / status_* / case_id / is_final / admin_note
  *         (trước đây whitelist quá hẹp → mọi action Admin bị ghi thành "Phê duyệt...").
+ *   M13: whitelist BRANCH_DRAFT_CREATE … BRANCH_MEMBER_ATTACH (silentIntent catalog).
  * Định nghĩa hợp đồng dữ liệu (Data Contract) và khuôn mẫu kiểm tra (Validation Schema)
  * cho cấu trúc JSON metadata của từng tiến trình nghiệp vụ (Business Process).
  * Áp đặt học thuyết "Đóng băng lịch sử" (Snapshot Doctrine) cho dữ liệu ngữ cảnh mục tiêu.
@@ -482,6 +483,125 @@ const BusinessLogSchemas = {
       media_id: payload.media_id || null,
     };
   },
+
+  // =========================================================================
+  // M13 BRANCH — BFA-Branch-v1.1.0 (silentIntent catalog)
+  // process_type enum DB: BRANCH_DRAFT_CREATE … BRANCH_MEMBER_ATTACH
+  // Không đụng ONBOARDING_BRANCH_*
+  // =========================================================================
+
+  BRANCH_DRAFT_CREATE: (payload = {}) => {
+    if (!payload.branch_id) {
+      throw new Error('BRANCH_DRAFT_CREATE requires branch_id');
+    }
+    return {
+      branch_id: payload.branch_id,
+      branch_name: payload.branch_name || null,
+      parent_id: payload.parent_id || null,
+      founder_id: payload.founder_id || null,
+      from_status: payload.from_status || null,
+      to_status: payload.to_status || 'DRAFT',
+    };
+  },
+
+  BRANCH_SUBMIT: (payload = {}) => {
+    if (!payload.branch_id) {
+      throw new Error('BRANCH_SUBMIT requires branch_id');
+    }
+    return {
+      branch_id: payload.branch_id,
+      branch_name: payload.branch_name || null,
+      ticket_id: payload.ticket_id || null,
+      from_status: payload.from_status || 'DRAFT',
+      to_status: payload.to_status || 'SUBMITTED',
+      submitted_note: payload.submitted_note || null,
+    };
+  },
+
+  BRANCH_APPROVE: (payload = {}) => {
+    if (!payload.branch_id) {
+      throw new Error('BRANCH_APPROVE requires branch_id');
+    }
+    return {
+      branch_id: payload.branch_id,
+      branch_name: payload.branch_name || null,
+      ticket_id: payload.ticket_id || null,
+      from_status: payload.from_status || 'UNDER_REVIEW',
+      to_status: payload.to_status || 'APPROVED',
+      approver_note: payload.approver_note || null,
+    };
+  },
+
+  BRANCH_REJECT: (payload = {}) => {
+    if (!payload.branch_id || !payload.reason) {
+      throw new Error('BRANCH_REJECT requires branch_id and reason');
+    }
+    return {
+      branch_id: payload.branch_id,
+      branch_name: payload.branch_name || null,
+      ticket_id: payload.ticket_id || null,
+      reason: payload.reason,
+      from_status: payload.from_status || 'UNDER_REVIEW',
+      to_status: payload.to_status || 'REJECTED',
+    };
+  },
+
+  BRANCH_EDITOR_GRANT: (payload = {}) => {
+    if (!payload.branch_id || !payload.member_id) {
+      throw new Error('BRANCH_EDITOR_GRANT requires branch_id and member_id');
+    }
+    return {
+      branch_id: payload.branch_id,
+      branch_name: payload.branch_name || null,
+      member_id: payload.member_id,
+      member_name: payload.member_name || null,
+      office: payload.office || 'BRANCH_PROFILE',
+    };
+  },
+
+  BRANCH_EDITOR_REVOKE: (payload = {}) => {
+    if (!payload.branch_id || !payload.member_id) {
+      throw new Error('BRANCH_EDITOR_REVOKE requires branch_id and member_id');
+    }
+    return {
+      branch_id: payload.branch_id,
+      branch_name: payload.branch_name || null,
+      member_id: payload.member_id,
+      member_name: payload.member_name || null,
+      office: payload.office || 'BRANCH_PROFILE',
+    };
+  },
+
+  BRANCH_MERGE: (payload = {}) => {
+    if (!payload.branch_id || !payload.parent_id) {
+      throw new Error('BRANCH_MERGE requires branch_id and parent_id');
+    }
+    return {
+      branch_id: payload.branch_id,
+      branch_name: payload.branch_name || null,
+      parent_id: payload.parent_id,
+      parent_name: payload.parent_name || null,
+      generation_offset:
+        payload.generation_offset == null
+          ? null
+          : Number(payload.generation_offset),
+      from_status: payload.from_status || 'APPROVED',
+      to_status: payload.to_status || 'MERGED',
+    };
+  },
+
+  BRANCH_MEMBER_ATTACH: (payload = {}) => {
+    if (!payload.branch_id || !payload.member_id) {
+      throw new Error('BRANCH_MEMBER_ATTACH requires branch_id and member_id');
+    }
+    return {
+      branch_id: payload.branch_id,
+      branch_name: payload.branch_name || null,
+      member_id: payload.member_id,
+      member_name: payload.member_name || null,
+    };
+  },
 };
+
 
 module.exports = { BusinessLogSchemas };

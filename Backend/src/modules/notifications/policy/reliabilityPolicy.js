@@ -1,6 +1,8 @@
 /**
  * PATH:
  * backend/src/modules/notifications/policy/reliabilityPolicy.js
+ * DATETIME: 2026-09-11T12:45:00+07:00
+ * VERSION: 1.1.0-M13-BRANCH-CAT
  *
  * PURPOSE:
  * - EGAL-25 Sprint 25.0
@@ -154,6 +156,46 @@ const EVENT_RELIABILITY_POLICY = {
     severity: 'INFO',
     reliability: 'LOW',
   },
+
+  // =========================================================
+  // M13 BRANCH EVENTS
+  // =========================================================
+
+  BRANCH_SUBMITTED: {
+    severity: 'IMPORTANT',
+    reliability: 'HIGH',
+  },
+
+  BRANCH_APPROVED: {
+    severity: 'IMPORTANT',
+    reliability: 'HIGH',
+  },
+
+  BRANCH_REJECTED: {
+    severity: 'IMPORTANT',
+    reliability: 'HIGH',
+  },
+
+  BRANCH_MERGED: {
+    severity: 'IMPORTANT',
+    reliability: 'HIGH',
+  },
+
+  BRANCH_EDITOR_ASSIGNED: {
+    severity: 'WARNING',
+    reliability: 'MEDIUM',
+  },
+
+  BRANCH_EDITOR_REVOKED: {
+    severity: 'WARNING',
+    reliability: 'MEDIUM',
+  },
+
+  BRANCH_MEMBER_ATTACHED: {
+    severity: 'WARNING',
+    reliability: 'MEDIUM',
+  },
+
 };
 
 function getEventReliabilityPolicy(eventType) {
