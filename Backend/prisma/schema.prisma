@@ -338,7 +338,7 @@ model branches {
   /// Tổ nghiệp (người). Khác origin_address_id (địa phát tích).
   /// Được phép trỏ member đã có branch_id khác. Gắn không đổi branch_id người đó.
   origin_member_id String?  @db.VarChar(36)
-  originMember     members? @relation("MemberToBranchOrigin", fields: [origin_member_id], references: [id], onUpdate: NoAction, map: "fk_branch_origin_member")
+  originMember     members? @relation("MemberToBranchOrigin", fields: [origin_member_id], references: [id], onUpdate: NoAction, onDelete: NoAction, map: "fk_branch_origin_member")
 
   /// Quota đời sau APPROVE. NULL = chưa tem / chưa chốt.
   max_generation_span Int?
