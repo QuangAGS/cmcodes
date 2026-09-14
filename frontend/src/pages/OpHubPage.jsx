@@ -1,8 +1,9 @@
 /**
- * PATH       : src/pages/MemberProfilePage.jsx
- * DATETIME   : 2026-08-29T18:00:00+07:00
- * VERSION    : 1.6.0-A01-ACH
- * DESCRIPTION: Shell tóm tắt + một mục. Địa chỉ đọc 2 cột. Form địa chỉ trang con.
+ * PATH       : src/pages/OpHubPage.jsx
+ * DATETIME   : 2026-09-14T11:10:00+07:00
+ * VERSION    : 1.7.0-OP-GATE
+ * DESCRIPTION: Hub /op. DU_BI / chưa đủ field → /op/base-profile.
+ *              Không gọi /me/profile khi member chưa CHINH_THUC.
  */
 
 import { useEffect, useMemo, useState, useRef } from 'react';
@@ -221,7 +222,29 @@ export default function MemberProfilePage() {
     let cancelled = false;
     (async () => {
       try {
-        // Tải thông tin hồ sơ người dùng
+        // OP trước M12: DU_BI không được /me/profile
+        try {
+          const opRes = await apiClient.get('/onboarding/my-op');
+          const op = opRes.data?.data ?? opRes.data ?? null;
+          if (cancelled) return;
+          const primaryStatus = op?.primary?.status;
+          const complete = op?.completeness?.complete === true;
+          if (op?.hasOpen === true && (primaryStatus === 'DU_BI' || !complete)) {
+            navigate('/op/base-profile', { replace: true });
+            return;
+          }
+          if (op?.hasOpen !== true && primaryStatus !== 'CHINH_THUC') {
+            const role = user?.role;
+            navigate(
+              role === 'CLAN_ADMIN' || role === 'SYSTEM_ADMIN' ? '/admin' : '/tree',
+              { replace: true }
+            );
+            return;
+          }
+        } catch {
+          /* my-op lỗi: thử M12; 403 NOT_MEMBER_ACTOR xử lý phía dưới */
+        }
+
         const res = await apiClient.get('/me/profile');
         const d = res.data?.data || {};
         const m = d.member || {};
@@ -290,7 +313,7 @@ export default function MemberProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [navigate, user?.role]);
 
   // ==========================================================================
   // XỬ LÝ SỰ KIỆN (EVENT HANDLERS)

@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/members/branch.service.js
- * DATETIME   : 2026-09-12T16:00:00+07:00
- * VERSION    : 1.8.0-M13-REVIEW
+ * DATETIME   : 2026-09-12T22:30:00+07:00
+ * VERSION    : 1.9.0-M13-L1
  * DESCRIPTION: Cây chi + SUBMIT/APPROVE/REJECT.
  *   TX: status + proposal BRANCH_REVIEW + writeBpl.
  *   Sau commit: silentEmit. APPROVED = tem, không khóa field.
@@ -107,6 +107,46 @@ function assertCanSubmit(branch, user) {
     'BRANCH_SUBMIT_FORBIDDEN'
   );
 }
+
+
+const ATTACH_OPEN = ['DRAFT', 'PROVISIONAL', 'REJECTED'];
+const DETACH_OK = ['DRAFT', 'PROVISIONAL', 'REJECTED'];
+
+function assertCanAttach(branch, user) {
+  if (isClanOrSys(user)) return;
+  const actor = actorIdOf(user);
+  if (
+    branch.changed_by &&
+    actor &&
+    String(branch.changed_by) === String(actor) &&
+    ATTACH_OPEN.includes(branch.status)
+  ) {
+    return;
+  }
+  fail(
+    'Bác không được gắn người trên chi này.',
+    403,
+    'BRANCH_ATTACH_FORBIDDEN'
+  );
+}
+
+async function loadMember(txOrPrisma, memberId) {
+  if (!memberId) fail('Thiếu member_id.', 400, 'MEMBER_ID_REQUIRED');
+  const row = await txOrPrisma.members.findUnique({
+    where: { id: memberId },
+  });
+  if (!row || row.deleted_at) {
+    fail('Không tìm thấy người.', 404, 'MEMBER_NOT_FOUND');
+  }
+  return row;
+}
+
+function assertSameTenant(branch, member) {
+  if (String(branch.tenant_id) !== String(member.tenant_id)) {
+    fail('Người không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
+  }
+}
+
 
 async function withdrawOpenTickets(tx, branchId, actor) {
   const open = await tx.proposals.findMany({
@@ -540,6 +580,265 @@ const branchService = {
         reason: why,
       },
     });
+
+    return result;
+  },
+
+  setFounder: async ({ branchId, user, memberId, correlationId }) => {
+    const actor = actorIdOf(user);
+    if (!actor) fail('Thiếu người thực hiện.', 401, 'UNAUTHENTICATED');
+    const corr = correlationId || crypto.randomUUID();
+
+    const result = await withTransaction(
+      {
+        actorId: actor,
+        actorType: 'USER',
+        tenantId: tenantIdOf(user),
+        correlationId: corr,
+      },
+      async (tx) => {
+        const branch = await loadBranch(tx, branchId);
+        assertCanAttach(branch, user);
+        const member = await loadMember(tx, memberId);
+        assertSameTenant(branch, member);
+
+        if (member.branch_id && String(member.branch_id) !== String(branch.id)) {
+          fail(
+            'Người này đã đứng chi khác. Không chuyển chi (Founder phải thuộc chi này hoặc chưa gắn).',
+            422,
+            'BRANCH_FOUNDER_TAKEN'
+          );
+        }
+
+        const updatedMember = await tx.members.update({
+          where: { id: member.id },
+          data: {
+            branch_id: branch.id,
+            changed_by: actor,
+            updated_at: new Date(),
+          },
+        });
+
+        const updated = await tx.branches.update({
+          where: { id: branch.id },
+          data: {
+            founder_id: member.id,
+            changed_by: actor,
+            updated_at: new Date(),
+          },
+        });
+
+        await writeBpl({
+          tx,
+          processType: 'BRANCH_MEMBER_ATTACH',
+          action: 'SET_FOUNDER',
+          actorContext: {
+            actor_id: actor,
+            actor_type: 'USER',
+            tenant_id: branch.tenant_id,
+            correlation_id: corr,
+          },
+          context: { target_id: branch.id, target_name: branch.name },
+          payload: {
+            branch_id: branch.id,
+            branch_name: branch.name,
+            member_id: member.id,
+            member_name: member.full_name || null,
+          },
+          extraMetadata: { role: 'FOUNDER' },
+        });
+
+        return { branch: updated, member: updatedMember };
+      }
+    );
+
+    return result;
+  },
+
+  setOrigin: async ({ branchId, user, memberId, correlationId }) => {
+    const actor = actorIdOf(user);
+    if (!actor) fail('Thiếu người thực hiện.', 401, 'UNAUTHENTICATED');
+    const corr = correlationId || crypto.randomUUID();
+
+    const result = await withTransaction(
+      {
+        actorId: actor,
+        actorType: 'USER',
+        tenantId: tenantIdOf(user),
+        correlationId: corr,
+      },
+      async (tx) => {
+        const branch = await loadBranch(tx, branchId);
+        assertCanAttach(branch, user);
+
+        let member = null;
+        if (memberId) {
+          member = await loadMember(tx, memberId);
+          assertSameTenant(branch, member);
+        } else if (['APPROVED', 'MERGED', 'SUBMITTED', 'UNDER_REVIEW'].includes(branch.status)) {
+          fail(
+            'Chi đang xét hoặc đã tem, không gỡ Tổ nghiệp.',
+            409,
+            'BRANCH_ORIGIN_LOCKED'
+          );
+        }
+
+        const updated = await tx.branches.update({
+          where: { id: branch.id },
+          data: {
+            origin_member_id: member ? member.id : null,
+            changed_by: actor,
+            updated_at: new Date(),
+          },
+        });
+
+        if (member) {
+          await writeBpl({
+            tx,
+            processType: 'BRANCH_MEMBER_ATTACH',
+            action: 'SET_ORIGIN',
+            actorContext: {
+              actor_id: actor,
+              actor_type: 'USER',
+              tenant_id: branch.tenant_id,
+              correlation_id: corr,
+            },
+            context: { target_id: branch.id, target_name: branch.name },
+            payload: {
+              branch_id: branch.id,
+              branch_name: branch.name,
+              member_id: member.id,
+              member_name: member.full_name || null,
+            },
+            extraMetadata: {
+              role: 'ORIGIN',
+              member_branch_id_unchanged: member.branch_id || null,
+            },
+          });
+        }
+
+        return { branch: updated, member };
+      }
+    );
+
+    return result;
+  },
+
+  patchBranchMember: async ({ branchId, user, memberId, op, correlationId }) => {
+    const actor = actorIdOf(user);
+    if (!actor) fail('Thiếu người thực hiện.', 401, 'UNAUTHENTICATED');
+    const action = String(op || '').toUpperCase();
+    if (action !== 'ATTACH' && action !== 'DETACH') {
+      fail('op phải là ATTACH hoặc DETACH.', 400, 'BRANCH_MEMBER_OP');
+    }
+    const corr = correlationId || crypto.randomUUID();
+
+    const result = await withTransaction(
+      {
+        actorId: actor,
+        actorType: 'USER',
+        tenantId: tenantIdOf(user),
+        correlationId: corr,
+      },
+      async (tx) => {
+        const branch = await loadBranch(tx, branchId);
+        assertCanAttach(branch, user);
+        const member = await loadMember(tx, memberId);
+        assertSameTenant(branch, member);
+
+        if (action === 'ATTACH') {
+          if (member.branch_id && String(member.branch_id) !== String(branch.id)) {
+            fail(
+              'Người này đã đứng chi khác. Multi-home chưa mở.',
+              422,
+              'MEMBER_BRANCH_TAKEN'
+            );
+          }
+          const updatedMember = await tx.members.update({
+            where: { id: member.id },
+            data: {
+              branch_id: branch.id,
+              changed_by: actor,
+              updated_at: new Date(),
+            },
+          });
+          await writeBpl({
+            tx,
+            processType: 'BRANCH_MEMBER_ATTACH',
+            action: 'ATTACH',
+            actorContext: {
+              actor_id: actor,
+              actor_type: 'USER',
+              tenant_id: branch.tenant_id,
+              correlation_id: corr,
+            },
+            context: { target_id: branch.id, target_name: branch.name },
+            payload: {
+              branch_id: branch.id,
+              branch_name: branch.name,
+              member_id: member.id,
+              member_name: member.full_name || null,
+            },
+          });
+          return { branch, member: updatedMember, op: 'ATTACH' };
+        }
+
+        if (!DETACH_OK.includes(branch.status)) {
+          fail(
+            'Chi đang xét hoặc đã tem, không tháo người.',
+            409,
+            'BRANCH_DETACH_LOCKED'
+          );
+        }
+        if (member.branch_id && String(member.branch_id) !== String(branch.id)) {
+          fail('Người không thuộc chi này.', 409, 'MEMBER_NOT_ON_BRANCH');
+        }
+
+        const memberPatch = {
+          branch_id: null,
+          changed_by: actor,
+          updated_at: new Date(),
+        };
+        const updatedMember = await tx.members.update({
+          where: { id: member.id },
+          data: memberPatch,
+        });
+
+        let updatedBranch = branch;
+        if (branch.founder_id && String(branch.founder_id) === String(member.id)) {
+          updatedBranch = await tx.branches.update({
+            where: { id: branch.id },
+            data: {
+              founder_id: null,
+              changed_by: actor,
+              updated_at: new Date(),
+            },
+          });
+        }
+
+        await writeBpl({
+          tx,
+          processType: 'BRANCH_MEMBER_ATTACH',
+          action: 'DETACH',
+          actorContext: {
+            actor_id: actor,
+            actor_type: 'USER',
+            tenant_id: branch.tenant_id,
+            correlation_id: corr,
+          },
+          context: { target_id: branch.id, target_name: branch.name },
+          payload: {
+            branch_id: branch.id,
+            branch_name: branch.name,
+            member_id: member.id,
+            member_name: member.full_name || null,
+          },
+          extraMetadata: { op: 'DETACH' },
+        });
+
+        return { branch: updatedBranch, member: updatedMember, op: 'DETACH' };
+      }
+    );
 
     return result;
   },

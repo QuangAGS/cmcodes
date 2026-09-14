@@ -1,9 +1,9 @@
 /**
  * PATH       : src/modules/members/branch.controller.js
- * DATETIME   : 2026-09-12T16:00:00+07:00
- * VERSION    : 2.2.0-M13-REVIEW
+ * DATETIME   : 2026-09-12T22:30:00+07:00
+ * VERSION    : 2.3.0-M13-L1
  * DESCRIPTION: Cây chi + create/update chặn vòng parent_id.
- *   M13: SUBMIT / APPROVE / REJECT — Q1 giữ cycle + commonService.
+ *   M13: REVIEW + Lát 1 Founder/Origin/ATTACH. Q1 giữ cycle + commonService.
  */
 
 const branchService = require('./branch.service');
@@ -89,6 +89,49 @@ const branchController = {
         branchId: req.params.id,
         user: req.user,
         reason: req.body && req.body.reason,
+        correlationId: req.correlationId,
+      });
+      res.status(200).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
+  setFounder: async (req, res) => {
+    try {
+      const data = await branchService.setFounder({
+        branchId: req.params.id,
+        user: req.user,
+        memberId: req.body && req.body.member_id,
+        correlationId: req.correlationId,
+      });
+      res.status(200).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
+  setOrigin: async (req, res) => {
+    try {
+      const data = await branchService.setOrigin({
+        branchId: req.params.id,
+        user: req.user,
+        memberId: req.body && (req.body.member_id || null),
+        correlationId: req.correlationId,
+      });
+      res.status(200).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
+  patchMember: async (req, res) => {
+    try {
+      const data = await branchService.patchBranchMember({
+        branchId: req.params.id,
+        user: req.user,
+        memberId: req.body && req.body.member_id,
+        op: req.body && req.body.op,
         correlationId: req.correlationId,
       });
       res.status(200).json({ status: 'success', data });

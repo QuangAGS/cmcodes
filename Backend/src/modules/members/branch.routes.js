@@ -1,8 +1,8 @@
 /**
  * PATH       : src/modules/members/branch.routes.js
- * DATETIME   : 2026-09-12T16:00:00+07:00
- * VERSION    : 1.8.0-M13-REVIEW
- * DESCRIPTION: CRUD + cây + SUBMIT/APPROVE/REJECT. Form FE chưa mở.
+ * DATETIME   : 2026-09-12T22:30:00+07:00
+ * VERSION    : 1.9.0-M13-L1
+ * DESCRIPTION: CRUD + cây + REVIEW + Lát 1 gắn Founder/Origin/member.
  */
 
 const express = require('express');
@@ -17,6 +17,25 @@ router.get('/tree', verifyToken, branchController.getBranchTree);
 
 router.get('/search', verifyToken, branchCtrl.search);
 router.get('/', verifyToken, branchCtrl.getAll);
+
+router.patch(
+  '/:id/founder',
+  verifyToken,
+  checkRole(['USER', 'CLAN_ADMIN', 'SYSTEM_ADMIN']),
+  branchController.setFounder
+);
+router.patch(
+  '/:id/origin',
+  verifyToken,
+  checkRole(['USER', 'CLAN_ADMIN', 'SYSTEM_ADMIN']),
+  branchController.setOrigin
+);
+router.patch(
+  '/:id/members',
+  verifyToken,
+  checkRole(['USER', 'CLAN_ADMIN', 'SYSTEM_ADMIN']),
+  branchController.patchMember
+);
 
 router.post(
   '/:id/submit',
