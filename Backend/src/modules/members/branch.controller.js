@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/members/branch.controller.js
- * DATETIME   : 2026-09-12T22:30:00+07:00
- * VERSION    : 2.3.0-M13-L1
+ * DATETIME   : 2026-09-14T21:55:00+07:00
+ * VERSION    : 2.3.1-M13-QUOTA
  * DESCRIPTION: Cây chi + create/update chặn vòng parent_id.
  *   M13: REVIEW + Lát 1 Founder/Origin/ATTACH. Q1 giữ cycle + commonService.
  */
@@ -75,6 +75,7 @@ const branchController = {
         branchId: req.params.id,
         user: req.user,
         note: req.body && req.body.note,
+        max_generation_span: req.body && req.body.max_generation_span,
         correlationId: req.correlationId,
       });
       res.status(200).json({ status: 'success', data });

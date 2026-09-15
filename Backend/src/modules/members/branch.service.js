@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/members/branch.service.js
- * DATETIME   : 2026-09-12T22:30:00+07:00
- * VERSION    : 1.9.0-M13-L1
+ * DATETIME   : 2026-09-14T21:55:00+07:00
+ * VERSION    : 1.9.1-M13-QUOTA
  * DESCRIPTION: Cây chi + SUBMIT/APPROVE/REJECT.
  *   TX: status + proposal BRANCH_REVIEW + writeBpl.
  *   Sau commit: silentEmit. APPROVED = tem, không khóa field.
@@ -17,6 +17,20 @@ const { silentEmit } = require('../notifications/services/silentNotificationEmit
 const {
   NotificationMetadataSchemas,
 } = require('../notifications/policy/notification-metadata-schemas.js');
+
+
+function parseQuotaSpan(raw) {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > 30) {
+    fail(
+      'max_generation_span phải là số nguyên 1–30.',
+      400,
+      'BRANCH_QUOTA_SPAN'
+    );
+  }
+  return n;
+}
 
 function fail(message, statusCode, code, extra) {
   const err = new Error(message);
@@ -375,7 +389,7 @@ const branchService = {
     return result;
   },
 
-  approveBranch: async ({ branchId, user, note, correlationId }) => {
+  approveBranch: async ({ branchId, user, note, max_generation_span, correlationId }) => {
     const actor = actorIdOf(user);
     if (!actor) fail('Thiếu người thực hiện.', 401, 'UNAUTHENTICATED');
     if (!isClanOrSys(user)) {
@@ -415,11 +429,20 @@ const branchService = {
           fail('Không có hồ sơ duyệt đang mở.', 409, 'BRANCH_TICKET_MISSING');
         }
 
+        const span = parseQuotaSpan(max_generation_span);
+
+        const ticketPayload = {
+          ...(ticket.payload && typeof ticket.payload === 'object' ? ticket.payload : {}),
+        };
+        if (span !== undefined) ticketPayload.max_generation_span = span;
+        if (note) ticketPayload.approver_note = note;
+
         const closed = await tx.proposals.update({
           where: { id: ticket.id },
           data: {
             status: 'APPROVED',
             admin_note: note || ticket.admin_note,
+            payload: ticketPayload,
             reviewed_by: actor,
             reviewed_at: new Date(),
             changed_by: actor,
@@ -427,13 +450,16 @@ const branchService = {
           },
         });
 
+        const branchData = {
+          status: 'APPROVED',
+          changed_by: actor,
+          updated_at: new Date(),
+        };
+        if (span !== undefined) branchData.max_generation_span = span;
+
         const updated = await tx.branches.update({
           where: { id: branch.id },
-          data: {
-            status: 'APPROVED',
-            changed_by: actor,
-            updated_at: new Date(),
-          },
+          data: branchData,
         });
 
         await writeBpl({
@@ -454,6 +480,9 @@ const branchService = {
             from_status: branch.status,
             to_status: 'APPROVED',
             approver_note: note || null,
+          },
+          extraMetadata: {
+            max_generation_span: span === undefined ? branch.max_generation_span : span,
           },
         });
 
