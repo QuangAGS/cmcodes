@@ -1,7 +1,7 @@
 /**
  * PATH       : src/app.js
- * DATETIME   : 2026-07-22T09:30:00+07:00
- * VERSION    : 21.7.0-W2
+ * DATETIME   : 2026-09-16T15:10:00+07:00
+ * VERSION    : 21.7.1-MFO-L1
  * DESCRIPTION:
  * - [21.7.0-W2] Wave 2 PR-W2-3: Early tenant 404 → next(err) dual-contract CED.
  * 
@@ -45,6 +45,7 @@ const correlationMiddleware = require('./middlewares/correlation.middleware');
 
 // IMPORT ROUTES & MIDDLEWARES
 const branchRoutes = require('./modules/members/branch.routes');
+const mfoRoutes = require('./modules/mfo/mfo.routes');
 const memberRoutes = require('./modules/members/member.routes');
 const addressRoutes = require('./modules/interactions/address.routes');
 const worshipRoutes = require('./modules/worship/worship.routes');
@@ -174,6 +175,7 @@ app.use('/api/auth/register', loginRateLimiter);
 // Các route khác giữ nguyên
 app.use('/api/members', memberRoutes);
 app.use('/api/branches', branchRoutes);
+app.use('/api/mfo', mfoRoutes);
 app.use('/api/addresses', addressRoutes);
 app.use('/api/worships', worshipRoutes);
 app.use('/api/tenants', tenantRoutes);
