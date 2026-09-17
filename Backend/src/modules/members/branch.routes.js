@@ -1,8 +1,9 @@
 /**
  * PATH       : src/modules/members/branch.routes.js
- * DATETIME   : 2026-09-12T22:30:00+07:00
- * VERSION    : 1.9.0-M13-L1
- * DESCRIPTION: CRUD + cây + REVIEW + Lát 1 gắn Founder/Origin/member.
+ * DATETIME   : 2026-09-17T16:20:00+07:00
+ * VERSION    : 1.10.0-MFO-L3
+ * DESCRIPTION: Siết POST /branches — chỉ CLAN_ADMIN / SYSTEM_ADMIN.
+ *              Submit / Lát 1 gắn / REVIEW / PUT / tree giữ nguyên (Q1).
  */
 
 const express = require('express');
@@ -58,7 +59,12 @@ router.post(
 
 router.get('/:id', verifyToken, branchCtrl.getById);
 
-router.post('/', verifyToken, checkRole(['USER', 'CLAN_ADMIN']), branchController.create);
+router.post(
+  '/',
+  verifyToken,
+  checkRole(['CLAN_ADMIN', 'SYSTEM_ADMIN']),
+  branchController.create
+);
 router.put('/:id', verifyToken, checkRole(['USER', 'CLAN_ADMIN']), branchController.update);
 router.delete('/:id', verifyToken, checkRole(['CLAN_ADMIN']), branchCtrl.delete);
 

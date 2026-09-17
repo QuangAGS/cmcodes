@@ -551,16 +551,17 @@ model marriages {
   deleted_at                            DateTime?         @db.Timestamptz(6)
   spouse_name_literal                   String?           @db.VarChar(255)
   tenant_id                             String            @db.VarChar(36)
+  note                                  String?           @db.VarChar(500)
   members_marriages_husband_idTomembers members?          @relation("marriages_husband_idTomembers", fields: [husband_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_marriage_husband")
   members_marriages_wife_idTomembers    members?          @relation("marriages_wife_idTomembers", fields: [wife_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_marriage_wife")
   tenants                               tenants           @relation(fields: [tenant_id], references: [id], map: "fk_marriages_tenant")
   users                                 users?            @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_marriages_user")
 
-  @@unique([husband_id, wife_id], map: "unique_couple")
   @@index([tenant_id], map: "idx_marriages_tenant")
   @@index([wife_id], map: "idx_marriage_wife")
   @@index([changed_by], map: "idx_marriages_user")
   @@index([deleted_at], map: "idx_marriages_deleted_at")
+  @@index([husband_id], map: "idx_marriage_husband")
 }
 
 model media {
@@ -640,6 +641,8 @@ model members {
   is_alive             Boolean?               @default(true)
   generation           Int?
   child_type           members_child_type?    @default(CON_DE)
+  /// Thứ tự anh/chị/em trong gia đình
+  sibling_seq          Int?
   father_id            String?                @db.VarChar(36)
   mother_id            String?                @db.VarChar(36)
   birth_day            Int?
