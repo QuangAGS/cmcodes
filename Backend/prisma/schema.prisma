@@ -1638,6 +1638,18 @@ enum notification_event {
   BRANCH_EDITOR_ASSIGNED
   BRANCH_EDITOR_REVOKED
   BRANCH_MEMBER_ATTACHED
+
+  // ==========================================================================
+  // MFO PROCESS
+  // ==========================================================================
+  MFO_PLAN_SUBMITTED
+  MFO_PLAN_APPROVED
+  MFO_PLAN_REJECTED
+  MFO_RESULT_SUBMITTED
+  MFO_RESULT_APPROVED
+  MFO_RESULT_REJECTED
+  MFO_MEMBER_CREATED
+  MFO_SPOUSE_ATTACHED
 }
 
 enum notification_reliability {
@@ -1727,6 +1739,14 @@ enum business_process_type {
   BRANCH_EDITOR_REVOKE
   BRANCH_MERGE
   BRANCH_MEMBER_ATTACH
+  MFO_PLAN_SUBMIT
+  MFO_PLAN_APPROVE
+  MFO_PLAN_REJECT
+  MFO_RESULT_SUBMIT
+  MFO_RESULT_APPROVE
+  MFO_RESULT_REJECT
+  MFO_MEMBER_CREATE
+  MFO_SPOUSE_ATTACH
 }
 
 enum process_status_type {
@@ -1829,6 +1849,7 @@ enum proposal_ticket_type {
   TREE_MERGE
   FUND_CONTRIBUTION
   BRANCH_REVIEW
+  MFO_REVIEW
 }
 
 enum privacy_field_group {

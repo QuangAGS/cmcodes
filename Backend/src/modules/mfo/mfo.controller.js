@@ -1,8 +1,8 @@
 /**
  * PATH       : src/modules/mfo/mfo.controller.js
  * DATETIME   : 2026-09-17T16:50:00+07:00
- * VERSION    : 1.2.0-MFO-L4
- * DESCRIPTION: HTTP PLAN + phê PLAN + mảnh cây Origin.
+ * VERSION    : 1.3.0-MFO-L5
+ * DESCRIPTION: HTTP PLAN + phê + cây + CREATE trong PLAN_OK.
  */
 
 const mfoService = require('./mfo.service');
@@ -29,6 +29,18 @@ const mfoController = {
         correlationId: req.correlationId,
       });
       res.status(201).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
+  listPlans: async (req, res) => {
+    try {
+      const data = await mfoService.listPlans({
+        user: req.user,
+        query: req.query || {},
+      });
+      res.status(200).json({ status: 'success', data });
     } catch (error) {
       sendError(res, error);
     }
@@ -62,6 +74,85 @@ const mfoController = {
   rejectPlan: async (req, res) => {
     try {
       const data = await mfoService.rejectPlan({
+        user: req.user,
+        ticketId: req.params.id,
+        body: req.body || {},
+      });
+      res.status(200).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
+  createInPlan: async (req, res) => {
+    try {
+      const data = await mfoService.createInPlan({
+        user: req.user,
+        ticketId: req.params.id,
+        body: req.body || {},
+      });
+      res.status(201).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
+  createSpouse: async (req, res) => {
+    try {
+      const data = await mfoService.createSpouse({
+        user: req.user,
+        ticketId: req.params.id,
+        body: req.body || {},
+      });
+      res.status(201).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
+  patchUnion: async (req, res) => {
+    try {
+      const data = await mfoService.patchUnion({
+        user: req.user,
+        ticketId: req.params.id,
+        unionId: req.params.unionId,
+        body: req.body || {},
+      });
+      res.status(200).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
+  submitResult: async (req, res) => {
+    try {
+      const data = await mfoService.submitResult({
+        user: req.user,
+        ticketId: req.params.id,
+        body: req.body || {},
+      });
+      res.status(200).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
+  approveResult: async (req, res) => {
+    try {
+      const data = await mfoService.approveResult({
+        user: req.user,
+        ticketId: req.params.id,
+        body: req.body || {},
+      });
+      res.status(200).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
+  rejectResult: async (req, res) => {
+    try {
+      const data = await mfoService.rejectResult({
         user: req.user,
         ticketId: req.params.id,
         body: req.body || {},
