@@ -1,14 +1,14 @@
 /**
  * PATH       : src/modules/mfo/mfo.service.js
  * DATETIME   : 2026-09-17T09:35:00+07:00
- * VERSION    : 1.5.0-MFO-L7
- * DESCRIPTION: PLAN + CREATE + RESULT + spouse/marriages trong lô.
- *              Không đụng máy Chi.
+ * VERSION    : 1.6.0-MFO-LEDGER
+ * DESCRIPTION: PLAN + CREATE + RESULT + spouse + BPL/silentEmit.
  */
 
 const crypto = require('crypto');
-const { prisma } = require('../../lib/prisma.js');
+const { prisma, withTransaction } = require('../../lib/prisma.js');
 const { normalizePlanBody, fail } = require('./mfo.payload.js');
+const { mfoWriteBpl, mfoSilentEmit } = require('./mfo.ledger.js');
 
 const OPEN = ['DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION'];
 
@@ -24,6 +24,57 @@ function memberIdOf(user) {
 function isClanOrSys(user) {
   const r = (user && user.role) || '';
   return r === 'CLAN_ADMIN' || r === 'SYSTEM_ADMIN';
+}
+
+function sameParentPair(a, b) {
+  return (a || null) === (b || null);
+}
+
+function yearsClash(a, b) {
+  if (a == null || a === '' || b == null || b === '') return false;
+  return Number(a) !== Number(b);
+}
+
+async function findDupPerson(tenantId, { full_name, gender, father_id, mother_id, birth_year, excludeId }) {
+  const rows = await prisma.members.findMany({
+    where: {
+      tenant_id: tenantId,
+      deleted_at: null,
+      full_name,
+      ...(excludeId ? { NOT: { id: excludeId } } : {}),
+    },
+    select: {
+      id: true,
+      gender: true,
+      father_id: true,
+      mother_id: true,
+      birth_year: true,
+    },
+  });
+  return rows.find(
+    (m) =>
+      String(m.gender || '') === String(gender || '') &&
+      sameParentPair(m.father_id, father_id) &&
+      sameParentPair(m.mother_id, mother_id) &&
+      !yearsClash(m.birth_year, birth_year)
+  );
+}
+
+async function afterMfo(user, ticket, processType, event, payload) {
+  if (!ticket) return;
+  await withTransaction(
+    {
+      tenantId: ticket.tenant_id,
+      actorId: actorIdOf(user),
+      correlationId: ticket.correlation_id,
+    },
+    async (tx) =>
+      mfoWriteBpl(tx, { processType, user, ticket, payload })
+  );
+  await mfoSilentEmit(event, ticket, {
+    ...(payload || {}),
+    userId: actorIdOf(user) || ticket.requester_user_id,
+  });
 }
 
 async function resolveFounderMemberId(user) {
@@ -70,7 +121,7 @@ const mfoService = {
     const open = await prisma.proposals.findFirst({
       where: {
         tenant_id: tenantId,
-        ticket_type: 'BRANCH_REVIEW',
+        ticket_type: { in: ['MFO_REVIEW', 'BRANCH_REVIEW'] },
         requester_user_id: actor,
         target_table: 'members',
         target_id: payload.origin_member_id,
@@ -91,21 +142,57 @@ const mfoService = {
     payload.founder_user_id = actor;
     payload.founder_member_id = founderMemberId || null;
 
-    const ticket = await prisma.proposals.create({
-      data: {
-        tenant_id: tenantId,
-        ticket_type: 'BRANCH_REVIEW',
-        status: 'PENDING',
-        requester_user_id: actor,
-        target_table: 'members',
-        target_id: payload.origin_member_id,
-        payload,
-        payload_schema_version: 2,
-        correlation_id: corr,
-        changed_by: actor,
-      },
-    });
+    if (
+      founderMemberId &&
+      payload.k != null &&
+      Number.isFinite(Number(payload.k)) &&
+      Number(payload.k) >= 1
+    ) {
+      const kk = Number(payload.k);
+      const slot = (payload.lines || []).find((l) => Number(l.line) === kk);
+      if (!slot || slot.op !== 'ASSIGN' || slot.member_id !== founderMemberId) {
+        fail(
+          'Dòng k=' +
+            kk +
+            ' phải ASSIGN đúng MWL (founder). Không CREATE đời mình.',
+          422,
+          'MFO_K_MUST_ASSIGN_FOUNDER',
+          { k: kk, founder_member_id: founderMemberId }
+        );
+      }
+    }
 
+    const ticket = await withTransaction(
+      { tenantId, actorId: actor, correlationId: corr },
+      async (tx) => {
+        const row = await tx.proposals.create({
+          data: {
+            tenant_id: tenantId,
+            ticket_type: 'MFO_REVIEW',
+            status: 'PENDING',
+            requester_user_id: actor,
+            target_table: 'members',
+            target_id: payload.origin_member_id,
+            payload,
+            payload_schema_version: 2,
+            correlation_id: corr,
+            changed_by: actor,
+          },
+        });
+        await mfoWriteBpl(tx, {
+          processType: 'MFO_PLAN_SUBMIT',
+          user,
+          ticket: row,
+          payload: {
+            from_status: 'DRAFT',
+            to_status: 'PENDING',
+            submitted_note: payload.note || null,
+          },
+        });
+        return row;
+      }
+    );
+    await mfoSilentEmit('MFO_PLAN_SUBMITTED', ticket, { userId: actor });
     return { ticket, payload };
   },
 
@@ -115,7 +202,7 @@ const mfoService = {
     const q = query || {};
     const where = {
       tenant_id: tenantId,
-      ticket_type: 'BRANCH_REVIEW',
+      ticket_type: { in: ['MFO_REVIEW', 'BRANCH_REVIEW'] },
       target_table: 'members',
       deleted_at: null,
     };
@@ -175,7 +262,12 @@ const mfoService = {
       fail('Lô không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
     }
     const kind = row.payload && row.payload.kind;
-    if (row.ticket_type !== 'BRANCH_REVIEW' || (kind && kind !== 'PLAN' && kind !== 'RESULT')) {
+    const mfoType =
+      row.ticket_type === 'MFO_REVIEW' ||
+      (row.ticket_type === 'BRANCH_REVIEW' &&
+        row.target_table === 'members' &&
+        (!kind || kind === 'PLAN' || kind === 'RESULT'));
+    if (!mfoType) {
       fail('Ticket này không phải lô MFO.', 409, 'MFO_NOT_LOT');
     }
     const originId =
@@ -207,6 +299,14 @@ const mfoService = {
       ticketId,
       expectKind: 'PLAN',
     });
+    if (row.status === 'UNDER_REVIEW' && row.payload && row.payload.plan_ok) {
+      await afterMfo(user, row, 'MFO_PLAN_APPROVE', 'MFO_PLAN_APPROVED', {
+        from_status: row.status,
+        to_status: 'UNDER_REVIEW',
+        approver_note: (body && (body.note || body.admin_note)) || null,
+      });
+      return { ticket: row, plan_ok: true, replayed: true };
+    }
     if (row.status !== 'PENDING' && row.status !== 'NEEDS_REVISION') {
       fail(
         'Chỉ phê lô PENDING / NEEDS_REVISION.',
@@ -255,7 +355,11 @@ const mfoService = {
         changed_by: actor,
       },
     });
-
+    await afterMfo(user, ticket, 'MFO_PLAN_APPROVE', 'MFO_PLAN_APPROVED', {
+      from_status: row.status,
+      to_status: 'UNDER_REVIEW',
+      approver_note: nextPayload.approver_note,
+    });
     return { ticket, plan_ok: true };
   },
 
@@ -296,7 +400,11 @@ const mfoService = {
         changed_by: actor,
       },
     });
-
+    await afterMfo(user, ticket, 'MFO_PLAN_REJECT', 'MFO_PLAN_REJECTED', {
+      reason: String(reason).trim(),
+      from_status: row.status,
+      to_status: 'REJECTED',
+    });
     return { ticket, plan_ok: false };
   },
 
@@ -582,12 +690,18 @@ const mfoService = {
     const lines = (row.payload && row.payload.lines) || [];
     const slot = lines.find((l) => Number(l.line) === lineNo);
     if (!slot) fail('Không có ô dòng ' + lineNo + '.', 422, 'MFO_LINE_MISSING');
-    if (slot.op !== 'CREATE') {
+    const kLot = row.payload.k == null ? null : Number(row.payload.k);
+    const siblingOfFounder =
+      slot.op === 'ASSIGN' &&
+      kLot != null &&
+      lineNo === kLot &&
+      slot.member_id === row.payload.founder_member_id;
+    if (slot.op !== 'CREATE' && !siblingOfFounder) {
       fail(
-        'Ô Dòng ' + lineNo + ' trên PLAN không phải CREATE.',
+        'Ô Dòng ' + lineNo + ' không mở CREATE (trừ anh/em cùng Dòng k với MWL).',
         422,
         'MFO_LINE_NOT_CREATE',
-        { op: slot.op }
+        { op: slot.op, k: kLot }
       );
     }
 
@@ -604,9 +718,18 @@ const mfoService = {
       isClan = childType === 'CON_DAU' || childType === 'CON_RE' ? false : true;
     }
 
-    const originId = row.payload.origin_member_id;
-    const fatherId = b.father_id || null;
-    const motherId = b.mother_id || null;
+    const tenantId = row.tenant_id;
+    let fatherId = b.father_id || null;
+    let motherId = b.mother_id || null;
+    if (siblingOfFounder && row.payload.founder_member_id) {
+      const fr = await prisma.members.findUnique({
+        where: { id: row.payload.founder_member_id },
+      });
+      if (fr && !fr.deleted_at) {
+        if (!fatherId) fatherId = fr.father_id || null;
+        if (!motherId) motherId = fr.mother_id || null;
+      }
+    }
     if (isClan && !fatherId && !motherId) {
       fail(
         'Con nội phải có father_id hoặc mother_id (nối lên dòng trên).',
@@ -615,7 +738,18 @@ const mfoService = {
       );
     }
 
-    const tenantId = row.tenant_id;
+    const dup = await findDupPerson(tenantId, {
+      full_name: fullName,
+      gender,
+      father_id: fatherId,
+      mother_id: motherId,
+      birth_year: b.birth_year,
+    });
+    if (dup) {
+      fail('Đã có người trùng tên + giới + cha/mẹ trên sổ.', 409, 'MFO_MEMBER_DUP', {
+        member_id: dup.id,
+      });
+    }
     const checkParent = async (id, label) => {
       if (!id) return;
       const p = await prisma.members.findUnique({ where: { id } });
@@ -651,6 +785,9 @@ const mfoService = {
             ? null
             : Number(b.sibling_seq),
         note: b.note || null,
+        birth_year: b.birth_year == null || b.birth_year === '' ? null : Number(b.birth_year),
+        birth_month: b.birth_month == null || b.birth_month === '' ? null : Number(b.birth_month),
+        birth_day: b.birth_day == null || b.birth_day === '' ? null : Number(b.birth_day),
         changed_by: actor,
         created_by: actor,
         created_by_member_id: founderMemberId || null,
@@ -672,12 +809,147 @@ const mfoService = {
       lines: nextLines,
       created_member_ids: created,
     };
+    let founderPatched = null;
+    if (b.link_founder === true || b.link_founder === 'true') {
+      const founderId = row.payload.founder_member_id;
+      if (!founderId) fail('Lô không có founder để nối.', 422, 'MFO_NO_FOUNDER');
+      const as =
+        String(b.link_as || '').toUpperCase() ||
+        (String(member.gender) === 'NU' ? 'MOTHER' : 'FATHER');
+      const data = { changed_by: actor };
+      if (as === 'MOTHER') data.mother_id = member.id;
+      else data.father_id = member.id;
+      founderPatched = await prisma.members.update({
+        where: { id: founderId },
+        data,
+      });
+    }
+
     const ticket = await prisma.proposals.update({
       where: { id: row.id },
       data: { payload: nextPayload, changed_by: actor },
     });
 
-    return { member, ticket };
+    await afterMfo(user, ticket, 'MFO_MEMBER_CREATE', 'MFO_MEMBER_CREATED', {
+      member_id: member.id,
+      member_name: member.full_name,
+    });
+    return { member, ticket, founder: founderPatched };
+  },
+
+  linkFounder: async ({ user, ticketId, body }) => {
+    const actor = actorIdOf(user);
+    const row = await mfoService.assertLot({
+      user,
+      ticketId,
+      expectKind: 'PLAN',
+    });
+    if (!isClanOrSys(user) && String(row.requester_user_id) !== String(actor)) {
+      fail('Không nối founder lô này.', 403, 'FORBIDDEN');
+    }
+    if (!(row.payload && row.payload.plan_ok)) {
+      fail('Chỉ nối khi PLAN đã tem.', 409, 'MFO_PLAN_STATE', {
+        ticket_status: row.status,
+      });
+    }
+    const founderId = row.payload.founder_member_id;
+    if (!founderId) fail('Lô không có founder.', 422, 'MFO_NO_FOUNDER');
+    const b = body || {};
+    const data = { changed_by: actor };
+    if (b.father_id) data.father_id = b.father_id;
+    if (b.mother_id) data.mother_id = b.mother_id;
+    if (!data.father_id && !data.mother_id) {
+      fail('Cần father_id hoặc mother_id.', 400, 'MFO_PARENT_REQUIRED');
+    }
+    const founder = await prisma.members.update({
+      where: { id: founderId },
+      data,
+    });
+    return { founder };
+  },
+
+  patchMemberInPlan: async ({ user, ticketId, memberId, body }) => {
+    const actor = actorIdOf(user);
+    const row = await mfoService.assertLot({
+      user,
+      ticketId,
+      expectKind: 'PLAN',
+    });
+    if (!isClanOrSys(user) && String(row.requester_user_id) !== String(actor)) {
+      fail('Không sửa member lô này.', 403, 'FORBIDDEN');
+    }
+    if (row.status === 'REJECTED' || row.status === 'WITHDRAWN') {
+      fail('Lô đã đóng.', 409, 'MFO_PLAN_STATE', {
+        ticket_status: row.status,
+      });
+    }
+    const p = row.payload || {};
+    const allowed = new Set(
+      []
+        .concat(p.created_member_ids || [])
+        .concat(p.created_spouse_ids || [])
+        .concat(p.founder_member_id ? [p.founder_member_id] : [])
+    );
+    if (!allowed.has(memberId)) {
+      fail(
+        'Chỉ sửa người do lô này tạo / founder của lô.',
+        403,
+        'MFO_MEMBER_NOT_IN_LOT'
+      );
+    }
+    const b = body || {};
+    if (
+      b.gender !== undefined ||
+      b.is_alive !== undefined ||
+      b.phone !== undefined ||
+      b.phone_number !== undefined ||
+      b.email !== undefined
+    ) {
+      fail('Không sửa gender / is_alive / phone / email.', 422, 'MFO_A01');
+    }
+    const data = { changed_by: actor };
+    if (b.full_name != null) data.full_name = String(b.full_name).trim();
+    if (b.note !== undefined) data.note = b.note || null;
+    if (b.sibling_seq !== undefined) {
+      data.sibling_seq =
+        b.sibling_seq === '' || b.sibling_seq == null
+          ? null
+          : Number(b.sibling_seq);
+    }
+    if (b.father_id !== undefined) data.father_id = b.father_id || null;
+    if (b.mother_id !== undefined) data.mother_id = b.mother_id || null;
+    if (b.child_type) data.child_type = String(b.child_type).toUpperCase();
+    if (b.is_clan !== undefined) data.is_clan = !!b.is_clan;
+    if (b.birth_year !== undefined) data.birth_year = b.birth_year || null;
+    if (b.birth_month !== undefined) data.birth_month = b.birth_month || null;
+    if (b.birth_day !== undefined) data.birth_day = b.birth_day || null;
+
+    const cur = await prisma.members.findUnique({ where: { id: memberId } });
+    if (!cur || cur.deleted_at) fail('Không thấy member.', 404, 'MFO_MEMBER_NOT_FOUND');
+    const nextName = data.full_name != null ? data.full_name : cur.full_name;
+    const nextFa =
+      data.father_id !== undefined ? data.father_id : cur.father_id;
+    const nextMo =
+      data.mother_id !== undefined ? data.mother_id : cur.mother_id;
+    const clash = await findDupPerson(row.tenant_id, {
+      full_name: nextName,
+      gender: cur.gender,
+      father_id: nextFa,
+      mother_id: nextMo,
+      birth_year: data.birth_year !== undefined ? data.birth_year : cur.birth_year,
+      excludeId: memberId,
+    });
+    if (clash) {
+      fail('Sửa xong sẽ trùng người đã có.', 409, 'MFO_MEMBER_DUP', {
+        member_id: clash.id,
+      });
+    }
+
+    const member = await prisma.members.update({
+      where: { id: memberId },
+      data,
+    });
+    return { member };
   },
 
   submitResult: async ({ user, ticketId, body }) => {
@@ -731,6 +1003,11 @@ const mfoService = {
         changed_by: actor,
       },
     });
+    await afterMfo(user, ticket, 'MFO_RESULT_SUBMIT', 'MFO_RESULT_SUBMITTED', {
+      from_status: row.status,
+      to_status: 'UNDER_REVIEW',
+      submitted_note: (b && b.note) || null,
+    });
     return { ticket };
   },
 
@@ -778,6 +1055,11 @@ const mfoService = {
         changed_by: actor,
       },
     });
+    await afterMfo(user, ticket, 'MFO_RESULT_APPROVE', 'MFO_RESULT_APPROVED', {
+      from_status: row.status,
+      to_status: 'APPROVED',
+      approver_note: (b && (b.note || b.admin_note)) || null,
+    });
     return { ticket, result_ok: true };
   },
 
@@ -822,6 +1104,11 @@ const mfoService = {
         reviewed_at: new Date(),
         changed_by: actor,
       },
+    });
+    await afterMfo(user, ticket, 'MFO_RESULT_REJECT', 'MFO_RESULT_REJECTED', {
+      reason: String(reason).trim(),
+      from_status: row.status,
+      to_status: 'NEEDS_REVISION',
     });
     return { ticket, result_ok: false };
   },
@@ -950,6 +1237,10 @@ const mfoService = {
       },
     });
 
+    await afterMfo(user, ticket, 'MFO_SPOUSE_ATTACH', 'MFO_SPOUSE_ATTACHED', {
+      member_id: spouse.id,
+      member_name: spouse.full_name,
+    });
     return { spouse, union, ticket };
   },
 

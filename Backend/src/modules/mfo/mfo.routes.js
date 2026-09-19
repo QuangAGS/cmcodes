@@ -42,6 +42,18 @@ router.post(
   checkRole(WRITE),
   mfoController.createInPlan
 );
+router.patch(
+  '/plans/:id/members/:memberId',
+  verifyToken,
+  checkRole(WRITE),
+  mfoController.patchMemberInPlan
+);
+router.patch(
+  '/plans/:id/founder',
+  verifyToken,
+  checkRole(WRITE),
+  mfoController.linkFounder
+);
 router.post(
   '/plans/:id/spouses',
   verifyToken,

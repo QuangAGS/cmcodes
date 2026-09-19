@@ -1,8 +1,9 @@
 /**
  * PATH: src/services/businessLogSchemas.js
- * DATETIME: 2026-09-11T12:45:00+07:00
- * VERSION: 1.3.0-M13-BRANCH-CAT
- * DESCRIPTION: Data contract metadata BPL theo process_type.
+ * DATETIME: 2026-09-18T11:30:00+07:00
+ * VERSION: 1.4.0-L6-ENUM
+ * DESCRIPTION: MFO Ledge + Notification_events
+ * Data contract metadata BPL theo process_type.
  *   PR-2: USER_APPROVAL giữ action / status_* / case_id / is_final / admin_note
  *         (trước đây whitelist quá hẹp → mọi action Admin bị ghi thành "Phê duyệt...").
  *   M13: whitelist BRANCH_DRAFT_CREATE … BRANCH_MEMBER_ATTACH (silentIntent catalog).
@@ -601,7 +602,106 @@ const BusinessLogSchemas = {
       member_name: payload.member_name || null,
     };
   },
+
+  // ----- MFO (ticket_id + origin bắt buộc; branch_id optional)
+  MFO_PLAN_SUBMIT: (payload = {}) => {
+    if (!payload.ticket_id || !payload.origin_member_id) {
+      throw new Error('MFO_PLAN_SUBMIT requires ticket_id and origin_member_id');
+    }
+    return {
+      ticket_id: payload.ticket_id,
+      origin_member_id: payload.origin_member_id,
+      branch_id: payload.branch_id || null,
+      from_status: payload.from_status || 'DRAFT',
+      to_status: payload.to_status || 'PENDING',
+      submitted_note: payload.submitted_note || null,
+    };
+  },
+  MFO_PLAN_APPROVE: (payload = {}) => {
+    if (!payload.ticket_id || !payload.origin_member_id) {
+      throw new Error('MFO_PLAN_APPROVE requires ticket_id and origin_member_id');
+    }
+    return {
+      ticket_id: payload.ticket_id,
+      origin_member_id: payload.origin_member_id,
+      branch_id: payload.branch_id || null,
+      granted_generation: payload.granted_generation ?? null,
+      from_status: payload.from_status || 'PENDING',
+      to_status: payload.to_status || 'UNDER_REVIEW',
+      approver_note: payload.approver_note || null,
+    };
+  },
+  MFO_PLAN_REJECT: (payload = {}) => {
+    if (!payload.ticket_id || !payload.reason) {
+      throw new Error('MFO_PLAN_REJECT requires ticket_id and reason');
+    }
+    return {
+      ticket_id: payload.ticket_id,
+      origin_member_id: payload.origin_member_id || null,
+      reason: payload.reason,
+      from_status: payload.from_status || 'PENDING',
+      to_status: payload.to_status || 'REJECTED',
+    };
+  },
+  MFO_RESULT_SUBMIT: (payload = {}) => {
+    if (!payload.ticket_id) throw new Error('MFO_RESULT_SUBMIT requires ticket_id');
+    return {
+      ticket_id: payload.ticket_id,
+      origin_member_id: payload.origin_member_id || null,
+      from_status: payload.from_status || 'UNDER_REVIEW',
+      to_status: payload.to_status || 'UNDER_REVIEW',
+      submitted_note: payload.submitted_note || null,
+    };
+  },
+  MFO_RESULT_APPROVE: (payload = {}) => {
+    if (!payload.ticket_id) throw new Error('MFO_RESULT_APPROVE requires ticket_id');
+    return {
+      ticket_id: payload.ticket_id,
+      origin_member_id: payload.origin_member_id || null,
+      from_status: payload.from_status || 'UNDER_REVIEW',
+      to_status: payload.to_status || 'APPROVED',
+      approver_note: payload.approver_note || null,
+    };
+  },
+  MFO_RESULT_REJECT: (payload = {}) => {
+    if (!payload.ticket_id || !payload.reason) {
+      throw new Error('MFO_RESULT_REJECT requires ticket_id and reason');
+    }
+    return {
+      ticket_id: payload.ticket_id,
+      origin_member_id: payload.origin_member_id || null,
+      reason: payload.reason,
+      from_status: payload.from_status || 'UNDER_REVIEW',
+      to_status: payload.to_status || 'NEEDS_REVISION',
+    };
+  },
+  MFO_MEMBER_CREATE: (payload = {}) => {
+    if (!payload.ticket_id || !payload.member_id) {
+      throw new Error('MFO_MEMBER_CREATE requires ticket_id and member_id');
+    }
+    return {
+      ticket_id: payload.ticket_id,
+      origin_member_id: payload.origin_member_id || null,
+      member_id: payload.member_id,
+      member_name: payload.member_name || null,
+      branch_id: payload.branch_id || null,
+    };
+  },
+  MFO_SPOUSE_ATTACH: (payload = {}) => {
+    if (!payload.ticket_id || !payload.member_id) {
+      throw new Error('MFO_SPOUSE_ATTACH requires ticket_id and member_id');
+    }
+    return {
+      ticket_id: payload.ticket_id,
+      origin_member_id: payload.origin_member_id || null,
+      member_id: payload.member_id,
+      member_name: payload.member_name || null,
+    };
+  },
+
 };
+
+
 
 
 module.exports = { BusinessLogSchemas };

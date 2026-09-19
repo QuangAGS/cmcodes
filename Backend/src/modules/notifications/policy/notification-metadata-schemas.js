@@ -231,7 +231,68 @@ const NotificationMetadataSchemas = {
       member_id: payload.member_id,
       member_name: payload.member_name || null,
     };
-  }
+  },
+
+  MFO_PLAN_SUBMITTED: (payload = {}) => {
+    if (!payload.ticket_id) throw new Error('MFO_PLAN_SUBMITTED requires ticket_id');
+    return {
+      ticket_id: payload.ticket_id,
+      origin_member_id: payload.origin_member_id || null,
+      branch_id: payload.branch_id || null,
+    };
+  },
+  MFO_PLAN_APPROVED: (payload = {}) => {
+    if (!payload.ticket_id) throw new Error('MFO_PLAN_APPROVED requires ticket_id');
+    return {
+      ticket_id: payload.ticket_id,
+      origin_member_id: payload.origin_member_id || null,
+    };
+  },
+  MFO_PLAN_REJECTED: (payload = {}) => {
+    if (!payload.ticket_id || !payload.reason) {
+      throw new Error('MFO_PLAN_REJECTED requires ticket_id and reason');
+    }
+    return {
+      ticket_id: payload.ticket_id,
+      origin_member_id: payload.origin_member_id || null,
+      reason: payload.reason,
+    };
+  },
+  MFO_RESULT_SUBMITTED: (payload = {}) => {
+    if (!payload.ticket_id) throw new Error('MFO_RESULT_SUBMITTED requires ticket_id');
+    return { ticket_id: payload.ticket_id };
+  },
+  MFO_RESULT_APPROVED: (payload = {}) => {
+    if (!payload.ticket_id) throw new Error('MFO_RESULT_APPROVED requires ticket_id');
+    return { ticket_id: payload.ticket_id };
+  },
+  MFO_RESULT_REJECTED: (payload = {}) => {
+    if (!payload.ticket_id || !payload.reason) {
+      throw new Error('MFO_RESULT_REJECTED requires ticket_id and reason');
+    }
+    return { ticket_id: payload.ticket_id, reason: payload.reason };
+  },
+  MFO_MEMBER_CREATED: (payload = {}) => {
+    if (!payload.ticket_id || !payload.member_id) {
+      throw new Error('MFO_MEMBER_CREATED requires ticket_id and member_id');
+    }
+    return {
+      ticket_id: payload.ticket_id,
+      member_id: payload.member_id,
+      member_name: payload.member_name || null,
+    };
+  },
+  MFO_SPOUSE_ATTACHED: (payload = {}) => {
+    if (!payload.ticket_id || !payload.member_id) {
+      throw new Error('MFO_SPOUSE_ATTACHED requires ticket_id and member_id');
+    }
+    return {
+      ticket_id: payload.ticket_id,
+      member_id: payload.member_id,
+      member_name: payload.member_name || null,
+    };
+  },
+
 
 
 };

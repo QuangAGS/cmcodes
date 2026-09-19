@@ -97,6 +97,34 @@ const mfoController = {
     }
   },
 
+
+  patchMemberInPlan: async (req, res) => {
+    try {
+      const data = await mfoService.patchMemberInPlan({
+        user: req.user,
+        ticketId: req.params.id,
+        memberId: req.params.memberId,
+        body: req.body || {},
+      });
+      res.status(200).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
+  linkFounder: async (req, res) => {
+    try {
+      const data = await mfoService.linkFounder({
+        user: req.user,
+        ticketId: req.params.id,
+        body: req.body || {},
+      });
+      res.status(200).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
   createSpouse: async (req, res) => {
     try {
       const data = await mfoService.createSpouse({
