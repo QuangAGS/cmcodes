@@ -48,6 +48,12 @@ router.patch(
   checkRole(WRITE),
   mfoController.patchMemberInPlan
 );
+router.delete(
+  '/plans/:id/members/:memberId',
+  verifyToken,
+  checkRole(WRITE),
+  mfoController.softDeleteMember
+);
 router.patch(
   '/plans/:id/founder',
   verifyToken,

@@ -810,12 +810,19 @@ const mfoService = {
       created_member_ids: created,
     };
     let founderPatched = null;
-    if (b.link_founder === true || b.link_founder === 'true') {
+    const wantLink = ['true', '1', 'yes', 'y'].includes(
+      String(b.link_founder == null ? '' : b.link_founder).trim().toLowerCase()
+    ) || b.link_founder === true;
+    if (wantLink) {
       const founderId = row.payload.founder_member_id;
       if (!founderId) fail('Lô không có founder để nối.', 422, 'MFO_NO_FOUNDER');
+      const rawAs = String(b.link_as || '').trim().toUpperCase();
       const as =
-        String(b.link_as || '').toUpperCase() ||
-        (String(member.gender) === 'NU' ? 'MOTHER' : 'FATHER');
+        rawAs === 'MOTHER' || rawAs === 'FATHER'
+          ? rawAs
+          : String(member.gender) === 'NU'
+            ? 'MOTHER'
+            : 'FATHER';
       const data = { changed_by: actor };
       if (as === 'MOTHER') data.mother_id = member.id;
       else data.father_id = member.id;
@@ -823,6 +830,16 @@ const mfoService = {
         where: { id: founderId },
         data,
       });
+      const ok =
+        as === 'MOTHER'
+          ? founderPatched.mother_id === member.id
+          : founderPatched.father_id === member.id;
+      if (!ok) {
+        fail('Nối founder không ghi được lên sổ.', 500, 'MFO_LINK_FOUNDER_FAILED', {
+          founder_id: founderId,
+          as,
+        });
+      }
     }
 
     const ticket = await prisma.proposals.update({
@@ -950,6 +967,81 @@ const mfoService = {
       data,
     });
     return { member };
+  },
+
+  softDeleteMember: async ({ user, ticketId, memberId }) => {
+    const actor = actorIdOf(user);
+    const row = await mfoService.assertLot({
+      user,
+      ticketId,
+      expectKind: 'PLAN',
+    });
+    if (!isClanOrSys(user) && String(row.requester_user_id) !== String(actor)) {
+      fail('Không xoá member lô này.', 403, 'FORBIDDEN');
+    }
+    if (row.status === 'REJECTED' || row.status === 'WITHDRAWN') {
+      fail('Lô đã đóng.', 409, 'MFO_PLAN_STATE', {
+        ticket_status: row.status,
+      });
+    }
+    const p = row.payload || {};
+    const originId = p.origin_member_id || row.target_id;
+    if (memberId === originId) {
+      fail('Không xoá Origin.', 422, 'MFO_CANNOT_DELETE_ORIGIN');
+    }
+    if (memberId === p.founder_member_id) {
+      fail('Không xoá Founder / MWL.', 422, 'MFO_CANNOT_DELETE_FOUNDER');
+    }
+    const created = new Set(
+      []
+        .concat(p.created_member_ids || [])
+        .concat(p.created_spouse_ids || [])
+    );
+    if (!created.has(memberId)) {
+      fail(
+        'Chỉ xoá người do lô này tạo.',
+        403,
+        'MFO_MEMBER_NOT_IN_LOT'
+      );
+    }
+    const kids = await prisma.members.findMany({
+      where: {
+        tenant_id: row.tenant_id,
+        deleted_at: null,
+        OR: [{ father_id: memberId }, { mother_id: memberId }],
+      },
+      select: { id: true, full_name: true },
+    });
+    if (kids.length) {
+      fail('Còn con trỏ tới người này. Gỡ cha/mẹ trước.', 409, 'MFO_HAS_CHILDREN', {
+        children: kids,
+      });
+    }
+    const member = await prisma.members.update({
+      where: { id: memberId },
+      data: { deleted_at: new Date(), changed_by: actor },
+    });
+    const nextIds = (p.created_member_ids || []).filter((id) => id !== memberId);
+    const nextSp = (p.created_spouse_ids || []).filter((id) => id !== memberId);
+    const nextLines = (p.lines || []).map((l) => ({
+      ...l,
+      created_ids: Array.isArray(l.created_ids)
+        ? l.created_ids.filter((id) => id !== memberId)
+        : l.created_ids,
+    }));
+    const ticket = await prisma.proposals.update({
+      where: { id: row.id },
+      data: {
+        payload: {
+          ...p,
+          lines: nextLines,
+          created_member_ids: nextIds,
+          created_spouse_ids: nextSp,
+        },
+        changed_by: actor,
+      },
+    });
+    return { member: { id: member.id, deleted_at: member.deleted_at }, ticket };
   },
 
   submitResult: async ({ user, ticketId, body }) => {

@@ -98,6 +98,19 @@ const mfoController = {
   },
 
 
+  softDeleteMember: async (req, res) => {
+    try {
+      const data = await mfoService.softDeleteMember({
+        user: req.user,
+        ticketId: req.params.id,
+        memberId: req.params.memberId,
+      });
+      res.status(200).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
   patchMemberInPlan: async (req, res) => {
     try {
       const data = await mfoService.patchMemberInPlan({

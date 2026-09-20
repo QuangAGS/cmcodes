@@ -172,6 +172,59 @@ const EVENT_TEXT = {
       'Hồ sơ của bác đã được gắn vào chi.',
   },
 
+  // =========================================================
+  // MFO LOT (silent — chưa gửi kênh)
+  // =========================================================
+
+  MFO_PLAN_SUBMITTED: {
+    title: 'Lô gia đình đã gửi duyệt',
+    content:
+      'Bác đã gửi sơ đồ các đời để Ban quản trị xem.',
+  },
+
+  MFO_PLAN_APPROVED: {
+    title: 'Lô gia đình được chấp nhận',
+    content:
+      'Sơ đồ các đời của bác đã được chấp nhận. Bác có thể khai người theo phiếu.',
+  },
+
+  MFO_PLAN_REJECTED: {
+    title: 'Lô gia đình chưa được chấp nhận',
+    content:
+      'Sơ đồ các đời của bác chưa được chấp nhận.',
+  },
+
+  MFO_RESULT_SUBMITTED: {
+    title: 'Kết quả lô đã nộp',
+    content:
+      'Bác đã nộp kết quả khai trên sơ đồ các đời.',
+  },
+
+  MFO_RESULT_APPROVED: {
+    title: 'Kết quả lô đã nghiệm thu',
+    content:
+      'Ban quản trị đã nghiệm thu kết quả khai của bác.',
+  },
+
+  MFO_RESULT_REJECTED: {
+    title: 'Kết quả lô cần sửa',
+    content:
+      'Kết quả khai chưa đạt. Bác sửa theo góp ý rồi nộp lại.',
+  },
+
+  MFO_MEMBER_CREATED: {
+    title: 'Đã ghi một người trên sổ',
+    content:
+      'Một thành viên mới đã được ghi trong lô gia đình của bác.',
+  },
+
+  MFO_SPOUSE_ATTACHED: {
+    title: 'Đã ghi vợ/chồng trên sổ',
+    content:
+      'Quan hệ hôn nhân đã được ghi trong lô gia đình của bác.',
+  },
+
+
 };
 
 function resolveText(eventType, payload = {}) {

@@ -196,6 +196,17 @@ const EVENT_RELIABILITY_POLICY = {
     reliability: 'MEDIUM',
   },
 
+  // MFO POLICIES
+  MFO_PLAN_SUBMITTED: { severity: 'IMPORTANT', reliability: 'HIGH' },
+  MFO_PLAN_APPROVED: { severity: 'IMPORTANT', reliability: 'HIGH' },
+  MFO_PLAN_REJECTED: { severity: 'IMPORTANT', reliability: 'HIGH' },
+  MFO_RESULT_SUBMITTED: { severity: 'IMPORTANT', reliability: 'HIGH' },
+  MFO_RESULT_APPROVED: { severity: 'IMPORTANT', reliability: 'HIGH' },
+  MFO_RESULT_REJECTED: { severity: 'IMPORTANT', reliability: 'HIGH' },
+  MFO_MEMBER_CREATED: { severity: 'INFO', reliability: 'MEDIUM' },
+  MFO_SPOUSE_ATTACHED: { severity: 'INFO', reliability: 'MEDIUM' },
+
+
 };
 
 function getEventReliabilityPolicy(eventType) {

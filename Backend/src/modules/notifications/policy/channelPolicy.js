@@ -345,6 +345,50 @@ const EVENT_CHANNEL_POLICY = {
     ],
   },
 
+    // MFO — cùng lịch Chi: PLAN/RESULT SUBMIT+APPROVE+REJECT = EMAIL mandatory
+  // Delivery PENDING — không kích hoạt gửi
+
+  MFO_PLAN_SUBMITTED: {
+    mandatory: [OFFICIAL_CHANNEL],
+    preferredAllowed: true,
+    opportunistic: [WEB_PUSH_CHANNEL, IN_APP_CHANNEL],
+  },
+  MFO_PLAN_APPROVED: {
+    mandatory: [OFFICIAL_CHANNEL],
+    preferredAllowed: true,
+    opportunistic: [WEB_PUSH_CHANNEL, IN_APP_CHANNEL],
+  },
+  MFO_PLAN_REJECTED: {
+    mandatory: [OFFICIAL_CHANNEL],
+    preferredAllowed: true,
+    opportunistic: [WEB_PUSH_CHANNEL, IN_APP_CHANNEL],
+  },
+  MFO_RESULT_SUBMITTED: {
+    mandatory: [OFFICIAL_CHANNEL],
+    preferredAllowed: true,
+    opportunistic: [WEB_PUSH_CHANNEL, IN_APP_CHANNEL],
+  },
+  MFO_RESULT_APPROVED: {
+    mandatory: [OFFICIAL_CHANNEL],
+    preferredAllowed: true,
+    opportunistic: [WEB_PUSH_CHANNEL, IN_APP_CHANNEL],
+  },
+  MFO_RESULT_REJECTED: {
+    mandatory: [OFFICIAL_CHANNEL],
+    preferredAllowed: true,
+    opportunistic: [WEB_PUSH_CHANNEL, IN_APP_CHANNEL],
+  },
+  MFO_MEMBER_CREATED: {
+    mandatory: [],
+    preferredAllowed: true,
+    opportunistic: [WEB_PUSH_CHANNEL, IN_APP_CHANNEL],
+  },
+  MFO_SPOUSE_ATTACHED: {
+    mandatory: [],
+    preferredAllowed: true,
+    opportunistic: [WEB_PUSH_CHANNEL, IN_APP_CHANNEL],
+  },
+
 };
 
 function uniqueChannels(channels = []) {
