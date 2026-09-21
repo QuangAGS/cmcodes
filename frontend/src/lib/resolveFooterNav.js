@@ -1,7 +1,7 @@
 /**
  * PATH       : src/lib/resolveFooterNav.js
- * DATETIME   : 2026-08-26T10:10:00+07:00
- * VERSION    : 1.2.0-HOME-CONTEXT
+ * DATETIME   : 2026-09-20T11:05:00+07:00
+ * VERSION    : 1.2.1-MFO-C1
  * DESCRIPTION:
  * - SSOT footer theo pageKey.
  * - Hub / list admin: Home = Trang chủ (/).
@@ -81,6 +81,7 @@ export function resolveDefaultBackTo(user, pageKey = 'op-other') {
     'admin-child': '/admin',
     'op-hub': '/',
     'op-base-profile': '/op',
+    'op-mfo-plan': '/op',
     'op-other': '/op',
     public: '/',
   };

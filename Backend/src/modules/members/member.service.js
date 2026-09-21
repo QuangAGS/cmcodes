@@ -235,12 +235,38 @@ const memberService = {
       where.status = 'CHINH_THUC';
     }
 
-    console.log('[getAllMembers]', JSON.stringify({ tenantId, where, filters }));
-    
+    const q = String(filters.q || '').trim();
+    if (q.length >= 2) {
+      where.OR = [
+        { full_name: { contains: q, mode: 'insensitive' } },
+        { alias: { contains: q, mode: 'insensitive' } },
+      ];
+    }
+
+    if (filters.is_clan === 'true' || filters.is_clan === true) {
+      where.is_clan = true;
+    } else if (filters.is_clan === 'false' || filters.is_clan === false) {
+      where.is_clan = false;
+    }
+
+    if (filters.gender) {
+      const g = String(filters.gender).toUpperCase();
+      if (g === 'NAM' || g === 'NU' || g === 'KHAC') where.gender = g;
+    }
+
+    if (filters.is_alive === 'true' || filters.is_alive === true) where.is_alive = true;
+    if (filters.is_alive === 'false' || filters.is_alive === false) where.is_alive = false;
+
+    let take = Number(filters.limit);
+    if (!Number.isInteger(take) || take < 1) take = 20;
+    if (take > 50) take = 50;
+
+    console.log('[getAllMembers]', JSON.stringify({ tenantId, where, filters, take }));
+
     return prisma.members.findMany({
       where,
       orderBy: [{ full_name: 'asc' }],
-      
+      take,
     });
   },
 

@@ -1,9 +1,10 @@
 /**
  * PATH       : src/pages/OpHubPage.jsx
- * DATETIME   : 2026-09-14T11:10:00+07:00
- * VERSION    : 1.7.0-OP-GATE
+ * DATETIME   : 2026-09-20T13:35:00+07:00
+ * VERSION    : 1.7.2-OP-STAY
  * DESCRIPTION: Hub /op. DU_BI / chưa đủ field → /op/base-profile.
  *              Không gọi /me/profile khi member chưa CHINH_THUC.
+ *              C1: thêm mục việc «Khai năm đời» — không đổi form hồ sơ.
  */
 
 import { useEffect, useMemo, useState, useRef } from 'react';
@@ -34,6 +35,7 @@ import {
   EMPTY_ACHIEVEMENT,
 } from '../features/member/components/AchievementSection.jsx';
 import { achievementFromApi } from '../features/member/constants/achievementCatalog.js';
+import MyMfoPlans from '../features/mfo/components/MyMfoPlans.jsx';
 
 // ============================================================================
 // 1. CÁC HẰNG SỐ CẤU HÌNH BẢN GHI VÀ DANH SÁCH MỤC (CONSTANTS)
@@ -99,7 +101,7 @@ const PRIVACY_ITEMS = [
 
 /** Class CSS tái sử dụng cho các ô input/select */
 const inputCls =
-  'w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-medium outline-none focus:border-indigo-400';
+  'w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-semibold text-slate-800 outline-none focus:border-indigo-400';
 
 // ============================================================================
 // 2. CÁC COMPONENT PHỤ VÀ HÀM BỔ TRỢ (HELPERS & UI COMPONENTS)
@@ -109,7 +111,7 @@ const inputCls =
 function Field({ label, hint, children }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-sm font-bold text-slate-700">{label}</span>
+      <span className="mb-1 block text-sm font-normal text-slate-500">{label}</span>
       {children}
       {hint ? <span className="mt-1 block text-xs text-slate-500">{hint}</span> : null}
     </label>
@@ -121,7 +123,7 @@ function ReadRow({ label, value }) {
   return (
     <div className="grid grid-cols-[7.5rem_1fr] items-start gap-2 py-1.5">
       <dt className="text-sm italic text-slate-500">{label}</dt>
-      <dd className="text-sm font-medium text-slate-800">{value || '—'}</dd>
+      <dd className="text-base font-semibold text-slate-800">{value || '—'}</dd>
     </div>
   );
 }
@@ -174,13 +176,13 @@ export default function MemberProfilePage() {
   const [saving, setSaving] = useState(false);
   
   /** Mục/Tab hiện tại người dùng đang chọn xem (mặc định là 'identity') */
-  const [section, setSection] = useState('identity');
+  const [section, setSection] = useState('');
   
   /** Nhóm quyền riêng tư đang chọn chỉnh sửa ('CONTACT' | 'BIRTH_DATE' | 'ACHIEVEMENT') */
-  const [privacyGroup, setPrivacyGroup] = useState('CONTACT');
+  const [privacyGroup, setPrivacyGroup] = useState('');
   
   /** Chủ đề tiểu sử đang chọn viết/chỉnh sửa trong tab 'bio' */
-  const [bioTopic, setBioTopic] = useState('childhood_summary');
+  const [bioTopic, setBioTopic] = useState('');
   
   /** Trạng thái đóng/mở (accordion) cho từng mục tiểu sử ở chế độ xem 'bio_read' */
   const [bioOpen, setBioOpen] = useState({});
@@ -209,7 +211,10 @@ export default function MemberProfilePage() {
   const currentTitle = alive ? 'Nơi ở hiện tại' : 'Nơi ở cuối';
   
   /** Lấy đối tượng thông tin tương ứng với tab (section) hiện tại */
-  const sectionMeta = useMemo(() => SECTIONS.find((s) => s.key === section) || SECTIONS[0], [section]);
+  const sectionMeta = useMemo(
+    () => SECTIONS.find((s) => s.key === section) || { key: '', label: 'Bấm để chọn' },
+    [section]
+  );
 
   const fileRef = useRef(null);
   const [avatarUrl, setAvatarUrl] = useState(null);
@@ -233,14 +238,8 @@ export default function MemberProfilePage() {
             navigate('/op/base-profile', { replace: true });
             return;
           }
-          if (op?.hasOpen !== true && primaryStatus !== 'CHINH_THUC') {
-            const role = user?.role;
-            navigate(
-              role === 'CLAN_ADMIN' || role === 'SYSTEM_ADMIN' ? '/admin' : '/tree',
-              { replace: true }
-            );
-            return;
-          }
+          /* hasOpen false / primary null: OP đã đóng — ở lại /op (catalog việc + hồ sơ).
+             Không đẩy /tree: chặn C1 «Khai năm đời». */
         } catch {
           /* my-op lỗi: thử M12; 403 NOT_MEMBER_ACTOR xử lý phía dưới */
         }
@@ -418,10 +417,14 @@ export default function MemberProfilePage() {
             ) : null}
           </section>
 
+          {/* TỜ KHAI 5 ĐỜI — cùng kiểu Mục hồ sơ */}
+          <MyMfoPlans declarantName={form.full_name} />
+
           {/* MENU CHỌN MỤC HỒ SƠ (DROPDOWN) */}
           <label className="block">
-            <span className="mb-1 block text-sm font-bold text-slate-700">Mục hồ sơ</span>
+            <span className="mb-1 block text-base font-black text-slate-800">Hồ sơ của tôi</span>
             <select className={inputCls} value={section} onChange={(e) => setSection(e.target.value)}>
+              <option value="">Bấm để chọn</option>
               {SECTIONS.map((s) => (
                 <option key={s.key} value={s.key}>{s.label}</option>
               ))}
@@ -429,6 +432,7 @@ export default function MemberProfilePage() {
           </label>
 
           {/* KHU VỰC NỘI DUNG CHI TIẾT THEO MỤC ĐƯỢC CHỌN */}
+          {section ? (
           <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="mb-3 flex items-center gap-2">
               <h2 className="flex-1 text-base font-black text-slate-800">{sectionMeta.label}</h2>
@@ -557,6 +561,7 @@ export default function MemberProfilePage() {
               <div className="space-y-3">
                 <Field label="Chủ đề tiểu sử">
                   <select className={inputCls} value={bioTopic} onChange={(e) => setBioTopic(e.target.value)}>
+                    <option value="">Bấm để chọn</option>
                     {BIO_TOPICS.map((it) => (
                       <option key={it.key} value={it.key}>{it.label}</option>
                     ))}
@@ -694,6 +699,7 @@ export default function MemberProfilePage() {
               <div className="space-y-3">
                 <Field label="Mục thông tin">
                   <select className={inputCls} value={privacyGroup} onChange={(e) => setPrivacyGroup(e.target.value)}>
+                    <option value="">Bấm để chọn</option>
                     {PRIVACY_ITEMS.map((it) => (
                       <option key={it.key} value={it.key}>{it.label}</option>
                     ))}
@@ -724,9 +730,10 @@ export default function MemberProfilePage() {
               </div>
             ) : null}
           </section>
+          ) : null}
 
           {/* NÚT LƯU CỦA FORM (Chỉ hiển thị với các mục chỉnh sửa dạng form chính) */}
-          {section !== 'address' && section !== 'bio_read' && section !== 'ach' && section !== 'ach_read' ? (
+          {section && section !== 'address' && section !== 'bio_read' && section !== 'ach' && section !== 'ach_read' ? (
             <button
               type="submit"
               disabled={saving}

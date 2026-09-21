@@ -1,11 +1,11 @@
 /**
  * PATH       : src/components/routes/OpProtectedRoute.jsx
- * DATETIME   : 2026-08-16T23:05:00+07:00
- * VERSION    : 1.0.0-FE-OP-B1
+ * DATETIME   : 2026-09-20T13:40:00+07:00
+ * VERSION    : 1.1.0-OP-CATALOG
  * DESCRIPTION:
- * - Guard cho /op và /op/base-profile.
- * - SSOT: GET /onboarding/my-op → hasOpen === true mới cho vào.
- * - DU_BI có thể từ RP hoặc định nghĩa family — không đoán nguồn, chỉ tin my-op.
+ * - Guard đăng nhập cho /op, /op/base-profile, /op/mfo/*.
+ * - C1: /op = catalog việc. hasOpen false (OP đóng) KHÔNG đẩy /tree.
+ * - Case OP mở + DU_BI: page con (/op/base-profile) tự xử lý.
  * - Q1: không sửa ProtectedRoute / AdminProtectedRoute.
  */
 
@@ -85,11 +85,6 @@ export default function OpProtectedRoute({ children }) {
     return <Navigate to="/auth" replace />;
   }
 
-  if (!opState.hasOpen) {
-    return <Navigate to="/tree" replace />;
-  }
-
-  // Cho page con đọc my-op đã fetch (tránh gọi lại ngay)
   if (typeof children === 'function') {
     return children(opState.data);
   }

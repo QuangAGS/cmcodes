@@ -373,7 +373,14 @@ const AuthPage = () => {
           speakError?.(successMessage);
         }
 
-        navigate('/tree');
+        {
+          const role = String(user?.role || '').toUpperCase();
+          if (role === 'CLAN_ADMIN' || role === 'SYSTEM_ADMIN') {
+            navigate('/admin');
+          } else {
+            navigate('/op');
+          }
+        }
       }
     } catch (err) {
       console.error('[Login error:]', err);

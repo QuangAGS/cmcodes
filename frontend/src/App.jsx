@@ -1,7 +1,7 @@
 /**
  * PATH       : src/App.jsx
- * DATETIME   : 2026-09-10T16:00:00+07:00
- * VERSION    : 13.2.7-CRUD BRANCH
+ * DATETIME   : 2026-09-20T11:05:00+07:00
+ * VERSION    : 13.2.8-MFO-C1
  * DESCRIPTION: Routes FE. Không mount Express /api/me ở đây.
  */
 
@@ -20,6 +20,9 @@ const AdminWorkSelectorPage = lazy(() => import('./pages/AdminWorkSelectorPage.j
 const AdminTenantActivatePage = lazy(() => import('./pages/AdminTenantActivatePage.jsx'));
 const OpHubPage = lazy(() => import('./pages/OpHubPage.jsx'));
 const OpBaseProfilePage = lazy(() => import('./pages/OpBaseProfilePage.jsx'));
+const OpMfoPlanPage = lazy(() => import('./pages/OpMfoPlanPage.jsx'));
+const OpMfoMemberPreviewPage = lazy(() => import('./pages/OpMfoMemberPreviewPage.jsx'));
+const OpMemberSearchPage = lazy(() => import('./pages/OpMemberSearchPage.jsx'));
 const OpCaseDetailPage = lazy(() => import('./pages/OpCaseDetailPage.jsx'));
 const AdminTenantSettingsPage = lazy(() => import('./pages/AdminTenantSettingsPage.jsx'));
 const AdminTenantOriginPage = lazy(() => import('./pages/AdminTenantOriginPage.jsx'));
@@ -201,6 +204,30 @@ const AppRouter = () => {
           element={
             <OpProtectedRoute>
               <OpBaseProfilePage />
+            </OpProtectedRoute>
+          }
+        />
+        <Route
+          path="/op/mfo/plans/new"
+          element={
+            <OpProtectedRoute>
+              <OpMfoPlanPage />
+            </OpProtectedRoute>
+          }
+        />
+        <Route
+          path="/op/mfo/members/:id"
+          element={
+            <OpProtectedRoute>
+              <OpMfoMemberPreviewPage />
+            </OpProtectedRoute>
+          }
+        />
+        <Route
+          path="/op/members/search"
+          element={
+            <OpProtectedRoute>
+              <OpMemberSearchPage />
             </OpProtectedRoute>
           }
         />

@@ -18,6 +18,11 @@ const memberController = {
       const filters = {
         status: req.query?.status,
         includePending: req.query?.includePending,
+        q: req.query?.q,
+        is_clan: req.query?.is_clan,
+        gender: req.query?.gender,
+        is_alive: req.query?.is_alive,
+        limit: req.query?.limit,
       };
 
       console.log('[getAll controller]', { tenantId, query: req.query, filters });
