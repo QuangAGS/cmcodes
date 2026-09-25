@@ -1,8 +1,8 @@
 /**
  * PATH       : src/App.jsx
- * DATETIME   : 2026-09-20T11:05:00+07:00
- * VERSION    : 13.2.8-MFO-C1
- * DESCRIPTION: Routes FE. Không mount Express /api/me ở đây.
+ * DATETIME   : 2026-09-24T10:50:00+07:00
+ * VERSION    : 13.2.9-MFO-W0
+ * DESCRIPTION: Routes FE. W0 thêm /op/mfo/plans/:id chờ tem.
  */
 
 import { Toaster } from 'sonner';
@@ -16,13 +16,17 @@ const AuthPage = lazy(() => import('./pages/AuthPage.jsx'));
 const TreePage = lazy(() => import('./pages/TreePage.jsx'));
 const WaitingPage = lazy(() => import('./pages/WaitingPage.jsx'));
 const AdminUserApprovalPage = lazy(() => import('./pages/AdminUserApprovalPage.jsx'));
+const AdminMfoPlanPage = lazy(() => import('./pages/AdminMfoPlanPage.jsx'));
 const AdminWorkSelectorPage = lazy(() => import('./pages/AdminWorkSelectorPage.jsx'));
 const AdminTenantActivatePage = lazy(() => import('./pages/AdminTenantActivatePage.jsx'));
 const OpHubPage = lazy(() => import('./pages/OpHubPage.jsx'));
 const OpBaseProfilePage = lazy(() => import('./pages/OpBaseProfilePage.jsx'));
 const OpMfoPlanPage = lazy(() => import('./pages/OpMfoPlanPage.jsx'));
+const OpMfoPlanTicketPage = lazy(() => import('./pages/OpMfoPlanTicketPage.jsx'));
+const OpMfoWorkbenchPage = lazy(() => import('./pages/OpMfoWorkbenchPage.jsx'));
 const OpMfoMemberPreviewPage = lazy(() => import('./pages/OpMfoMemberPreviewPage.jsx'));
 const OpMemberSearchPage = lazy(() => import('./pages/OpMemberSearchPage.jsx'));
+const OpGflPickPage = lazy(() => import('./pages/OpGflPickPage.jsx'));
 const OpCaseDetailPage = lazy(() => import('./pages/OpCaseDetailPage.jsx'));
 const AdminTenantSettingsPage = lazy(() => import('./pages/AdminTenantSettingsPage.jsx'));
 const AdminTenantOriginPage = lazy(() => import('./pages/AdminTenantOriginPage.jsx'));
@@ -174,6 +178,14 @@ const AppRouter = () => {
         />
 
         <Route
+          path="/admin/mfo/plans"
+          element={
+            <AdminProtectedRoute>
+              <AdminMfoPlanPage />
+            </AdminProtectedRoute>
+          }
+        />
+        <Route
           path="/admin/approval"
           element={
             <AdminProtectedRoute>
@@ -216,6 +228,22 @@ const AppRouter = () => {
           }
         />
         <Route
+          path="/op/mfo/plans/:id/work"
+          element={
+            <OpProtectedRoute>
+              <OpMfoWorkbenchPage />
+            </OpProtectedRoute>
+          }
+        />
+        <Route
+          path="/op/mfo/plans/:id"
+          element={
+            <OpProtectedRoute>
+              <OpMfoPlanTicketPage />
+            </OpProtectedRoute>
+          }
+        />
+        <Route
           path="/op/mfo/members/:id"
           element={
             <OpProtectedRoute>
@@ -228,6 +256,14 @@ const AppRouter = () => {
           element={
             <OpProtectedRoute>
               <OpMemberSearchPage />
+            </OpProtectedRoute>
+          }
+        />
+        <Route
+          path="/op/tree/pick-origin"
+          element={
+            <OpProtectedRoute>
+              <OpGflPickPage />
             </OpProtectedRoute>
           }
         />

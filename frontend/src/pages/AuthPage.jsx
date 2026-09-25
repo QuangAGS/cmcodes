@@ -38,6 +38,7 @@ import WaitingPage from './WaitingPage.jsx';
 import ResultPage from './ResultPage.jsx';
 
 import { useTts } from '../shared/hooks/useTts.js';
+import { clearMfoClientOnLogin } from '../features/mfo/lib/mfoDraftStore.js';
 
 import {
   createTransitionSnapshot,
@@ -343,6 +344,7 @@ const AuthPage = () => {
 
     try {
       const user = await login(loginData);
+      clearMfoClientOnLogin();
 
       // AuthContext thường đã window.location.href — khối này là safety net
       if (user) {

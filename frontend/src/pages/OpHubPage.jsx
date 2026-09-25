@@ -36,6 +36,7 @@ import {
 } from '../features/member/components/AchievementSection.jsx';
 import { achievementFromApi } from '../features/member/constants/achievementCatalog.js';
 import MyMfoPlans from '../features/mfo/components/MyMfoPlans.jsx';
+import { memberAvatarUrl } from '../features/mfo/lib/memberAvatarUrl.js';
 
 // ============================================================================
 // 1. CÁC HẰNG SỐ CẤU HÌNH BẢN GHI VÀ DANH SÁCH MỤC (CONSTANTS)
@@ -293,7 +294,17 @@ export default function MemberProfilePage() {
           hint: d.login_contact_hint,
           is_alive: m.is_alive !== false,
           generation: m.generation ?? null,
+          memberId: m.id || null,
         });
+
+        try {
+          const src =
+            (d.avatar && (d.avatar.url || d.avatar.read_url)) ||
+            (m.id ? await memberAvatarUrl(m.id) : '');
+          if (!cancelled && src) setAvatarUrl(src);
+        } catch {
+          /* chữ cái */
+        }
 
         // Tải danh sách thành tựu
         try {
@@ -390,16 +401,27 @@ export default function MemberProfilePage() {
             <div className="flex gap-4">
               <button
                 type="button"
-                className="flex h-20 w-20 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-lg font-black text-indigo-700"
-                onClick={() => toast.message('Ảnh đại diện sẽ thêm ở lát media (chưa mở upload).')}
+                className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-full bg-indigo-100 text-lg font-black text-indigo-700"
+                onClick={() => navigate('/me/profile')}
                 aria-label="Ảnh đại diện"
               >
-                {initials(form.full_name)}
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  initials(form.full_name)
+                )}
               </button>
               <div className="min-w-0 flex-1">
                 <h1 className="text-xl font-black text-slate-800">{form.full_name || 'Chưa có tên'}</h1>
                 <p className="mt-1 text-sm text-slate-600">
-                  Giới tính: <span className="font-semibold">{meta.gender || '—'}</span>
+                  Giới tính:{' '}
+                  <span className="font-semibold">
+                    {String(meta.gender).toUpperCase() === 'NAM'
+                      ? 'Nam'
+                      : String(meta.gender).toUpperCase() === 'NU'
+                        ? 'Nữ'
+                        : meta.gender || '—'}
+                  </span>
                 </p>
                 <p className="text-sm text-slate-600">
                   Ngày sinh: <span className="font-semibold">{formatDob(form)}</span>

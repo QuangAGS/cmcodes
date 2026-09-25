@@ -1,8 +1,8 @@
 /**
  * PATH       : src/modules/mfo/mfo.service.js
  * DATETIME   : 2026-09-17T09:35:00+07:00
- * VERSION    : 1.6.0-MFO-LEDGER
- * DESCRIPTION: PLAN + CREATE + RESULT + spouse + BPL/silentEmit.
+ * VERSION    : 1.6.1-ADMIN-REVIEW
+ * DESCRIPTION: PLAN + CREATE + RESULT + spouse + BPL + payload.admin_review.
  */
 
 const crypto = require('crypto');
@@ -24,6 +24,12 @@ function memberIdOf(user) {
 function isClanOrSys(user) {
   const r = (user && user.role) || '';
   return r === 'CLAN_ADMIN' || r === 'SYSTEM_ADMIN';
+}
+
+function pickAdminReview(body, row) {
+  const b = body || {};
+  const p = (row && row.payload) || {};
+  return b.admin_review || b.review || p.admin_review || null;
 }
 
 function sameParentPair(a, b) {
@@ -239,6 +245,9 @@ const mfoService = {
         id: r.id,
         status: r.status,
         plan_ok: !!p.plan_ok,
+        result_ok: !!p.result_ok,
+        result_submitted: !!p.result_submitted,
+        admin_review: p.admin_review || null,
         kind: p.kind || 'PLAN',
         origin_member_id: p.origin_member_id || r.target_id,
         k: p.k,
@@ -342,6 +351,7 @@ const mfoService = {
       granted_at: new Date().toISOString(),
       granted_by: actor,
       approver_note: b.note || b.admin_note || null,
+      admin_review: pickAdminReview(b, row),
     };
 
     const ticket = await prisma.proposals.update({
@@ -387,6 +397,7 @@ const mfoService = {
       ...row.payload,
       plan_ok: false,
       reject_reason: String(reason).trim(),
+      admin_review: pickAdminReview(body, row),
     };
 
     const ticket = await prisma.proposals.update({
@@ -1085,6 +1096,7 @@ const mfoService = {
         submitted_at: new Date().toISOString(),
         submitted_by: actor,
       },
+      admin_review: row.payload.admin_review || null,
     };
 
     const ticket = await prisma.proposals.update({
@@ -1133,6 +1145,7 @@ const mfoService = {
         approved_by: actor,
         approver_note: b.note || b.admin_note || null,
       },
+      admin_review: pickAdminReview(b, row),
     };
 
     const ticket = await prisma.proposals.update({
@@ -1184,6 +1197,7 @@ const mfoService = {
         rejected_at: new Date().toISOString(),
         rejected_by: actor,
       },
+      admin_review: pickAdminReview(body, row),
     };
 
     const ticket = await prisma.proposals.update({

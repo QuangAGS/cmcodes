@@ -1,10 +1,10 @@
 /**
  * PATH       : src/features/admin/constants/adminWorkItems.js
- * DATETIME   : 2026-08-26T08:55:00+07:00
- * VERSION    : 1.3.0-TITLE-RENAME
+ * DATETIME   : 2026-09-24T16:20:00+07:00
+ * VERSION    : 1.3.1-MFO-PLAN
  * DESCRIPTION:
  * - Work items Admin.
- * - "Phê duyệt người dùng" (RP) · "Phê duyệt thành viên" (OP).
+ * - Thêm «Đóng dấu tờ khai 5 đời».
  */
 
 export const SYSTEM_ADMIN_WORK_ITEMS = [
@@ -20,6 +20,13 @@ export const SYSTEM_ADMIN_WORK_ITEMS = [
     title: 'Phê duyệt thành viên',
     description: 'Duyệt thành viên dự bị thành chính thức (nhập tộc / thành lập)',
     path: '/admin/approval?process=OP',
+    icon: 'UserCheck',
+  },
+  {
+    id: 'mfo-plan',
+    title: 'Đóng dấu tờ khai 5 đời',
+    description: 'Tem PLAN — cho phép khai người trên sổ',
+    path: '/admin/mfo/plans',
     icon: 'UserCheck',
   },
   {
@@ -43,7 +50,6 @@ export const SYSTEM_ADMIN_WORK_ITEMS = [
     path: '/admin/tenant/origin',
     icon: 'Landmark',
   },
-
   {
     id: 'member-vital',
     title: 'Tình trạng sống / đã mất',
@@ -51,7 +57,6 @@ export const SYSTEM_ADMIN_WORK_ITEMS = [
     path: '/admin/members/vital',
     icon: 'UserCheck',
   },
-
   {
     id: 'branches',
     title: 'Chi / ngành',
@@ -63,6 +68,15 @@ export const SYSTEM_ADMIN_WORK_ITEMS = [
 
 export const CLAN_ADMIN_WORK_ITEMS = [
   {
+    id: 'mfo-plan',
+    title: 'Đóng dấu tờ khai 5 đời',
+    description: 'Tem PLAN — cho phép khai người trên sổ',
+    path: '/admin/mfo/plans',
+    icon: 'UserCheck',
+    when: ['HOAT_DONG'],
+    primary: true,
+  },
+  {
     id: 'branches',
     title: 'Chi / ngành',
     description: 'Cây chi, chi cha, không sinh từ sơ đồ người',
@@ -70,7 +84,6 @@ export const CLAN_ADMIN_WORK_ITEMS = [
     icon: 'GitFork',
     when: ['HOAT_DONG', 'TAM_NGUNG'],
   },
-  
   {
     id: 'tenant-origin',
     title: 'Nơi phát tích',

@@ -113,10 +113,37 @@ export default function OpMemberSearchPage() {
           }}
           onPick={(pick) => {
             let assignLine = null;
+            let role = 'person';
             try {
               const raw = sessionStorage.getItem('mfo.assignLine');
               if (raw != null && raw !== '') assignLine = Number(raw);
+              role = sessionStorage.getItem('mfo.pickRole') || 'person';
             } catch { assignLine = null; }
+            if (role === 'sibling' && Number.isInteger(assignLine)) {
+              let index = 0;
+              try { index = Number(sessionStorage.getItem('mfo.siblingIndex') || '0'); } catch { index = 0; }
+              const pack = { line: assignLine, index, id: pick.id, name: pick.name };
+              try {
+                sessionStorage.setItem('mfo.siblingPick', JSON.stringify(pack));
+                sessionStorage.removeItem('mfo.assignLine');
+                sessionStorage.removeItem('mfo.pickRole');
+                sessionStorage.removeItem('mfo.siblingIndex');
+              } catch { /* ignore */ }
+              navigate(returnTo, { replace: true, state: { siblingPick: pack } });
+              return;
+            }
+            if (role === 'spouse' && Number.isInteger(assignLine)) {
+              try {
+                sessionStorage.setItem(
+                  'mfo.spousePick',
+                  JSON.stringify({ line: assignLine, id: pick.id, name: pick.name })
+                );
+                sessionStorage.removeItem('mfo.assignLine');
+                sessionStorage.removeItem('mfo.pickRole');
+              } catch { /* ignore */ }
+              navigate(returnTo, { replace: true, state: { spousePick: { line: assignLine, id: pick.id, name: pick.name } } });
+              return;
+            }
             try {
               sessionStorage.setItem('mfo.searchReturnTo', returnTo);
               if (Number.isInteger(assignLine)) {

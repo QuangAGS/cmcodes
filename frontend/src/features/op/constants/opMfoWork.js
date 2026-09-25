@@ -11,25 +11,41 @@ export const OP_MFO_WORK = {
   key: 'mfo-plan-self',
   path: '/op/mfo/plans/new',
   listPath: '/op/mfo/plans',
-  title: 'Khai năm đời của tôi',
-  blurb: 'Xin phép tờ khai tối đa năm đời trực hệ. Bạn phải có mặt trên tờ.',
-  listen: 'Việc này là tờ khai năm đời của bạn. Gửi trước, Ban quản trị đồng ý rồi mới được ghi người lên sổ.',
+  title: 'Tạo khung dự kiến',
+  blurb: 'Tạo khung tối đa năm đời trực hệ. Bạn phải có mặt trên khung. Duyệt khung xong mới mở tờ khai.',
+  listen: 'Việc này là tạo khung dự kiến năm đời. Trình khung, Ban quản trị duyệt khung, rồi mới mở tờ khai theo khung.',
 };
 
 export const OP_MFO_STATUS = {
-  DRAFT: 'Đang soạn',
-  PENDING: 'Chờ duyệt',
-  UNDER_REVIEW: 'Đang được xem',
-  PLAN_OK: 'Được làm theo tờ đã duyệt',
-  NEEDS_REVISION: 'Cần sửa kết quả',
-  APPROVED: 'Đã đóng',
-  REJECTED: 'Không được duyệt',
+  DRAFT: 'Đang tạo khung dự kiến',
+  PENDING: 'Chờ duyệt khung',
+  UNDER_REVIEW: 'Chờ duyệt khung',
+  PLAN_OK: 'Khung đã duyệt',
+  RESULT_WAIT: 'Chờ duyệt tờ khai',
+  NEEDS_REVISION: 'Cần sửa kết quả khai báo',
+  APPROVED: 'Tờ khai đã duyệt',
+  REJECTED: 'Khung bị từ chối',
+  REJECTED_RESULT: 'Tờ khai bị từ chối',
   WITHDRAWN: 'Đã rút',
 };
 
 export function opMfoStatusLabel(ticket) {
   const st = String(ticket?.status || '').toUpperCase();
-  const planOk = Boolean(ticket?.payload?.plan_ok);
-  if (st === 'UNDER_REVIEW' && planOk) return OP_MFO_STATUS.PLAN_OK;
+  let p = ticket?.payload;
+  if (typeof p === 'string') {
+    try {
+      p = JSON.parse(p);
+    } catch {
+      p = {};
+    }
+  }
+  const planOk = Boolean(ticket?.plan_ok || p?.plan_ok);
+  const resultOk = Boolean(ticket?.result_ok || p?.result_ok);
+  const submitted = Boolean(ticket?.result_submitted || p?.result_submitted);
+  if (st === 'NEEDS_REVISION') return OP_MFO_STATUS.NEEDS_REVISION;
+  if (st === 'REJECTED' && planOk) return OP_MFO_STATUS.REJECTED_RESULT;
+  if (st === 'APPROVED' || resultOk) return OP_MFO_STATUS.APPROVED;
+  if (planOk && submitted && !resultOk) return OP_MFO_STATUS.RESULT_WAIT;
+  if (planOk && !resultOk) return OP_MFO_STATUS.PLAN_OK;
   return OP_MFO_STATUS[st] || 'Đang xử lý';
 }

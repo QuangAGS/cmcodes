@@ -25,9 +25,16 @@ export const MFO_USER_ERRORS = {
 
   MFO_PLAN_STATE: 'Tờ khai không ở bước cho phép việc vừa bấm.',
 
+  MFO_GENERATION_REQUIRED: 'Đời gốc cần xác định đời trên cây họ.',
+
   MFO_MEMBER_NOT_FOUND: 'Không thấy người này trên sổ Họ.',
 
   MFO_PARENT_NOT_FOUND: 'Không thấy cha hoặc mẹ trên sổ Họ.',
+  MFO_PARENT_REQUIRED: 'Đời này phải gắn cha hoặc mẹ từ đời trên.',
+  MFO_GENDER_REQUIRED: 'Chọn nam hoặc nữ.',
+  MFO_NAME_REQUIRED: 'Điền họ tên.',
+  MFO_LINE_RANGE: 'Chỉ tạo người từ đời 1 đến đời 4.',
+  MFO_UNION_EXISTS: 'Đôi này đã có trên sổ.',
 
   MFO_MEMBER_DUP:
     'Trùng với người đã có trên sổ. Chọn người đó, đừng tạo thêm.',
@@ -65,10 +72,18 @@ export const MFO_USER_ERRORS = {
   FORBIDDEN: 'Bạn không được làm việc này trên tờ khai.',
 
   UNAUTHORIZED: 'Phiên làm việc hết hạn. Hãy đăng nhập lại.',
+
+  HTTP_400: 'Chưa làm được việc vừa bấm. Kiểm tra tờ khai hoặc nhờ Ban quản trị.',
+  HTTP_401: 'Phiên làm việc hết hạn. Hãy đăng nhập lại.',
+  HTTP_403: 'Bạn không được làm việc này.',
+  HTTP_404: 'Không thấy tờ khai hoặc người này.',
+  HTTP_409: 'Tờ khai đang ở trạng thái khác. Tải lại trang.',
+  HTTP_422: 'Nội dung chưa đủ để duyệt. Xem lại tờ khai.',
+  HTTP_500: 'Hệ thống đang bận. Thử lại sau.',
 };
 
 const TECH_RE =
-  /\b(422|409|403|404|500|payload|plan_ok|prisma|sql|uuid|null|undefined|stack|MFO_[A-Z_]+)\b/i;
+  /\b(400|401|403|404|409|422|500|payload|plan_ok|prisma|sql|uuid|null|undefined|stack|MFO_[A-Z_]+|status code|axios|request failed|ECONN|network error)\b/i;
 
 export function isTechnicalMessage(text) {
   const s = String(text || '').trim();
@@ -90,6 +105,9 @@ export function toMfoUserMessage(err, fallback = MFO_USER_FALLBACK) {
     '';
 
   if (code && MFO_USER_ERRORS[code]) return MFO_USER_ERRORS[code];
+
+  const http = Number(err?.response?.status || err?.status || 0);
+  if (http && MFO_USER_ERRORS[`HTTP_${http}`]) return MFO_USER_ERRORS[`HTTP_${http}`];
 
   const raw = String(
     err?.userMessage ||
