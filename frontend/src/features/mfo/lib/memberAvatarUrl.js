@@ -51,7 +51,7 @@ export async function memberAvatarUrl(memberId) {
     try {
       const me = await tryGet('/me/avatar');
       const mid = me.member_id || me.avatar?.member_id || me.member?.id;
-      if (!mid || String(mid) === id) url = pickAvatar(me) || pickAvatar(me.avatar);
+      if (mid && String(mid) === id) url = pickAvatar(me) || pickAvatar(me.avatar);
     } catch {
       /* next */
     }
@@ -79,4 +79,9 @@ export async function memberAvatarUrl(memberId) {
 
   cache.set(id, url || '');
   return url || '';
+}
+
+export function clearMemberAvatarCache(memberId) {
+  if (memberId) cache.delete(String(memberId));
+  else cache.clear();
 }

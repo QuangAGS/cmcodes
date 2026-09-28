@@ -28,7 +28,13 @@ export function sanitizeLines(rows, { originId, k, founderId } = {}) {
       hint = hint || 'Origin';
     }
 
-    if (founderId && Number(k) === i) {
+    if (
+      founderId &&
+      k !== '' &&
+      k != null &&
+      Number.isInteger(Number(k)) &&
+      Number(k) === i
+    ) {
       op = 'ASSIGN';
       memberId = founderId;
       hint = hint || 'MWL';
@@ -41,11 +47,25 @@ export function sanitizeLines(rows, { originId, k, founderId } = {}) {
     }
     if (op === 'EMPTY') hint = hint || null;
 
+    const siblings = Array.isArray(src.siblings)
+      ? src.siblings.map((s, idx) => ({
+          index: Number.isInteger(s.index) ? s.index : idx,
+          op: String(s.op || (s.member_id ? 'ASSIGN' : 'CREATE')).toUpperCase(),
+          member_id: s.member_id || null,
+          hint: s.hint || null,
+          spouse_id: s.spouse_id || null,
+          spouse_hint: s.hint ? null : s.spouse_hint || null,
+        }))
+      : [];
+
     out.push({
       line: i,
       op,
       member_id: memberId,
       hint,
+      spouse_id: src.spouse_id || null,
+      spouse_hint: src.spouse_hint || null,
+      siblings,
     });
   }
   return out;

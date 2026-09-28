@@ -30,8 +30,7 @@ export default function OpGflPickPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const returnTo = params.get('returnTo') || '/op/mfo/plans/new';
-  const seedId =
-    params.get('seed') || user?.member_id || user?.memberId || '';
+  const seedId = params.get('seed') || '';
 
   const tenant = resolveTenant(user);
   const footerNav = resolveFooterNav(user, {

@@ -1,9 +1,8 @@
 /**
  * PATH       : src/modules/mfo/mfo.payload.js
- * DATETIME   : 2026-09-16T15:10:00+07:00
- * VERSION    : 1.0.0-MFO-L1
- * DESCRIPTION: Chuẩn hoá + kiểm payload ticket PLAN 5L.
- *              Không thêm enum. ticket_type = BRANCH_REVIEW, kind = PLAN|RESULT.
+ * DATETIME   : 2026-09-26T20:45:00+07:00
+ * VERSION    : 1.1.0-WIDTH
+ * DESCRIPTION: Chuẩn hoá PLAN 5L. Giữ siblings + spouse trên từng dòng.
  */
 
 const OPS = new Set(['ASSIGN', 'CREATE', 'EMPTY']);
@@ -16,6 +15,20 @@ function fail(message, statusCode, code, extra) {
   err.isOperational = true;
   if (extra) Object.assign(err, extra);
   throw err;
+}
+
+function asSibling(raw, index) {
+  const s = raw && typeof raw === 'object' ? raw : {};
+  const op = String(s.op || (s.member_id ? 'ASSIGN' : s.hint ? 'CREATE' : 'EMPTY')).toUpperCase();
+  if (!OPS.has(op)) return null;
+  return {
+    index: Number.isInteger(s.index) ? s.index : index,
+    op,
+    member_id: s.member_id || null,
+    hint: s.hint || null,
+    spouse_id: s.spouse_id || null,
+    spouse_hint: s.spouse_hint || null,
+  };
 }
 
 function asLine(raw, index) {
@@ -32,11 +45,17 @@ function asLine(raw, index) {
   if (op === 'EMPTY' && memberId) {
     fail('Ô ' + n + ': EMPTY không kèm member_id.', 400, 'MFO_LINE_EMPTY');
   }
+  const siblings = Array.isArray(line.siblings)
+    ? line.siblings.map(asSibling).filter(Boolean)
+    : [];
   return {
     line: n,
     op,
     member_id: memberId,
     hint: line.hint || null,
+    spouse_id: line.spouse_id || null,
+    spouse_hint: line.spouse_hint || null,
+    siblings,
   };
 }
 
@@ -65,11 +84,11 @@ function normalizePlanBody(body) {
   let lines = Array.isArray(b.lines) ? b.lines.map(asLine) : [];
   if (lines.length === 0) {
     lines = [
-      { line: 0, op: 'ASSIGN', member_id: originId, hint: 'Origin' },
-      { line: 1, op: 'EMPTY', member_id: null, hint: null },
-      { line: 2, op: 'EMPTY', member_id: null, hint: null },
-      { line: 3, op: 'EMPTY', member_id: null, hint: null },
-      { line: 4, op: 'EMPTY', member_id: null, hint: null },
+      { line: 0, op: 'ASSIGN', member_id: originId, hint: 'Origin', siblings: [] },
+      { line: 1, op: 'EMPTY', member_id: null, hint: null, siblings: [] },
+      { line: 2, op: 'EMPTY', member_id: null, hint: null, siblings: [] },
+      { line: 3, op: 'EMPTY', member_id: null, hint: null, siblings: [] },
+      { line: 4, op: 'EMPTY', member_id: null, hint: null, siblings: [] },
     ];
   }
   if (lines.length !== 5) {
@@ -95,6 +114,7 @@ function normalizePlanBody(body) {
   return {
     kind: 'PLAN',
     origin_member_id: originId,
+    origin_spouse_id: b.origin_spouse_id || lines[0].spouse_id || null,
     k,
     k_on_tree: k !== null,
     proposed_generation:

@@ -204,6 +204,19 @@ const mfoController = {
     }
   },
 
+  abortPlan: async (req, res) => {
+    try {
+      const data = await mfoService.abortPlan({
+        user: req.user,
+        ticketId: req.params.id,
+        body: req.body || {},
+      });
+      res.status(200).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
   getOriginTree: async (req, res) => {
     try {
       const data = await mfoService.getOriginTree({

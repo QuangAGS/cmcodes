@@ -5,7 +5,7 @@
  * DESCRIPTION: Khung cây — pinch/kéo + nút +/- / vừa màn. Không CDN D3.
  */
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 export default function TreeZoomPane({ children }) {
   const [scale, setScale] = useState(1);
@@ -17,7 +17,7 @@ export default function TreeZoomPane({ children }) {
   const inner = useRef(null);
 
   function clamp(s) {
-    return Math.min(2.4, Math.max(0.45, s));
+    return Math.min(2.8, Math.max(0.18, s));
   }
 
   function onPointerDown(e) {
@@ -68,11 +68,16 @@ export default function TreeZoomPane({ children }) {
     const ph = port.clientHeight - 16;
     const cw = Math.max(art.scrollWidth, art.offsetWidth, 1);
     const ch = Math.max(art.scrollHeight, art.offsetHeight, 1);
-    const next = clamp(Math.min(pw / cw, ph / ch, 1));
+    const next = clamp(Math.min(pw / cw, ph / ch));
     setScale(next);
     setTx((pw - cw * next) / 2);
-    setTy(Math.max(0, (ph - ch * next) / 2));
+    setTy((ph - ch * next) / 2);
   }
+
+  useEffect(() => {
+    const t = setTimeout(fit, 80);
+    return () => clearTimeout(t);
+  }, [children]);
 
   return (
     <div className="relative">

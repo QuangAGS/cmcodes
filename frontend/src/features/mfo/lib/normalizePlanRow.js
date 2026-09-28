@@ -82,16 +82,33 @@ export function resultLineBlocks(payload, names = {}) {
     (row.created_ids || []).forEach((id) => {
       if (!ids.includes(id)) ids.push(id);
     });
-    const people = ids.map((id) => names[id] || 'Đã ghi trên sổ');
+    (row.siblings || []).forEach((s) => {
+      if (s.member_id && !ids.includes(s.member_id)) ids.push(s.member_id);
+    });
+    if (row.spouse_id && !ids.includes(row.spouse_id)) ids.push(row.spouse_id);
+    const fid = payload?.founder_member_id;
+    const labelOf = (id, fallback) => {
+      const nm = names[id] || fallback || 'Đã ghi trên sổ';
+      if (fid && id && String(id) === String(fid)) return `${nm} (Người khai)`;
+      if (id && row.member_id && String(id) !== String(fid) && String(id) !== String(row.member_id)) {
+        return `${nm} (Anh/chị/em)`;
+      }
+      return nm;
+    };
+    const people = ids.map((id) => labelOf(id));
+    (row.siblings || []).forEach((s) => {
+      if (!s.member_id) people.push(`${s.hint || 'Anh/chị/em'} (Anh/chị/em)`);
+    });
+    if (row.spouse_hint && !row.spouse_id) people.push(`Vợ/chồng: ${row.spouse_hint}`);
     const op = String(row.op || 'EMPTY').toUpperCase();
     let text = 'Không khai';
-    if (people.length) text = people.join(', ');
+    if (people.length) text = people.join('\n');
     else if (op === 'CREATE') text = 'Chưa ghi người';
-    else if (op === 'ASSIGN') text = names[row.member_id] || 'Đã chọn trên sổ';
+    else if (op === 'ASSIGN') text = labelOf(row.member_id, row.hint);
     return {
       title: i === 0 ? 'Đời gốc' : `Đời ${i}`,
       text,
-      tag: Number(payload?.k) === i ? 'Người khai' : '',
+      tag: '',
     };
   });
   const spouses = payload?.created_spouse_ids || [];

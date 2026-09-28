@@ -8,11 +8,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext.jsx';
+import { useTts } from '../../../shared/hooks/useTts.js';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx';
-import { listMyPlans, getPlan, getMember } from '../api/mfoApi.js';
+import { listMyPlans, getPlan, getMember, abortPlan } from '../api/mfoApi.js';
 import { unwrapPlanList, unwrapPlanTicket } from '../lib/normalizePlanRow.js';
 import { listLotDrafts, deleteLotDraft } from '../lib/mfoDraftStore.js';
+import { clearSearchCache } from '../../member/api/memberSearchApi.js';
 import { OP_MFO_WORK, opMfoStatusLabel } from '../../op/constants/opMfoWork.js';
 import { MFO_VOICE_SELF } from '../constants/mfoVoiceHelp.self.js';
 import { toMfoUserMessage } from '../constants/mfoUserErrors.js';
@@ -90,6 +92,37 @@ function declaredGenerations(payload) {
   return Math.max(0, 5 - empty);
 }
 
+function abortKind(ticket) {
+  const p = ticket?.payload || {};
+  const st = String(ticket?.status || '').toUpperCase();
+  if (p.result_ok || st === 'APPROVED' || st === 'REJECTED' || st === 'WITHDRAWN') return null;
+  if (p.result_submitted && st === 'UNDER_REVIEW') return null;
+  const created =
+    (p.created_member_ids || []).length + (p.created_spouse_ids || []).length;
+  if (st === 'NEEDS_REVISION' || created > 0) return 'C';
+  if (p.plan_ok) return 'B';
+  if (st === 'PENDING' || st === 'UNDER_REVIEW') return 'A';
+  return null;
+}
+
+const ABORT_COPY = {
+  A: {
+    ask: 'Bác quyết định huỷ khung dự kiến này?',
+    done: 'Đã huỷ khung. Bây giờ bác có thể tạo khung mới.',
+    btn: 'Huỷ khung',
+  },
+  B: {
+    ask: 'Bác quyết định huỷ khung dự kiến đã được duyệt này?',
+    done: 'Đã huỷ khung. Bây giờ bác có thể tạo khung mới.',
+    btn: 'Huỷ khung',
+  },
+  C: {
+    ask: 'Bác quyết định huỷ tờ khai này? Người không lấy từ sổ Họ sẽ bị ẩn, không dùng lại được.',
+    done: 'Đã huỷ tờ khai. Những người không được chọn từ sổ Họ đã bị ẩn và không thể sử dụng lại.',
+    btn: 'Huỷ tờ khai',
+  },
+};
+
 function optionLabel(ticket) {
   const when = ticket?.created_at
     ? new Date(ticket.created_at).toLocaleDateString('vi-VN')
@@ -108,8 +141,16 @@ export default function MyMfoPlans({ declarantName = '' }) {
   const [originName, setOriginName] = useState('');
   const [nameMap, setNameMap] = useState({});
   const { user } = useAuth();
+  const { speak } = useTts();
   const uid = user?.id || user?.userId || '';
   const [drafts, setDrafts] = useState(() => listLotDrafts(uid));
+  const [abortAsk, setAbortAsk] = useState(null);
+  const [okMsg, setOkMsg] = useState('');
+  const [abortBusy, setAbortBusy] = useState(false);
+
+  useEffect(() => {
+    if (okMsg) speak(okMsg);
+  }, [okMsg, speak]);
 
   useEffect(() => {
     setDrafts(listLotDrafts(uid));
@@ -117,18 +158,38 @@ export default function MyMfoPlans({ declarantName = '' }) {
 
   const refreshList = useCallback(async () => {
     try {
-      const res = await listMyPlans();
+      const res = await listMyPlans({ mine: 1 });
       const all = unwrapPlanList(res);
+      const mineOf = (t) => {
+        const rid =
+          t.requester_user_id ||
+          t.ticket?.requester_user_id ||
+          (t.payload && t.payload.founder_user_id);
+        return !uid || !rid || String(rid) === String(uid);
+      };
+      const byTime = (a, b) => {
+        const ta = new Date(a.updated_at || a.created_at || 0).getTime();
+        const tb = new Date(b.updated_at || b.created_at || 0).getTime();
+        return tb - ta;
+      };
       const rich = [];
-      for (const row of all) {
+      for (const row of all.filter(mineOf)) {
         try {
-          rich.push(unwrapPlanTicket(await getPlan(row.id)));
+          const full = unwrapPlanTicket(await getPlan(row.id));
+          if (mineOf(full)) rich.push(full);
         } catch {
           rich.push(row);
         }
       }
+      rich.sort(byTime);
       setRows(rich);
-      setDrafts(listLotDrafts(uid));
+      setDrafts(
+        listLotDrafts(uid).slice().sort((a, b) => {
+          const ta = new Date(a.updated_at || a.created_at || 0).getTime();
+          const tb = new Date(b.updated_at || b.created_at || 0).getTime();
+          return tb - ta;
+        })
+      );
     } catch (e) {
       setErr(toMfoUserMessage(e));
     } finally {
@@ -272,7 +333,10 @@ export default function MyMfoPlans({ declarantName = '' }) {
           'Đã chọn trên sổ';
         people.push({ text: looksLikeCode(nm) ? 'Đã chọn trên sổ' : nm, tag: isYou ? 'Chính bạn' : '' });
       }
-      return { title, people };
+      const empty =
+        people.length === 0 ||
+        (people.length === 1 && String(people[0].text) === 'Không khai');
+      return { title, people, empty };
     });
     if (filed && (payload.created_spouse_ids || []).length) {
       blocks.push({
@@ -283,6 +347,7 @@ export default function MyMfoPlans({ declarantName = '' }) {
         })),
       });
     }
+    if (payload.plan_ok) return blocks.filter((b) => !b.empty);
     return blocks;
   }, [payload, nameMap, originName, selected?.status]);
 
@@ -389,7 +454,11 @@ export default function MyMfoPlans({ declarantName = '' }) {
               aria-expanded={open}
             >
               <div className="min-w-0 flex-1">
-                <p className="text-base font-black text-slate-800">Tờ khai</p>
+                <p className="text-base font-black text-slate-800">
+                  {payload.result_submitted || payload.result_ok
+                    ? 'Tờ khai'
+                    : 'Khung dự kiến'}
+                </p>
                 <p className="mt-1 text-sm text-slate-600">
                   {selected.created_at
                     ? new Date(selected.created_at).toLocaleDateString('vi-VN')
@@ -422,13 +491,14 @@ export default function MyMfoPlans({ declarantName = '' }) {
               </button>
             ) : null}
 
+            <div className="mt-3 flex gap-2">
             {payload.plan_ok &&
             !payload.result_ok &&
             !payload.result_submitted &&
             String(selected.status || '').toUpperCase() !== 'NEEDS_REVISION' ? (
               <button
                 type="button"
-                className="mt-3 min-h-12 w-full rounded-2xl bg-indigo-600 text-base font-black text-white"
+                className="min-h-12 min-w-0 flex-1 rounded-2xl bg-indigo-600 px-2 text-sm font-black text-white"
                 onClick={() => navigate(`/op/mfo/plans/${selected.id}/work`)}
               >
                 Mở tờ khai theo khung
@@ -437,11 +507,91 @@ export default function MyMfoPlans({ declarantName = '' }) {
             {String(selected.status || '').toUpperCase() === 'NEEDS_REVISION' ? (
               <button
                 type="button"
-                className="mt-3 min-h-12 w-full rounded-2xl bg-indigo-600 text-base font-black text-white"
+                className="min-h-12 min-w-0 flex-1 rounded-2xl bg-indigo-600 px-2 text-sm font-black text-white"
                 onClick={() => navigate(`/op/mfo/plans/${selected.id}/work`)}
               >
-                Sửa tờ khai theo chỉ đạo
+                Sửa tờ theo chỉ đạo
               </button>
+            ) : null}
+            {abortKind(detail || selected) ? (
+              <button
+                type="button"
+                className="min-h-12 min-w-0 flex-1 rounded-2xl border border-rose-200 bg-rose-50 px-2 text-sm font-bold text-rose-800"
+                onClick={() => {
+                  const kind = abortKind(detail || selected);
+                  setAbortAsk(kind);
+                  setOkMsg('');
+                }}
+              >
+                {ABORT_COPY[abortKind(detail || selected)].btn}
+              </button>
+            ) : null}
+            </div>
+            {okMsg ? (
+              <p className="mt-3 rounded-2xl border-2 border-emerald-500 bg-emerald-50 px-4 py-3 text-center font-black text-emerald-900">
+                {okMsg}
+              </p>
+            ) : null}
+            {abortAsk ? (
+              <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                <p className="font-semibold text-slate-800">{ABORT_COPY[abortAsk].ask}</p>
+                <ZoneVoiceButton visible text={ABORT_COPY[abortAsk].ask} label="Nghe" />
+                <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  className="min-h-12 min-w-0 flex-1 rounded-2xl bg-rose-700 px-2 text-sm font-black text-white disabled:opacity-60"
+                  disabled={abortBusy}
+                  onClick={async () => {
+                    const copy = ABORT_COPY[abortAsk];
+                    const id = selected.id;
+                    setAbortBusy(true);
+                    setErr('');
+                    try {
+                      await abortPlan(id, { note: copy.btn });
+                      clearSearchCache();
+                      setOkMsg(copy.done);
+                      setAbortAsk(null);
+                      try {
+                        await refreshList();
+                      } catch {
+                        /* danh sách lỗi không phủ nhận đã huỷ */
+                      }
+                    } catch (e) {
+                      let gone = false;
+                      try {
+                        const row = unwrapPlanTicket(await getPlan(id));
+                        gone = String(row?.status || '').toUpperCase() === 'WITHDRAWN';
+                      } catch {
+                        gone = false;
+                      }
+                      if (gone) {
+                        setOkMsg(copy.done);
+                        setAbortAsk(null);
+                        await refreshList().catch(() => {});
+                      } else {
+                        const raw = e?.response?.data?.code || e?.code || '';
+                        setErr(
+                          raw === 'MFO_PLAN_STATE'
+                            ? 'Khung này chưa huỷ được ở bước hiện tại.'
+                            : 'Chưa huỷ được. Khởi động lại máy chủ rồi thử, hoặc nhờ Ban quản trị.'
+                        );
+                      }
+                    } finally {
+                      setAbortBusy(false);
+                    }
+                  }}
+                >
+                  {abortBusy ? 'Đang huỷ…' : 'Huỷ'}
+                </button>
+                <button
+                  type="button"
+                  className="min-h-12 min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white px-2 text-sm font-bold text-slate-800"
+                  onClick={() => setAbortAsk(null)}
+                >
+                  Không huỷ
+                </button>
+                </div>
+              </div>
             ) : null}
 
             {open ? (

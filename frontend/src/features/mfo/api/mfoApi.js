@@ -87,3 +87,23 @@ export function approveResult(id, body = {}) {
 export function rejectResult(id, body = {}) {
   return apiClient.post(`/mfo/plans/${id}/result/reject`, body);
 }
+
+export function abortPlan(id, body = {}) {
+  return apiClient.post(`/mfo/plans/${id}/abort`, body);
+}
+
+/** ADMIN sửa sổ — không gửi gender / is_alive / phone / email (A01). */
+export function adminPatchMember(memberId, body = {}) {
+  const b = { ...(body || {}) };
+  delete b.gender;
+  delete b.is_alive;
+  delete b.phone;
+  delete b.phone_number;
+  delete b.email;
+  return apiClient.put(`/members/${memberId}`, b);
+}
+
+/** ADMIN tạo người trên sổ (UM / cha mẹ chưa rõ). */
+export function adminCreateMember(body = {}) {
+  return apiClient.post('/members', body);
+}

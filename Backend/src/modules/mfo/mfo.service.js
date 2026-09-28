@@ -26,14 +26,62 @@ function isClanOrSys(user) {
   return r === 'CLAN_ADMIN' || r === 'SYSTEM_ADMIN';
 }
 
-function pickAdminReview(body, row) {
-  const b = body || {};
-  const p = (row && row.payload) || {};
-  return b.admin_review || b.review || p.admin_review || null;
+function sliceReview(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  if (raw.plan || raw.result) return raw;
+  return { checks: raw.checks, dirNote: raw.dirNote, extra: raw.extra, note: raw.note };
+}
+
+function pickAdminReview(body, row, stage) {
+  const prev = sliceReview(((row && row.payload) || {}).admin_review) || {};
+  const incoming = (body && (body.admin_review || body.review)) || {};
+  const piece =
+    incoming.plan || incoming.result
+      ? incoming[stage]
+      : incoming.checks || incoming.dirNote
+        ? incoming
+        : null;
+  const next = {
+    plan: prev.plan || (prev.checks || prev.dirNote ? { checks: prev.checks, dirNote: prev.dirNote, extra: prev.extra } : null),
+    result: prev.result || null,
+  };
+  if (stage === 'plan' && piece) next.plan = piece;
+  if (stage === 'result' && piece) next.result = piece;
+  return next;
 }
 
 function sameParentPair(a, b) {
   return (a || null) === (b || null);
+}
+
+async function fillCoupleAsParents(tenantId, parentA, parentB, actor) {
+  if (!parentA || !parentB) return 0;
+  const kids = await prisma.members.findMany({
+    where: {
+      tenant_id: tenantId,
+      deleted_at: null,
+      OR: [
+        { father_id: parentA, mother_id: null },
+        { father_id: parentB, mother_id: null },
+        { mother_id: parentA, father_id: null },
+        { mother_id: parentB, father_id: null },
+      ],
+    },
+    select: { id: true, father_id: true, mother_id: true },
+  });
+  let n = 0;
+  for (const k of kids) {
+    const data = { changed_by: actor };
+    if (!k.father_id && k.mother_id === parentA) data.father_id = parentB;
+    else if (!k.father_id && k.mother_id === parentB) data.father_id = parentA;
+    else if (!k.mother_id && k.father_id === parentA) data.mother_id = parentB;
+    else if (!k.mother_id && k.father_id === parentB) data.mother_id = parentA;
+    if (data.father_id || data.mother_id) {
+      await prisma.members.update({ where: { id: k.id }, data });
+      n += 1;
+    }
+  }
+  return n;
 }
 
 function yearsClash(a, b) {
@@ -351,7 +399,7 @@ const mfoService = {
       granted_at: new Date().toISOString(),
       granted_by: actor,
       approver_note: b.note || b.admin_note || null,
-      admin_review: pickAdminReview(b, row),
+      admin_review: pickAdminReview(b, row, 'plan'),
     };
 
     const ticket = await prisma.proposals.update({
@@ -397,7 +445,7 @@ const mfoService = {
       ...row.payload,
       plan_ok: false,
       reject_reason: String(reason).trim(),
-      admin_review: pickAdminReview(body, row),
+      admin_review: pickAdminReview(body, row, 'plan'),
     };
 
     const ticket = await prisma.proposals.update({
@@ -460,6 +508,7 @@ const mfoService = {
         child_type: true,
         sibling_seq: true,
         birth_year: true,
+        note: true,
       },
     });
 
@@ -533,6 +582,10 @@ const mfoService = {
     const pack = (m, extra) => ({
       id: m.id || null,
       full_name: m.full_name,
+      is_unknown: !!(
+        (m.note && String(m.note).includes('[UM]')) ||
+        (m.full_name && /^chưa rõ/i.test(String(m.full_name)))
+      ),
       generation: m.generation != null ? m.generation : null,
       gender: m.gender || null,
       father_id: m.father_id || null,
@@ -1081,6 +1134,16 @@ const mfoService = {
     }
 
     const b = body || {};
+    const unionIds = row.payload.created_union_ids || [];
+    if (unionIds.length) {
+      const couples = await prisma.marriages.findMany({
+        where: { id: { in: unionIds }, tenant_id: row.tenant_id },
+        select: { husband_id: true, wife_id: true },
+      });
+      for (const u of couples) {
+        await fillCoupleAsParents(row.tenant_id, u.husband_id, u.wife_id, actor);
+      }
+    }
     const ids = Array.isArray(b.created_member_ids)
       ? b.created_member_ids
       : row.payload.created_member_ids || [];
@@ -1093,6 +1156,7 @@ const mfoService = {
       result: {
         note: b.note || null,
         created_member_ids: ids,
+        presentment: b.presentment || row.payload.result?.presentment || null,
         submitted_at: new Date().toISOString(),
         submitted_by: actor,
       },
@@ -1145,7 +1209,7 @@ const mfoService = {
         approved_by: actor,
         approver_note: b.note || b.admin_note || null,
       },
-      admin_review: pickAdminReview(b, row),
+      admin_review: pickAdminReview(b, row, 'result'),
     };
 
     const ticket = await prisma.proposals.update({
@@ -1197,7 +1261,7 @@ const mfoService = {
         rejected_at: new Date().toISOString(),
         rejected_by: actor,
       },
-      admin_review: pickAdminReview(body, row),
+      admin_review: pickAdminReview(body, row, 'result'),
     };
 
     const ticket = await prisma.proposals.update({
@@ -1322,6 +1386,8 @@ const mfoService = {
       throw e;
     }
 
+    await fillCoupleAsParents(tenantId, noi.id, spouse.id, actor);
+
     const unions = Array.isArray(row.payload.created_union_ids)
       ? row.payload.created_union_ids.slice()
       : [];
@@ -1394,6 +1460,109 @@ const mfoService = {
       data,
     });
     return { union: updated };
+  },
+
+  abortPlan: async ({ user, ticketId, body }) => {
+    const actor = actorIdOf(user);
+    const row = await mfoService.assertLot({
+      user,
+      ticketId,
+      expectKind: 'PLAN',
+    });
+    if (!isClanOrSys(user) && String(row.requester_user_id) !== String(actor)) {
+      fail('Không rút lô này.', 403, 'FORBIDDEN');
+    }
+    if (row.payload && row.payload.result_ok) {
+      fail('Tờ đã đóng dấu, không rút.', 409, 'MFO_RESULT_DONE');
+    }
+    const st = String(row.status || '');
+    const submitted = !!(row.payload && row.payload.result_submitted);
+    const allowed =
+      st === 'PENDING' ||
+      st === 'NEEDS_REVISION' ||
+      (st === 'UNDER_REVIEW' && !submitted);
+    if (!allowed) {
+      fail('Không rút được trạng thái này.', 409, 'MFO_PLAN_STATE', {
+        ticket_status: row.status,
+      });
+    }
+
+    const p = row.payload || {};
+    const hideIds = []
+      .concat(p.created_member_ids || [])
+      .concat(p.created_spouse_ids || [])
+      .filter(Boolean);
+    const unionIds = (p.created_union_ids || []).filter(Boolean);
+    const keepId = new Set(
+      [p.origin_member_id, p.founder_member_id, row.target_id].filter(Boolean)
+    );
+    const now = new Date();
+
+    await withTransaction(
+      { tenantId: row.tenant_id, actorId: actor, correlationId: row.correlation_id },
+      async (tx) => {
+        if (hideIds.length) {
+          const pointing = await tx.members.findMany({
+            where: {
+              tenant_id: row.tenant_id,
+              deleted_at: null,
+              OR: [{ father_id: { in: hideIds } }, { mother_id: { in: hideIds } }],
+            },
+            select: { id: true, father_id: true, mother_id: true },
+          });
+          for (const m of pointing) {
+            const data = { changed_by: actor };
+            if (hideIds.includes(m.father_id)) data.father_id = null;
+            if (hideIds.includes(m.mother_id)) data.mother_id = null;
+            await tx.members.update({ where: { id: m.id }, data });
+          }
+        }
+        for (const mid of hideIds) {
+          if (keepId.has(mid)) continue;
+          await tx.members.update({
+            where: { id: mid },
+            data: { deleted_at: now, changed_by: actor },
+          });
+        }
+        for (const uid of unionIds) {
+          try {
+            await tx.marriages.update({
+              where: { id: uid },
+              data: { deleted_at: now, changed_by: actor },
+            });
+          } catch (e) {
+            await tx.marriages.update({
+              where: { id: uid },
+              data: { note: 'Huỷ lô MFO', changed_by: actor },
+            });
+          }
+        }
+      }
+    );
+
+    const nextPayload = {
+      ...p,
+      aborted: true,
+      aborted_at: now.toISOString(),
+      aborted_by: actor,
+      plan_ok: false,
+      result_submitted: false,
+      result_ok: false,
+    };
+    const ticket = await prisma.proposals.update({
+      where: { id: row.id },
+      data: {
+        status: 'WITHDRAWN',
+        payload: nextPayload,
+        admin_note: (body && (body.note || body.reason)) || row.admin_note,
+        changed_by: actor,
+      },
+    });
+    await afterMfo(user, ticket, 'MFO_PLAN_ABORT', 'MFO_PLAN_ABORTED', {
+      from_status: row.status,
+      to_status: 'WITHDRAWN',
+    });
+    return { ticket, aborted: hideIds.length };
   },
 };
 

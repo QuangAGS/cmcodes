@@ -23,11 +23,14 @@ import {
   rejectPlan,
   approveResult,
   rejectResult,
+  adminPatchMember,
+  adminCreateMember,
 } from '../features/mfo/api/mfoApi.js';
 import { unwrapPlanList, unwrapPlanTicket, mfoQueueOf, resultLineBlocks } from '../features/mfo/lib/normalizePlanRow.js';
 import { toMfoUserMessage } from '../features/mfo/constants/mfoUserErrors.js';
 import { opMfoStatusLabel } from '../features/op/constants/opMfoWork.js';
 import { useTts } from '../shared/hooks/useTts.js';
+import MfoDeclaredTree from '../features/mfo/components/MfoDeclaredTree.jsx';
 
 function unwrapList(res) {
   const d = res?.data?.data ?? res?.data ?? {};
@@ -57,27 +60,57 @@ function packLines(payload) {
   return [];
 }
 
+function extrasFromNote(note, lineNo) {
+  const extra = [];
+  String(note || '')
+    .split('\n')
+    .forEach((ln) => {
+      const m = ln.match(/Anh\/em\s+đời\s+(\d+)\s*:\s*(.+)/i);
+      if (m && Number(m[1]) === Number(lineNo)) extra.push(String(m[2]).trim());
+    });
+  return extra;
+}
+
+function extraOnLine(row, names = {}, note) {
+  const extra = [];
+  (row.siblings || []).forEach((s) => {
+    const op = String(s.op || '').toUpperCase();
+    extra.push(
+      names[s.member_id] ||
+        s.hint ||
+        (op === 'CREATE' ? 'Xin tạo anh/chị/em' : 'Anh/chị/em trên sổ')
+    );
+  });
+  if (row.spouse_id || row.spouse_hint) {
+    extra.push(
+      `Vợ/chồng: ${names[row.spouse_id] || row.spouse_hint || 'đã chọn'}`
+    );
+  }
+  extrasFromNote(note, row.line).forEach((x) => {
+    if (x && !extra.includes(x) && !extra.some((e) => String(e).includes(x))) extra.push(x);
+  });
+  return extra;
+}
+
 function lineBlocks(payload, names = {}) {
   const raw = packLines(payload);
-  const snap = payload?.presentment?.lines;
-  if (Array.isArray(snap) && snap.length) {
-    return snap.map((r) => ({
-      title: Number(r.line) === 0 ? 'Đời gốc' : `Đời ${r.line}`,
-      text: r.text || '',
-      tag: r.tag || '',
-    }));
-  }
   return [0, 1, 2, 3, 4].map((i) => {
     const row = raw.find((r) => Number(r.line) === i) || { op: 'EMPTY' };
     const op = String(row.op || 'EMPTY').toUpperCase();
+    const extra = extraOnLine(row, names, payload.note);
     let text = 'Không khai';
     let tag = '';
     if (op === 'CREATE') {
       text = row.hint && row.hint !== 'Xin tạo' ? row.hint : 'Chưa đặt tên';
       tag = 'Xin tạo';
     } else if (op === 'ASSIGN') {
-      text = names[row.member_id] || row.hint || 'Đã chọn trên sổ';
-      if (Number(payload.k) === i) tag = 'Người khai';
+      const fid = payload.founder_member_id;
+      const mainIsYou = fid && String(row.member_id || '') === String(fid);
+      text = `${names[row.member_id] || row.hint || 'Đã chọn trên sổ'}${mainIsYou ? ' (Người khai)' : ''}`;
+      tag = '';
+    }
+    if (extra.length) {
+      text = text === 'Không khai' ? extra.join('\n') : [text, ...extra].join('\n');
     }
     return { title: i === 0 ? 'Đời gốc' : `Đời ${i}`, text, tag };
   });
@@ -112,6 +145,10 @@ export default function AdminMfoPlanPage() {
   const [partners, setPartners] = useState({});
   const [checks, setChecks] = useState({});
   const [dirNote, setDirNote] = useState({});
+  const [editMid, setEditMid] = useState('');
+  const [editGen, setEditGen] = useState('');
+  const [editNote, setEditNote] = useState('');
+  const [editYear, setEditYear] = useState('');
 
   function stageOf(t) {
     let p = t?.payload;
@@ -141,6 +178,11 @@ export default function AdminMfoPlanPage() {
         rich.push(row);
       }
     }
+    rich.sort((a, b) => {
+      const ta = new Date(a.updated_at || a.reviewed_at || a.created_at || 0).getTime();
+      const tb = new Date(b.updated_at || b.reviewed_at || b.created_at || 0).getTime();
+      return tb - ta;
+    });
     setRows(rich);
   }
 
@@ -159,6 +201,17 @@ export default function AdminMfoPlanPage() {
   }, []);
 
   useEffect(() => {
+    if (!editMid) return undefined;
+    const el = document.getElementById('admin-member-edit');
+    if (el && typeof el.scrollIntoView === 'function') {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    return undefined;
+  }, [editMid]);
+
+  useEffect(() => {
+    setOk('');
+    setErr('');
     if (!pick) {
       setDetail(null);
       return undefined;
@@ -184,16 +237,33 @@ export default function AdminMfoPlanPage() {
             });
           });
         });
+        const oid = t.payload?.origin_member_id;
+        const osp = t.payload?.origin_spouse_id || packLines(t.payload)[0]?.spouse_id;
+        if (oid && osp) {
+          pmap[oid] = osp;
+          pmap[osp] = oid;
+        }
         const map = {};
         const snap = {};
         let og = null;
         const ids = [];
         for (const row of packLines(t.payload)) {
           if (row?.member_id) ids.push(row.member_id);
+          if (row?.spouse_id) ids.push(row.spouse_id);
           (row?.created_ids || []).forEach((x) => ids.push(x));
+          (row?.siblings || []).forEach((s) => {
+            if (s?.member_id) ids.push(s.member_id);
+          });
         }
         (t.payload?.created_member_ids || []).forEach((x) => ids.push(x));
         (t.payload?.created_spouse_ids || []).forEach((x) => ids.push(x));
+        (t.payload?.reuse_member_ids || []).forEach((x) => ids.push(x));
+        (t.payload?.result?.presentment || []).forEach((ln) => {
+          (ln.people || []).forEach((p) => {
+            if (p?.id) ids.push(p.id);
+            if (p?.spouse_id) ids.push(p.spouse_id);
+          });
+        });
         for (const mid of [...new Set(ids)]) {
           if (!mid) continue;
           try {
@@ -217,7 +287,11 @@ export default function AdminMfoPlanPage() {
               const nodes = tree.nodes || tree.members || [];
               const self = nodes.find((n) => n && n.id === mid) || nodes.find((n) => n.is_origin);
               const list = self?.partners || self?.spouses || [];
-              const p = list.find((x) => x && (x.id || x.full_name));
+              const live = list.find((x) => {
+                const st = String(x?._status || x?.status || x?.union_status || '').toUpperCase();
+                return x && x.id && (!st || st === 'DANG_KET_HON');
+              });
+              const p = live || list.find((x) => x && (x.id || x.full_name));
               if (p?.id) {
                 pmap[mid] = p.id;
                 pmap[p.id] = mid;
@@ -271,7 +345,15 @@ export default function AdminMfoPlanPage() {
               pmap[sid] = host;
             }
           });
-          const saved = t.payload?.admin_review || t.payload?.review || {};
+          const ar = t.payload?.admin_review || t.payload?.review || {};
+          const saved =
+            ar.plan || ar.result
+              ? queue === 'result'
+                ? ar.result || {}
+                : ar.plan || {}
+              : queue === 'result'
+                ? {}
+                : ar;
           const ck = {};
           [...new Set(ids)].forEach((id) => {
             ck[id] = saved.checks?.[id] === true;
@@ -280,8 +362,9 @@ export default function AdminMfoPlanPage() {
           setSnaps(snap);
           setPartners(pmap);
           setChecks(ck);
-          if (saved.dirNote) setDirNote(saved.dirNote);
+          setDirNote(saved.dirNote || {});
           if (saved.extra) setNote(saved.extra);
+          else if (queue === 'result') setNote('');
           setOriginGen(Number.isFinite(og) ? og : null);
           if (Number.isFinite(og)) setGrantedGen(String(og));
         }
@@ -292,7 +375,7 @@ export default function AdminMfoPlanPage() {
     return () => {
       live = false;
     };
-  }, [pick]);
+  }, [pick, queue]);
 
   async function act(kind) {
     if (!pick) return;
@@ -320,7 +403,12 @@ export default function AdminMfoPlanPage() {
         .map(([id, v]) => `${snaps[id]?.full_name || id}: ${String(v).trim()}`);
       if (String(note || '').trim()) parts.push(String(note).trim());
       const packed = parts.join('\n') || 'Đã kiểm tra tờ khai.';
-      const body = { note: packed, reason: packed, review, admin_review: review };
+      const body = {
+        note: packed,
+        reason: packed,
+        review,
+        admin_review: resultStage ? { result: review } : { plan: review },
+      };
       if (kind === 'ok') {
         if (resultStage) await approveResult(pick, body);
         else
@@ -358,18 +446,91 @@ export default function AdminMfoPlanPage() {
     }
   }
 
+  async function saveEditMember() {
+    if (!editMid) return;
+    setBusy('edit');
+    setErr('');
+    try {
+      const body = {};
+      if (String(editGen).trim() !== '') body.generation = Number(editGen);
+      if (String(editYear).trim() !== '') body.birth_year = Number(editYear);
+      body.note = editNote;
+      await adminPatchMember(editMid, body);
+      const m = (await getMember(editMid))?.data?.data?.member
+        || (await getMember(editMid))?.data?.data
+        || {};
+      setSnaps((p) => ({
+        ...p,
+        [editMid]: {
+          ...(p[editMid] || {}),
+          generation: m.generation ?? body.generation,
+          birth_year: m.birth_year ?? body.birth_year,
+          note: m.note ?? body.note,
+          full_name: m.full_name || p[editMid]?.full_name,
+        },
+      }));
+      setOk('Đã ghi trên sổ.');
+      setEditMid('');
+      window.setTimeout(() => setOk((cur) => (cur === 'Đã ghi trên sổ.' ? '' : cur)), 4000);
+    } catch (e) {
+      setErr(toMfoUserMessage(e));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  async function createUnknownParent(kind) {
+    if (!editMid) return;
+    const child = snaps[editMid] || {};
+    const name = child.full_name || names[editMid] || 'thành viên';
+    const isFather = kind === 'father';
+    setBusy('um');
+    setErr('');
+    try {
+      const res = await adminCreateMember({
+        full_name: isFather ? `Chưa rõ — cha của ${name}` : `Chưa rõ — mẹ của ${name}`,
+        gender: isFather ? 'NAM' : 'NU',
+        is_clan: true,
+        note: 'Người chưa rõ do Ban quản trị tạo khi duyệt tờ khai.',
+        generation:
+          child.generation != null && child.generation !== ''
+            ? Number(child.generation) - 1
+            : undefined,
+      });
+      const created = res?.data?.data?.member || res?.data?.data || res?.data || {};
+      const nid = created.id;
+      if (nid) {
+        await adminPatchMember(editMid, isFather ? { father_id: nid } : { mother_id: nid });
+      }
+      setOk(isFather ? 'Đã tạo cha chưa rõ trên sổ.' : 'Đã tạo mẹ chưa rõ trên sổ.');
+    } catch (e) {
+      setErr(toMfoUserMessage(e));
+    } finally {
+      setBusy('');
+    }
+  }
+
   const payload = detail?.payload || {};
+  const ticketStatus = String(detail?.status || '').toUpperCase();
+  const ticketClosed =
+    payload.result_ok === true ||
+    ticketStatus === 'APPROVED' ||
+    ticketStatus === 'REJECTED' ||
+    ticketStatus === 'WITHDRAWN';
   const checkIds = Object.keys(checks);
   const allChecked = checkIds.length > 0 && checkIds.every((id) => checks[id] === true);
   const stampReady =
     queue === 'result'
       ? allChecked && String(note || '').trim().length > 0
       : String(note || '').trim().length > 0;
-  const blocks = detail
+  const blocksRaw = detail
     ? payload.result_submitted || queue === 'result'
       ? resultLineBlocks(payload, names)
       : lineBlocks(payload, names)
     : [];
+  const blocks = payload.plan_ok
+    ? blocksRaw.filter((b) => b.text && !/^Không khai/.test(String(b.text)))
+    : blocksRaw;
   const queued = rows.filter((t) => {
     const q = mfoQueueOf(t);
     if (queue === 'result') return q === 'result' || q === 'done' || q === 'work';
@@ -398,6 +559,9 @@ export default function AdminMfoPlanPage() {
             onClick={() => {
               setQueue('plan');
               setPick('');
+              setOk('');
+              setErr('');
+              setEditMid('');
             }}
           >
             Khung đề xuất
@@ -410,6 +574,9 @@ export default function AdminMfoPlanPage() {
             onClick={() => {
               setQueue('result');
               setPick('');
+              setOk('');
+              setErr('');
+              setEditMid('');
             }}
           >
             Kết quả khai
@@ -433,7 +600,12 @@ export default function AdminMfoPlanPage() {
             onFocus={() => {
               reload().catch(() => {});
             }}
-            onChange={(e) => setPick(e.target.value)}
+            onChange={(e) => {
+              setOk('');
+              setErr('');
+              setEditMid('');
+              setPick(e.target.value);
+            }}
           >
             <option value="">Bấm để chọn</option>
             {queued.map((t) => (
@@ -461,10 +633,25 @@ export default function AdminMfoPlanPage() {
             </button>
             {openSummary ? (
               <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                <MfoDeclaredTree
+                  lines={(payload.lines || []).map((row) => ({
+                    ...row,
+                    people: (payload.result?.presentment || []).find((x) => Number(x.line) === Number(row.line))
+                      ?.people,
+                  }))}
+                  names={names}
+                  genders={Object.fromEntries(
+                    Object.entries(snaps).map(([id, s]) => [id, s.gender])
+                  )}
+                  k={payload.k}
+                  founderId={payload.founder_member_id}
+                />
+
                 {queue === 'result'
                   ? [0, 1, 2, 3, 4].map((i) => {
                       const row = packLines(payload).find((r) => Number(r.line) === i) || { op: 'EMPTY' };
-                      const op = String(row.op || 'EMPTY').toUpperCase();
+                      const shot = (payload.result?.presentment || []).find((x) => Number(x.line) === i);
+                      const op = String(row.op || shot?.op || 'EMPTY').toUpperCase();
                       const source =
                         op === 'EMPTY'
                           ? 'Không khai báo'
@@ -472,11 +659,34 @@ export default function AdminMfoPlanPage() {
                             ? 'Tạo mới'
                             : 'Đã chọn từ sổ họ';
                       const ids = [];
+                      (shot?.people || []).forEach((p) => {
+                        if (p?.id && !ids.includes(p.id)) ids.push(p.id);
+                        if (p?.spouse_id && !ids.includes(p.spouse_id)) ids.push(p.spouse_id);
+                      });
                       if (row.member_id) ids.push(row.member_id);
+                      if (row.spouse_id && !ids.includes(row.spouse_id)) ids.push(row.spouse_id);
                       (row.created_ids || []).forEach((id) => {
                         if (!ids.includes(id)) ids.push(id);
                       });
+                      (row.siblings || []).forEach((s) => {
+                        if (s?.member_id && !ids.includes(s.member_id)) ids.push(s.member_id);
+                        if (s?.spouse_id && !ids.includes(s.spouse_id)) ids.push(s.spouse_id);
+                      });
+                      const kLine = Number(payload.k);
+                      if (Number.isInteger(kLine) && kLine === i) {
+                        const skip = new Set(
+                          [payload.origin_member_id, payload.founder_member_id, row.member_id].filter(Boolean)
+                        );
+                        (payload.reuse_member_ids || []).forEach((rid) => {
+                          if (rid && !skip.has(rid) && !ids.includes(rid)) ids.push(rid);
+                        });
+                      }
+                      (payload.created_spouse_ids || []).forEach((sid) => {
+                        const host = partners[sid];
+                        if (sid && host && ids.includes(host) && !ids.includes(sid)) ids.push(sid);
+                      });
                       const title = i === 0 ? 'Đời gốc' : `Đời ${i}`;
+                      if (op === 'EMPTY' && ids.length === 0) return null;
                       const opened = openLine[i] !== false;
                       const cell = (mid) => {
                         const s = snaps[mid] || {};
@@ -490,7 +700,26 @@ export default function AdminMfoPlanPage() {
                         const gLabel = g === 'NAM' ? 'Nam' : g === 'NU' ? 'Nữ' : '';
                         return (
                           <div className="rounded-xl bg-slate-50 px-3 py-2">
-                            <p className="font-semibold text-slate-900">{s.full_name || names[mid] || 'Đã ghi'}</p>
+                            <button
+                              type="button"
+                              className="w-full text-left"
+                              onClick={() => {
+                                setEditMid(mid);
+                                setEditGen(s.generation != null ? String(s.generation) : '');
+                                setEditNote(s.note || '');
+                                setEditYear(s.birth_year != null ? String(s.birth_year) : '');
+                              }}
+                            >
+                            <p className="font-semibold text-indigo-800 underline">
+                              {s.full_name || names[mid] || 'Đã ghi'}
+                              <span className="ml-2 text-[11px] font-bold uppercase tracking-wide text-slate-500 no-underline">
+                                {(payload.created_member_ids || []).includes(mid) ||
+                                (payload.created_spouse_ids || []).includes(mid) ||
+                                (row.created_ids || []).includes(mid)
+                                  ? 'Tạo'
+                                  : 'Sổ'}
+                              </span>
+                            </p>
                             {gLabel ? <p className="text-sm text-slate-600">{gLabel}</p> : null}
                             <p className="text-sm text-slate-600">
                               Năm sinh: {s.birth_year != null && s.birth_year !== '' ? s.birth_year : 'chưa rõ'}
@@ -498,6 +727,8 @@ export default function AdminMfoPlanPage() {
                             {alive ? <p className="text-sm text-slate-600">{alive}</p> : null}
                             <p className="text-sm text-slate-600">{gen}</p>
                             {s.note ? <p className="text-sm text-slate-600">Ghi chú: {s.note}</p> : null}
+                            <p className="mt-1 text-sm font-bold text-indigo-700">Bấm tên để xem / sửa trên sổ</p>
+                            </button>
                             <label className="mt-2 flex min-h-10 items-center gap-2 text-sm font-semibold">
                               <input
                                 type="checkbox"
@@ -541,7 +772,11 @@ export default function AdminMfoPlanPage() {
                                   const seen = new Set();
                                   return ids.map((id) => {
                                     if (seen.has(id)) return null;
-                                    const pid = partners[id];
+                                    const declared = partners[id];
+                                    const anchor =
+                                      String(id) === String(payload.origin_member_id) ||
+                                      String(id) === String(payload.founder_member_id);
+                                    const pid = declared && (anchor || ids.includes(declared)) ? declared : null;
                                     seen.add(id);
                                     if (pid) seen.add(pid);
                                     return (
@@ -564,15 +799,7 @@ export default function AdminMfoPlanPage() {
                         </div>
                       );
                     })
-                  : blocks.map((b) => (
-                      <div key={b.title}>
-                        <p className="font-bold text-slate-800">{b.title}</p>
-                        <p className="pl-3 font-semibold text-slate-800">
-                          {b.text}
-                          {b.tag ? ` (${b.tag})` : ''}
-                        </p>
-                      </div>
-                    ))}
+                  : null}
                 {payload.note ? (
                   <p className="text-sm text-slate-600">Ghi chú người khai: {payload.note}</p>
                 ) : null}
@@ -721,6 +948,16 @@ export default function AdminMfoPlanPage() {
           ) : null}
 
           <section className="mt-3 rounded-3xl border border-slate-200 bg-white p-4">
+            {ticketClosed ? (
+              <p className="text-base font-semibold text-slate-700">
+                {ticketStatus === 'REJECTED'
+                  ? 'Khung hoặc tờ này đã từ chối. Không đóng dấu lại.'
+                  : ticketStatus === 'WITHDRAWN'
+                    ? 'Tờ đã rút. Không đóng dấu.'
+                    : 'Tờ khai đã đóng dấu. Không đổi quyết định.'}
+              </p>
+            ) : (
+              <>
             <textarea
               className="mt-3 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base"
               rows={2}
@@ -728,22 +965,26 @@ export default function AdminMfoPlanPage() {
               value={note}
               onChange={(e) => setNote(e.target.value)}
             />
+            <div className="mt-3 flex gap-2">
             <button
               type="button"
               disabled={!!busy || !stampReady}
-              className="mt-3 min-h-12 w-full rounded-2xl bg-indigo-600 font-black text-white disabled:opacity-60"
+              className="min-h-12 min-w-0 flex-1 rounded-2xl bg-indigo-600 px-2 text-sm font-black text-white disabled:opacity-60"
               onClick={() => act('ok')}
             >
-              {busy === 'ok' ? 'Đang đóng dấu…' : 'Đóng dấu tờ này'}
+              {busy === 'ok' ? 'Đang đóng dấu…' : 'Đóng dấu'}
             </button>
             <button
               type="button"
               disabled={!!busy}
-              className="mt-2 min-h-12 w-full rounded-2xl border border-rose-200 bg-rose-50 font-bold text-rose-800 disabled:opacity-60"
+              className="min-h-12 min-w-0 flex-1 rounded-2xl border border-rose-200 bg-rose-50 px-2 text-sm font-bold text-rose-800 disabled:opacity-60"
               onClick={() => act('no')}
             >
               {busy === 'no' ? 'Đang xử lý…' : 'Không duyệt'}
             </button>
+            </div>
+              </>
+            )}
           </section>
           </>
         ) : null}
@@ -755,6 +996,82 @@ export default function AdminMfoPlanPage() {
         >
           Về trang việc quản trị
         </button>
+
+        {editMid ? (
+          <section
+            id="admin-member-edit"
+            className="mt-4 scroll-mt-24 rounded-3xl border border-indigo-200 bg-white p-4"
+          >
+            <p className="font-black text-slate-800">Sửa trên sổ</p>
+            <p className="mt-1 font-semibold text-slate-800">
+              {snaps[editMid]?.full_name || names[editMid] || 'Thành viên'}
+            </p>
+            <p className="mt-1 text-sm text-slate-500">
+              Không sửa giới tính, còn sống, điện thoại, thư (A01).
+            </p>
+            <label className="mt-3 block text-sm font-bold text-slate-700">
+              Đời trên cây họ
+              <input
+                className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-base"
+                inputMode="numeric"
+                value={editGen}
+                onChange={(e) => setEditGen(e.target.value)}
+                placeholder="Ví dụ 11"
+              />
+            </label>
+            <label className="mt-3 block text-sm font-bold text-slate-700">
+              Năm sinh
+              <input
+                className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-base"
+                inputMode="numeric"
+                value={editYear}
+                onChange={(e) => setEditYear(e.target.value)}
+              />
+            </label>
+            <label className="mt-3 block text-sm font-bold text-slate-700">
+              Ghi chú sổ
+              <textarea
+                className="mt-1 w-full rounded-2xl border border-slate-200 px-4 py-3 text-base"
+                rows={2}
+                value={editNote}
+                onChange={(e) => setEditNote(e.target.value)}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={!!busy}
+              className="mt-3 min-h-12 w-full rounded-2xl bg-indigo-600 font-black text-white disabled:opacity-60"
+              onClick={saveEditMember}
+            >
+              {busy === 'edit' ? 'Đang ghi…' : 'Lưu đời / ghi chú'}
+            </button>
+            <div className="mt-2 flex gap-2">
+            <button
+              type="button"
+              disabled={!!busy}
+              className="min-h-12 min-w-0 flex-1 rounded-2xl border border-slate-200 px-2 text-sm font-bold text-slate-800 disabled:opacity-60"
+              onClick={() => createUnknownParent('father')}
+            >
+              Tạo cha chưa rõ
+            </button>
+            <button
+              type="button"
+              disabled={!!busy}
+              className="min-h-12 min-w-0 flex-1 rounded-2xl border border-slate-200 px-2 text-sm font-bold text-slate-800 disabled:opacity-60"
+              onClick={() => createUnknownParent('mother')}
+            >
+              Tạo mẹ chưa rõ
+            </button>
+            </div>
+            <button
+              type="button"
+              className="mt-2 min-h-11 w-full text-sm font-bold text-slate-600"
+              onClick={() => setEditMid('')}
+            >
+              Đóng
+            </button>
+          </section>
+        ) : null}
       </main>
       <AppFooterNav {...footerNav} />
     </div>

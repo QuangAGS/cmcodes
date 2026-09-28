@@ -1,10 +1,8 @@
 /**
  * PATH       : frontend/src/features/op/constants/opMfoWork.js
- * DATETIME   : 2026-09-20T10:50:00+07:00
- * VERSION    : 1.0.0-C1
+ * DATETIME   : 2026-09-26T14:50:00+07:00
+ * VERSION    : 1.0.1-HUY
  * DESCRIPTION: Tầng 2 — mục việc /op cho MFO SELF.
- *              Orchestrator chữ catalog + trạng thái việc.
- *              Không chứa hint từng dòng 5L.
  */
 
 export const OP_MFO_WORK = {
@@ -26,7 +24,7 @@ export const OP_MFO_STATUS = {
   APPROVED: 'Tờ khai đã duyệt',
   REJECTED: 'Khung bị từ chối',
   REJECTED_RESULT: 'Tờ khai bị từ chối',
-  WITHDRAWN: 'Đã rút',
+  WITHDRAWN: 'Đã huỷ',
 };
 
 export function opMfoStatusLabel(ticket) {
@@ -42,6 +40,7 @@ export function opMfoStatusLabel(ticket) {
   const planOk = Boolean(ticket?.plan_ok || p?.plan_ok);
   const resultOk = Boolean(ticket?.result_ok || p?.result_ok);
   const submitted = Boolean(ticket?.result_submitted || p?.result_submitted);
+  if (st === 'WITHDRAWN' || p?.aborted) return OP_MFO_STATUS.WITHDRAWN;
   if (st === 'NEEDS_REVISION') return OP_MFO_STATUS.NEEDS_REVISION;
   if (st === 'REJECTED' && planOk) return OP_MFO_STATUS.REJECTED_RESULT;
   if (st === 'APPROVED' || resultOk) return OP_MFO_STATUS.APPROVED;

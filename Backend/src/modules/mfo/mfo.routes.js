@@ -1,8 +1,8 @@
 /**
  * PATH       : src/modules/mfo/mfo.routes.js
- * DATETIME   : 2026-09-17T16:50:00+07:00
- * VERSION    : 1.3.0-MFO-L5
- * DESCRIPTION: /api/mfo — PLAN + phê + cây + CREATE trong PLAN_OK.
+ * DATETIME   : 2026-09-25T14:20:00+07:00
+ * VERSION    : 1.3.1-B1-ABORT
+ * DESCRIPTION: /api/mfo — PLAN + phê + cây + CREATE + abort mềm.
  */
 
 const express = require('express');
@@ -35,6 +35,12 @@ router.post(
   verifyToken,
   checkRole(ADMIN),
   mfoController.rejectPlan
+);
+router.post(
+  '/plans/:id/abort',
+  verifyToken,
+  checkRole(WRITE),
+  mfoController.abortPlan
 );
 router.post(
   '/plans/:id/members',

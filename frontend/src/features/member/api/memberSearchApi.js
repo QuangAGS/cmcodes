@@ -11,10 +11,11 @@ const CACHE = 'mfo.ms.v1';
 
 export function unwrapMembers(res) {
   const d = res?.data?.data ?? res?.data ?? {};
-  if (Array.isArray(d)) return d;
-  if (Array.isArray(d.items)) return d.items;
-  if (Array.isArray(d.members)) return d.members;
-  return [];
+  let list = [];
+  if (Array.isArray(d)) list = d;
+  else if (Array.isArray(d.items)) list = d.items;
+  else if (Array.isArray(d.members)) list = d.members;
+  return list.filter((m) => m && !m.deleted_at);
 }
 
 export function cacheKey(params) {
@@ -65,6 +66,7 @@ export function searchMembers(params = {}) {
   const query = {
     status: params.status || 'CHINH_THUC',
     limit: params.limit || 20,
+    deleted: '0',
   };
   if (q.length >= 2) query.q = q;
   if (params.is_clan === true || params.is_clan === false) {

@@ -25,7 +25,8 @@ function genderLabel(person) {
 
 function PersonDot({ person }) {
   const name = String(person?.full_name || person?.name || '').trim();
-  const empty = !name;
+  const creating = person?.create === true;
+  const empty = !name && !creating;
   const label = genderLabel(person);
   const male = label === 'Nam';
   const female = label === 'Nữ';
@@ -35,6 +36,8 @@ function PersonDot({ person }) {
         className={`flex h-12 w-12 items-center justify-center overflow-hidden rounded-full text-sm font-black ${
           empty
             ? 'border-2 border-dashed border-slate-200 bg-slate-50 text-transparent'
+            : creating
+              ? 'border-2 border-dashed border-amber-500 bg-amber-50 text-amber-800'
             : male
               ? 'border-[3px] border-blue-700 bg-white text-blue-700 shadow'
               : female
@@ -46,13 +49,15 @@ function PersonDot({ person }) {
           <img src={person.avatar_url} alt="" className="h-full w-full object-cover" />
         ) : empty ? (
           ''
+        ) : creating ? (
+          '+'
         ) : (
           initials(name)
         )}
       </span>
       <span className="mt-1 text-[10px] font-semibold text-slate-500">{label || '—'}</span>
       <span className="w-full whitespace-normal break-words text-center text-[11px] font-bold leading-tight text-slate-800">
-        {empty ? '' : name}
+        {creating ? 'Tạo' : empty ? '' : name}
       </span>
     </div>
   );

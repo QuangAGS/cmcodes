@@ -22,7 +22,7 @@ import {
 import { toMfoUserMessage } from '../features/mfo/constants/mfoUserErrors.js';
 import { createPlan, getMember, getOriginTree } from '../features/mfo/api/mfoApi.js';
 import { sanitizeLines, ticketIdFromCreate } from '../features/mfo/lib/sanitizeLines.js';
-import { memberAvatarUrl } from '../features/mfo/lib/memberAvatarUrl.js';
+import { memberAvatarUrl, clearMemberAvatarCache } from '../features/mfo/lib/memberAvatarUrl.js';
 import { relationError } from '../features/mfo/lib/lotRelationGuard.js';
 import FamilyCoupleNode from '../features/genealogy/components/FamilyCoupleNode.jsx';
 import { FanConnector, LaneShell, LANE_TONE } from '../features/genealogy/components/FiveLineLanes.jsx';
@@ -38,7 +38,7 @@ import {
 } from '../features/mfo/lib/mfoDraftStore.js';
 import { useTts } from '../shared/hooks/useTts.js';
 
-const STEPS = ['origin', 'k', 'lines', 'review'];
+const STEPS = ['lines', 'review'];
 const OPS = ['ASSIGN', 'CREATE', 'EMPTY'];
 
 
@@ -172,7 +172,7 @@ function asCouple(selfName, selfGender, selfClan, spouseName, spouseGender, self
 
 function emptyLines(originId) {
   return [
-    { line: 0, op: 'ASSIGN', member_id: originId || '', hint: 'Origin', siblings: [] },
+    { line: 0, op: 'EMPTY', member_id: originId || '', hint: '', siblings: [] },
     { line: 1, op: 'EMPTY', member_id: '', hint: '', siblings: [] },
     { line: 2, op: 'EMPTY', member_id: '', hint: '', siblings: [] },
     { line: 3, op: 'EMPTY', member_id: '', hint: '', siblings: [] },
@@ -209,6 +209,8 @@ export default function OpMfoPlanPage() {
   const [selectedLine, setSelectedLine] = useState(null);
   const [selectedSib, setSelectedSib] = useState(-1);
   const [draftId, setDraftId] = useState(() => searchParams.get('draft') || newDraftId());
+  const [originMates, setOriginMates] = useState([]);
+  const [needMate, setNeedMate] = useState(false);
   const [openGens, setOpenGens] = useState(() => new Set([0]));
 
   function unwrapOne(res) {
@@ -240,31 +242,46 @@ export default function OpMfoPlanPage() {
     return d && typeof d === 'object' ? d : {};
   }
 
-  async function spouseOf(memberId) {
-    if (!memberId) return { spouse_id: '', spouse_hint: '' };
+  async function listPartners(memberId) {
+    if (!memberId) return [];
     try {
       const bag = treeBag(await getOriginTree(memberId));
       const nodes = Array.isArray(bag.nodes) ? bag.nodes : [];
-      const self =
-        nodes.find((n) => n && n.id === memberId) ||
-        nodes.find((n) => n && n.is_origin) ||
-        nodes[0];
+      const self = nodes.find((n) => n && String(n.id) === String(memberId));
+      if (!self) return [];
       const list = Array.isArray(self?.partners)
         ? self.partners
         : Array.isArray(self?.spouses)
           ? self.spouses
           : [];
-      const p = list.find((x) => x && (x.full_name || x.name || x.id)) || null;
-      if (!p) return { spouse_id: '', spouse_hint: '', spouse_avatar: '' };
-      return {
-        spouse_id: p.id || '',
-        spouse_hint: String(p.full_name || p.name || p.spouse_name_literal || '').trim(),
-        spouse_gender: p.gender || '',
-        spouse_avatar: memberAvatar(p) || (p.id ? await memberAvatarUrl(p.id) : ''),
-      };
+      const out = [];
+      for (const x of list) {
+        if (!x || !(x.full_name || x.name || x.id)) continue;
+        out.push({
+          id: x.id || '',
+          name: String(x.full_name || x.name || x.spouse_name_literal || '').trim(),
+          gender: x.gender || '',
+          status: x._status || x.status || '',
+          ord: x._ord || x.husband_marriage_order || x.wife_marriage_order || out.length + 1,
+          avatar: memberAvatar(x) || (x.id ? await memberAvatarUrl(x.id) : ''),
+        });
+      }
+      return out;
     } catch {
-      return { spouse_id: '', spouse_hint: '' };
+      return [];
     }
+  }
+
+  async function spouseOf(memberId) {
+    const list = await listPartners(memberId);
+    const p = list[0];
+    if (!p) return { spouse_id: '', spouse_hint: '', spouse_avatar: '' };
+    return {
+      spouse_id: p.id || '',
+      spouse_hint: p.name,
+      spouse_gender: p.gender || '',
+      spouse_avatar: p.avatar || '',
+    };
   }
 
   async function guardPick({ candidateId, line, role }) {
@@ -392,9 +409,28 @@ export default function OpMfoPlanPage() {
       setPicked(true);
       setPreviewId('');
       (async () => {
+        clearMemberAvatarCache(pick.id);
         const snap = await snapMember(pick.id);
-        const sp = await spouseOf(pick.id);
+        const mates = await listPartners(pick.id);
         const fresh = emptyLines(pick.id);
+        let sp = { spouse_id: '', spouse_hint: '', spouse_avatar: '' };
+        if (mates.length === 1) {
+          const p = mates[0];
+          sp = {
+            spouse_id: p.id || '',
+            spouse_hint: p.name,
+            spouse_gender: p.gender || '',
+            spouse_avatar: p.avatar || '',
+          };
+          setNeedMate(false);
+          setOriginMates([]);
+        } else if (mates.length > 1) {
+          setOriginMates(mates);
+          setNeedMate(true);
+        } else {
+          setNeedMate(false);
+          setOriginMates([]);
+        }
         fresh[0] = {
           line: 0,
           op: 'ASSIGN',
@@ -405,6 +441,50 @@ export default function OpMfoPlanPage() {
           ...sp,
         };
         setLines(fresh);
+        try {
+          const tr = await getOriginTree(pick.id);
+          const bag = tr?.data?.data ?? tr?.data ?? tr ?? {};
+          const tree = bag.tree || bag;
+          const nodes = tree.nodes || tree.members || [];
+          setLines((prev) => {
+            const next = prev.map((r) => ({ ...r, siblings: [...(r.siblings || [])] }));
+            const byD = [[], [], [], [], []];
+            nodes.forEach((n) => {
+              if (!n?.id || n.deleted_at || n.role === 'partner') return;
+              const d = Number(n.depth);
+              if (!Number.isInteger(d) || d < 0 || d > 4) return;
+              byD[d].push(n);
+            });
+            byD.forEach((arr, d) => {
+              if (d === 0 || !arr.length) return;
+              if (next[d].op !== 'EMPTY' && next[d].member_id) return;
+              const [stem, ...rest] = arr;
+              next[d] = {
+                ...next[d],
+                op: 'ASSIGN',
+                member_id: stem.id,
+                hint: stem.full_name || stem.name || '',
+                gender: stem.gender || next[d].gender,
+                spouse_id: stem.partners?.[0]?.id || next[d].spouse_id,
+                spouse_hint: stem.partners?.[0]?.full_name || stem.partners?.[0]?.name || next[d].spouse_hint,
+              };
+              rest.forEach((sb) => {
+                if (!(next[d].siblings || []).some((x) => x.member_id === sb.id)) {
+                  next[d].siblings.push({
+                    op: 'ASSIGN',
+                    member_id: sb.id,
+                    hint: sb.full_name || sb.name || '',
+                    spouse_id: sb.partners?.[0]?.id || null,
+                    spouse_hint: sb.partners?.[0]?.full_name || '',
+                  });
+                }
+              });
+            });
+            return next;
+          });
+        } catch {
+          /* keep empty */
+        }
       })();
       setSelectedLine(0);
       setOpenGens(new Set([0]));
@@ -442,8 +522,8 @@ export default function OpMfoPlanPage() {
           ...sp,
         });
         if (linePick.line === 0) {
-          setOriginId(linePick.id);
-          setOriginName(linePick.name || '');
+          await rebuildRf({ id: linePick.id, name: linePick.name || '' });
+          return;
         }
       })();
       try { sessionStorage.removeItem('mfo.linePick'); } catch { /* ignore */ }
@@ -596,15 +676,9 @@ export default function OpMfoPlanPage() {
         next[0].op = 'ASSIGN';
         next[0].member_id = originId;
       }
-      const firstEmpty = next.findIndex((row, idx) => idx > 0 && row.op === 'EMPTY' && !row.need_um);
-      if (firstEmpty >= 0) {
-        for (let j = firstEmpty + 1; j <= 4; j += 1) {
-          next[j].op = 'EMPTY';
-          next[j].member_id = '';
-        }
-      }
+      /* RF1: giữ 5 đời. */
       const kk = Number(k);
-      if (Number.isInteger(kk) && kk >= 0 && kk <= 4 && myMemberId) {
+      if (k !== '' && k != null && Number.isInteger(kk) && kk >= 1 && kk <= 4 && myMemberId) {
         next[kk].op = 'ASSIGN';
         next[kk].member_id = myMemberId;
       }
@@ -612,11 +686,112 @@ export default function OpMfoPlanPage() {
     });
   }
 
+  function holeInFrame() {
+    let last = 0;
+    for (let i = 0; i <= 4; i += 1) {
+      const row = lines[i] || {};
+      const filled =
+        row.op === 'ASSIGN' ||
+        row.op === 'CREATE' ||
+        row.member_id ||
+        (row.siblings || []).length;
+      if (filled) last = i;
+    }
+    for (let i = 1; i < last; i += 1) {
+      const row = lines[i] || {};
+      const filled =
+        row.op === 'ASSIGN' ||
+        row.op === 'CREATE' ||
+        row.member_id ||
+        (row.siblings || []).length;
+      if (!filled) return true;
+    }
+    return false;
+  }
+
+  async function rebuildRf(pick) {
+    if (!pick?.id) return;
+    setOriginId(pick.id);
+    setOriginName(pick.name || '');
+    setPicked(true);
+    const snap = await snapMember(pick.id);
+    const mates = await listPartners(pick.id);
+    const fresh = emptyLines(pick.id);
+    let sp = { spouse_id: '', spouse_hint: '', spouse_avatar: '' };
+    if (mates.length === 1) {
+      const m = mates[0];
+      sp = {
+        spouse_id: m.id || '',
+        spouse_hint: m.name,
+        spouse_gender: m.gender || '',
+        spouse_avatar: m.avatar || '',
+      };
+      setNeedMate(false);
+      setOriginMates([]);
+    } else if (mates.length > 1) {
+      setOriginMates(mates);
+      setNeedMate(true);
+    } else {
+      setNeedMate(false);
+      setOriginMates([]);
+    }
+    fresh[0] = {
+      line: 0,
+      op: 'ASSIGN',
+      member_id: pick.id,
+      hint: pick.name || '',
+      siblings: [],
+      ...snap,
+      ...sp,
+    };
+    try {
+      const tr = await getOriginTree(pick.id);
+      const bag = tr?.data?.data ?? tr?.data ?? tr ?? {};
+      const tree = bag.tree || bag;
+      const nodes = tree.nodes || tree.members || [];
+      const byD = [[], [], [], [], []];
+      nodes.forEach((n) => {
+        if (!n?.id || n.deleted_at || n.role === 'partner') return;
+        const d = Number(n.depth);
+        if (!Number.isInteger(d) || d < 0 || d > 4) return;
+        byD[d].push(n);
+      });
+      byD.forEach((arr, d) => {
+        if (d === 0 || !arr.length) return;
+        const [stem, ...rest] = arr;
+        fresh[d] = {
+          ...fresh[d],
+          op: 'ASSIGN',
+          member_id: stem.id,
+          hint: stem.full_name || stem.name || '',
+          gender: stem.gender || '',
+          spouse_id: stem.partners?.[0]?.id || '',
+          spouse_hint: stem.partners?.[0]?.full_name || stem.partners?.[0]?.name || '',
+          siblings: rest.map((sb) => ({
+            op: 'ASSIGN',
+            member_id: sb.id,
+            hint: sb.full_name || sb.name || '',
+            spouse_id: sb.partners?.[0]?.id || null,
+            spouse_hint: sb.partners?.[0]?.full_name || '',
+          })),
+        };
+      });
+    } catch {
+      /* empty window */
+    }
+    setLines(fresh);
+    setOpenGens(new Set([0, 1, 2, 3, 4]));
+    setSelectedLine(0);
+  }
+
   function validateStep() {
     if (!originId) return 'MFO_ORIGIN_REQUIRED';
-    const n = Number(k);
-    if (!Number.isInteger(n) || n < 0) return 'MFO_K_REQUIRED';
-    if (n > 4) return 'MFO_K_TOO_FAR';
+    if (k !== '' && k != null) {
+      const n = Number(k);
+      if (!Number.isInteger(n) || n < 0) return 'MFO_K_REQUIRED';
+      if (n > 4) return 'MFO_K_TOO_FAR';
+    }
+    if (holeInFrame()) return 'MFO_HOLE';
     return '';
   }
 
@@ -632,12 +807,12 @@ export default function OpMfoPlanPage() {
       const next = prev.map((row) => ({ ...row }));
       next[0] = { ...next[0], op: 'ASSIGN', member_id: originId, hint: originName };
       const kk = Number(k);
-      if (Number.isInteger(kk) && kk >= 0 && kk <= 4 && myMemberId) {
-        next[kk] = { ...next[kk], op: 'ASSIGN', member_id: kk === 0 ? originId : myMemberId };
+      if (k !== '' && k != null && Number.isInteger(kk) && kk >= 1 && kk <= 4 && myMemberId) {
+        next[kk] = { ...next[kk], op: 'ASSIGN', member_id: myMemberId };
       }
       return next;
     });
-    setStep(3);
+    setStep(1);
   }
 
   function planPath() {
@@ -808,11 +983,18 @@ export default function OpMfoPlanPage() {
       acts.push({ label: 'Chọn trên cây họ', onClick: openGfl });
     }
     acts.push({
-      label: 'Chọn lại / tìm sổ',
+      label: 'Chọn từ sổ họ',
       onClick: () => {
         if (sibIdx >= 0) openSiblingSearch(row.line, sibIdx);
         else if (row.line === 0) openSearch(0);
         else openSearch(row.line);
+      },
+    });
+    acts.push({
+      label: 'Thêm mới thành viên',
+      onClick: () => {
+        if (sibIdx < 0) setLine(row.line, { op: 'CREATE', member_id: '', hint: 'Xin tạo' });
+        setSelectedLine(null);
       },
     });
     acts.push({
@@ -821,7 +1003,7 @@ export default function OpMfoPlanPage() {
     });
     if (row.line < 4 && sibIdx < 0) {
       acts.push({
-        label: 'Thêm con',
+        label: 'Thêm mới con',
         onClick: () => {
           setLine(row.line + 1, {
             op: 'CREATE',
@@ -835,11 +1017,11 @@ export default function OpMfoPlanPage() {
       });
     }
     acts.push({
-      label: 'Thêm anh chị em',
+      label: 'Thêm mới anh chị em',
       onClick: () => addSibling(row.line),
     });
     acts.push({
-      label: 'Chưa biết',
+      label: 'Không xác định (UB)',
       onClick: () => {
         if (sibIdx < 0) {
           setLine(row.line, { op: 'CREATE', member_id: '', hint: 'Chưa biết', need_um: true });
@@ -857,7 +1039,7 @@ export default function OpMfoPlanPage() {
       });
     }
     acts.push({
-      label: 'Xóa nhà này',
+      label: 'Xóa cặp này',
       onClick: () => {
         if (sibIdx >= 0) {
           setLines((prev) =>
@@ -894,8 +1076,16 @@ export default function OpMfoPlanPage() {
       setErr(toMfoUserMessage({ code: 'MFO_ORIGIN_REQUIRED' }));
       return;
     }
-    if (!Number.isInteger(n) || n < 0 || n > 4) {
+    if (needMate) {
+      setErr('Chọn người cùng sinh đời 1 trên tờ này.');
+      return;
+    }
+    if (k !== '' && k != null && (!Number.isInteger(n) || n < 0 || n > 4)) {
       setErr(toMfoUserMessage({ code: n > 4 ? 'MFO_K_TOO_FAR' : 'MFO_K_REQUIRED' }));
+      return;
+    }
+    if (holeInFrame()) {
+      setErr('Không để trống một đời giữa đời gốc và đời cuối đã khai.');
       return;
     }
     const hasWidth = lines.some((row) => (row.siblings || []).length);
@@ -919,12 +1109,13 @@ export default function OpMfoPlanPage() {
     try {
       const cleanLines = sanitizeLines(lines, {
         originId,
-        k: n,
-        founderId: myMemberId,
+        k: k === '' || k == null ? null : n,
+        founderId: k === '' || k == null ? null : myMemberId,
       });
       const payload = {
         origin_member_id: originId,
-        k: n,
+        origin_spouse_id: lines[0]?.spouse_id || undefined,
+        k: k === '' || k == null ? null : n,
         note: [note, sibNote].filter(Boolean).join('\n'),
         mode: hasWidth && !hasDepthChild ? 'WIDTH' : 'DEPTH',
         fill: 'SELF',
@@ -969,42 +1160,40 @@ export default function OpMfoPlanPage() {
 
         {stepKey !== 'review' ? (
           <>
-            {!originId ? (
-              <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-                <p className="text-base font-black text-slate-800">Chọn đời gốc</p>
-                <p className="mt-2 text-base text-slate-700">
-                  Bấm một người trên cây họ, hoặc tìm trên sổ. Cây tờ khai bắt đầu từ một nhà.
-                </p>
-                <button
-                  type="button"
-                  className="mt-3 min-h-12 w-full rounded-2xl bg-indigo-600 text-base font-black text-white"
-                  onClick={openGfl}
-                >
-                  Chọn trên cây họ
-                </button>
-                <button
-                  type="button"
-                  className="mt-2 min-h-12 w-full rounded-2xl border border-indigo-200 bg-white text-base font-black text-indigo-700"
-                  onClick={() => openSearch(0)}
-                >
-                  Tìm trên sổ
-                </button>
-              </section>
-            ) : (
+              {needMate ? (
+                <section className="mb-3 rounded-3xl border border-amber-200 bg-amber-50 p-4">
+                  <p className="font-black text-slate-900">Chọn người cùng sinh đời 1</p>
+                  <p className="mt-1 text-base text-slate-700">
+                    Đời gốc có hơn một vợ hoặc chồng. Chọn đúng người của nhánh trên tờ này.
+                  </p>
+                  <div className="mt-3 space-y-2">
+                    {originMates.map((p) => (
+                      <button
+                        key={p.id || p.name}
+                        type="button"
+                        className="min-h-12 w-full rounded-2xl border border-slate-200 bg-white px-3 py-2 text-left font-bold text-slate-800"
+                        onClick={() => {
+                          setLine(0, {
+                            spouse_id: p.id || '',
+                            spouse_hint: p.name,
+                            spouse_gender: p.gender || '',
+                            spouse_avatar: p.avatar || '',
+                          });
+                          setNeedMate(false);
+                        }}
+                      >
+                        {p.name}
+                        {p.ord ? ` · lần ${p.ord}` : ''}
+                        {p.status ? ` · ${String(p.status).replace(/_/g, ' ')}` : ''}
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ) : null}
               <TreeZoomPane>
               <div className="flex flex-col items-center gap-0">
                 {(() => {
-                  const shown = lines
-                    .filter((row) => row.op === 'ASSIGN' || row.op === 'CREATE')
-                    .filter((row) => {
-                      if (row.line === 0) return true;
-                      for (let i = 0; i < row.line; i += 1) {
-                        const anc = lines[i];
-                        if (anc.op !== 'ASSIGN' && anc.op !== 'CREATE') continue;
-                        if (!openGens.has(i)) return false;
-                      }
-                      return true;
-                    });
+                  const shown = lines.slice(0, 5);
                   return shown.map((row, idx) => {
                     const prev = shown[idx - 1];
                     const parentCols = prev ? 1 + (prev.siblings || []).length : 1;
@@ -1140,7 +1329,6 @@ export default function OpMfoPlanPage() {
                 })()}
               </div>
               </TreeZoomPane>
-            )}
           </>
         ) : null}
 

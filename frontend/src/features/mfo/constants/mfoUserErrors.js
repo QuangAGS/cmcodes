@@ -57,6 +57,9 @@ export const MFO_USER_ERRORS = {
   MFO_K_TOO_FAR:
     'Bạn cách gốc hơn bốn đời. Đổi người gốc gần hơn. Không nhồi đời thứ năm vào tờ này.',
 
+  MFO_HOLE:
+    'Không để trống một đời giữa đời gốc và đời cuối đã khai.',
+
   MFO_LINE_GAP:
     'Không để trống một đời rồi khai đời dưới. Đời giữa có người chưa biết tên thì nhờ Ban quản trị.',
 
