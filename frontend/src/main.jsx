@@ -14,6 +14,29 @@ import ReactDOM from 'react-dom/client';
 import App from './App.jsx';
 import './index.css';
 
+// ============================================================================
+// GLOBAL PATCH DEBUG: Chống sập trắng trang do lỗi "Cannot convert object to primitive value"
+// Bọc an toàn hàm String() toàn cục trước khi bất kỳ Component/Provider nào khởi tạo.
+// ============================================================================
+if (typeof window !== 'undefined' && !window.__GLOBAL_STRING_PATCHED__) {
+  window.__GLOBAL_STRING_PATCHED__ = true;
+  const originalString = window.String;
+  window.String = function (val) {
+    try {
+      return originalString(val);
+    } catch (e) {
+      if (val && typeof val === 'object') {
+        try {
+          return JSON.stringify(val);
+        } catch (jsonErr) {
+          return '[Unconvertible Object]';
+        }
+      }
+      return '[Primitive Conversion Failure]';
+    }
+  };
+}
+
 /**
  * <2026-05-11T00:00:00+07:00>
  * Import TtsProvider:

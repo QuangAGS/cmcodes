@@ -556,6 +556,8 @@ model marriages {
   members_marriages_wife_idTomembers    members?          @relation("marriages_wife_idTomembers", fields: [wife_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_marriage_wife")
   tenants                               tenants           @relation(fields: [tenant_id], references: [id], map: "fk_marriages_tenant")
   users                                 users?            @relation(fields: [changed_by], references: [id], onUpdate: NoAction, map: "fk_marriages_user")
+  /// Children được gắn trực tiếp vào union này.
+  children_from_union                   members[]         @relation("MemberParentUnion")
 
   @@index([tenant_id], map: "idx_marriages_tenant")
   @@index([wife_id], map: "idx_marriage_wife")
@@ -701,6 +703,9 @@ model members {
 
   originated_branches branches[] @relation("MemberToBranchOrigin")
 
+  parent_union_id String?    @db.VarChar(36)
+  parent_union    marriages? @relation("MemberParentUnion", fields: [parent_union_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_members_parent_union")
+
   @@index([tenant_id], map: "idx_members_tenant")
   @@index([branch_id], map: "idx_member_branch")
   @@index([current_address_id], map: "idx_member_current_addr")
@@ -711,6 +716,7 @@ model members {
   @@index([deleted_at], map: "idx_members_deleted_at")
   @@index([alias(ops: raw("gin_trgm_ops"))], map: "trgm_idx_members_alias", type: Gin)
   @@index([full_name(ops: raw("gin_trgm_ops"))], map: "trgm_idx_members_full_name", type: Gin)
+  @@index([parent_union_id], map: "idx_members_parent_union")
   @@map("members")
 }
 

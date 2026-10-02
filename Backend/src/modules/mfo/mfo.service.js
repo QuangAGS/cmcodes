@@ -1,8 +1,8 @@
 /**
  * PATH       : src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-09-17T09:35:00+07:00
- * VERSION    : 1.6.1-ADMIN-REVIEW
- * DESCRIPTION: PLAN + CREATE + RESULT + spouse + BPL + payload.admin_review.
+ * DATETIME   : 2026-09-30T10:30:00+07:00
+ * VERSION    : 1.7.0-GET-FULL-MFO-SET
+ * DESCRIPTION: PLAN + CREATE + RESULT + spouse + BPL + payload.admin_review + getFullMfoSet.
  */
 
 const crypto = require('crypto');
@@ -712,6 +712,741 @@ const mfoService = {
         k_reason,
         in_window: k !== null && k <= 4,
         path_to_origin: path,
+      },
+    };
+  },
+
+  /**
+   * API MỚI: GET FULL MFO SET (TẬP ST CLUSTER CHUẨN 5 ĐỜI)
+   * Thuật toán: Nhận targetMemberId (M) và k. Quét Thượng đúng k bước để định vị Đời 0,
+   * sau đó phủ Hạ 5 Đời (0->4) thu thập trọn vẹn các Cụm ST(i)_j.
+   */
+  getFullMfoSet: async ({ user, originId, k: kParam = 0 }) => {
+    const tenantId = tenantIdOf(user);
+
+    if (!originId) {
+      fail('Thiếu origin id.', 400, 'MFO_ORIGIN_REQUIRED');
+    }
+
+    // k là đời tuyệt đối của target member M trong khung 5 đời.
+    // 0 = M ở Đời gốc; 4 = M ở Đời 4.
+    const selectedDepth = Math.min(
+      Math.max(Number(kParam) || 0, 0),
+      4
+    );
+
+    const targetMember = await prisma.members.findUnique({
+      where: { id: originId },
+      select: {
+        id: true,
+        full_name: true,
+        generation: true,
+        gender: true,
+        father_id: true,
+        mother_id: true,
+        tenant_id: true,
+        deleted_at: true,
+        branch_id: true,
+        is_clan: true,
+        child_type: true,
+        sibling_seq: true,
+        birth_year: true,
+        note: true,
+      },
+    });
+
+    if (!targetMember || targetMember.deleted_at) {
+      fail('Không tìm thấy thành viên trên sổ.', 404, 'MFO_ORIGIN_NOT_FOUND');
+    }
+
+    if (
+      tenantId &&
+      String(targetMember.tenant_id) !== String(tenantId)
+    ) {
+      fail('Thành viên không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
+    }
+
+    const [all, unions] = await Promise.all([
+      prisma.members.findMany({
+        where: {
+          tenant_id: targetMember.tenant_id,
+          deleted_at: null,
+        },
+        select: {
+          id: true,
+          full_name: true,
+          generation: true,
+          gender: true,
+          father_id: true,
+          mother_id: true,
+          branch_id: true,
+          is_clan: true,
+          child_type: true,
+          sibling_seq: true,
+          birth_year: true,
+          note: true,
+        },
+      }),
+
+      prisma.marriages.findMany({
+        where: {
+          tenant_id: targetMember.tenant_id,
+          deleted_at: null,
+          status: {
+            in: ['DANG_KET_HON', 'GOA'],
+          },
+        },
+        select: {
+          id: true,
+          husband_id: true,
+          wife_id: true,
+          husband_marriage_order: true,
+          wife_marriage_order: true,
+          status: true,
+          spouse_name_literal: true,
+        },
+      }),
+    ]);
+
+    const isClanMember = (member) => !member || member.is_clan !== false;
+
+    const byId = new Map(all.map((member) => [member.id, member]));
+
+    /*
+    * childrenOfMap:
+    *
+    * parentId -> [childId, childId, ...]
+    *
+    * Chỉ các member nội tộc mới là node thuộc cây chính.
+    * Một child có thể được liên kết với father_id và mother_id.
+    */
+    const childrenOfMap = new Map();
+
+    const addChild = (parentId, childId) => {
+      if (!parentId || !childId) return;
+
+      if (!childrenOfMap.has(parentId)) {
+        childrenOfMap.set(parentId, new Set());
+      }
+
+      childrenOfMap.get(parentId).add(childId);
+    };
+
+    for (const member of all) {
+      if (!isClanMember(member)) continue;
+
+      addChild(member.father_id, member.id);
+      addChild(member.mother_id, member.id);
+    }
+
+    /*
+    * partnersOf:
+    *
+    * memberId -> [
+    *   {
+    *     id,
+    *     full_name,
+    *     _key,
+    *     _union_id,
+    *     _ord,
+    *     _status,
+    *     _is_literal
+    *   }
+    * ]
+    *
+    * Dùng union.id trong _key để không làm mất lịch sử:
+    * một member có thể có hai marriage record với cùng một người.
+    */
+    const partnersOf = new Map();
+
+    const pushPartner = (ownerId, partner, meta = {}) => {
+      if (!ownerId || !partner) return;
+      if (partner.id && String(partner.id) === String(ownerId)) return;
+
+      if (!partnersOf.has(ownerId)) {
+        partnersOf.set(ownerId, []);
+      }
+
+      const bag = partnersOf.get(ownerId);
+
+      const partnerIdentity = partner.id
+        ? `member:${partner.id}`
+        : `literal:${String(partner.full_name || '').trim().toLowerCase()}`;
+
+      const unionIdentity = meta.unionId
+        ? `union:${meta.unionId}`
+        : 'union:none';
+
+      const key = `${unionIdentity}:${partnerIdentity}`;
+
+      if (bag.some((item) => item._key === key)) {
+        return;
+      }
+
+      bag.push({
+        ...partner,
+        _key: key,
+        _union_id: meta.unionId || null,
+        _ord:
+          meta.ord !== null &&
+          meta.ord !== undefined
+            ? Number(meta.ord)
+            : 9999,
+        _status: meta.status || null,
+        _is_literal: !partner.id,
+      });
+    };
+
+    for (const union of unions) {
+      const husband = union.husband_id
+        ? byId.get(union.husband_id)
+        : null;
+
+      const wife = union.wife_id
+        ? byId.get(union.wife_id)
+        : null;
+
+      if (union.husband_id) {
+        if (wife) {
+          pushPartner(
+            union.husband_id,
+            wife,
+            {
+              unionId: union.id,
+              ord: union.husband_marriage_order,
+              status: union.status,
+            }
+          );
+        } else if (union.spouse_name_literal) {
+          pushPartner(
+            union.husband_id,
+            {
+              id: null,
+              full_name: union.spouse_name_literal,
+              is_clan: false,
+            },
+            {
+              unionId: union.id,
+              ord: union.husband_marriage_order,
+              status: union.status,
+            }
+          );
+        }
+      }
+
+      if (union.wife_id) {
+        if (husband) {
+          pushPartner(
+            union.wife_id,
+            husband,
+            {
+              unionId: union.id,
+              ord: union.wife_marriage_order,
+              status: union.status,
+            }
+          );
+        } else if (union.spouse_name_literal) {
+          pushPartner(
+            union.wife_id,
+            {
+              id: null,
+              full_name: union.spouse_name_literal,
+              is_clan: false,
+            },
+            {
+              unionId: union.id,
+              ord: union.wife_marriage_order,
+              status: union.status,
+            }
+          );
+        }
+      }
+    }
+
+    const isUnknownMember = (member) => {
+      const note = String(member?.note || '');
+      const name = String(member?.full_name || '');
+
+      return (
+        note.includes('[UM]') ||
+        /^chưa rõ/i.test(name)
+      );
+    };
+
+    const packMember = (member, extra = {}) => ({
+      id: member?.id || null,
+      full_name: member?.full_name || null,
+      is_unknown: isUnknownMember(member),
+      generation:
+        member?.generation !== null &&
+        member?.generation !== undefined
+          ? member.generation
+          : null,
+      gender: member?.gender || null,
+      father_id: member?.father_id || null,
+      mother_id: member?.mother_id || null,
+      branch_id: member?.branch_id || null,
+      is_clan: member?.is_clan !== false,
+      child_type: member?.child_type || null,
+      sibling_seq:
+        member?.sibling_seq !== null &&
+        member?.sibling_seq !== undefined
+          ? member.sibling_seq
+          : null,
+      birth_year:
+        member?.birth_year !== null &&
+        member?.birth_year !== undefined
+          ? member.birth_year
+          : null,
+      ...extra,
+    });
+
+    const compareSiblings = (aId, bId) => {
+      const a = byId.get(aId);
+      const b = byId.get(bId);
+
+      const seqA = a?.sibling_seq ?? 999999;
+      const seqB = b?.sibling_seq ?? 999999;
+
+      if (seqA !== seqB) {
+        return seqA - seqB;
+      }
+
+      const yearA = a?.birth_year ?? 999999;
+      const yearB = b?.birth_year ?? 999999;
+
+      if (yearA !== yearB) {
+        return yearA - yearB;
+      }
+
+      return String(a?.full_name || '').localeCompare(
+        String(b?.full_name || ''),
+        'vi'
+      );
+    };
+
+    const getSortedChildrenIds = (parentId) => {
+      return [...(childrenOfMap.get(parentId) || new Set())]
+        .filter((id) => byId.has(id))
+        .sort(compareSiblings);
+    };
+
+    const getSortedPartners = (memberId, depth) => {
+      return [...(partnersOf.get(memberId) || [])]
+        .sort((a, b) => {
+          if (a._ord !== b._ord) {
+            return a._ord - b._ord;
+          }
+
+          return String(a.full_name || '').localeCompare(
+            String(b.full_name || ''),
+            'vi'
+          );
+        })
+        .map((partner) =>
+          packMember(partner, {
+            depth,
+            role: 'partner',
+            source: partner.id ? 'marriage' : 'literal',
+            union_id: partner._union_id,
+            union_status: partner._status,
+            is_literal: partner._is_literal,
+            position:
+              partner.is_clan === false
+                ? 'right'
+                : 'left',
+          })
+        );
+    };
+
+    /*
+    * TÌM TỔ TIÊN GẦN NHẤT CÓ THỂ ĐẶT VÀO KHUNG 5 ĐỜI.
+    *
+    * selectedDepth là vị trí cố định của target M:
+    *
+    * selectedDepth = 4:
+    * - target M phải ở depth 4
+    * - parent của M, nếu có, ở depth 3
+    * - grandparent, nếu có, ở depth 2
+    * - nếu thiếu tổ tiên thì depth 0/1 vẫn rỗng
+    *
+    * rootDepth = selectedDepth - actualAncestorSteps.
+    */
+    let rootNode = targetMember;
+    let actualAncestorSteps = 0;
+    let rootDepth = selectedDepth;
+
+    const ancestorPathFromRootToTarget = [targetMember.id];
+
+    while (actualAncestorSteps < selectedDepth) {
+      /*
+      * Ưu tiên father_id để giữ quy ước phả hệ phụ hệ,
+      * nhưng fallback sang mother_id nếu father không có hoặc không hợp lệ.
+      */
+      const parentId = [
+        rootNode.father_id,
+        rootNode.mother_id,
+      ].find((id) => id && byId.has(id));
+
+      if (!parentId) {
+        break;
+      }
+
+      rootNode = byId.get(parentId);
+      actualAncestorSteps += 1;
+      rootDepth -= 1;
+
+      ancestorPathFromRootToTarget.unshift(rootNode.id);
+    }
+
+    /*
+    * levels luôn có đủ 5 đời, 0..4.
+    * Dù không có member thật, UI vẫn có thể render một cặp placeholder.
+    */
+    const levels = Array.from({ length: 5 }, (_, depth) => ({
+      depth,
+      is_empty: true,
+      placeholder: {
+        kind: 'empty_couple',
+        clan_member: null,
+        spouse: null,
+      },
+      member_ids: [],
+      nodes: [],
+      standard_trees: [],
+    }));
+
+    /*
+    * nodes vẫn giữ dạng flat để tương thích với consumer cũ.
+    *
+    * nodeDepthById là nguồn chân lý depth trong response này.
+    * Một member chỉ có thể xuất hiện một lần trong nodes.
+    */
+    const nodes = [];
+    const nodeDepthById = new Map();
+    const seenNodeIds = new Set();
+
+    let currentLevelIds = [rootNode.id];
+
+    for (let depth = rootDepth; depth <= 4; depth += 1) {
+      const nextLevelIds = [];
+      const nextLevelSeen = new Set();
+
+      for (const memberId of currentLevelIds) {
+        if (seenNodeIds.has(memberId)) {
+          continue;
+        }
+
+        const member = byId.get(memberId);
+
+        if (!member || !isClanMember(member)) {
+          continue;
+        }
+
+        seenNodeIds.add(memberId);
+        nodeDepthById.set(memberId, depth);
+
+        const partners = getSortedPartners(memberId, depth);
+
+        const node = packMember(member, {
+          depth,
+          role: 'clan_member',
+          position: 'left',
+          is_origin: memberId === rootNode.id,
+          is_target: memberId === targetMember.id,
+          partners,
+        });
+
+        nodes.push(node);
+
+        levels[depth].is_empty = false;
+        levels[depth].member_ids.push(memberId);
+        levels[depth].nodes.push(node);
+
+        if (depth >= 4) {
+          continue;
+        }
+
+        for (const childId of getSortedChildrenIds(memberId)) {
+          if (
+            seenNodeIds.has(childId) ||
+            nextLevelSeen.has(childId)
+          ) {
+            continue;
+          }
+
+          nextLevelSeen.add(childId);
+          nextLevelIds.push(childId);
+        }
+      }
+
+      currentLevelIds = nextLevelIds;
+
+      if (currentLevelIds.length === 0 && depth < 4) {
+        /*
+        * Không break.
+        * Cần tiếp tục giữ levels còn lại ở trạng thái rỗng
+        * để frontend luôn nhận khung 0..4 cố định.
+        */
+        currentLevelIds = [];
+      }
+    }
+
+    /*
+    * TẠO STANDARD TREE / ST.
+    *
+    * Một ST gắn với một "parent anchor" thuộc depth D:
+    *
+    * ST(D):
+    * - owner/couple: parent anchor + spouse của người đó
+    * - children: các member nội tộc của owner ở depth D + 1
+    * - child partners: spouse của từng child
+    *
+    * Vì schema hiện chỉ có father_id/mother_id, không có family_id
+    * hay marriage_id gắn trực tiếp cho child, đây là best-effort cluster.
+    */
+    const makeStandardTree = (ownerNode) => {
+      const ownerId = ownerNode.id;
+      const ownerDepth = ownerNode.depth;
+
+      const childDepth = ownerDepth + 1;
+
+      const childIds =
+        childDepth <= 4
+          ? getSortedChildrenIds(ownerId)
+              .filter(
+                (childId) =>
+                  nodeDepthById.get(childId) === childDepth
+              )
+          : [];
+
+      const children = childIds
+        .map((childId) => {
+          const child = byId.get(childId);
+
+          if (!child) return null;
+
+          return {
+            member: packMember(child, {
+              depth: childDepth,
+              role: 'clan_member',
+              position: 'left',
+              is_target: child.id === targetMember.id,
+            }),
+            partners: getSortedPartners(child.id, childDepth),
+          };
+        })
+        .filter(Boolean);
+
+      return {
+        id: `st:${ownerDepth}:${ownerId}`,
+        depth: ownerDepth,
+        kind: 'standard_tree',
+        parent: {
+          member: packMember(byId.get(ownerId), {
+            depth: ownerDepth,
+            role: 'clan_member',
+            position: 'left',
+            is_origin: ownerId === rootNode.id,
+            is_target: ownerId === targetMember.id,
+          }),
+          partners: getSortedPartners(ownerId, ownerDepth),
+        },
+        children,
+        child_count: children.length,
+      };
+    };
+
+    for (const level of levels) {
+      level.standard_trees = level.nodes.map(makeStandardTree);
+    }
+
+    /*
+    * Nếu rootDepth > 0, các đời phía trên chưa có ancestor thật.
+    * Danh sách này giúp UI không phải tự suy luận.
+    */
+    const emptyAncestorDepths = [];
+
+    for (let depth = 0; depth < rootDepth; depth += 1) {
+      emptyAncestorDepths.push(depth);
+    }
+
+    /*
+    * MWL:
+    *
+    * Tìm đường từ MWL đi ngược theo father/mother để chạm rootNode.
+    * Dùng BFS để lấy đường ít bước nhất nếu có nhiều khả năng tổ tiên.
+    */
+    const mwlId = await resolveFounderMemberId(user);
+
+    let mwlK = null;
+    let mwlReason = 'no_mwl';
+    let pathFromOriginToMwl = [];
+
+    if (mwlId) {
+      const mwl = byId.get(mwlId);
+
+      if (!mwl) {
+        mwlReason = 'mwl_not_found';
+      } else if (mwl.is_clan === false) {
+        mwlReason = 'ngoai_toc';
+      } else if (mwlId === rootNode.id) {
+        mwlK = 0;
+        mwlReason = 'self';
+        pathFromOriginToMwl = [rootNode.id];
+      } else {
+        const visited = new Set([mwlId]);
+
+        const queue = [
+          {
+            id: mwlId,
+            steps: 0,
+            trailFromMwl: [mwlId],
+          },
+        ];
+
+        let hit = null;
+        let cursor = 0;
+
+        while (cursor < queue.length && !hit) {
+          const current = queue[cursor];
+          cursor += 1;
+
+          if (current.steps > 32) {
+            continue;
+          }
+
+          if (current.id === rootNode.id) {
+            hit = current;
+            break;
+          }
+
+          const currentMember = byId.get(current.id);
+
+          if (!currentMember) {
+            continue;
+          }
+
+          for (const parentId of [
+            currentMember.father_id,
+            currentMember.mother_id,
+          ]) {
+            if (!parentId || visited.has(parentId)) {
+              continue;
+            }
+
+            const parent = byId.get(parentId);
+
+            if (!parent || parent.is_clan === false) {
+              continue;
+            }
+
+            visited.add(parentId);
+
+            queue.push({
+              id: parentId,
+              steps: current.steps + 1,
+              trailFromMwl: [
+                ...current.trailFromMwl,
+                parentId,
+              ],
+            });
+          }
+        }
+
+        if (hit) {
+          mwlK = hit.steps;
+          mwlReason = mwlK <= 4 ? 'on_tree' : 'too_far';
+
+          /*
+          * hit.trailFromMwl có thứ tự:
+          * [mwl, parent, grandparent, ..., rootNode]
+          *
+          * Đảo lại để trả đúng ý nghĩa:
+          * [rootNode, ..., mwl]
+          */
+          pathFromOriginToMwl = [
+            ...hit.trailFromMwl,
+          ].reverse();
+        } else {
+          mwlReason = 'not_on_tree';
+        }
+      }
+    }
+
+    /*
+    * Metadata bảo vệ invariant:
+    *
+    * - target_depth luôn bằng selectedDepth nếu target có nằm trong nodes.
+    * - root_depth là vị trí của ancestor xa nhất thực sự tìm được.
+    * - actual_ancestor_steps có thể nhỏ hơn selectedDepth.
+    */
+    const targetNode = nodes.find(
+      (node) => node.id === targetMember.id
+    );
+
+    return {
+      origin: {
+        id: rootNode.id,
+        full_name: rootNode.full_name,
+        generation: rootNode.generation,
+        branch_id: rootNode.branch_id,
+        is_clan: rootNode.is_clan !== false,
+        depth: rootDepth,
+      },
+
+      target: {
+        id: targetMember.id,
+        full_name: targetMember.full_name,
+        selected_depth: selectedDepth,
+        actual_depth: targetNode?.depth ?? null,
+        is_position_preserved:
+          targetNode?.depth === selectedDepth,
+      },
+
+      window: {
+        min_depth: 0,
+        max_depth: 4,
+        depth_count: 5,
+        selected_depth: selectedDepth,
+        root_depth: rootDepth,
+        actual_ancestor_steps: actualAncestorSteps,
+        empty_ancestor_depths: emptyAncestorDepths,
+      },
+
+      /*
+      * Alias giữ tương thích với field cũ.
+      * actual_k ở đây là số bước tổ tiên thực sự đã truy được.
+      */
+      actual_k: actualAncestorSteps,
+      target_member_id: targetMember.id,
+      window_depth: 4,
+
+      rule:
+        'fixed_5_levels+selected_depth_anchor+is_clan+marriages+standard_tree_clusters',
+
+      /*
+      * Nguồn dữ liệu nên ưu tiên cho UI mới:
+      * - luôn có đúng 5 phần tử
+      * - levels[0] đến levels[4]
+      * - level rỗng có placeholder empty_couple
+      */
+      levels,
+
+      /*
+      * Giữ compatibility với consumer cũ.
+      * Mỗi member nội tộc xuất hiện tối đa một lần.
+      */
+      nodes,
+
+      ancestor_path_from_root_to_target: ancestorPathFromRootToTarget,
+
+      mwl: {
+        member_id: mwlId || null,
+        k: mwlK,
+        k_reason: mwlReason,
+        in_window: mwlK !== null && mwlK <= 4,
+        path_to_origin: pathFromOriginToMwl,
       },
     };
   },

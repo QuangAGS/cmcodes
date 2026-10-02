@@ -1,11 +1,10 @@
 /**
- * DATETIME: 06-04-2026 21:15
  * PATH: src/index.css
- * VERSION: 11.0.1
- * DESCRIPTION: Sử dụng chỉ thị chuẩn của Tailwind v3.
- * CHÚ Ý: Nếu VS Code báo lỗi "Unknown at rule @tailwind", đây là lỗi hiển thị của Editor.
- * CÁCH FIX: Mở Settings (Cmd+,) -> Gõ "Unknown At Rules" -> Chọn "Ignore".
+ * DATETIME: 2026-10-01T23:23:00+07:00
+ * VERSION: 11.0.3-REACT-FLOW-HIGH-CONTRAST
  */
+
+@import 'reactflow/dist/style.css';
 
 @tailwind base;
 @tailwind components;
@@ -15,22 +14,73 @@
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
-  color-scheme: light dark;
+  color-scheme: light;
   background-color: #f8fafc;
 }
 
-body {
-  margin: 0;
-  display: block;
-  place-items: center;
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  width: 100%;
   min-width: 320px;
+  min-height: 100%;
+  margin: 0;
+}
+
+body {
+  display: block;
   min-height: 100vh;
   background-color: #f8fafc;
 }
 
-
-#root {
-  width: 100%;
-  height: 100%;
+.react-flow {
+  background: #f8fafc;
 }
 
+.react-flow__node {
+  font-family: inherit;
+  border-radius: 1rem;
+  color: #0f172a;
+}
+
+.react-flow__node-coupleNode,
+.react-flow__node-emptyNode {
+  opacity: 1 !important;
+}
+
+.react-flow__edge-path {
+  stroke-width: 2.5;
+}
+
+.react-flow__controls {
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.75rem;
+  background: #ffffff;
+  box-shadow: 0 4px 14px rgb(15 23 42 / 12%);
+}
+
+.react-flow__controls-button {
+  width: 38px;
+  height: 38px;
+  border-bottom: 1px solid #e2e8f0;
+  background: #ffffff;
+  color: #0f172a;
+}
+
+.react-flow__controls-button:hover {
+  background: #f1f5f9;
+}
+
+.react-flow__controls-button svg {
+  fill: currentcolor;
+}
+
+.react-flow__attribution {
+  color: #64748b;
+  background: rgb(255 255 255 / 80%);
+}

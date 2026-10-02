@@ -1,9 +1,9 @@
 /**
  * PATH       : frontend/src/features/mfo/api/mfoApi.js
- * DATETIME   : 2026-09-24T13:15:00+07:00
- * VERSION    : 1.1.0-W1
- * DESCRIPTION: Cửa /api/mfo — PLAN + 6 lệnh xưởng. Không abort (B1).
- *              Lỗi để trang gọi toMfoUserMessage.
+ * DATETIME   : 2026-10-01T17:00:00+07:00
+ * VERSION    : 1.0.0-COMPLETE-5L-CANVAS
+ * DESCRIPTION: API Client MFO 5L với hàm parse k an toàn (chấp nhận 0..4).
+ * REFERENCE  : Technical Spec MFO (5L) v1.1.0-MFO-CANONICAL
  */
 
 import apiClient from '../../../lib/apiClient.js';
@@ -32,7 +32,6 @@ export function createPlan(body) {
   return apiClient.post('/mfo/plans', body);
 }
 
-/** BE GET /members không nhận q — lấy sổ CHINH_THUC, FE lọc tên. */
 export function listBookMembers() {
   return apiClient.get('/members', { params: { status: 'CHINH_THUC' } });
 }
@@ -45,7 +44,6 @@ export function getMember(id) {
   return apiClient.get(`/members/${id}`);
 }
 
-/** Cây theo gốc — cửa GFL khi đã có sổ. */
 export function getOriginTree(originId) {
   return apiClient.get(`/mfo/origins/${originId}/tree`);
 }
@@ -92,7 +90,6 @@ export function abortPlan(id, body = {}) {
   return apiClient.post(`/mfo/plans/${id}/abort`, body);
 }
 
-/** ADMIN sửa sổ — không gửi gender / is_alive / phone / email (A01). */
 export function adminPatchMember(memberId, body = {}) {
   const b = { ...(body || {}) };
   delete b.gender;
@@ -103,7 +100,21 @@ export function adminPatchMember(memberId, body = {}) {
   return apiClient.put(`/members/${memberId}`, b);
 }
 
-/** ADMIN tạo người trên sổ (UM / cha mẹ chưa rõ). */
 export function adminCreateMember(body = {}) {
   return apiClient.post('/members', body);
+}
+
+function parseK(k) {
+  const num = Number(k);
+  if (Number.isFinite(num) && num >= 0 && num <= 4) {
+    return Math.floor(num);
+  }
+  return 0;
+}
+
+export async function getFullMfoSet(targetMemberId, k = 0) {
+  const selectedDepth = parseK(k);
+  return apiClient.get(`/mfo/origins/${encodeURIComponent(targetMemberId)}/full-set`, {
+    params: { k: selectedDepth },
+  });
 }

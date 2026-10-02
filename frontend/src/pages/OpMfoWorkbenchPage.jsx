@@ -1,8 +1,17 @@
 /**
  * PATH       : frontend/src/pages/OpMfoWorkbenchPage.jsx
- * DATETIME   : 2026-09-24T16:10:00+07:00
- * VERSION    : 1.0.0-W3
+ * DATETIME   : 2026-09-28T08:35:00+07:00
+ * VERSION    : 1.1.0-AUTH-GUARD-ENFORCED
  * DESCRIPTION: Xưởng sau plan_ok — ghi tên CREATE rồi trình kết quả.
+ *              Đã bổ sung Auth Guard chặn gọi API load() khi chưa đăng nhập/hydrate token xong,
+ *              triệt tiêu triệt để lỗi 401 UNAUTHORIZED phía Backend.
+ * REFERENCE  : SSOT BFA-Branch-Family-Doctrine-v1.3.1.md & Rule applied to AI_3.md
+ * 
+ * CHANGELOG  :
+ * - 2026-09-28T08:35:00+07:00:
+ *   + [2026-09-28T08:35:00+07:00] Bổ sung cờ authLoading & user từ useAuth() vào hook useEffect.
+ *   + [2026-09-28T08:35:00+07:00] Chặn gọi load() nếu authLoading === true hoặc user === null.
+ *   + [2026-09-28T08:35:00+07:00] Bảo tồn 100% logic loadData, createMember, createSpouse, presentment.
  */
 
 import { useEffect, useMemo, useState } from 'react';
@@ -43,7 +52,13 @@ function looksLikeCode(s) {
 
 export default function OpMfoWorkbenchPage() {
   const { id } = useParams();
-  const { user } = useAuth();
+  
+  /**
+   * <2026-09-28T08:35:00+07:00>
+   * Purpose: Bổ sung cờ authLoading từ AuthContext để kiểm tra trạng thái Hydrate Token
+   */
+  const { user, loading: authLoading } = useAuth();
+  
   const navigate = useNavigate();
   const location = useLocation();
   const { speak } = useTts();
@@ -180,8 +195,23 @@ export default function OpMfoWorkbenchPage() {
     return t;
   }
 
+  /**
+   * <2026-09-28T08:35:00+07:00>
+   * Purpose: Auth Guard kiểm tra cờ authLoading & user trước khi thực thi load().
+   *          Đảm bảo 100% người dùng đăng nhập thành công mới gọi API getPlan(id).
+   */
   useEffect(() => {
     let live = true;
+
+    // 1. Chờ AuthContext khôi phục phiên xong
+    if (authLoading) return;
+
+    // 2. Nếu không có user -> Điều hướng ngay về /auth, tuyệt đối không gọi API
+    if (!user) {
+      navigate('/auth?mode=login', { replace: true });
+      return;
+    }
+
     (async () => {
       try {
         const t = await load();
@@ -257,7 +287,7 @@ export default function OpMfoWorkbenchPage() {
     return () => {
       live = false;
     };
-  }, [id]);
+  }, [id, authLoading, user]);
 
   const payload = ticket?.payload || {};
   const lines = Array.isArray(payload.lines) ? payload.lines : [];
@@ -489,6 +519,18 @@ export default function OpMfoWorkbenchPage() {
     } finally {
       setBusy('');
     }
+  }
+
+  /**
+   * <2026-09-28T08:35:00+07:00>
+   * Purpose: Render màn hình chờ khi AuthContext đang nạp phiên làm việc.
+   */
+  if (authLoading) {
+    return (
+      <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col items-center justify-center bg-slate-50 p-6 text-center">
+        <p className="text-base font-bold text-slate-600">Đang xác thực phiên làm việc...</p>
+      </div>
+    );
   }
 
   return (

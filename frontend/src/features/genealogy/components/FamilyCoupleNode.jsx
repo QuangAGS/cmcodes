@@ -1,221 +1,226 @@
 /**
  * PATH       : frontend/src/features/genealogy/components/FamilyCoupleNode.jsx
- * DATETIME   : 2026-09-22T10:05:00+07:00
- * VERSION    : 1.3.0-MOBILE-TAP
- * DESCRIPTION: Cặp Chồng|Vợ. Mobile: chạm mở card, ✕ / chạm ngoài đóng.
+ * DATETIME   : 2026-09-29T15:00:00+07:00
+ * VERSION    : 18.0.0-ANCHOR-DATA-ATTRS
+ * DESCRIPTION: Đánh dấu data-lane, data-clan, data-member-id lên Avatar Nội tộc để hỗ trợ vẽ đường nối Node-to-Node.
+ * REFERENCE  : SSOT BFA-Branch-Family-Doctrine-v1.3.1.md
  */
 
-import { useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
-
-function initials(name) {
-  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return '';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-function genderLabel(person) {
-  const g = String(person?.gender || '').toUpperCase();
-  if (g === 'NAM' || g === 'MALE') return 'Nam';
-  if (g === 'NU' || g === 'NỮ' || g === 'FEMALE') return 'Nữ';
-  if (g === 'KHAC' || g === 'OTHER') return 'Khác';
-  return '';
-}
-
-function PersonDot({ person }) {
-  const name = String(person?.full_name || person?.name || '').trim();
-  const creating = person?.create === true;
-  const empty = !name && !creating;
-  const label = genderLabel(person);
-  const male = label === 'Nam';
-  const female = label === 'Nữ';
-  return (
-    <div className="flex w-[6.4rem] flex-col items-center">
-      <span
-        className={`flex h-12 w-12 items-center justify-center overflow-hidden rounded-full text-sm font-black ${
-          empty
-            ? 'border-2 border-dashed border-slate-200 bg-slate-50 text-transparent'
-            : creating
-              ? 'border-2 border-dashed border-amber-500 bg-amber-50 text-amber-800'
-            : male
-              ? 'border-[3px] border-blue-700 bg-white text-blue-700 shadow'
-              : female
-                ? 'border-[3px] border-pink-600 bg-white text-pink-600 shadow'
-                : 'border-[3px] border-slate-400 bg-white text-slate-600 shadow'
-        }`}
-      >
-        {person?.avatar_url ? (
-          <img src={person.avatar_url} alt="" className="h-full w-full object-cover" />
-        ) : empty ? (
-          ''
-        ) : creating ? (
-          '+'
-        ) : (
-          initials(name)
-        )}
-      </span>
-      <span className="mt-1 text-[10px] font-semibold text-slate-500">{label || '—'}</span>
-      <span className="w-full whitespace-normal break-words text-center text-[11px] font-bold leading-tight text-slate-800">
-        {creating ? 'Tạo' : empty ? '' : name}
-      </span>
-    </div>
-  );
-}
+import React from 'react';
+import ReactDOM from 'react-dom';
 
 export default function FamilyCoupleNode({
-  husband,
-  wife,
+  husband = {},
+  wife = {},
+  lineIndex = 0,
   selected = false,
+  isUb = false,
+  leftDetail = {},
+  rightDetail = {},
+  actions = [],
   onSelect,
   onClose,
-  onToggleExpand,
-  canExpand = false,
-  expanded = false,
-  summary = [],
-  actions = [],
-  title = 'Gia đình',
 }) {
-  const [pos, setPos] = useState({ top: 8, left: 8 });
-  const boxRef = useRef(null);
-  const cardRef = useRef(null);
-  const open = selected;
-  const hName = String(husband?.full_name || husband?.name || '').trim();
-  const wName = String(wife?.full_name || wife?.name || '').trim();
+  function renderAvatar(person) {
+    const isClan = person?.is_clan !== false;
+    const memberId = person?.id || person?.member_id || '';
+    const fatherId = person?.father_id || '';
+    const motherId = person?.mother_id || '';
 
-  function place() {
-    const el = boxRef.current;
-    if (!el) return;
-    const r = el.getBoundingClientRect();
-    const cardW = Math.min(280, window.innerWidth - 16);
-    const cardH = 240;
-    let left = r.left + r.width / 2 - cardW / 2;
-    left = Math.max(8, Math.min(left, window.innerWidth - cardW - 8));
-    let top = r.top - cardH - 8;
-    if (top < 8) top = Math.min(r.bottom + 8, window.innerHeight - cardH - 8);
-    setPos({ top, left, width: cardW });
+    // Data attributes giúp SVG Connector bắt chính xác tọa độ DOM
+    const anchorAttrs = {
+      'data-lane': lineIndex,
+      'data-clan': isClan ? 'true' : 'false',
+      'data-member-id': memberId,
+      'data-father-id': fatherId,
+      'data-mother-id': motherId,
+    };
+
+    if (person?.is_xt) {
+      return (
+        <span {...anchorAttrs} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 border border-amber-300 font-black text-amber-700 text-xs shadow-xs">
+          XT
+        </span>
+      );
+    }
+    if (person?.is_kd) {
+      return (
+        <span {...anchorAttrs} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200 border border-slate-300 font-black text-slate-600 text-xs">
+          KD
+        </span>
+      );
+    }
+    if (!person?.full_name || person.full_name === 'Còn rỗng' || isUb) {
+      return (
+        <span {...anchorAttrs} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-100 border border-slate-200 font-black text-slate-400 text-sm">
+          ?
+        </span>
+      );
+    }
+    const initials = String(person.full_name)
+      .trim()
+      .split(' ')
+      .pop()
+      ?.[0]?.toUpperCase() || '?';
+    return (
+      <span {...anchorAttrs} className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 border border-indigo-200 font-bold text-indigo-700 text-xs">
+        {initials}
+      </span>
+    );
   }
 
-  useEffect(() => {
-    if (!open) return undefined;
-    place();
-    const onMove = () => place();
-    window.addEventListener('scroll', onMove, true);
-    window.addEventListener('resize', onMove);
-    function onDoc(e) {
-      const t = e.target;
-      if (boxRef.current?.contains(t)) return;
-      if (cardRef.current?.contains(t)) return;
-      onClose?.();
-    }
-    const t = window.setTimeout(() => document.addEventListener('click', onDoc), 80);
-    return () => {
-      window.clearTimeout(t);
-      window.removeEventListener('scroll', onMove, true);
-      window.removeEventListener('resize', onMove);
-      document.removeEventListener('click', onDoc);
-    };
-  }, [open, onClose]);
+  function formatGender(gender) {
+    if (!gender) return '—';
+    const g = String(gender).toUpperCase().trim();
+    if (g === 'NAM') return 'Nam';
+    if (g === 'NU') return 'Nữ';
+    if (g === 'KHAC') return 'Khác';
+    return gender;
+  }
 
-  const card = open ? (
-    <div
-      ref={cardRef}
-      className="fixed z-[80] rounded-xl border border-slate-300 bg-white text-left shadow-xl"
-      style={{ top: pos.top, left: pos.left, width: pos.width || 280 }}
-    >
-      <div className="relative rounded-t-xl bg-slate-100 px-3 py-2 pr-10">
-        <p className="text-xs font-black text-blue-700">{title}</p>
-        <button
-          type="button"
-          className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-slate-200 text-sm font-black text-slate-700"
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose?.();
-          }}
-          aria-label="Đóng"
-        >
-          ✕
-        </button>
-        <div className="mt-1 grid grid-cols-2 gap-2">
-          <div>
-            <p className="text-[10px] font-semibold text-slate-500">{genderLabel(husband) || 'Người 1'}</p>
-            <p className="text-sm font-bold leading-tight text-slate-800">{hName || '—'}</p>
-          </div>
-          <div>
-            <p className="text-[10px] font-semibold text-slate-500">{genderLabel(wife) || 'Người 2'}</p>
-            <p className="text-sm font-bold leading-tight text-slate-800">{wName || '—'}</p>
-          </div>
-        </div>
-        {summary.length ? (
-          <ul className="mt-1 space-y-0.5">
-            {summary
-              .filter((s) => !String(s).startsWith('Người:') && !String(s).startsWith('Vợ/chồng:'))
-              .map((s) => (
-                <li key={s} className="text-xs font-semibold text-slate-700">
-                  {s}
-                </li>
-              ))}
-          </ul>
-        ) : null}
-      </div>
-      <div className="grid grid-cols-2 gap-2 p-2">
-        <p className="col-span-2 text-[10px] font-semibold text-slate-500">CÁC THAO TÁC CÓ THỂ CHỌN</p>
-        {actions.map((act) => {
-          const danger = /xóa|xoá/i.test(act.label);
-          return (
-            <button
-              key={act.label}
-              type="button"
-              className={`min-h-11 rounded-lg border px-2 text-xs font-bold ${
-                danger
-                  ? 'col-span-2 border-red-200 bg-red-50 text-red-700'
-                  : 'border-slate-200 bg-slate-50 text-slate-800'
-              }`}
-              onClick={(e) => {
-                e.stopPropagation();
-                act.onClick?.();
-                onClose?.();
-              }}
-            >
-              {act.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  ) : null;
+  function formatMeta(person, detail) {
+    if (!person && !detail) return 'Chưa rõ';
+    const genderText = formatGender(person?.gender);
+    const gender = genderText !== '—' ? genderText : '';
+    const year = detail?.birth_year ? `${detail.birth_year}` : '';
+    const status = detail?.is_alive === true ? 'Còn sống' : detail?.is_alive === false ? 'Đã mất' : '';
+    return [gender, year, status].filter(Boolean).join(' · ');
+  }
+
+  const leftGenVal = leftDetail?.generation !== undefined && leftDetail?.generation !== null && String(leftDetail?.generation).trim() !== ''
+    ? leftDetail.generation
+    : (husband?.generation !== undefined && husband?.generation !== null && String(husband?.generation).trim() !== '' ? husband.generation : null);
+
+  const rightGenVal = rightDetail?.generation !== undefined && rightDetail?.generation !== null && String(rightDetail?.generation).trim() !== ''
+    ? rightDetail.generation
+    : (wife?.generation !== undefined && wife?.generation !== null && String(wife?.generation).trim() !== '' ? wife.generation : null);
+
+  const leftGen = leftGenVal !== null ? `Đời: ${leftGenVal}` : 'Đời: ?';
+  const rightGen = rightGenVal !== null ? `Đời: ${rightGenVal}` : 'Đời: ?';
+
+  const safeActions = Array.isArray(actions) ? actions : [];
 
   return (
-    <div
-      ref={boxRef}
-      data-couple-node="1"
-      className={`relative inline-flex w-fit flex-col items-center rounded-2xl border bg-white px-2 py-2 shadow-sm ${
-        selected ? 'border-red-500' : 'border-slate-200'
-      }`}
-      onPointerDown={(e) => e.stopPropagation()}
-    >
-      <button
-        type="button"
-        className="flex min-h-[4.5rem] w-fit items-center justify-center"
-        onClick={(e) => {
-          e.stopPropagation();
-          onSelect?.();
-        }}
+    <div className="relative inline-block select-none">
+      <div
+        onClick={onSelect}
+        className={`w-[280px] min-h-[110px] rounded-2xl p-2.5 transition-all cursor-pointer border flex flex-col justify-between shadow-xs ${
+          selected
+            ? 'border-indigo-600 bg-indigo-50/90 ring-2 ring-indigo-400/50'
+            : 'border-slate-200 bg-white hover:border-slate-300'
+        }`}
       >
-        <PersonDot person={husband} />
-        <span className="mb-6 h-0.5 w-5 shrink-0 bg-red-500" aria-hidden="true" />
-        <PersonDot person={wife} />
-      </button>
-      {canExpand ? (
-        <button
-          type="button"
-          className="mx-auto mt-1 flex h-8 w-8 items-center justify-center rounded-full border-2 border-blue-700 text-sm font-black text-blue-700"
-          onClick={onToggleExpand}
-        >
-          {expanded ? '−' : '+'}
-        </button>
-      ) : null}
-      {typeof document !== 'undefined' && card ? createPortal(card, document.body) : null}
+        <div className="flex items-start justify-between gap-2 border-b border-slate-100 pb-1.5">
+          <div className="flex flex-1 items-start gap-2 min-w-0">
+            {renderAvatar(husband)}
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold text-slate-800 break-words whitespace-normal leading-tight">
+                {husband?.full_name || 'Còn rỗng'}
+              </p>
+              <p className="text-[10px] text-slate-500 font-medium mt-0.5">
+                {husband?.is_clan !== false ? 'Nội tộc' : 'Ngoại tộc'}
+              </p>
+            </div>
+          </div>
+
+          <div className="h-8 w-[1px] bg-slate-200 shrink-0 self-center" />
+
+          <div className="flex flex-1 items-start gap-2 min-w-0">
+            {renderAvatar(wife)}
+            <div className="min-w-0 flex-1">
+              <p className="text-xs font-bold text-slate-800 break-words whitespace-normal leading-tight">
+                {wife?.full_name || '—'}
+              </p>
+              <p className="text-[10px] text-slate-500 font-medium mt-0.5">
+                {wife?.full_name ? 'Phối ngẫu' : '—'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between text-[10px] text-slate-600 px-1 pt-1 font-semibold">
+          <span>{formatGender(husband?.gender)}</span>
+          <span>{wife?.full_name ? formatGender(wife?.gender) : '—'}</span>
+        </div>
+      </div>
+
+      {selected &&
+        safeActions.length > 0 &&
+        typeof document !== 'undefined' &&
+        ReactDOM.createPortal(
+          <div
+            className="fixed inset-0 z-[99999] flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-xs animate-in fade-in duration-150"
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose && onClose();
+            }}
+          >
+            <div
+              className="w-full max-w-[360px] rounded-3xl border border-slate-200 bg-white p-4 shadow-2xl animate-in zoom-in-95 duration-200"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between border-b border-slate-100 pb-2 mb-3">
+                <span className="text-sm font-bold text-slate-800">Thông tin & Thao tác</span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onClose && onClose();
+                  }}
+                  className="flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-500 hover:bg-slate-200 font-bold"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 rounded-2xl bg-slate-50 p-3 mb-3 text-[11px] border border-slate-100">
+                <div className="flex flex-col gap-0.5">
+                  <p className="font-bold text-indigo-900 break-words whitespace-normal leading-tight">
+                    {husband?.full_name || 'Còn rỗng'}
+                  </p>
+                  <p className="text-slate-600 mt-1">{formatMeta(husband, leftDetail)}</p>
+                  <p className="font-semibold text-slate-500">{leftGen}</p>
+                </div>
+
+                <div className="flex flex-col gap-0.5 border-l border-slate-200 pl-3">
+                  <p className="font-bold text-slate-800 break-words whitespace-normal leading-tight">
+                    {wife?.full_name || 'Chưa có'}
+                  </p>
+                  <p className="text-slate-600 mt-1">{formatMeta(wife, rightDetail)}</p>
+                  <p className="font-semibold text-slate-500">{rightGen}</p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                {safeActions.map((act, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    disabled={!!act.disabled}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (!act.disabled && typeof act.onClick === 'function') {
+                        act.onClick();
+                      }
+                    }}
+                    className={`flex h-12 items-center justify-center rounded-2xl px-2 text-center text-xs font-bold transition-all active:scale-95 ${
+                      act.disabled
+                        ? 'bg-slate-100 text-slate-300 border border-slate-100 cursor-not-allowed'
+                        : act.variant === 'danger'
+                        ? 'bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200'
+                        : act.variant === 'primary'
+                        ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-xs'
+                        : 'bg-slate-100 text-slate-700 hover:bg-slate-200 border border-slate-200/60'
+                    }`}
+                  >
+                    {act.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }

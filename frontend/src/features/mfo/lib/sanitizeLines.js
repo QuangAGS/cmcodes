@@ -1,13 +1,14 @@
 /**
  * PATH       : frontend/src/features/mfo/lib/sanitizeLines.js
- * DATETIME   : 2026-09-24T10:50:00+07:00
- * VERSION    : 1.0.0-W0
- * DESCRIPTION: Ép đúng 5 dòng PLAN. Không nhét spouse vào line.
+ * DATETIME   : 2026-10-01T17:00:00+07:00
+ * VERSION    : 1.0.0-COMPLETE-5L-CANVAS
+ * DESCRIPTION: Chuẩn hóa 5 dòng PLAN gửi Backend MFO 5L. Tuyệt đối không nhét founderId vào dòng k.
+ * REFERENCE  : Technical Spec MFO (5L) v1.1.0-MFO-CANONICAL
  */
 
 const OPS = new Set(['ASSIGN', 'CREATE', 'EMPTY']);
 
-export function sanitizeLines(rows, { originId, k, founderId } = {}) {
+export function sanitizeLines(rows, { originId, k } = {}) {
   const byLine = new Map();
   (Array.isArray(rows) ? rows : []).forEach((row) => {
     const n = Number(row?.line);
@@ -19,25 +20,13 @@ export function sanitizeLines(rows, { originId, k, founderId } = {}) {
     const src = byLine.get(i) || {};
     let op = String(src.op || 'EMPTY').toUpperCase();
     if (!OPS.has(op)) op = 'EMPTY';
+    
     let memberId = src.member_id || null;
     let hint = src.hint ? String(src.hint) : null;
 
-    if (i === 0) {
-      op = 'ASSIGN';
-      memberId = originId || memberId || null;
-      hint = hint || 'Origin';
-    }
-
-    if (
-      founderId &&
-      k !== '' &&
-      k != null &&
-      Number.isInteger(Number(k)) &&
-      Number(k) === i
-    ) {
-      op = 'ASSIGN';
-      memberId = founderId;
-      hint = hint || 'MWL';
+    if (src.is_empty && op === 'EMPTY') {
+      memberId = null;
+      hint = null;
     }
 
     if (op === 'ASSIGN') {
@@ -45,7 +34,7 @@ export function sanitizeLines(rows, { originId, k, founderId } = {}) {
     } else {
       memberId = null;
     }
-    if (op === 'EMPTY') hint = hint || null;
+    if (op === 'EMPTY') hint = null;
 
     const siblings = Array.isArray(src.siblings)
       ? src.siblings.map((s, idx) => ({
@@ -54,7 +43,7 @@ export function sanitizeLines(rows, { originId, k, founderId } = {}) {
           member_id: s.member_id || null,
           hint: s.hint || null,
           spouse_id: s.spouse_id || null,
-          spouse_hint: s.hint ? null : s.spouse_hint || null,
+          spouse_hint: s.spouse_hint || null,
         }))
       : [];
 

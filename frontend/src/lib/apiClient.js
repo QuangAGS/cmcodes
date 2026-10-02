@@ -1,11 +1,10 @@
 /**
- * PPATH      : src/lib/apiClient.js
- * OLD PATH   : src/lib/axios.js
- * DATETIME   : 2026-09-02T22:30:00+07:00
- * VERSION    : 14.1.0-FORMDATA
- * DESCRIPTION:
- * - Chuẩn hóa axios instance cho frontend auth.
- * - FormData: xóa Content-Type mặc định để browser gắn boundary (multer).
+ * PATH       : src/lib/apiClient.js
+ * DATETIME   : 2026-09-28T08:00:00+07:00
+ * VERSION    : 14.2.0-AUTH-INTERCEPTOR
+ * DESCRIPTION: Chuẩn hóa axios instance cho frontend auth.
+ *              - Bổ sung Response Interceptor tự động xử lý khi gặp lỗi HTTP 401 (UNAUTHORIZED).
+ * REFERENCE  : Rule applied to AI_3.md & SSOT BFA
  */
 
 import axios from 'axios';
@@ -47,9 +46,27 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+/**
+ * <2026-09-28T08:00:00+07:00>
+ * Purpose: Bắt lỗi 401 tập trung. Nếu Token hết hạn hoặc thiếu Token, tự động xóa Token
+ *          và chuyển hướng về trang đăng nhập để không gửi thêm request rác.
+ */
 apiClient.interceptors.response.use(
   (response) => response,
-  (error) => Promise.reject(error)
+  (error) => {
+    const status = error.response?.status;
+    if (status === 401) {
+      // Dọn dẹp phiên làm việc hết hạn
+      localStorage.removeItem('token');
+      localStorage.removeItem('tenantId');
+      
+      // Chuyển hướng người dùng về màn hình xác thực nếu không ở trang login
+      if (!window.location.pathname.includes('/auth') && !window.location.pathname.includes('/login')) {
+        window.location.href = '/auth?mode=login';
+      }
+    }
+    return Promise.reject(error);
+  }
 );
 
 export default apiClient;

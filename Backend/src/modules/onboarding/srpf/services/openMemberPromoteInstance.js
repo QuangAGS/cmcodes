@@ -1,8 +1,9 @@
 /**
  * PATH       : backend/src/modules/onboarding/srpf/services/openMemberPromoteInstance.js
  * DATETIME   : 2026-08-15T18:30:00+07:00
- * VERSION    : 1.1.0-PR1-process-kind
- * DESCRIPTION: (+ PR-1) process_kind REGISTER khi createCaseFromRegister;
+ * VERSION    : 1.1.1-Fallback prisma
+ * DESCRIPTION: Fallback prisma client an toàn tránh đứt kết nối Transaction
+ *  - (+ PR-1) process_kind REGISTER khi createCaseFromRegister;
              findOpenCaseByUser chỉ RP (process_kind REGISTER).
              
  *  -Open a new MEMBER_PROMOTE (OP) process instance as DRAFT.
@@ -50,7 +51,7 @@ function isUuid(value) {
  * @param {string} params.memberId
  * @param {string} params.tenantId
  * @param {import('@prisma/client').Prisma.TransactionClient|object} params.client
- */
+ 
 async function findOpenOpCase({ memberId, tenantId, client }) {
   const rows = await client.onboarding_cases.findMany({
     where: {
@@ -63,6 +64,55 @@ async function findOpenOpCase({ memberId, tenantId, client }) {
     orderBy: { created_at: 'desc' },
     take: 20,
   });
+
+  // Sau backfill + write path: đủ tin process_kind.
+  // Giữ metadata check nếu muốn dual-read an toàn:
+  return (
+    rows.find((row) => {
+      const meta =
+        row.metadata && typeof row.metadata === 'object' ? row.metadata : {};
+      return meta.process_type === PROCESS_TYPE || row.process_kind === 'MEMBER_PROMOTE';
+    }) || null
+  );
+}
+*/
+/**
+ * DESCRIPTION: Fallback prisma client an toàn tránh đứt kết nối Transaction
+ */
+
+async function findOpenOpCase({ memberId, tenantId, client }) {
+  const queryArgs = {
+    where: {
+      primary_member_id: memberId,
+      tenant_id: tenantId,
+      deleted_at: null,
+      process_kind: 'MEMBER_PROMOTE', // PR-1
+      status: { notIn: [...TERMINAL_STATUSES] },
+    },
+    orderBy: { created_at: 'desc' },
+    take: 20,
+  };
+
+  let rows;
+  const db = client || prisma;
+
+  try {
+    rows = await db.onboarding_cases.findMany(queryArgs);
+  } catch (err) {
+    // Nếu Transaction bị closed connection/timeout, retry bằng instance Prisma gốc ngoài TX
+    const isConnErr =
+      err &&
+      (err.message?.includes('Server has closed the connection') ||
+        err.message?.includes('Transaction API error') ||
+        err.code === 'P2028');
+
+    if (isConnErr) {
+      console.warn('[SRPF_WARN] Transaction client closed. Retry findOpenOpCase via base Prisma.');
+      rows = await prisma.onboarding_cases.findMany(queryArgs);
+    } else {
+      throw err;
+    }
+  }
 
   // Sau backfill + write path: đủ tin process_kind.
   // Giữ metadata check nếu muốn dual-read an toàn:

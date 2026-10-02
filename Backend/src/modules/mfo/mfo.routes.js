@@ -1,8 +1,8 @@
 /**
  * PATH       : src/modules/mfo/mfo.routes.js
- * DATETIME   : 2026-09-25T14:20:00+07:00
- * VERSION    : 1.3.1-B1-ABORT
- * DESCRIPTION: /api/mfo — PLAN + phê + cây + CREATE + abort mềm.
+ * DATETIME   : 2026-09-30T10:30:00+07:00
+ * VERSION    : 1.4.0-GET-FULL-MFO-SET
+ * DESCRIPTION: /api/mfo — PLAN + phê + cây + CREATE + full-set.
  */
 
 const express = require('express');
@@ -19,6 +19,13 @@ router.get(
   verifyToken,
   checkRole(READ),
   mfoController.getOriginTree
+);
+
+router.get(
+  '/origins/:originId/full-set',
+  verifyToken,
+  checkRole(READ),
+  mfoController.getFullMfoSet
 );
 
 router.get('/plans', verifyToken, checkRole(READ), mfoController.listPlans);

@@ -1,8 +1,8 @@
 /**
  * PATH       : src/modules/mfo/mfo.controller.js
- * DATETIME   : 2026-09-17T16:50:00+07:00
- * VERSION    : 1.3.0-MFO-L5
- * DESCRIPTION: HTTP PLAN + phê + cây + CREATE trong PLAN_OK.
+ * DATETIME   : 2026-09-30T10:30:00+07:00
+ * VERSION    : 1.4.0-GET-FULL-MFO-SET
+ * DESCRIPTION: HTTP PLAN + phê + cây + CREATE trong PLAN_OK + getFullMfoSet.
  */
 
 const mfoService = require('./mfo.service');
@@ -97,7 +97,6 @@ const mfoController = {
     }
   },
 
-
   softDeleteMember: async (req, res) => {
     try {
       const data = await mfoService.softDeleteMember({
@@ -157,7 +156,6 @@ const mfoController = {
         user: req.user,
         ticketId: req.params.id,
         unionId: req.params.unionId,
-        body: req.body || {},
       });
       res.status(200).json({ status: 'success', data });
     } catch (error) {
@@ -222,6 +220,19 @@ const mfoController = {
       const data = await mfoService.getOriginTree({
         user: req.user,
         originId: req.params.originId,
+      });
+      res.status(200).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
+  getFullMfoSet: async (req, res) => {
+    try {
+      const data = await mfoService.getFullMfoSet({
+        user: req.user,
+        originId: req.params.originId,
+        k: req.query.k,
       });
       res.status(200).json({ status: 'success', data });
     } catch (error) {
