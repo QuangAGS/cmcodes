@@ -1,12 +1,14 @@
 /**
  * PATH       : src/modules/mfo/mfo.payload.js
- * DATETIME   : 2026-09-26T20:45:00+07:00
- * VERSION    : 1.1.0-WIDTH
- * DESCRIPTION: Chuẩn hoá PLAN 5L. Giữ siblings + spouse trên từng dòng.
+ * DATETIME   : 2026-10-04T20:04:00+07:00
+ * VERSION    : 1.3.1-LAT2-SNAPSHOT-PATCHED
+ * DESCRIPTION: Lát 2. Sanitize Payload & Cắt lọc tinh gọn graph_snapshot / canvas_delta.
+ *              Đã vá bảo tồn isAnonymous, originSource, fallback stroke, và viewport null.
  */
 
 const OPS = new Set(['ASSIGN', 'CREATE', 'EMPTY']);
 const MODES = new Set(['DEPTH', 'WIDTH']);
+const UNASSIGNED_LINK = 'owner:unassigned';
 
 function fail(message, statusCode, code, extra) {
   const err = new Error(message);
@@ -59,37 +61,152 @@ function asLine(raw, index) {
   };
 }
 
+function depthOf(value, label) {
+  const n = Number(value);
+  if (!Number.isInteger(n) || n < 0 || n > 4) {
+    fail(label + ' phải là đời 0 đến 4.', 400, 'MFO_DEPTH_INVALID', { depth: value });
+  }
+  return n;
+}
+
+function linkOf(value) {
+  const link = String(value || '');
+  if (link === UNASSIGNED_LINK) return link;
+  if (/^union:[^:\s]+:children$/.test(link)) return link;
+  fail('link con nháp phải là owner:unassigned hoặc union:<id>:children.', 400, 'MFO_DRAFT_LINK');
+}
+
+function finite(value, fallback) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function sanitizeViewport(rawView) {
+  if (!rawView || typeof rawView !== 'object') return null;
+  const x = Number(rawView.x);
+  const y = Number(rawView.y);
+  const zoom = Number(rawView.zoom);
+
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(zoom) || zoom <= 0) {
+    return null;
+  }
+  return { x, y, zoom };
+}
+
+function sanitizeGraphSnapshot(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const nodes = Array.isArray(raw.nodes) ? raw.nodes : [];
+  const edges = Array.isArray(raw.edges) ? raw.edges : [];
+
+  return {
+    full_set_revision: String(raw.full_set_revision || ''),
+    viewport: sanitizeViewport(raw.viewport),
+    nodes: nodes
+      .map((node) => {
+        const data = node && node.data && typeof node.data === 'object' ? node.data : {};
+        const tabs = Array.isArray(data.tabs) ? data.tabs : [];
+        return {
+          id: String((node && node.id) || ''),
+          type: String((node && node.type) || 'familyCouple'),
+          position: {
+            x: finite(node && node.position && node.position.x, 0),
+            y: finite(node && node.position && node.position.y, 0),
+          },
+          data: {
+            depth: Number(data.depth),
+            clanName: data.clanName || null,
+            partnerName: data.partnerName || null,
+            activeUnionId: data.activeUnionId || null,
+            unassignedCount: Number(data.unassignedCount || 0),
+            isTarget: data.isTarget === true,
+            isAnonymous: data.isAnonymous === true,
+            originSource: data.originSource || null,
+            tabs: tabs.map((tab) => ({
+              unionId: (tab && tab.unionId) || null,
+              order: tab && tab.order != null ? Number(tab.order) : null,
+              partnerName: (tab && tab.partnerName) || null,
+              childCount: Number((tab && tab.childCount) || 0),
+            })),
+          },
+        };
+      })
+      .filter((node) => node.id),
+    edges: edges
+      .map((edge) => ({
+        id: String((edge && edge.id) || ''),
+        source: String((edge && edge.source) || ''),
+        target: String((edge && edge.target) || ''),
+        sourceHandle: (edge && edge.sourceHandle) || null,
+        type: (edge && edge.type) || 'smoothstep',
+        style: {
+          stroke: (edge && edge.style && edge.style.stroke) || '#6366f1',
+          strokeWidth: finite(edge && edge.style && edge.style.strokeWidth, 2),
+          strokeDasharray: (edge && edge.style && edge.style.strokeDasharray) || null,
+        },
+      }))
+      .filter((edge) => edge.id && edge.source && edge.target),
+  };
+}
+
+function sanitizeCanvasDelta(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {};
+  const children = Array.isArray(src.draft_children) ? src.draft_children : [];
+  const spouses = Array.isArray(src.draft_spouses) ? src.draft_spouses : [];
+  const positions = src.node_positions_x && typeof src.node_positions_x === 'object' ? src.node_positions_x : {};
+
+  return {
+    draft_children: children
+      .map((row) => ({
+        id: String((row && row.id) || ''),
+        parent_node_id: String((row && row.parent_node_id) || ''),
+        depth: depthOf(row && row.depth, 'Đời con nháp'),
+        label: String((row && row.label) || ''),
+        link: linkOf(row && row.link),
+      }))
+      .filter((row) => row.id && row.parent_node_id),
+    draft_spouses: spouses
+      .map((row) => {
+        const order = Number(row && row.owner_marriage_order);
+        if (!Number.isInteger(order) || order < 1) {
+          fail('owner_marriage_order phải là số nguyên từ 1.', 400, 'MFO_DRAFT_ORDER');
+        }
+        return {
+          union_id: String(row.union_id || ''),
+          owner_node_id: String(row.owner_node_id || ''),
+          partner_name: String(row.partner_name || ''),
+          owner_marriage_order: order,
+        };
+      })
+      .filter((row) => row.union_id && row.owner_node_id),
+    node_positions_x: Object.fromEntries(
+      Object.entries(positions)
+        .filter(([id, x]) => id && Number.isFinite(Number(x)))
+        .map(([id, x]) => [String(id), Number(x)])
+    ),
+  };
+}
+
 function normalizePlanBody(body) {
   const b = body || {};
-  const originId = b.origin_member_id || null;
-  if (!originId) fail('Thiếu origin_member_id.', 400, 'MFO_ORIGIN_REQUIRED');
+  const targetId = b.target_member_id || null;
+  if (!targetId) fail('Chưa chọn thành viên mốc M.', 400, 'MFO_TARGET_REQUIRED');
 
-  let k = b.k;
-  if (k === '' || k === undefined) k = null;
-  if (k !== null) {
-    k = Number(k);
-    if (!Number.isFinite(k) || k < 0) {
-      fail('k phải là số ≥ 0 hoặc null (chưa trên cây).', 400, 'MFO_K_INVALID');
-    }
-    if (k > 4) {
-      fail(
-        'k > 4: không dùng Origin này làm Dòng 0 của lô. Chọn tổ gần hơn.',
-        422,
-        'MFO_K_TOO_FAR',
-        { k }
-      );
-    }
-  }
+  const selectedCanvasDepth = depthOf(
+    b.selected_canvas_depth != null ? b.selected_canvas_depth : b.k,
+    'Đời của M'
+  );
 
   let lines = Array.isArray(b.lines) ? b.lines.map(asLine) : [];
   if (lines.length === 0) {
-    lines = [
-      { line: 0, op: 'ASSIGN', member_id: originId, hint: 'Origin', siblings: [] },
-      { line: 1, op: 'EMPTY', member_id: null, hint: null, siblings: [] },
-      { line: 2, op: 'EMPTY', member_id: null, hint: null, siblings: [] },
-      { line: 3, op: 'EMPTY', member_id: null, hint: null, siblings: [] },
-      { line: 4, op: 'EMPTY', member_id: null, hint: null, siblings: [] },
-    ];
+    lines = [0, 1, 2, 3, 4].map((line) => ({
+      line,
+      op: 'EMPTY',
+      member_id: null,
+      hint: null,
+      spouse_id: null,
+      spouse_hint: null,
+      siblings: [],
+    }));
   }
   if (lines.length !== 5) {
     fail('5L phải đủ đúng 5 ô (Dòng 0…4).', 400, 'MFO_LINES_COUNT');
@@ -99,28 +216,22 @@ function normalizePlanBody(body) {
     .sort((a, c) => a.line - c.line)
     .map((row, i) => ({ ...row, line: i }));
 
-  if (lines[0].op !== 'ASSIGN' || lines[0].member_id !== originId) {
-    fail('Dòng 0 phải ASSIGN đúng origin_member_id.', 400, 'MFO_LINE0_ORIGIN');
-  }
-
   const mode = String(b.mode || 'DEPTH').toUpperCase();
   if (!MODES.has(mode)) fail('mode phải là DEPTH | WIDTH.', 400, 'MFO_MODE');
 
-  const reuse = Array.isArray(b.reuse_member_ids)
-    ? b.reuse_member_ids.filter(Boolean)
-    : [];
-  if (!reuse.includes(originId)) reuse.unshift(originId);
+  const reuse = Array.isArray(b.reuse_member_ids) ? b.reuse_member_ids.filter(Boolean) : [];
+  if (!reuse.includes(targetId)) reuse.unshift(targetId);
 
   return {
     kind: 'PLAN',
-    origin_member_id: originId,
-    origin_spouse_id: b.origin_spouse_id || lines[0].spouse_id || null,
-    k,
-    k_on_tree: k !== null,
+    target_member_id: targetId,
+    selected_canvas_depth: selectedCanvasDepth,
+    requester_user_id: b.requester_user_id || null,
+    origin_member_id: b.origin_member_id || null,
+    k: selectedCanvasDepth,
+    k_on_tree: true,
     proposed_generation:
-      b.proposed_generation == null || b.proposed_generation === ''
-        ? null
-        : Number(b.proposed_generation),
+      b.proposed_generation == null || b.proposed_generation === '' ? null : Number(b.proposed_generation),
     proposed_branch_id: b.proposed_branch_id || null,
     granted_generation: null,
     granted_branch_id: null,
@@ -128,8 +239,10 @@ function normalizePlanBody(body) {
     anchor_member_id: b.anchor_member_id || null,
     reuse_member_ids: reuse,
     lines,
+    canvas_delta: sanitizeCanvasDelta(b.canvas_delta),
+    graph_snapshot: sanitizeGraphSnapshot(b.graph_snapshot),
     note: b.note || null,
   };
 }
 
-module.exports = { normalizePlanBody, fail, OPS };
+module.exports = { normalizePlanBody, sanitizeCanvasDelta, sanitizeGraphSnapshot, fail, OPS };

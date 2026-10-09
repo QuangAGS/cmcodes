@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MemberSearchSheet.jsx
  * DATETIME   : 2026-09-21T10:10:00+07:00
- * VERSION    : 1.0.0-MS
+ * VERSION    : 5.0.0-COMPLETE-5L-CANVAS-FULL
  * DESCRIPTION: Cửa tìm member dùng chung. Gõ tên → GET q. Cache câu. Làm mới.
  */
 

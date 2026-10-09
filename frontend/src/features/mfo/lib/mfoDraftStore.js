@@ -1,98 +1,21 @@
 /**
  * PATH       : frontend/src/features/mfo/lib/mfoDraftStore.js
- * DATETIME   : 2026-09-22T10:30:00+07:00
- * VERSION    : 1.0.0-DRAFT
- * DESCRIPTION: Nháp tờ 5L trên máy — hiện trong «Tờ khai 5 đời của tôi».
+ * DATETIME   : 2026-10-09T12:35:00+07:00
+ * VERSION    : 6.0.0-SRPF-STAGING-CLEANUP
+ * DESCRIPTION:
+ * - Tuân thủ Q1 (Bảo tồn 100% ranh giới lưu trữ Staging) & Q2 (Code Format & Chú thích đầy đủ).
+ * - Loại bỏ toàn bộ logic lưu trữ nháp đồ thị dưới localStorage ở Client (saveLotDraft, getLotDraft, listLotDrafts)[cite: 38].
+ * - Mọi bản nháp DRAFT nay được lưu trữ Staging 100% trên Database Server qua API saveDraft (bảng proposals)[cite: 27].
+ * - Giữ lại duy nhất hàm clearPickCache() và clearMfoClientOnLogin() để dọn dẹp sessionStorage khi đăng xuất/chuyển phiên[cite: 38].
+ * CHANGELOG  :
+ * - 2026-10-09: Tối giản hóa mfoDraftStore, xóa bỏ hoàn toàn storage nháp client cũ[cite: 38].
  */
 
-const KEY = 'mfo.lotDrafts.v1';
-const ACTIVE = 'mfo.lotDraftActive';
-
-function readAll() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    const list = raw ? JSON.parse(raw) : [];
-    return Array.isArray(list) ? list : [];
-  } catch {
-    return [];
-  }
-}
-
-function writeAll(list) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(list.slice(0, 20)));
-  } catch {
-    /* ignore */
-  }
-}
-
-export function listLotDrafts(userId) {
-  const uid = String(userId || '');
-  return readAll()
-    .filter((d) => !uid || !d.owner_user_id || String(d.owner_user_id) === uid)
-    .sort((a, b) => String(b.updated_at || '').localeCompare(String(a.updated_at || '')));
-}
-
-export function getLotDraft(id, userId) {
-  const row = readAll().find((d) => d.id === id) || null;
-  if (!row) return null;
-  const uid = String(userId || '');
-  if (uid && row.owner_user_id && String(row.owner_user_id) !== uid) return null;
-  return row;
-}
-
-export function getActiveDraftId() {
-  try {
-    return localStorage.getItem(ACTIVE) || '';
-  } catch {
-    return '';
-  }
-}
-
-export function setActiveDraftId(id) {
-  try {
-    if (id) localStorage.setItem(ACTIVE, id);
-    else localStorage.removeItem(ACTIVE);
-  } catch {
-    /* ignore */
-  }
-}
-
-export function saveLotDraft(draft) {
-  if (!draft?.id) return draft;
-  const next = {
-    ...draft,
-    owner_user_id: draft.owner_user_id || draft.user_id || null,
-    updated_at: new Date().toISOString(),
-    kind: 'DRAFT',
-  };
-  const list = readAll().filter((d) => d.id !== next.id);
-  list.unshift(next);
-  writeAll(list);
-  setActiveDraftId(next.id);
-  return next;
-}
-
-export function deleteLotDraft(id) {
-  writeAll(readAll().filter((d) => d.id !== id));
-  if (getActiveDraftId() === id) setActiveDraftId('');
-}
-
-export function newDraftId() {
-  return `draft-${Date.now()}`;
-}
-
-export function clearMfoClientOnLogin() {
-  clearPickCache();
-  try {
-    localStorage.removeItem(ACTIVE);
-  } catch {
-    /* ignore */
-  }
-}
-
+/**
+ * Xóa sạch toàn bộ cache phiên chọn người (mốc M, dòng chọn, vai trò) trên sessionStorage
+ */
 export function clearPickCache() {
-  [
+  const MFO_CACHE_KEYS = [
     'mfo.originPick',
     'mfo.linePick',
     'mfo.spousePick',
@@ -102,11 +25,30 @@ export function clearPickCache() {
     'mfo.siblingIndex',
     'mfo.planDraft',
     'mfo.memberBook',
-  ].forEach((k) => {
+  ];
+
+  MFO_CACHE_KEYS.forEach((key) => {
     try {
-      sessionStorage.removeItem(k);
+      sessionStorage.removeItem(key);
     } catch {
-      /* ignore */
+      /* ignore storage exception */
     }
   });
 }
+
+/**
+ * Xử lý dọn dẹp bộ nhớ đệm client khi người dùng đăng nhập hoặc chuyển đổi tài khoản
+ */
+export function clearMfoClientOnLogin() {
+  clearPickCache();
+  try {
+    localStorage.removeItem('mfo.lotDraftActive');
+  } catch {
+    /* ignore storage exception */
+  }
+}
+
+export default {
+  clearPickCache,
+  clearMfoClientOnLogin,
+};

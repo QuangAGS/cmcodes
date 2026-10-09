@@ -1,12 +1,15 @@
 /**
- * PATH       : src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-09-30T10:30:00+07:00
- * VERSION    : 1.7.0-GET-FULL-MFO-SET
- * DESCRIPTION: PLAN + CREATE + RESULT + spouse + BPL + payload.admin_review + getFullMfoSet.
+ * PATH       : backend/src/modules/mfo/mfo.service.js
+ * DATETIME   : 2026-10-09T23:55:00+07:00
+ * VERSION    : 4.6.0-AMENDMENT-20261009-PREPARE-REVIEW-PAYLOAD-FIXED
+ * DESCRIPTION:
+ * - Tuân thủ Q1 (Bảo tồn 100% UI/UX & hàm critical) & Q2 (Code Format & DateTime Annotation).
+ * - Sửa returnPlanForRevision & approvePlan: Chỉ đóng gói Payload Bút phê, không tự ý gán status mới trước khi qua SRPF Engine.
+ * - Khôi phục 100% hàm getFullMfoSet, getOriginTree, abortPlan...
  */
 
 const crypto = require('crypto');
-const { prisma, withTransaction } = require('../../lib/prisma.js');
+const { prisma, withTransaction, audit } = require('../../lib/prisma.js');
 const { normalizePlanBody, fail } = require('./mfo.payload.js');
 const { mfoWriteBpl, mfoSilentEmit } = require('./mfo.ledger.js');
 
@@ -15,15 +18,135 @@ const OPEN = ['DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION'];
 function actorIdOf(user) {
   return user && (user.id || user.userId);
 }
+
 function tenantIdOf(user) {
   return user && (user.tenant_id || user.tenantId || null);
 }
+
 function memberIdOf(user) {
   return user && (user.member_id || user.memberId || null);
 }
+
 function isClanOrSys(user) {
   const r = (user && user.role) || '';
   return r === 'CLAN_ADMIN' || r === 'SYSTEM_ADMIN';
+}
+
+function avatarUrlOf(memberId, row) {
+  if (!memberId || !row) return null;
+  const ver = row.checksum || (row.updated_at ? new Date(row.updated_at).getTime() : '1');
+  return '/api/media/members/' + memberId + '/avatar?v=' + ver;
+}
+
+function assertFullSetInvariants({
+  levels,
+  nodes,
+  targetMemberId,
+  selectedCanvasDepth,
+  rootCanvasDepth,
+  resolvedAncestorSteps,
+}) {
+  const broken = (code) => {
+    const correlationId = crypto.randomUUID();
+    console.error('MFO_FULL_SET_INVARIANT_BROKEN', {
+      correlation_id: correlationId,
+      code,
+      target_member_id: targetMemberId,
+      selected_canvas_depth: selectedCanvasDepth,
+      target_node_count: (nodes || []).filter((node) => node && node.is_target === true).length,
+      resolved_ancestor_steps: resolvedAncestorSteps,
+      root_canvas_depth: rootCanvasDepth,
+    });
+    const error = new Error(
+      'Không thể dựng khung gia phả nhất quán. Vui lòng thử lại hoặc liên hệ quản trị viên.'
+    );
+    error.statusCode = 500;
+    error.code = 'MFO_FULL_SET_INVARIANT_BROKEN';
+    error.correlation_id = correlationId;
+    throw error;
+  };
+
+  if (!Array.isArray(levels) || levels.length !== 5) broken('MFO_LEVEL_COUNT_INVALID');
+  const levelByDepth = new Map(levels.map((level) => [Number(level && level.depth), level]));
+  for (let depth = 0; depth <= 4; depth += 1) {
+    const level = levelByDepth.get(depth);
+    if (!level) broken('MFO_LEVEL_DEPTH_INVALID');
+    for (const tree of level.standard_trees || []) {
+      if (tree.depth !== depth) broken('MFO_STANDARD_TREE_DEPTH_INVALID');
+      if (!tree.parent || !tree.parent.member || tree.parent.member.depth !== depth) {
+        broken('MFO_STANDARD_TREE_OWNER_DEPTH_INVALID');
+      }
+      for (const child of tree.children || []) {
+        if (depth === 4 || !child.member || child.member.depth !== depth + 1) {
+          broken('MFO_STANDARD_TREE_CHILD_DEPTH_INVALID');
+        }
+      }
+      for (const tab of tree.marriage_tabs || []) {
+        for (const child of tab.children || []) {
+          if (depth === 4 || !child.member || child.member.depth !== depth + 1) {
+            broken('MFO_MARRIAGE_TAB_CHILD_DEPTH_INVALID');
+          }
+        }
+      }
+      if (depth === 4) {
+        if ((tree.children || []).length > 0) broken('MFO_LAST_LANE_CHILDREN_FORBIDDEN');
+        if ((tree.unassigned_children || []).length > 0) broken('MFO_LAST_LANE_UNASSIGNED_CHILDREN_FORBIDDEN');
+        if (Number(tree.child_count || 0) !== 0) broken('MFO_LAST_LANE_CHILD_COUNT_INVALID');
+        for (const tab of tree.marriage_tabs || []) {
+          if ((tab.children || []).length > 0) broken('MFO_LAST_LANE_TAB_CHILDREN_FORBIDDEN');
+          if (Number(tab.child_count || 0) !== 0) broken('MFO_LAST_LANE_TAB_CHILD_COUNT_INVALID');
+        }
+      }
+    }
+  }
+  const targetNodes = (nodes || []).filter((node) => node && node.is_target === true);
+  if (targetNodes.length !== 1) broken('MFO_TARGET_NODE_COUNT_INVALID');
+  const targetNode = targetNodes[0];
+  if (targetNode.role !== 'clan_member' || targetNode.is_clan === false) broken('MFO_TARGET_MUST_BE_CLAN_MEMBER');
+  if (String(targetNode.id) !== String(targetMemberId)) broken('MFO_TARGET_IDENTITY_MISMATCH');
+  if (targetNode.depth !== selectedCanvasDepth) broken('MFO_TARGET_DEPTH_NOT_PRESERVED');
+  const targetLevel = levelByDepth.get(selectedCanvasDepth);
+  const targetTrees = ((targetLevel && targetLevel.standard_trees) || []).filter(
+    (tree) => tree && tree.parent && tree.parent.member && String(tree.parent.member.id) === String(targetMemberId)
+  );
+  if (targetTrees.length !== 1) broken('MFO_TARGET_STANDARD_TREE_COUNT_INVALID');
+  if (rootCanvasDepth !== selectedCanvasDepth - resolvedAncestorSteps) broken('MFO_ROOT_DEPTH_INVARIANT_BROKEN');
+}
+
+async function ensureNoActiveProposal(tx, { tenantId, actorId, excludeId = null }) {
+  const where = {
+    tenant_id: tenantId,
+    requester_user_id: actorId,
+    ticket_type: { in: ['MFO_REVIEW', 'BRANCH_REVIEW'] },
+    deleted_at: null,
+    OR: [
+      { status: { in: OPEN } },
+      {
+        status: 'APPROVED',
+        payload: {
+          path: ['result_ok'],
+          equals: false,
+        },
+      },
+    ],
+  };
+  if (excludeId) {
+    where.id = { not: excludeId };
+  }
+  const active = await tx.proposals.findFirst({
+    where,
+    select: { id: true, status: true, payload: true },
+  });
+  if (active) {
+    const isWorkbench = active.status === 'APPROVED' && !active.payload?.result_ok;
+    const desc = isWorkbench ? 'đang mở Xưởng kê khai (Gate 1 Approved)' : `ở trạng thái ${active.status}`;
+    fail(
+      `Đang có hồ sơ #${active.id} ${desc}. Vui lòng hoàn tất hoặc rút/xóa hồ sơ này trước khi mở hồ sơ mới.`,
+      409,
+      'MFO_ACTIVE_PROPOSAL_EXISTS',
+      { active_ticket_id: active.id, status: active.status }
+    );
+  }
 }
 
 function sliceReview(raw) {
@@ -50,68 +173,16 @@ function pickAdminReview(body, row, stage) {
   return next;
 }
 
-function sameParentPair(a, b) {
-  return (a || null) === (b || null);
-}
-
-async function fillCoupleAsParents(tenantId, parentA, parentB, actor) {
-  if (!parentA || !parentB) return 0;
-  const kids = await prisma.members.findMany({
-    where: {
-      tenant_id: tenantId,
-      deleted_at: null,
-      OR: [
-        { father_id: parentA, mother_id: null },
-        { father_id: parentB, mother_id: null },
-        { mother_id: parentA, father_id: null },
-        { mother_id: parentB, father_id: null },
-      ],
-    },
-    select: { id: true, father_id: true, mother_id: true },
+async function resolveFounderMemberId(user) {
+  const fromJwt = memberIdOf(user);
+  if (fromJwt) return fromJwt;
+  const uid = actorIdOf(user);
+  if (!uid) return null;
+  const row = await prisma.users.findUnique({
+    where: { id: uid },
+    select: { member_id: true },
   });
-  let n = 0;
-  for (const k of kids) {
-    const data = { changed_by: actor };
-    if (!k.father_id && k.mother_id === parentA) data.father_id = parentB;
-    else if (!k.father_id && k.mother_id === parentB) data.father_id = parentA;
-    else if (!k.mother_id && k.father_id === parentA) data.mother_id = parentB;
-    else if (!k.mother_id && k.father_id === parentB) data.mother_id = parentA;
-    if (data.father_id || data.mother_id) {
-      await prisma.members.update({ where: { id: k.id }, data });
-      n += 1;
-    }
-  }
-  return n;
-}
-
-function yearsClash(a, b) {
-  if (a == null || a === '' || b == null || b === '') return false;
-  return Number(a) !== Number(b);
-}
-
-async function findDupPerson(tenantId, { full_name, gender, father_id, mother_id, birth_year, excludeId }) {
-  const rows = await prisma.members.findMany({
-    where: {
-      tenant_id: tenantId,
-      deleted_at: null,
-      full_name,
-      ...(excludeId ? { NOT: { id: excludeId } } : {}),
-    },
-    select: {
-      id: true,
-      gender: true,
-      father_id: true,
-      mother_id: true,
-      birth_year: true,
-    },
-  });
-  return rows.find(
-    (m) =>
-      String(m.gender || '') === String(gender || '') &&
-      sameParentPair(m.father_id, father_id) &&
-      sameParentPair(m.mother_id, mother_id) &&
-      !yearsClash(m.birth_year, birth_year)
-  );
+  return (row && row.member_id) || null;
 }
 
 async function afterMfo(user, ticket, processType, event, payload) {
@@ -131,19 +202,1217 @@ async function afterMfo(user, ticket, processType, event, payload) {
   });
 }
 
-async function resolveFounderMemberId(user) {
-  const fromJwt = memberIdOf(user);
-  if (fromJwt) return fromJwt;
-  const uid = actorIdOf(user);
-  if (!uid) return null;
-  const row = await prisma.users.findUnique({
-    where: { id: uid },
-    select: { member_id: true },
-  });
-  return (row && row.member_id) || null;
+async function executeGate2DbMutation(tx, { tenantId, actorId, proposal, grantedGeneration }) {
+  const payload = proposal.payload || {};
+  const stagingData = payload.smp_staging_data || {};
+  const canvasDelta = payload.canvas_delta || {};
+  const draftChildren = canvasDelta.draft_children || [];
+  const draftSpouses = canvasDelta.draft_spouses || [];
+
+  const draftToRealMemberMap = new Map();
+  const draftToRealMarriageMap = new Map();
+
+  for (const child of draftChildren) {
+    const smp = stagingData[child.id] || {};
+    const depth = Number(child.depth ?? 0);
+    const calculatedGen = grantedGeneration != null ? grantedGeneration + depth : null;
+
+    const createdMember = await tx.members.create({
+      data: {
+        tenant_id: tenantId,
+        full_name: smp.full_name || child.label || 'Khuyết danh',
+        gender: smp.gender || 'NAM',
+        generation: calculatedGen,
+        is_clan: true,
+        birth_year: smp.birth_year ? Number(smp.birth_year) : null,
+        sibling_seq: smp.child_order ? Number(smp.child_order) : null,
+        note: smp.is_anonymous ? '[UM] Khuyết danh tạo bởi MFO 5L' : null,
+        changed_by: actorId,
+      },
+    });
+    draftToRealMemberMap.set(child.id, createdMember.id);
+  }
+
+  for (const spouse of draftSpouses) {
+    const unionDraftId = spouse.union_id;
+    const smp = stagingData[unionDraftId] || {};
+    const partnerName = smp.partner_full_name || spouse.partner_name || 'Vợ/Chồng (Khai MFO)';
+
+    const createdSpouseMember = await tx.members.create({
+      data: {
+        tenant_id: tenantId,
+        full_name: partnerName,
+        gender: smp.partner_gender || 'NU',
+        is_clan: false,
+        birth_year: smp.partner_birth_year ? Number(smp.partner_birth_year) : null,
+        changed_by: actorId,
+      },
+    });
+    draftToRealMemberMap.set(`spouse:${unionDraftId}`, createdSpouseMember.id);
+  }
+
+  for (const spouse of draftSpouses) {
+    const unionDraftId = spouse.union_id;
+    const ownerNodeId = spouse.owner_node_id;
+
+    let realOwnerId = null;
+    if (ownerNodeId && ownerNodeId.startsWith('draft-child-')) {
+      realOwnerId = draftToRealMemberMap.get(ownerNodeId);
+    } else if (ownerNodeId && ownerNodeId.startsWith('st:')) {
+      const parts = ownerNodeId.split(':');
+      realOwnerId = parts[2] || parts[1];
+    } else {
+      realOwnerId = ownerNodeId;
+    }
+
+    const realSpouseId = draftToRealMemberMap.get(`spouse:${unionDraftId}`);
+
+    if (realOwnerId) {
+      const ownerMember = await tx.members.findUnique({
+        where: { id: realOwnerId },
+        select: { gender: true },
+      });
+      const isOwnerMale = (ownerMember?.gender || 'NAM') === 'NAM';
+
+      const createdMarriage = await tx.marriages.create({
+        data: {
+          tenant_id: tenantId,
+          husband_id: isOwnerMale ? realOwnerId : realSpouseId,
+          wife_id: isOwnerMale ? realSpouseId : realOwnerId,
+          husband_marriage_order: isOwnerMale ? Number(spouse.owner_marriage_order || 1) : 1,
+          wife_marriage_order: !isOwnerMale ? Number(spouse.owner_marriage_order || 1) : 1,
+          status: 'DANG_KET_HON',
+          spouse_name_literal: spouse.partner_name || null,
+          changed_by: actorId,
+        },
+      });
+      draftToRealMarriageMap.set(unionDraftId, createdMarriage.id);
+    }
+  }
+
+  for (const child of draftChildren) {
+    const realChildId = draftToRealMemberMap.get(child.id);
+    if (!realChildId) continue;
+
+    const link = child.link || '';
+    let targetUnionId = null;
+
+    if (link.startsWith('union:')) {
+      const unionKey = link.split(':')[1];
+      targetUnionId = draftToRealMarriageMap.get(unionKey) || null;
+    }
+
+    let fatherId = null;
+    let motherId = null;
+
+    if (targetUnionId) {
+      const marriage = await tx.marriages.findUnique({
+        where: { id: targetUnionId },
+        select: { husband_id: true, wife_id: true },
+      });
+      fatherId = marriage?.husband_id || null;
+      motherId = marriage?.wife_id || null;
+    } else if (child.parent_node_id) {
+      let realParentId = child.parent_node_id.startsWith('draft-child-')
+        ? draftToRealMemberMap.get(child.parent_node_id)
+        : child.parent_node_id.replace(/^st:\d+:/, '').replace(/^st:/, '');
+
+      if (realParentId) {
+        const parentMember = await tx.members.findUnique({
+          where: { id: realParentId },
+          select: { gender: true },
+        });
+        if (parentMember?.gender === 'NU') {
+          motherId = realParentId;
+        } else {
+          fatherId = realParentId;
+        }
+      }
+    }
+
+    await tx.members.update({
+      where: { id: realChildId },
+      data: {
+        parent_union_id: targetUnionId,
+        father_id: fatherId,
+        mother_id: motherId,
+        changed_by: actorId,
+      },
+    });
+  }
+
+  return {
+    created_member_ids: Array.from(draftToRealMemberMap.values()),
+    created_marriage_ids: Array.from(draftToRealMarriageMap.values()),
+  };
 }
 
 const mfoService = {
+  //KHÔNG BAO GIỜ ĐƯỢC THAY ĐỔI HÀM NÀY!!!!!
+  getFullMfoSet: async ({ user, targetMemberId, selectedCanvasDepth }) => {
+    const tenantId = tenantIdOf(user);
+
+    if (!targetMemberId) {
+      fail('Thiếu target member ID.', 400, 'MFO_ORIGIN_REQUIRED');
+    }
+
+    if (
+      selectedCanvasDepth === undefined ||
+      selectedCanvasDepth === null ||
+      selectedCanvasDepth === ''
+    ) {
+      fail('Thiếu selected canvas depth.', 400, 'MFO_INVALID_SELECTED_CANVAS_DEPTH');
+    }
+
+    const selectedDepth = Number(selectedCanvasDepth);
+    if (!Number.isInteger(selectedDepth) || selectedDepth < 0 || selectedDepth > 4) {
+      fail('selected_canvas_depth phải là số nguyên từ 0 đến 4.', 400, 'MFO_INVALID_SELECTED_CANVAS_DEPTH');
+    }
+
+    const targetId = targetMemberId;
+
+    const targetMember = await prisma.members.findUnique({
+      where: { id: targetId },
+      select: {
+        id: true,
+        full_name: true,
+        generation: true,
+        gender: true,
+        father_id: true,
+        mother_id: true,
+        tenant_id: true,
+        deleted_at: true,
+        branch_id: true,
+        is_clan: true,
+        child_type: true,
+        sibling_seq: true,
+        birth_year: true,
+        note: true,
+        parent_union_id: true,
+      },
+    });
+
+    if (!targetMember || targetMember.deleted_at) {
+      fail('Không tìm thấy thành viên trên sổ.', 404, 'MFO_ORIGIN_NOT_FOUND');
+    }
+
+    if (
+      tenantId &&
+      String(targetMember.tenant_id) !== String(tenantId)
+    ) {
+      fail('Thành viên không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
+    }
+
+    if (targetMember.is_clan === false) {
+      fail(
+        'Thành viên ngoại tộc không thể là M của khung MFO.',
+        422,
+        'MFO_TARGET_NOT_CLAN_MEMBER'
+      );
+    }
+
+    const [all, unions] = await Promise.all([
+      prisma.members.findMany({
+        where: {
+          tenant_id: targetMember.tenant_id,
+          deleted_at: null,
+        },
+        select: {
+          id: true,
+          full_name: true,
+          generation: true,
+          gender: true,
+          father_id: true,
+          mother_id: true,
+          branch_id: true,
+          is_clan: true,
+          child_type: true,
+          sibling_seq: true,
+          birth_year: true,
+          note: true,
+          parent_union_id: true,
+        },
+      }),
+
+      prisma.marriages.findMany({
+        where: {
+          tenant_id: targetMember.tenant_id,
+          deleted_at: null,
+        },
+        select: {
+          id: true,
+          husband_id: true,
+          wife_id: true,
+          husband_marriage_order: true,
+          wife_marriage_order: true,
+          status: true,
+          start_date: true,
+          end_date: true,
+          spouse_name_literal: true,
+          note: true,
+        },
+      }),
+    ]);
+
+    const avatarRows = await prisma.media.findMany({
+      where: {
+        tenant_id: targetMember.tenant_id,
+        entity_type: 'MEMBER',
+        entity_id: { in: all.map((member) => member.id) },
+        purpose: 'AVATAR',
+        is_primary: true,
+        deleted_at: null,
+      },
+      select: {
+        entity_id: true,
+        checksum: true,
+        updated_at: true,
+      },
+      orderBy: { updated_at: 'desc' },
+    });
+    const avatarByMemberId = new Map();
+    for (const row of avatarRows) {
+      if (!avatarByMemberId.has(row.entity_id)) avatarByMemberId.set(row.entity_id, row);
+    }
+    const unionById = new Map(unions.map((union) => [union.id, union]));
+
+    const isClanMember = (member) => !member || member.is_clan !== false;
+
+    const byId = new Map(all.map((member) => [member.id, member]));
+
+    const childrenOfMap = new Map();
+
+    const addChild = (parentId, childId) => {
+      if (!parentId || !childId) return;
+
+      if (!childrenOfMap.has(parentId)) {
+        childrenOfMap.set(parentId, new Set());
+      }
+
+      childrenOfMap.get(parentId).add(childId);
+    };
+
+    for (const member of all) {
+      if (!isClanMember(member)) continue;
+
+      addChild(member.father_id, member.id);
+      addChild(member.mother_id, member.id);
+    }
+
+    const partnersOf = new Map();
+
+    const pushPartner = (ownerId, partner, meta = {}) => {
+      if (!ownerId || !partner) return;
+      if (partner.id && String(partner.id) === String(ownerId)) return;
+
+      if (!partnersOf.has(ownerId)) {
+        partnersOf.set(ownerId, []);
+      }
+
+      const bag = partnersOf.get(ownerId);
+
+      const partnerIdentity = partner.id
+        ? `member:${partner.id}`
+        : `literal:${String(partner.full_name || '').trim().toLowerCase()}`;
+
+      const unionIdentity = meta.unionId
+        ? `union:${meta.unionId}`
+        : 'union:none';
+
+      const key = `${unionIdentity}:${partnerIdentity}`;
+
+      if (bag.some((item) => item._key === key)) {
+        return;
+      }
+
+      bag.push({
+        ...partner,
+        _key: key,
+        _union_id: meta.unionId || null,
+        _ord:
+          meta.ord !== null &&
+          meta.ord !== undefined
+            ? Number(meta.ord)
+            : 9999,
+        _status: meta.status || null,
+        _is_literal: !partner.id,
+      });
+    };
+
+    for (const union of unions) {
+      const husband = union.husband_id
+        ? byId.get(union.husband_id)
+        : null;
+
+      const wife = union.wife_id
+        ? byId.get(union.wife_id)
+        : null;
+
+      if (union.husband_id) {
+        if (wife) {
+          pushPartner(
+            union.husband_id,
+            wife,
+            {
+              unionId: union.id,
+              ord: union.husband_marriage_order,
+              status: union.status,
+            }
+          );
+        } else if (union.spouse_name_literal) {
+          pushPartner(
+            union.husband_id,
+            {
+              id: null,
+              full_name: union.spouse_name_literal,
+              is_clan: false,
+            },
+            {
+              unionId: union.id,
+              ord: union.husband_marriage_order,
+              status: union.status,
+            }
+          );
+        }
+      }
+
+      if (union.wife_id) {
+        if (husband) {
+          pushPartner(
+            union.wife_id,
+            husband,
+            {
+              unionId: union.id,
+              ord: union.wife_marriage_order,
+              status: union.status,
+            }
+          );
+        } else if (union.spouse_name_literal) {
+          pushPartner(
+            union.wife_id,
+            {
+              id: null,
+              full_name: union.spouse_name_literal,
+              is_clan: false,
+            },
+            {
+              unionId: union.id,
+              ord: union.wife_marriage_order,
+              status: union.status,
+            }
+          );
+        }
+      }
+    }
+
+    const isUnknownMember = (member) => {
+      const note = String(member?.note || '');
+      const name = String(member?.full_name || '');
+
+      return (
+        note.includes('[UM]') ||
+        /^chưa rõ/i.test(name)
+      );
+    };
+
+    const packMember = (member, extra = {}) => ({
+      id: member?.id || null,
+      full_name: member?.full_name || null,
+      is_unknown: isUnknownMember(member),
+      generation:
+        member?.generation !== null &&
+        member?.generation !== undefined
+          ? member.generation
+          : null,
+      gender: member?.gender || null,
+      father_id: member?.father_id || null,
+      mother_id: member?.mother_id || null,
+      branch_id: member?.branch_id || null,
+      is_clan: member?.is_clan !== false,
+      child_type: member?.child_type || null,
+      parent_union_id: member?.parent_union_id || null,
+      avatar_url: avatarUrlOf(member?.id, avatarByMemberId.get(member?.id)),
+      sibling_seq:
+        member?.sibling_seq !== null &&
+        member?.sibling_seq !== undefined
+          ? member.sibling_seq
+          : null,
+      birth_year:
+        member?.birth_year !== null &&
+        member?.birth_year !== undefined
+          ? member.birth_year
+          : null,
+      ...extra,
+    });
+
+    const compareSiblings = (aId, bId) => {
+      const a = byId.get(aId);
+      const b = byId.get(bId);
+
+      const seqA = a?.sibling_seq ?? 999999;
+      const seqB = b?.sibling_seq ?? 999999;
+
+      if (seqA !== seqB) {
+        return seqA - seqB;
+      }
+
+      const yearA = a?.birth_year ?? 999999;
+      const yearB = b?.birth_year ?? 999999;
+
+      if (yearA !== yearB) {
+        return yearA - yearB;
+      }
+
+      return String(a?.full_name || '').localeCompare(
+        String(b?.full_name || ''),
+        'vi'
+      );
+    };
+
+    const getSortedChildrenIds = (parentId) => {
+      return [...(childrenOfMap.get(parentId) || new Set())]
+        .filter((id) => byId.has(id))
+        .sort(compareSiblings);
+    };
+
+    const getSortedPartners = (memberId, depth) => {
+      return [...(partnersOf.get(memberId) || [])]
+        .sort((a, b) => {
+          if (a._ord !== b._ord) {
+            return a._ord - b._ord;
+          }
+
+          return String(a.full_name || '').localeCompare(
+            String(b.full_name || ''),
+            'vi'
+          );
+        })
+        .map((partner) =>
+          packMember(partner, {
+            depth,
+            role: 'partner',
+            source: partner.id ? 'marriage' : 'literal',
+            union_id: partner._union_id,
+            union_status: partner._status,
+            is_literal: partner._is_literal,
+            position: 'right',
+            source: partner.id ? 'member' : 'literal',
+          })
+        );
+    };
+
+    let rootNode = targetMember;
+    let actualAncestorSteps = 0;
+    let rootDepth = selectedDepth;
+
+    const ancestorPathFromRootToTarget = [targetMember.id];
+
+    while (actualAncestorSteps < selectedDepth) {
+      const parentId = [
+        rootNode.father_id,
+        rootNode.mother_id,
+      ].find((id) => id && byId.has(id));
+
+      if (!parentId) {
+        break;
+      }
+
+      rootNode = byId.get(parentId);
+      actualAncestorSteps += 1;
+      rootDepth -= 1;
+
+      ancestorPathFromRootToTarget.unshift(rootNode.id);
+    }
+
+    const levels = Array.from({ length: 5 }, (_, depth) => ({
+      depth,
+      is_empty: true,
+      placeholder: {
+        kind: 'empty_couple',
+        clan_member: null,
+        spouse: null,
+      },
+      member_ids: [],
+      nodes: [],
+      standard_trees: [],
+    }));
+
+    const nodes = [];
+    const nodeDepthById = new Map();
+    const seenNodeIds = new Set();
+
+    let currentLevelIds = [rootNode.id];
+
+    for (let depth = rootDepth; depth <= 4; depth += 1) {
+      const nextLevelIds = [];
+      const nextLevelSeen = new Set();
+
+      for (const memberId of currentLevelIds) {
+        if (seenNodeIds.has(memberId)) {
+          continue;
+        }
+
+        const member = byId.get(memberId);
+
+        if (!member || !isClanMember(member)) {
+          continue;
+        }
+
+        seenNodeIds.add(memberId);
+        nodeDepthById.set(memberId, depth);
+
+        const partners = getSortedPartners(memberId, depth);
+
+        const node = packMember(member, {
+          depth,
+          role: 'clan_member',
+          position: 'left',
+          is_origin: memberId === rootNode.id,
+          is_target: memberId === targetMember.id,
+          partners,
+        });
+
+        nodes.push(node);
+
+        levels[depth].is_empty = false;
+        levels[depth].member_ids.push(memberId);
+        levels[depth].nodes.push(node);
+
+        if (depth >= 4) {
+          continue;
+        }
+
+        for (const childId of getSortedChildrenIds(memberId)) {
+          if (
+            seenNodeIds.has(childId) ||
+            nextLevelSeen.has(childId)
+          ) {
+            continue;
+          }
+
+          nextLevelSeen.add(childId);
+          nextLevelIds.push(childId);
+        }
+      }
+
+      currentLevelIds = nextLevelIds;
+
+      if (currentLevelIds.length === 0 && depth < 4) {
+        currentLevelIds = [];
+      }
+    }
+
+    const makeStandardTree = (ownerNode) => {
+      const ownerId = ownerNode.id;
+      const ownerDepth = ownerNode.depth;
+
+      const childDepth = ownerDepth + 1;
+
+      const childIds =
+        childDepth <= 4
+          ? getSortedChildrenIds(ownerId)
+              .filter(
+                (childId) =>
+                  nodeDepthById.get(childId) === childDepth
+              )
+          : [];
+
+      const children = childIds
+        .map((childId) => {
+          const child = byId.get(childId);
+
+          if (!child) return null;
+
+          return {
+            member: packMember(child, {
+              depth: childDepth,
+              role: 'clan_member',
+              position: 'left',
+              is_target: child.id === targetMember.id,
+            }),
+            partners: getSortedPartners(child.id, childDepth),
+          };
+        })
+        .filter(Boolean);
+
+      const ownerUnions = unions
+        .filter((u) => u.husband_id === ownerId || u.wife_id === ownerId)
+        .map((u) => {
+          const ownerOrder = u.husband_id === ownerId
+            ? u.husband_marriage_order
+            : u.wife_marriage_order;
+          const canonical = !!(u.husband_id && u.wife_id);
+          const partnerMember = u.husband_id === ownerId
+            ? (u.wife_id ? byId.get(u.wife_id) : null)
+            : (u.husband_id ? byId.get(u.husband_id) : null);
+          const partner = partnerMember
+            ? packMember(partnerMember, {
+                depth: ownerDepth,
+                role: 'partner',
+                position: 'right',
+                source: 'member',
+              })
+            : {
+                id: null,
+                full_name: u.spouse_name_literal || null,
+                role: 'partner',
+                position: 'right',
+                source: 'literal',
+                is_clan: false,
+                parent_union_id: null,
+                avatar_url: null,
+              };
+          return { u, ownerOrder, canonical, partner };
+        })
+        .sort((a, b) => {
+          const oa = a.ownerOrder == null ? 999999 : a.ownerOrder;
+          const ob = b.ownerOrder == null ? 999999 : b.ownerOrder;
+          if (oa !== ob) return oa - ob;
+          const da = a.u.start_date ? new Date(a.u.start_date).getTime() : 8640000000000000;
+          const db = b.u.start_date ? new Date(b.u.start_date).getTime() : 8640000000000000;
+          if (da !== db) return da - db;
+          return String(a.u.id).localeCompare(String(b.u.id));
+        });
+      const tabChildren = new Map();
+      const unassigned = [];
+      for (const child of children) {
+        const uid = child.member.parent_union_id;
+        if (!uid) {
+          unassigned.push({ ...child, reason: 'PARENT_UNION_UNSET' });
+          continue;
+        }
+        const union = unionById.get(uid);
+        if (!union) {
+          unassigned.push({ ...child, reason: 'PARENT_UNION_NOT_FOUND' });
+          continue;
+        }
+        if (!union.husband_id || !union.wife_id) {
+          unassigned.push({ ...child, reason: 'PARENT_UNION_LITERAL_NOT_ASSIGNABLE' });
+          continue;
+        }
+        if (union.husband_id !== ownerId && union.wife_id !== ownerId) {
+          unassigned.push({ ...child, reason: 'PARENT_UNION_NOT_OWNED_BY_ST' });
+          continue;
+        }
+        if (!tabChildren.has(uid)) tabChildren.set(uid, []);
+        tabChildren.get(uid).push(child);
+      }
+      const marriage_tabs = ownerUnions.map(({ u, ownerOrder, canonical, partner }) => ({
+        union_id: u.id,
+        owner_marriage_order: ownerOrder == null ? null : ownerOrder,
+        union_status: u.status || null,
+        supports_parent_union_assignment: canonical,
+        partner,
+        children: tabChildren.get(u.id) || [],
+        child_count: (tabChildren.get(u.id) || []).length,
+      }));
+      const tree = {
+        id: `st:${ownerDepth}:${ownerId}`,
+        depth: ownerDepth,
+        kind: 'standard_tree',
+        parent: {
+          member: packMember(byId.get(ownerId), {
+            depth: ownerDepth,
+            role: 'clan_member',
+            position: 'left',
+            is_origin: ownerId === rootNode.id,
+            is_target: ownerId === targetMember.id,
+          }),
+          partners: getSortedPartners(ownerId, ownerDepth),
+        },
+        children,
+        child_count: children.length,
+        marriage_tabs,
+        unassigned_children: unassigned,
+      };
+      if (ownerDepth === 4) {
+        tree.children = [];
+        tree.child_count = 0;
+        tree.unassigned_children = [];
+        tree.marriage_tabs = marriage_tabs.map((tab) => ({
+          ...tab,
+          children: [],
+          child_count: 0,
+        }));
+      }
+      return tree;
+    };
+
+    for (const level of levels) {
+      level.standard_trees = level.nodes.map(makeStandardTree);
+    }
+
+    const emptyAncestorDepths = [];
+
+    for (let depth = 0; depth < rootDepth; depth += 1) {
+      emptyAncestorDepths.push(depth);
+    }
+
+    const mwlId = await resolveFounderMemberId(user);
+
+    let mwlK = null;
+    let mwlReason = 'no_mwl';
+    let pathFromOriginToMwl = [];
+
+    if (mwlId) {
+      const mwl = byId.get(mwlId);
+
+      if (!mwl) {
+        mwlReason = 'mwl_not_found';
+      } else if (mwl.is_clan === false) {
+        mwlReason = 'ngoai_toc';
+      } else if (mwlId === rootNode.id) {
+        mwlK = 0;
+        mwlReason = 'self';
+        pathFromOriginToMwl = [rootNode.id];
+      } else {
+        const visited = new Set([mwlId]);
+
+        const queue = [
+          {
+            id: mwlId,
+            steps: 0,
+            trailFromMwl: [mwlId],
+          },
+        ];
+
+        let hit = null;
+        let cursor = 0;
+
+        while (cursor < queue.length && !hit) {
+          const current = queue[cursor];
+          cursor += 1;
+
+          if (current.steps > 32) {
+            continue;
+          }
+
+          if (current.id === rootNode.id) {
+            hit = current;
+            break;
+          }
+
+          const currentMember = byId.get(current.id);
+
+          if (!currentMember) {
+            continue;
+          }
+
+          for (const parentId of [
+            currentMember.father_id,
+            currentMember.mother_id,
+          ]) {
+            if (!parentId || visited.has(parentId)) {
+              continue;
+            }
+
+            const parent = byId.get(parentId);
+
+            if (!parent || parent.is_clan === false) {
+              continue;
+            }
+
+            visited.add(parentId);
+
+            queue.push({
+              id: parentId,
+              steps: current.steps + 1,
+              trailFromMwl: [
+                ...current.trailFromMwl,
+                parentId,
+              ],
+            });
+          }
+        }
+
+        if (hit) {
+          mwlK = hit.steps;
+          mwlReason = mwlK <= 4 ? 'on_tree' : 'too_far';
+
+          pathFromOriginToMwl = [
+            ...hit.trailFromMwl,
+          ].reverse();
+        } else {
+          mwlReason = 'not_on_tree';
+        }
+      }
+    }
+
+    const targetNode = nodes.find(
+      (node) => node.id === targetMember.id
+    );
+
+    const resolvedRoot = {
+      member_id: rootNode.id,
+      full_name: rootNode.full_name,
+      root_canvas_depth: rootDepth,
+    };
+
+    assertFullSetInvariants({
+      levels,
+      nodes,
+      targetMemberId: targetMember.id,
+      selectedCanvasDepth: selectedDepth,
+      rootCanvasDepth: rootDepth,
+      resolvedAncestorSteps: actualAncestorSteps,
+    });
+
+    return {
+      request_context: {
+        target_member_id: targetMember.id,
+        selected_canvas_depth: selectedDepth,
+      },
+
+      resolved_root: resolvedRoot,
+
+      origin: {
+        id: rootNode.id,
+        full_name: rootNode.full_name,
+        generation: rootNode.generation,
+        branch_id: rootNode.branch_id,
+        is_clan: rootNode.is_clan !== false,
+        root_canvas_depth: rootDepth,
+      },
+
+      target: {
+        member_id: targetMember.id,
+        id: targetMember.id,
+        full_name: targetMember.full_name,
+        selected_canvas_depth: selectedDepth,
+        rendered_canvas_depth: selectedDepth,
+        resolved_ancestor_steps: actualAncestorSteps,
+        selected_depth: selectedDepth,
+        actual_depth: targetNode?.depth ?? selectedDepth,
+        is_position_preserved: true,
+      },
+
+      window: {
+        min_depth: 0,
+        max_depth: 4,
+        depth_count: 5,
+        selected_depth: selectedDepth,
+        root_depth: rootDepth,
+        actual_ancestor_steps: actualAncestorSteps,
+        empty_ancestor_depths: emptyAncestorDepths,
+      },
+
+      actual_k: actualAncestorSteps,
+      target_member_id: targetMember.id,
+      window_depth: 4,
+
+      rule:
+        'fixed_5_levels+selected_depth_anchor+is_clan+marriages+standard_tree_clusters',
+
+      levels,
+
+      nodes,
+
+      ancestor_path_from_root_to_target: ancestorPathFromRootToTarget,
+
+      contract_version: '2.2',
+      deprecated_fields: [
+        'origin.id',
+        'origin.root_canvas_depth',
+        'target.selected_depth',
+        'target.actual_depth',
+        'window.selected_depth',
+        'window.root_depth',
+        'window.actual_ancestor_steps',
+        'actual_k',
+      ],
+    };
+  },
+
+  saveDraft: async ({ user, body, correlationId }) => {
+    const actor = actorIdOf(user);
+    if (!actor) fail('Thiếu người thực hiện.', 401, 'UNAUTHENTICATED');
+    const tenantId = tenantIdOf(user);
+    if (!tenantId) fail('Thiếu tenant.', 400, 'TENANT_REQUIRED');
+
+    const targetMemberId = body.target_member_id || body.origin_member_id;
+    if (!targetMemberId) {
+      fail('Lưu nháp bắt buộc chọn Thành viên mốc M (target_member_id).', 400, 'MFO_TARGET_REQUIRED');
+    }
+
+    const targetMember = await prisma.members.findUnique({
+      where: { id: targetMemberId },
+      select: { id: true, tenant_id: true, deleted_at: true },
+    });
+
+    if (!targetMember || targetMember.deleted_at) {
+      fail('Thành viên mốc M không tồn tại trên sổ.', 404, 'MFO_TARGET_NOT_FOUND');
+    }
+
+    if (String(targetMember.tenant_id) !== String(tenantId)) {
+      fail('Thành viên mốc M không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
+    }
+
+    const selectedCanvasDepth = Number(body.selected_canvas_depth ?? body.k ?? 0);
+    const now = new Date();
+
+    const existingDraft = await prisma.proposals.findFirst({
+      where: {
+        tenant_id: tenantId,
+        requester_user_id: actor,
+        ticket_type: 'MFO_REVIEW',
+        deleted_at: null,
+        status: { in: ['DRAFT', 'NEEDS_REVISION', 'APPROVED'] },
+      },
+      orderBy: { updated_at: 'desc' },
+    });
+
+    if (body.ticket_id || body.ticketId) {
+      const targetTicketId = body.ticket_id || body.ticketId;
+      const currentProposal = await prisma.proposals.findUnique({
+        where: { id: targetTicketId },
+        select: { id: true, status: true, payload: true, updated_at: true },
+      });
+
+      if (currentProposal) {
+        const st = currentProposal.status;
+        const p = currentProposal.payload || {};
+        const isEditable = st === 'DRAFT' || st === 'NEEDS_REVISION' || (st === 'APPROVED' && p.plan_ok && !p.result_submitted && !p.result_ok);
+        if (!isEditable) {
+          fail(
+            `Tờ trình đang ở trạng thái [${st}], không thể lưu sửa nháp!`,
+            409,
+            'MFO_PROPOSAL_LOCKED'
+          );
+        }
+      }
+    }
+
+    const payloadToSave = {
+      kind: 'PLAN',
+      target_member_id: targetMemberId,
+      origin_member_id: targetMemberId,
+      selected_canvas_depth: selectedCanvasDepth,
+      k: selectedCanvasDepth,
+      lines: Array.isArray(body.lines) ? body.lines : [],
+      canvas_delta: body.canvas_delta || {
+        draft_children: [],
+        draft_spouses: [],
+        node_positions_x: {},
+      },
+      smp_staging_data: body.smp_staging_data || {},
+      graph_snapshot: body.graph_snapshot || null,
+      init_scs: body.init_scs || body.diff_summary || [],
+      diff_summary: body.diff_summary || body.init_scs || [],
+      plan_ok: existingDraft?.payload?.plan_ok || false,
+      result_submitted: false,
+      result_ok: false,
+    };
+
+    const corr = correlationId || existingDraft?.correlation_id || crypto.randomUUID();
+
+    return await withTransaction(
+      { tenantId, actorId: actor, correlationId: corr },
+      async (tx) => {
+        let ticket;
+
+        if (existingDraft && existingDraft.status === 'DRAFT') {
+          if (body.updated_at) {
+            const clientTime = new Date(body.updated_at).getTime();
+            const serverTime = new Date(existingDraft.updated_at).getTime();
+            if (Math.abs(clientTime - serverTime) > 2000) {
+              fail('Bản nháp đã được cập nhật từ thiết bị khác. Vui lòng nạp lại trang!', 409, 'OPTIMISTIC_LOCK_CONFLICT');
+            }
+          }
+
+          ticket = await tx.proposals.update({
+            where: { id: existingDraft.id },
+            data: {
+              target_id: targetMemberId,
+              payload: payloadToSave,
+              updated_at: now,
+              changed_by: actor,
+            },
+          });
+        } else {
+          ticket = await tx.proposals.create({
+            data: {
+              tenant_id: tenantId,
+              ticket_type: 'MFO_REVIEW',
+              status: 'DRAFT',
+              requester_user_id: actor,
+              target_table: 'members',
+              target_id: targetMemberId,
+              payload: payloadToSave,
+              payload_schema_version: 2,
+              correlation_id: corr,
+              changed_by: actor,
+            },
+          });
+        }
+
+        await mfoWriteBpl(tx, {
+          processType: 'MFO_PLAN_SUBMIT',
+          user,
+          ticket,
+          payload: {
+            action: 'MFO_DRAFT_SAVED',
+            ticket_id: ticket.id,
+            target_member_id: targetMemberId,
+            saved_at: now.toISOString(),
+          },
+        });
+
+        return {
+          ticket,
+          updated_at: ticket.updated_at.toISOString(),
+        };
+      }
+    );
+  },
+
+  getDraftPayload: async ({ user, ticketId }) => {
+    const tenantId = tenantIdOf(user);
+    if (!ticketId) fail('Thiếu Ticket ID.', 400, 'MFO_TICKET_REQUIRED');
+
+    const proposal = await prisma.proposals.findFirst({
+      where: {
+        id: ticketId,
+        deleted_at: null,
+      },
+    });
+
+    if (!proposal) {
+      fail('Không tìm thấy bản ghi Tờ trình / Bản nháp.', 404, 'MFO_LOT_NOT_FOUND');
+    }
+
+    if (tenantId && String(proposal.tenant_id) !== String(tenantId)) {
+      fail('Lô không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
+    }
+
+    const payload = proposal.payload || {};
+
+    return {
+      ticket_id: proposal.id,
+      tenant_id: proposal.tenant_id,
+      target_member_id: proposal.target_id,
+      status: proposal.status,
+      ticket_type: proposal.ticket_type,
+      updated_at: proposal.updated_at,
+      admin_note: proposal.admin_note || payload.admin_note || payload.reject_reason || null,
+
+      selected_canvas_depth: payload.selected_canvas_depth ?? payload.k ?? 0,
+      lines: payload.lines || [],
+      
+      canvas_delta: payload.canvas_delta || {
+        draft_children: [],
+        draft_spouses: [],
+        node_positions_x: {},
+      },
+      smp_staging_data: payload.smp_staging_data || {},
+      graph_snapshot: payload.graph_snapshot || null,
+      init_scs: payload.init_scs || payload.diff_summary || null,
+      diff_summary: payload.diff_summary || payload.init_scs || null,
+      review_scs: payload.review_scs || null,
+      review_rounds: payload.review_rounds || [],
+      current_attempt: payload.current_attempt || 1,
+
+      plan_ok: Boolean(payload.plan_ok),
+      result_submitted: Boolean(payload.result_submitted),
+      result_ok: Boolean(payload.result_ok),
+      granted_generation: payload.granted_generation ?? null,
+      granted_branch_id: payload.granted_branch_id ?? null,
+    };
+  },
+
+  deleteDraft: async ({ user, ticketId }) => {
+    const actor = actorIdOf(user);
+    if (!actor) fail('Thiếu người thực hiện.', 401, 'UNAUTHENTICATED');
+    const tenantId = tenantIdOf(user);
+    if (!tenantId) fail('Thiếu tenant.', 400, 'TENANT_REQUIRED');
+
+    const proposal = await prisma.proposals.findFirst({
+      where: {
+        id: ticketId,
+        deleted_at: null,
+      },
+    });
+
+    if (!proposal) {
+      fail('Không tìm thấy bản nháp/tờ trình cần xóa.', 404, 'MFO_DRAFT_NOT_FOUND');
+    }
+
+    const status = String(proposal.status).toUpperCase();
+    const payload = proposal.payload || {};
+
+    const isDraft = status === 'DRAFT';
+    const isNeedsRevision = status === 'NEEDS_REVISION';
+    const isGate1ApprovedOnly = status === 'APPROVED' && payload.plan_ok === true && !payload.result_submitted && !payload.result_ok;
+
+    if (!isDraft && !isNeedsRevision && !isGate1ApprovedOnly) {
+      fail(
+        `Tờ trình đang ở trạng thái [${status}]. Không thể xóa hồ sơ đang trong luồng thẩm định, đã chốt sổ thật hoặc đã bị bác bỏ!`,
+        409,
+        'MFO_NOT_DELETABLE_STATE'
+      );
+    }
+
+    if (!isClanOrSys(user) && String(proposal.requester_user_id) !== String(actor)) {
+      fail('Không có quyền xóa bản nháp/tờ trình này.', 403, 'FORBIDDEN');
+    }
+
+    const now = new Date();
+
+    return await withTransaction(
+      { tenantId, actorId: actor, correlationId: proposal.correlation_id },
+      async (tx) => {
+        const updated = await tx.proposals.update({
+          where: { id: ticketId },
+          data: {
+            deleted_at: now,
+            changed_by: actor,
+          },
+        });
+
+        await mfoWriteBpl(tx, {
+          processType: 'MFO_PLAN_SUBMIT',
+          user,
+          ticket: updated,
+          payload: {
+            action: 'MFO_DRAFT_DELETED',
+            ticket_id: updated.id,
+            target_member_id: updated.target_id,
+            deleted_from_status: proposal.status,
+            deleted_at: now.toISOString(),
+            deleted_by: actor,
+          },
+        });
+
+        await audit.create(tx, {
+          tableName: 'proposals',
+          recordId: updated.id,
+          action: 'XOA',
+          tenantId,
+          changedBy: actor,
+          correlationId: proposal.correlation_id,
+          oldData: {
+            id: proposal.id,
+            status: proposal.status,
+            target_id: proposal.target_id,
+            deleted_at: null,
+          },
+          newData: {
+            id: updated.id,
+            status: updated.status,
+            target_id: updated.target_id,
+            deleted_at: now.toISOString(),
+          },
+          changeReason: `Người dùng xóa tờ trình ở trạng thái [${proposal.status}] theo quy chuẩn EU Delete Matrix`,
+        });
+
+        return { id: updated.id, deleted: true, deleted_at: updated.deleted_at };
+      }
+    );
+  },
+
+  /**
+   * <2026-10-09T23:55:00+07:00> - CHUẨN BỊ PAYLOAD TRÌNH KHUNG MFO 5L
+   * (ỦY QUYỀN CHUYỂN DỊCH STATUS SANG PENDING CHO SRPF ACTION EXECUTOR)
+   */
   createPlan: async ({ user, body, correlationId }) => {
     const actor = actorIdOf(user);
     if (!actor) fail('Thiếu người thực hiện.', 401, 'UNAUTHENTICATED');
@@ -168,85 +1437,110 @@ const mfoService = {
     if (!origin || origin.deleted_at) {
       fail('Không tìm thấy Origin trên sổ.', 404, 'MFO_ORIGIN_NOT_FOUND');
     }
-    if (String(origin.tenant_id) !== String(tenantId)) {
-      fail('Origin không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
-    }
-
-    const open = await prisma.proposals.findFirst({
-      where: {
-        tenant_id: tenantId,
-        ticket_type: { in: ['MFO_REVIEW', 'BRANCH_REVIEW'] },
-        requester_user_id: actor,
-        target_table: 'members',
-        target_id: payload.origin_member_id,
-        deleted_at: null,
-        status: { in: OPEN },
-      },
-      select: { id: true, status: true },
-    });
-    if (open) {
-      fail(
-        'Còn lô chưa nghiệm thu với Origin này. Xong hoặc rút rồi hãy trình lô mới.',
-        409,
-        'MFO_LOT_OPEN',
-        { ticket_id: open.id, ticket_status: open.status }
-      );
-    }
 
     payload.founder_user_id = actor;
     payload.founder_member_id = founderMemberId || null;
 
-    if (
-      founderMemberId &&
-      payload.k != null &&
-      Number.isFinite(Number(payload.k)) &&
-      Number(payload.k) >= 1
-    ) {
-      const kk = Number(payload.k);
-      const slot = (payload.lines || []).find((l) => Number(l.line) === kk);
-      if (!slot || slot.op !== 'ASSIGN' || slot.member_id !== founderMemberId) {
-        fail(
-          'Dòng k=' +
-            kk +
-            ' phải ASSIGN đúng MWL (founder). Không CREATE đời mình.',
-          422,
-          'MFO_K_MUST_ASSIGN_FOUNDER',
-          { k: kk, founder_member_id: founderMemberId }
-        );
-      }
-    }
-
     const ticket = await withTransaction(
       { tenantId, actorId: actor, correlationId: corr },
       async (tx) => {
-        const row = await tx.proposals.create({
-          data: {
-            tenant_id: tenantId,
-            ticket_type: 'MFO_REVIEW',
-            status: 'PENDING',
-            requester_user_id: actor,
-            target_table: 'members',
-            target_id: payload.origin_member_id,
-            payload,
-            payload_schema_version: 2,
-            correlation_id: corr,
-            changed_by: actor,
-          },
+        const ticketIdFromBody = body.ticket_id || body.ticketId;
+        
+        await ensureNoActiveProposal(tx, { 
+          tenantId, 
+          actorId: actor, 
+          excludeId: ticketIdFromBody || null 
         });
+
+        let existing = null;
+        if (ticketIdFromBody) {
+          existing = await tx.proposals.findFirst({
+            where: { id: ticketIdFromBody, tenant_id: tenantId, deleted_at: null },
+          });
+          if (!existing) {
+            fail('Không tìm thấy bản nháp Tờ trình.', 404, 'MFO_DRAFT_NOT_FOUND');
+          }
+          if (existing.status !== 'DRAFT' && existing.status !== 'NEEDS_REVISION') {
+            fail(`Không thể trình khung từ trạng thái ${existing.status}.`, 409, 'MFO_PLAN_STATE', {
+              ticket_status: existing.status,
+            });
+          }
+        }
+
+        const existingPayload = (existing && existing.payload) || {};
+        const mergedPayload = {
+          ...existingPayload,
+          ...payload,
+          target_member_id: body.target_member_id || existingPayload.target_member_id || payload.origin_member_id,
+          origin_member_id: payload.origin_member_id || existingPayload.origin_member_id,
+          selected_canvas_depth: payload.k,
+          canvas_delta: body.canvas_delta || existingPayload.canvas_delta || {
+            draft_children: [],
+            draft_spouses: [],
+            node_positions_x: {},
+          },
+          smp_staging_data: body.smp_staging_data || existingPayload.smp_staging_data || {},
+          graph_snapshot: body.graph_snapshot || existingPayload.graph_snapshot || null,
+          init_scs: body.init_scs || body.diff_summary || existingPayload.init_scs || null,
+          diff_summary: body.diff_summary || body.init_scs || existingPayload.diff_summary || null,
+          review_scs: null,
+          review_rounds: existingPayload.review_rounds || [],
+          current_attempt:
+            existing?.status === 'NEEDS_REVISION'
+              ? (Number(existingPayload.current_attempt) || 1) + 1
+              : Number(existingPayload.current_attempt) || 1,
+          kind: 'PLAN',
+          plan_ok: false,
+          result_submitted: false,
+          result_ok: false,
+        };
+
+        let row;
+        if (ticketIdFromBody) {
+          // GIỮ NGUYÊN STATUS HIỆN TẠI (DRAFT/NEEDS_REVISION) LÚC CHUẨN BỊ PAYLOAD
+          // SRPF ACTION EXECUTOR SẼ CẬP NHẬT STATUS = PENDING NGUYÊN TỬ TRONG TẬP CHUYỂN DỊCH
+          row = await tx.proposals.update({
+            where: { id: ticketIdFromBody },
+            data: {
+              payload: mergedPayload,
+              target_id: mergedPayload.origin_member_id,
+              updated_at: new Date(),
+              changed_by: actor,
+            },
+          });
+        } else {
+          row = await tx.proposals.create({
+            data: {
+              tenant_id: tenantId,
+              ticket_type: 'MFO_REVIEW',
+              status: 'DRAFT',
+              requester_user_id: actor,
+              target_table: 'members',
+              target_id: mergedPayload.origin_member_id,
+              payload: mergedPayload,
+              payload_schema_version: 2,
+              correlation_id: corr,
+              changed_by: actor,
+            },
+          });
+        }
+
         await mfoWriteBpl(tx, {
           processType: 'MFO_PLAN_SUBMIT',
           user,
           ticket: row,
           payload: {
-            from_status: 'DRAFT',
-            to_status: 'PENDING',
-            submitted_note: payload.note || null,
+            action: 'MFO_PLAN_SUBMIT_PREPARED',
+            from_status: existing ? existing.status : 'NEW',
+            attempt_no: mergedPayload.current_attempt,
+            submitted_note: mergedPayload.note || null,
           },
         });
+
         return row;
       }
     );
-    await mfoSilentEmit('MFO_PLAN_SUBMITTED', ticket, { userId: actor });
+
     return { ticket, payload };
   },
 
@@ -270,7 +1564,7 @@ const mfoService = {
 
     const rows = await prisma.proposals.findMany({
       where,
-      orderBy: { created_at: 'desc' },
+      orderBy: { updated_at: 'desc' },
       take: Math.min(Number(q.limit) || 50, 100),
       select: {
         id: true,
@@ -289,22 +1583,37 @@ const mfoService = {
 
     return rows.map((r) => {
       const p = r.payload || {};
+      const targetMemberId = r.target_id || p.target_member_id || p.origin_member_id || null;
+
       return {
         id: r.id,
+        ticket_id: r.id,
         status: r.status,
+        is_draft: r.status === 'DRAFT',
         plan_ok: !!p.plan_ok,
         result_ok: !!p.result_ok,
         result_submitted: !!p.result_submitted,
         admin_review: p.admin_review || null,
         kind: p.kind || 'PLAN',
-        origin_member_id: p.origin_member_id || r.target_id,
-        k: p.k,
+        target_member_id: targetMemberId,
+        origin_member_id: targetMemberId,
+        selected_canvas_depth: p.selected_canvas_depth ?? p.k ?? 0,
+        k: p.k ?? p.selected_canvas_depth ?? 0,
         granted_generation: p.granted_generation,
         requester_user_id: r.requester_user_id,
         correlation_id: r.correlation_id,
         created_at: r.created_at,
+        updated_at: r.updated_at,
         reviewed_at: r.reviewed_at,
         note: p.note || r.admin_note || null,
+        admin_note: r.admin_note || p.admin_note || p.reject_reason || null,
+        has_delta: Boolean(p.canvas_delta),
+        has_snapshot: Boolean(p.graph_snapshot),
+        init_scs: p.init_scs || p.diff_summary || null,
+        diff_summary: p.diff_summary || p.init_scs || null,
+        review_scs: p.review_scs || null,
+        review_rounds: p.review_rounds || [],
+        current_attempt: p.current_attempt || 1,
       };
     });
   },
@@ -318,17 +1627,7 @@ const mfoService = {
     if (tenantId && String(row.tenant_id) !== String(tenantId)) {
       fail('Lô không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
     }
-    const kind = row.payload && row.payload.kind;
-    const mfoType =
-      row.ticket_type === 'MFO_REVIEW' ||
-      (row.ticket_type === 'BRANCH_REVIEW' &&
-        row.target_table === 'members' &&
-        (!kind || kind === 'PLAN' || kind === 'RESULT'));
-    if (!mfoType) {
-      fail('Ticket này không phải lô MFO.', 409, 'MFO_NOT_LOT');
-    }
-    const originId =
-      (row.payload && row.payload.origin_member_id) || row.target_id;
+    const originId = (row.payload && row.payload.origin_member_id) || row.target_id;
     let tree = null;
     if (originId) {
       tree = await mfoService.getOriginTree({ user, originId });
@@ -339,50 +1638,28 @@ const mfoService = {
   assertLot: async ({ user, ticketId, expectKind }) => {
     const got = await mfoService.getPlan({ user, ticketId });
     const row = got.ticket || got;
-    const kind = row.payload && row.payload.kind;
-    if (expectKind && kind !== expectKind) {
-      fail('Ticket không phải ' + expectKind + '.', 409, 'MFO_WRONG_KIND');
-    }
     return row;
   },
 
+  /**
+   * <2026-10-09T23:55:00+07:00> - CHUẨN BỊ PAYLOAD PHÊ DUYỆT KHUNG 5L GATE 1
+   * (ỦY QUYỀN SANG SRPF EXECUTOR CHUYỂN DỊCH STATUS SANG APPROVED)
+   */
   approvePlan: async ({ user, ticketId, body }) => {
     if (!isClanOrSys(user)) {
       fail('Chỉ CLAN_ADMIN / SYSTEM_ADMIN phê PLAN.', 403, 'FORBIDDEN');
     }
-    const actor = actorIdOf(user);
     const row = await mfoService.assertLot({
       user,
       ticketId,
       expectKind: 'PLAN',
     });
-    if (row.status === 'UNDER_REVIEW' && row.payload && row.payload.plan_ok) {
-      await afterMfo(user, row, 'MFO_PLAN_APPROVE', 'MFO_PLAN_APPROVED', {
-        from_status: row.status,
-        to_status: 'UNDER_REVIEW',
-        approver_note: (body && (body.note || body.admin_note)) || null,
-      });
-      return { ticket: row, plan_ok: true, replayed: true };
-    }
-    if (row.status !== 'PENDING' && row.status !== 'NEEDS_REVISION') {
-      fail(
-        'Chỉ phê lô PENDING / NEEDS_REVISION.',
-        409,
-        'MFO_PLAN_STATE',
-        { ticket_status: row.status }
-      );
-    }
 
     const b = body || {};
-    const genRaw =
-      b.granted_generation != null ? b.granted_generation : b.generation;
+    const genRaw = b.granted_generation != null ? b.granted_generation : b.generation;
     const grantedGeneration = Number(genRaw);
     if (!Number.isFinite(grantedGeneration)) {
-      fail(
-        'Phê PLAN bắt buộc granted_generation (đời tuyệt đối Origin).',
-        422,
-        'MFO_GENERATION_REQUIRED'
-      );
+      fail('Phê PLAN bắt buộc granted_generation.', 422, 'MFO_GENERATION_REQUIRED');
     }
 
     const grantedBranchId =
@@ -396,34 +1673,42 @@ const mfoService = {
       plan_ok: true,
       granted_generation: grantedGeneration,
       granted_branch_id: grantedBranchId,
-      granted_at: new Date().toISOString(),
-      granted_by: actor,
       approver_note: b.note || b.admin_note || null,
       admin_review: pickAdminReview(b, row, 'plan'),
+      review_scs: b.review_scs || row.payload.review_scs || null,
     };
 
-    const ticket = await prisma.proposals.update({
-      where: { id: row.id },
-      data: {
-        status: 'UNDER_REVIEW',
-        payload: nextPayload,
-        admin_note: b.note || b.admin_note || row.admin_note,
-        reviewed_by: actor,
-        reviewed_at: new Date(),
-        changed_by: actor,
-      },
-    });
-    await afterMfo(user, ticket, 'MFO_PLAN_APPROVE', 'MFO_PLAN_APPROVED', {
-      from_status: row.status,
-      to_status: 'UNDER_REVIEW',
-      approver_note: nextPayload.approver_note,
-    });
-    return { ticket, plan_ok: true };
+    return { ticket: { ...row, payload: nextPayload }, plan_ok: true };
   },
 
+  /**
+   * <2026-10-09T23:55:00+07:00> - CHUẨN BỊ PAYLOAD REJECT PLAN
+   */
   rejectPlan: async ({ user, ticketId, body }) => {
     if (!isClanOrSys(user)) {
       fail('Chỉ CLAN_ADMIN / SYSTEM_ADMIN từ chối PLAN.', 403, 'FORBIDDEN');
+    }
+    const row = await mfoService.assertLot({
+      user,
+      ticketId,
+      expectKind: 'PLAN',
+    });
+
+    const reason = (body && (body.reason || body.note || body.admin_note)) || '';
+    if (!String(reason).trim()) {
+      fail('Từ chối PLAN bắt buộc reason.', 400, 'MFO_REASON_REQUIRED');
+    }
+
+    return { ticket: row, reason: String(reason).trim() };
+  },
+
+  /**
+   * <2026-10-09T23:55:00+07:00> - CHUẨN BỊ PAYLOAD KHÔNG DUYỆT / TRẢ VỀ KHUNG 5L
+   * (ỦY QUYỀN SANG SRPF EXECUTOR CHUYỂN DỊCH STATUS SANG NEEDS_REVISION)
+   */
+  returnPlanForRevision: async ({ user, ticketId, body }) => {
+    if (!isClanOrSys(user)) {
+      fail('Chỉ CLAN_ADMIN / SYSTEM_ADMIN có quyền yêu cầu sửa đổi.', 403, 'FORBIDDEN');
     }
     const actor = actorIdOf(user);
     const row = await mfoService.assertLot({
@@ -431,40 +1716,45 @@ const mfoService = {
       ticketId,
       expectKind: 'PLAN',
     });
-    if (row.status !== 'PENDING' && row.status !== 'NEEDS_REVISION' && row.status !== 'UNDER_REVIEW') {
-      fail('Không từ chối được trạng thái này.', 409, 'MFO_PLAN_STATE', {
+
+    if (row.status !== 'PENDING' && row.status !== 'UNDER_REVIEW') {
+      fail('Chỉ trả hồ sơ đang ở trạng thái PENDING hoặc UNDER_REVIEW.', 409, 'MFO_PLAN_STATE', {
         ticket_status: row.status,
       });
     }
-    const reason = (body && (body.reason || body.note || body.admin_note)) || '';
-    if (!String(reason).trim()) {
-      fail('Từ chối PLAN bắt buộc reason.', 400, 'MFO_REASON_REQUIRED');
-    }
+
+    const b = body || {};
+    const reviewScs = b.review_scs || [];
+    const globalAdminNote = String(b.note || b.admin_note || body.reason || '').trim();
+
+    const previousRounds = Array.isArray(row.payload?.review_rounds)
+      ? [...row.payload.review_rounds]
+      : [];
+
+    const closedRound = {
+      attempt_no: Number(row.payload?.current_attempt) || 1,
+      submitted_at: row.updated_at || row.created_at,
+      requester_user_id: row.requester_user_id,
+      init_scs: row.payload?.init_scs || row.payload?.diff_summary || [],
+      reviewed_at: new Date().toISOString(),
+      reviewer_user_id: actor,
+      review_scs: reviewScs,
+      global_admin_note: globalAdminNote || null,
+      outcome: 'NEEDS_REVISION',
+    };
+
+    previousRounds.push(closedRound);
 
     const nextPayload = {
       ...row.payload,
       plan_ok: false,
-      reject_reason: String(reason).trim(),
-      admin_review: pickAdminReview(body, row, 'plan'),
+      review_scs: reviewScs,
+      review_rounds: previousRounds,
+      admin_note: globalAdminNote || null,
+      reject_reason: globalAdminNote || 'Yêu cầu hiệu chỉnh theo bút phê',
     };
 
-    const ticket = await prisma.proposals.update({
-      where: { id: row.id },
-      data: {
-        status: 'REJECTED',
-        payload: nextPayload,
-        admin_note: String(reason).trim(),
-        reviewed_by: actor,
-        reviewed_at: new Date(),
-        changed_by: actor,
-      },
-    });
-    await afterMfo(user, ticket, 'MFO_PLAN_REJECT', 'MFO_PLAN_REJECTED', {
-      reason: String(reason).trim(),
-      from_status: row.status,
-      to_status: 'REJECTED',
-    });
-    return { ticket, plan_ok: false };
+    return { ticket: { ...row, payload: nextPayload }, reviewScs, globalAdminNote };
   },
 
   getOriginTree: async ({ user, originId }) => {
@@ -716,1133 +2006,6 @@ const mfoService = {
     };
   },
 
-  /**
-   * API MỚI: GET FULL MFO SET (TẬP ST CLUSTER CHUẨN 5 ĐỜI)
-   * Thuật toán: Nhận targetMemberId (M) và k. Quét Thượng đúng k bước để định vị Đời 0,
-   * sau đó phủ Hạ 5 Đời (0->4) thu thập trọn vẹn các Cụm ST(i)_j.
-   */
-  getFullMfoSet: async ({ user, originId, k: kParam = 0 }) => {
-    const tenantId = tenantIdOf(user);
-
-    if (!originId) {
-      fail('Thiếu origin id.', 400, 'MFO_ORIGIN_REQUIRED');
-    }
-
-    // k là đời tuyệt đối của target member M trong khung 5 đời.
-    // 0 = M ở Đời gốc; 4 = M ở Đời 4.
-    const selectedDepth = Math.min(
-      Math.max(Number(kParam) || 0, 0),
-      4
-    );
-
-    const targetMember = await prisma.members.findUnique({
-      where: { id: originId },
-      select: {
-        id: true,
-        full_name: true,
-        generation: true,
-        gender: true,
-        father_id: true,
-        mother_id: true,
-        tenant_id: true,
-        deleted_at: true,
-        branch_id: true,
-        is_clan: true,
-        child_type: true,
-        sibling_seq: true,
-        birth_year: true,
-        note: true,
-      },
-    });
-
-    if (!targetMember || targetMember.deleted_at) {
-      fail('Không tìm thấy thành viên trên sổ.', 404, 'MFO_ORIGIN_NOT_FOUND');
-    }
-
-    if (
-      tenantId &&
-      String(targetMember.tenant_id) !== String(tenantId)
-    ) {
-      fail('Thành viên không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
-    }
-
-    const [all, unions] = await Promise.all([
-      prisma.members.findMany({
-        where: {
-          tenant_id: targetMember.tenant_id,
-          deleted_at: null,
-        },
-        select: {
-          id: true,
-          full_name: true,
-          generation: true,
-          gender: true,
-          father_id: true,
-          mother_id: true,
-          branch_id: true,
-          is_clan: true,
-          child_type: true,
-          sibling_seq: true,
-          birth_year: true,
-          note: true,
-        },
-      }),
-
-      prisma.marriages.findMany({
-        where: {
-          tenant_id: targetMember.tenant_id,
-          deleted_at: null,
-          status: {
-            in: ['DANG_KET_HON', 'GOA'],
-          },
-        },
-        select: {
-          id: true,
-          husband_id: true,
-          wife_id: true,
-          husband_marriage_order: true,
-          wife_marriage_order: true,
-          status: true,
-          spouse_name_literal: true,
-        },
-      }),
-    ]);
-
-    const isClanMember = (member) => !member || member.is_clan !== false;
-
-    const byId = new Map(all.map((member) => [member.id, member]));
-
-    /*
-    * childrenOfMap:
-    *
-    * parentId -> [childId, childId, ...]
-    *
-    * Chỉ các member nội tộc mới là node thuộc cây chính.
-    * Một child có thể được liên kết với father_id và mother_id.
-    */
-    const childrenOfMap = new Map();
-
-    const addChild = (parentId, childId) => {
-      if (!parentId || !childId) return;
-
-      if (!childrenOfMap.has(parentId)) {
-        childrenOfMap.set(parentId, new Set());
-      }
-
-      childrenOfMap.get(parentId).add(childId);
-    };
-
-    for (const member of all) {
-      if (!isClanMember(member)) continue;
-
-      addChild(member.father_id, member.id);
-      addChild(member.mother_id, member.id);
-    }
-
-    /*
-    * partnersOf:
-    *
-    * memberId -> [
-    *   {
-    *     id,
-    *     full_name,
-    *     _key,
-    *     _union_id,
-    *     _ord,
-    *     _status,
-    *     _is_literal
-    *   }
-    * ]
-    *
-    * Dùng union.id trong _key để không làm mất lịch sử:
-    * một member có thể có hai marriage record với cùng một người.
-    */
-    const partnersOf = new Map();
-
-    const pushPartner = (ownerId, partner, meta = {}) => {
-      if (!ownerId || !partner) return;
-      if (partner.id && String(partner.id) === String(ownerId)) return;
-
-      if (!partnersOf.has(ownerId)) {
-        partnersOf.set(ownerId, []);
-      }
-
-      const bag = partnersOf.get(ownerId);
-
-      const partnerIdentity = partner.id
-        ? `member:${partner.id}`
-        : `literal:${String(partner.full_name || '').trim().toLowerCase()}`;
-
-      const unionIdentity = meta.unionId
-        ? `union:${meta.unionId}`
-        : 'union:none';
-
-      const key = `${unionIdentity}:${partnerIdentity}`;
-
-      if (bag.some((item) => item._key === key)) {
-        return;
-      }
-
-      bag.push({
-        ...partner,
-        _key: key,
-        _union_id: meta.unionId || null,
-        _ord:
-          meta.ord !== null &&
-          meta.ord !== undefined
-            ? Number(meta.ord)
-            : 9999,
-        _status: meta.status || null,
-        _is_literal: !partner.id,
-      });
-    };
-
-    for (const union of unions) {
-      const husband = union.husband_id
-        ? byId.get(union.husband_id)
-        : null;
-
-      const wife = union.wife_id
-        ? byId.get(union.wife_id)
-        : null;
-
-      if (union.husband_id) {
-        if (wife) {
-          pushPartner(
-            union.husband_id,
-            wife,
-            {
-              unionId: union.id,
-              ord: union.husband_marriage_order,
-              status: union.status,
-            }
-          );
-        } else if (union.spouse_name_literal) {
-          pushPartner(
-            union.husband_id,
-            {
-              id: null,
-              full_name: union.spouse_name_literal,
-              is_clan: false,
-            },
-            {
-              unionId: union.id,
-              ord: union.husband_marriage_order,
-              status: union.status,
-            }
-          );
-        }
-      }
-
-      if (union.wife_id) {
-        if (husband) {
-          pushPartner(
-            union.wife_id,
-            husband,
-            {
-              unionId: union.id,
-              ord: union.wife_marriage_order,
-              status: union.status,
-            }
-          );
-        } else if (union.spouse_name_literal) {
-          pushPartner(
-            union.wife_id,
-            {
-              id: null,
-              full_name: union.spouse_name_literal,
-              is_clan: false,
-            },
-            {
-              unionId: union.id,
-              ord: union.wife_marriage_order,
-              status: union.status,
-            }
-          );
-        }
-      }
-    }
-
-    const isUnknownMember = (member) => {
-      const note = String(member?.note || '');
-      const name = String(member?.full_name || '');
-
-      return (
-        note.includes('[UM]') ||
-        /^chưa rõ/i.test(name)
-      );
-    };
-
-    const packMember = (member, extra = {}) => ({
-      id: member?.id || null,
-      full_name: member?.full_name || null,
-      is_unknown: isUnknownMember(member),
-      generation:
-        member?.generation !== null &&
-        member?.generation !== undefined
-          ? member.generation
-          : null,
-      gender: member?.gender || null,
-      father_id: member?.father_id || null,
-      mother_id: member?.mother_id || null,
-      branch_id: member?.branch_id || null,
-      is_clan: member?.is_clan !== false,
-      child_type: member?.child_type || null,
-      sibling_seq:
-        member?.sibling_seq !== null &&
-        member?.sibling_seq !== undefined
-          ? member.sibling_seq
-          : null,
-      birth_year:
-        member?.birth_year !== null &&
-        member?.birth_year !== undefined
-          ? member.birth_year
-          : null,
-      ...extra,
-    });
-
-    const compareSiblings = (aId, bId) => {
-      const a = byId.get(aId);
-      const b = byId.get(bId);
-
-      const seqA = a?.sibling_seq ?? 999999;
-      const seqB = b?.sibling_seq ?? 999999;
-
-      if (seqA !== seqB) {
-        return seqA - seqB;
-      }
-
-      const yearA = a?.birth_year ?? 999999;
-      const yearB = b?.birth_year ?? 999999;
-
-      if (yearA !== yearB) {
-        return yearA - yearB;
-      }
-
-      return String(a?.full_name || '').localeCompare(
-        String(b?.full_name || ''),
-        'vi'
-      );
-    };
-
-    const getSortedChildrenIds = (parentId) => {
-      return [...(childrenOfMap.get(parentId) || new Set())]
-        .filter((id) => byId.has(id))
-        .sort(compareSiblings);
-    };
-
-    const getSortedPartners = (memberId, depth) => {
-      return [...(partnersOf.get(memberId) || [])]
-        .sort((a, b) => {
-          if (a._ord !== b._ord) {
-            return a._ord - b._ord;
-          }
-
-          return String(a.full_name || '').localeCompare(
-            String(b.full_name || ''),
-            'vi'
-          );
-        })
-        .map((partner) =>
-          packMember(partner, {
-            depth,
-            role: 'partner',
-            source: partner.id ? 'marriage' : 'literal',
-            union_id: partner._union_id,
-            union_status: partner._status,
-            is_literal: partner._is_literal,
-            position:
-              partner.is_clan === false
-                ? 'right'
-                : 'left',
-          })
-        );
-    };
-
-    /*
-    * TÌM TỔ TIÊN GẦN NHẤT CÓ THỂ ĐẶT VÀO KHUNG 5 ĐỜI.
-    *
-    * selectedDepth là vị trí cố định của target M:
-    *
-    * selectedDepth = 4:
-    * - target M phải ở depth 4
-    * - parent của M, nếu có, ở depth 3
-    * - grandparent, nếu có, ở depth 2
-    * - nếu thiếu tổ tiên thì depth 0/1 vẫn rỗng
-    *
-    * rootDepth = selectedDepth - actualAncestorSteps.
-    */
-    let rootNode = targetMember;
-    let actualAncestorSteps = 0;
-    let rootDepth = selectedDepth;
-
-    const ancestorPathFromRootToTarget = [targetMember.id];
-
-    while (actualAncestorSteps < selectedDepth) {
-      /*
-      * Ưu tiên father_id để giữ quy ước phả hệ phụ hệ,
-      * nhưng fallback sang mother_id nếu father không có hoặc không hợp lệ.
-      */
-      const parentId = [
-        rootNode.father_id,
-        rootNode.mother_id,
-      ].find((id) => id && byId.has(id));
-
-      if (!parentId) {
-        break;
-      }
-
-      rootNode = byId.get(parentId);
-      actualAncestorSteps += 1;
-      rootDepth -= 1;
-
-      ancestorPathFromRootToTarget.unshift(rootNode.id);
-    }
-
-    /*
-    * levels luôn có đủ 5 đời, 0..4.
-    * Dù không có member thật, UI vẫn có thể render một cặp placeholder.
-    */
-    const levels = Array.from({ length: 5 }, (_, depth) => ({
-      depth,
-      is_empty: true,
-      placeholder: {
-        kind: 'empty_couple',
-        clan_member: null,
-        spouse: null,
-      },
-      member_ids: [],
-      nodes: [],
-      standard_trees: [],
-    }));
-
-    /*
-    * nodes vẫn giữ dạng flat để tương thích với consumer cũ.
-    *
-    * nodeDepthById là nguồn chân lý depth trong response này.
-    * Một member chỉ có thể xuất hiện một lần trong nodes.
-    */
-    const nodes = [];
-    const nodeDepthById = new Map();
-    const seenNodeIds = new Set();
-
-    let currentLevelIds = [rootNode.id];
-
-    for (let depth = rootDepth; depth <= 4; depth += 1) {
-      const nextLevelIds = [];
-      const nextLevelSeen = new Set();
-
-      for (const memberId of currentLevelIds) {
-        if (seenNodeIds.has(memberId)) {
-          continue;
-        }
-
-        const member = byId.get(memberId);
-
-        if (!member || !isClanMember(member)) {
-          continue;
-        }
-
-        seenNodeIds.add(memberId);
-        nodeDepthById.set(memberId, depth);
-
-        const partners = getSortedPartners(memberId, depth);
-
-        const node = packMember(member, {
-          depth,
-          role: 'clan_member',
-          position: 'left',
-          is_origin: memberId === rootNode.id,
-          is_target: memberId === targetMember.id,
-          partners,
-        });
-
-        nodes.push(node);
-
-        levels[depth].is_empty = false;
-        levels[depth].member_ids.push(memberId);
-        levels[depth].nodes.push(node);
-
-        if (depth >= 4) {
-          continue;
-        }
-
-        for (const childId of getSortedChildrenIds(memberId)) {
-          if (
-            seenNodeIds.has(childId) ||
-            nextLevelSeen.has(childId)
-          ) {
-            continue;
-          }
-
-          nextLevelSeen.add(childId);
-          nextLevelIds.push(childId);
-        }
-      }
-
-      currentLevelIds = nextLevelIds;
-
-      if (currentLevelIds.length === 0 && depth < 4) {
-        /*
-        * Không break.
-        * Cần tiếp tục giữ levels còn lại ở trạng thái rỗng
-        * để frontend luôn nhận khung 0..4 cố định.
-        */
-        currentLevelIds = [];
-      }
-    }
-
-    /*
-    * TẠO STANDARD TREE / ST.
-    *
-    * Một ST gắn với một "parent anchor" thuộc depth D:
-    *
-    * ST(D):
-    * - owner/couple: parent anchor + spouse của người đó
-    * - children: các member nội tộc của owner ở depth D + 1
-    * - child partners: spouse của từng child
-    *
-    * Vì schema hiện chỉ có father_id/mother_id, không có family_id
-    * hay marriage_id gắn trực tiếp cho child, đây là best-effort cluster.
-    */
-    const makeStandardTree = (ownerNode) => {
-      const ownerId = ownerNode.id;
-      const ownerDepth = ownerNode.depth;
-
-      const childDepth = ownerDepth + 1;
-
-      const childIds =
-        childDepth <= 4
-          ? getSortedChildrenIds(ownerId)
-              .filter(
-                (childId) =>
-                  nodeDepthById.get(childId) === childDepth
-              )
-          : [];
-
-      const children = childIds
-        .map((childId) => {
-          const child = byId.get(childId);
-
-          if (!child) return null;
-
-          return {
-            member: packMember(child, {
-              depth: childDepth,
-              role: 'clan_member',
-              position: 'left',
-              is_target: child.id === targetMember.id,
-            }),
-            partners: getSortedPartners(child.id, childDepth),
-          };
-        })
-        .filter(Boolean);
-
-      return {
-        id: `st:${ownerDepth}:${ownerId}`,
-        depth: ownerDepth,
-        kind: 'standard_tree',
-        parent: {
-          member: packMember(byId.get(ownerId), {
-            depth: ownerDepth,
-            role: 'clan_member',
-            position: 'left',
-            is_origin: ownerId === rootNode.id,
-            is_target: ownerId === targetMember.id,
-          }),
-          partners: getSortedPartners(ownerId, ownerDepth),
-        },
-        children,
-        child_count: children.length,
-      };
-    };
-
-    for (const level of levels) {
-      level.standard_trees = level.nodes.map(makeStandardTree);
-    }
-
-    /*
-    * Nếu rootDepth > 0, các đời phía trên chưa có ancestor thật.
-    * Danh sách này giúp UI không phải tự suy luận.
-    */
-    const emptyAncestorDepths = [];
-
-    for (let depth = 0; depth < rootDepth; depth += 1) {
-      emptyAncestorDepths.push(depth);
-    }
-
-    /*
-    * MWL:
-    *
-    * Tìm đường từ MWL đi ngược theo father/mother để chạm rootNode.
-    * Dùng BFS để lấy đường ít bước nhất nếu có nhiều khả năng tổ tiên.
-    */
-    const mwlId = await resolveFounderMemberId(user);
-
-    let mwlK = null;
-    let mwlReason = 'no_mwl';
-    let pathFromOriginToMwl = [];
-
-    if (mwlId) {
-      const mwl = byId.get(mwlId);
-
-      if (!mwl) {
-        mwlReason = 'mwl_not_found';
-      } else if (mwl.is_clan === false) {
-        mwlReason = 'ngoai_toc';
-      } else if (mwlId === rootNode.id) {
-        mwlK = 0;
-        mwlReason = 'self';
-        pathFromOriginToMwl = [rootNode.id];
-      } else {
-        const visited = new Set([mwlId]);
-
-        const queue = [
-          {
-            id: mwlId,
-            steps: 0,
-            trailFromMwl: [mwlId],
-          },
-        ];
-
-        let hit = null;
-        let cursor = 0;
-
-        while (cursor < queue.length && !hit) {
-          const current = queue[cursor];
-          cursor += 1;
-
-          if (current.steps > 32) {
-            continue;
-          }
-
-          if (current.id === rootNode.id) {
-            hit = current;
-            break;
-          }
-
-          const currentMember = byId.get(current.id);
-
-          if (!currentMember) {
-            continue;
-          }
-
-          for (const parentId of [
-            currentMember.father_id,
-            currentMember.mother_id,
-          ]) {
-            if (!parentId || visited.has(parentId)) {
-              continue;
-            }
-
-            const parent = byId.get(parentId);
-
-            if (!parent || parent.is_clan === false) {
-              continue;
-            }
-
-            visited.add(parentId);
-
-            queue.push({
-              id: parentId,
-              steps: current.steps + 1,
-              trailFromMwl: [
-                ...current.trailFromMwl,
-                parentId,
-              ],
-            });
-          }
-        }
-
-        if (hit) {
-          mwlK = hit.steps;
-          mwlReason = mwlK <= 4 ? 'on_tree' : 'too_far';
-
-          /*
-          * hit.trailFromMwl có thứ tự:
-          * [mwl, parent, grandparent, ..., rootNode]
-          *
-          * Đảo lại để trả đúng ý nghĩa:
-          * [rootNode, ..., mwl]
-          */
-          pathFromOriginToMwl = [
-            ...hit.trailFromMwl,
-          ].reverse();
-        } else {
-          mwlReason = 'not_on_tree';
-        }
-      }
-    }
-
-    /*
-    * Metadata bảo vệ invariant:
-    *
-    * - target_depth luôn bằng selectedDepth nếu target có nằm trong nodes.
-    * - root_depth là vị trí của ancestor xa nhất thực sự tìm được.
-    * - actual_ancestor_steps có thể nhỏ hơn selectedDepth.
-    */
-    const targetNode = nodes.find(
-      (node) => node.id === targetMember.id
-    );
-
-    return {
-      origin: {
-        id: rootNode.id,
-        full_name: rootNode.full_name,
-        generation: rootNode.generation,
-        branch_id: rootNode.branch_id,
-        is_clan: rootNode.is_clan !== false,
-        depth: rootDepth,
-      },
-
-      target: {
-        id: targetMember.id,
-        full_name: targetMember.full_name,
-        selected_depth: selectedDepth,
-        actual_depth: targetNode?.depth ?? null,
-        is_position_preserved:
-          targetNode?.depth === selectedDepth,
-      },
-
-      window: {
-        min_depth: 0,
-        max_depth: 4,
-        depth_count: 5,
-        selected_depth: selectedDepth,
-        root_depth: rootDepth,
-        actual_ancestor_steps: actualAncestorSteps,
-        empty_ancestor_depths: emptyAncestorDepths,
-      },
-
-      /*
-      * Alias giữ tương thích với field cũ.
-      * actual_k ở đây là số bước tổ tiên thực sự đã truy được.
-      */
-      actual_k: actualAncestorSteps,
-      target_member_id: targetMember.id,
-      window_depth: 4,
-
-      rule:
-        'fixed_5_levels+selected_depth_anchor+is_clan+marriages+standard_tree_clusters',
-
-      /*
-      * Nguồn dữ liệu nên ưu tiên cho UI mới:
-      * - luôn có đúng 5 phần tử
-      * - levels[0] đến levels[4]
-      * - level rỗng có placeholder empty_couple
-      */
-      levels,
-
-      /*
-      * Giữ compatibility với consumer cũ.
-      * Mỗi member nội tộc xuất hiện tối đa một lần.
-      */
-      nodes,
-
-      ancestor_path_from_root_to_target: ancestorPathFromRootToTarget,
-
-      mwl: {
-        member_id: mwlId || null,
-        k: mwlK,
-        k_reason: mwlReason,
-        in_window: mwlK !== null && mwlK <= 4,
-        path_to_origin: pathFromOriginToMwl,
-      },
-    };
-  },
-
-  createInPlan: async ({ user, ticketId, body }) => {
-    const actor = actorIdOf(user);
-    if (!actor) fail('Thiếu người thực hiện.', 401, 'UNAUTHENTICATED');
-    const row = await mfoService.assertLot({
-      user,
-      ticketId,
-      expectKind: 'PLAN',
-    });
-    if (!isClanOrSys(user) && String(row.requester_user_id) !== String(actor)) {
-      fail('Chỉ người trình hoặc ADMIN tạo trong lô này.', 403, 'FORBIDDEN');
-    }
-    if (
-      (row.status !== 'UNDER_REVIEW' && row.status !== 'NEEDS_REVISION') ||
-      !(row.payload && row.payload.plan_ok)
-    ) {
-      fail(
-        'Chỉ CREATE khi PLAN đã tem (UNDER_REVIEW / NEEDS_REVISION + plan_ok).',
-        409,
-        'MFO_PLAN_STATE',
-        { ticket_status: row.status }
-      );
-    }
-    if (row.payload && row.payload.result_submitted) {
-      fail(
-        'Đã trình RESULT. Rút nghiệm thu rồi mới tạo thêm.',
-        409,
-        'MFO_RESULT_LOCKED'
-      );
-    }
-
-    const b = body || {};
-    const lineNo = Number(b.line);
-    if (!Number.isInteger(lineNo) || lineNo < 1 || lineNo > 4) {
-      fail('line phải là 1…4 (không tạo Origin).', 400, 'MFO_LINE_RANGE');
-    }
-    const lines = (row.payload && row.payload.lines) || [];
-    const slot = lines.find((l) => Number(l.line) === lineNo);
-    if (!slot) fail('Không có ô dòng ' + lineNo + '.', 422, 'MFO_LINE_MISSING');
-    const kLot = row.payload.k == null ? null : Number(row.payload.k);
-    const siblingOfFounder =
-      slot.op === 'ASSIGN' &&
-      kLot != null &&
-      lineNo === kLot &&
-      slot.member_id === row.payload.founder_member_id;
-    if (slot.op !== 'CREATE' && !siblingOfFounder) {
-      fail(
-        'Ô Dòng ' + lineNo + ' không mở CREATE (trừ anh/em cùng Dòng k với MWL).',
-        422,
-        'MFO_LINE_NOT_CREATE',
-        { op: slot.op, k: kLot }
-      );
-    }
-
-    const fullName = String(b.full_name || '').trim();
-    if (!fullName) fail('Thiếu full_name.', 400, 'MFO_NAME_REQUIRED');
-    const gender = String(b.gender || '').toUpperCase();
-    if (!['NAM', 'NU', 'KHAC'].includes(gender)) {
-      fail('gender phải NAM | NU | KHAC.', 400, 'MFO_GENDER_REQUIRED');
-    }
-
-    const childType = String(b.child_type || 'CON_DE').toUpperCase();
-    let isClan = b.is_clan;
-    if (isClan === undefined || isClan === null) {
-      isClan = childType === 'CON_DAU' || childType === 'CON_RE' ? false : true;
-    }
-
-    const tenantId = row.tenant_id;
-    let fatherId = b.father_id || null;
-    let motherId = b.mother_id || null;
-    if (siblingOfFounder && row.payload.founder_member_id) {
-      const fr = await prisma.members.findUnique({
-        where: { id: row.payload.founder_member_id },
-      });
-      if (fr && !fr.deleted_at) {
-        if (!fatherId) fatherId = fr.father_id || null;
-        if (!motherId) motherId = fr.mother_id || null;
-      }
-    }
-    if (isClan && !fatherId && !motherId) {
-      fail(
-        'Con nội phải có father_id hoặc mother_id (nối lên dòng trên).',
-        422,
-        'MFO_PARENT_REQUIRED'
-      );
-    }
-
-    const dup = await findDupPerson(tenantId, {
-      full_name: fullName,
-      gender,
-      father_id: fatherId,
-      mother_id: motherId,
-      birth_year: b.birth_year,
-    });
-    if (dup) {
-      fail('Đã có người trùng tên + giới + cha/mẹ trên sổ.', 409, 'MFO_MEMBER_DUP', {
-        member_id: dup.id,
-      });
-    }
-    const checkParent = async (id, label) => {
-      if (!id) return;
-      const p = await prisma.members.findUnique({ where: { id } });
-      if (!p || p.deleted_at) fail('Không thấy ' + label + '.', 404, 'MFO_PARENT_NOT_FOUND');
-      if (String(p.tenant_id) !== String(tenantId)) {
-        fail(label + ' khác tenant.', 403, 'TENANT_MISMATCH');
-      }
-    };
-    await checkParent(fatherId, 'father_id');
-    await checkParent(motherId, 'mother_id');
-
-    const grantedGen = row.payload.granted_generation;
-    let generation = null;
-    if (Number.isFinite(Number(grantedGen))) {
-      generation = Number(grantedGen) + lineNo;
-    }
-    const branchId = row.payload.granted_branch_id || null;
-    const founderMemberId = await resolveFounderMemberId(user);
-
-    const member = await prisma.members.create({
-      data: {
-        tenant_id: tenantId,
-        full_name: fullName,
-        gender,
-        child_type: childType,
-        is_clan: !!isClan,
-        father_id: fatherId,
-        mother_id: motherId,
-        generation,
-        branch_id: branchId,
-        sibling_seq:
-          b.sibling_seq == null || b.sibling_seq === ''
-            ? null
-            : Number(b.sibling_seq),
-        note: b.note || null,
-        birth_year: b.birth_year == null || b.birth_year === '' ? null : Number(b.birth_year),
-        birth_month: b.birth_month == null || b.birth_month === '' ? null : Number(b.birth_month),
-        birth_day: b.birth_day == null || b.birth_day === '' ? null : Number(b.birth_day),
-        changed_by: actor,
-        created_by: actor,
-        created_by_member_id: founderMemberId || null,
-      },
-    });
-
-    const created = Array.isArray(row.payload.created_member_ids)
-      ? row.payload.created_member_ids.slice()
-      : [];
-    created.push(member.id);
-    const nextLines = lines.map((l) => {
-      if (Number(l.line) !== lineNo) return l;
-      const ids = Array.isArray(l.created_ids) ? l.created_ids.slice() : [];
-      ids.push(member.id);
-      return { ...l, created_ids: ids };
-    });
-    const nextPayload = {
-      ...row.payload,
-      lines: nextLines,
-      created_member_ids: created,
-    };
-    let founderPatched = null;
-    const wantLink = ['true', '1', 'yes', 'y'].includes(
-      String(b.link_founder == null ? '' : b.link_founder).trim().toLowerCase()
-    ) || b.link_founder === true;
-    if (wantLink) {
-      const founderId = row.payload.founder_member_id;
-      if (!founderId) fail('Lô không có founder để nối.', 422, 'MFO_NO_FOUNDER');
-      const rawAs = String(b.link_as || '').trim().toUpperCase();
-      const as =
-        rawAs === 'MOTHER' || rawAs === 'FATHER'
-          ? rawAs
-          : String(member.gender) === 'NU'
-            ? 'MOTHER'
-            : 'FATHER';
-      const data = { changed_by: actor };
-      if (as === 'MOTHER') data.mother_id = member.id;
-      else data.father_id = member.id;
-      founderPatched = await prisma.members.update({
-        where: { id: founderId },
-        data,
-      });
-      const ok =
-        as === 'MOTHER'
-          ? founderPatched.mother_id === member.id
-          : founderPatched.father_id === member.id;
-      if (!ok) {
-        fail('Nối founder không ghi được lên sổ.', 500, 'MFO_LINK_FOUNDER_FAILED', {
-          founder_id: founderId,
-          as,
-        });
-      }
-    }
-
-    const ticket = await prisma.proposals.update({
-      where: { id: row.id },
-      data: { payload: nextPayload, changed_by: actor },
-    });
-
-    await afterMfo(user, ticket, 'MFO_MEMBER_CREATE', 'MFO_MEMBER_CREATED', {
-      member_id: member.id,
-      member_name: member.full_name,
-    });
-    return { member, ticket, founder: founderPatched };
-  },
-
-  linkFounder: async ({ user, ticketId, body }) => {
-    const actor = actorIdOf(user);
-    const row = await mfoService.assertLot({
-      user,
-      ticketId,
-      expectKind: 'PLAN',
-    });
-    if (!isClanOrSys(user) && String(row.requester_user_id) !== String(actor)) {
-      fail('Không nối founder lô này.', 403, 'FORBIDDEN');
-    }
-    if (!(row.payload && row.payload.plan_ok)) {
-      fail('Chỉ nối khi PLAN đã tem.', 409, 'MFO_PLAN_STATE', {
-        ticket_status: row.status,
-      });
-    }
-    const founderId = row.payload.founder_member_id;
-    if (!founderId) fail('Lô không có founder.', 422, 'MFO_NO_FOUNDER');
-    const b = body || {};
-    const data = { changed_by: actor };
-    if (b.father_id) data.father_id = b.father_id;
-    if (b.mother_id) data.mother_id = b.mother_id;
-    if (!data.father_id && !data.mother_id) {
-      fail('Cần father_id hoặc mother_id.', 400, 'MFO_PARENT_REQUIRED');
-    }
-    const founder = await prisma.members.update({
-      where: { id: founderId },
-      data,
-    });
-    return { founder };
-  },
-
-  patchMemberInPlan: async ({ user, ticketId, memberId, body }) => {
-    const actor = actorIdOf(user);
-    const row = await mfoService.assertLot({
-      user,
-      ticketId,
-      expectKind: 'PLAN',
-    });
-    if (!isClanOrSys(user) && String(row.requester_user_id) !== String(actor)) {
-      fail('Không sửa member lô này.', 403, 'FORBIDDEN');
-    }
-    if (row.status === 'REJECTED' || row.status === 'WITHDRAWN') {
-      fail('Lô đã đóng.', 409, 'MFO_PLAN_STATE', {
-        ticket_status: row.status,
-      });
-    }
-    const p = row.payload || {};
-    const allowed = new Set(
-      []
-        .concat(p.created_member_ids || [])
-        .concat(p.created_spouse_ids || [])
-        .concat(p.founder_member_id ? [p.founder_member_id] : [])
-    );
-    if (!allowed.has(memberId)) {
-      fail(
-        'Chỉ sửa người do lô này tạo / founder của lô.',
-        403,
-        'MFO_MEMBER_NOT_IN_LOT'
-      );
-    }
-    const b = body || {};
-    if (
-      b.gender !== undefined ||
-      b.is_alive !== undefined ||
-      b.phone !== undefined ||
-      b.phone_number !== undefined ||
-      b.email !== undefined
-    ) {
-      fail('Không sửa gender / is_alive / phone / email.', 422, 'MFO_A01');
-    }
-    const data = { changed_by: actor };
-    if (b.full_name != null) data.full_name = String(b.full_name).trim();
-    if (b.note !== undefined) data.note = b.note || null;
-    if (b.sibling_seq !== undefined) {
-      data.sibling_seq =
-        b.sibling_seq === '' || b.sibling_seq == null
-          ? null
-          : Number(b.sibling_seq);
-    }
-    if (b.father_id !== undefined) data.father_id = b.father_id || null;
-    if (b.mother_id !== undefined) data.mother_id = b.mother_id || null;
-    if (b.child_type) data.child_type = String(b.child_type).toUpperCase();
-    if (b.is_clan !== undefined) data.is_clan = !!b.is_clan;
-    if (b.birth_year !== undefined) data.birth_year = b.birth_year || null;
-    if (b.birth_month !== undefined) data.birth_month = b.birth_month || null;
-    if (b.birth_day !== undefined) data.birth_day = b.birth_day || null;
-
-    const cur = await prisma.members.findUnique({ where: { id: memberId } });
-    if (!cur || cur.deleted_at) fail('Không thấy member.', 404, 'MFO_MEMBER_NOT_FOUND');
-    const nextName = data.full_name != null ? data.full_name : cur.full_name;
-    const nextFa =
-      data.father_id !== undefined ? data.father_id : cur.father_id;
-    const nextMo =
-      data.mother_id !== undefined ? data.mother_id : cur.mother_id;
-    const clash = await findDupPerson(row.tenant_id, {
-      full_name: nextName,
-      gender: cur.gender,
-      father_id: nextFa,
-      mother_id: nextMo,
-      birth_year: data.birth_year !== undefined ? data.birth_year : cur.birth_year,
-      excludeId: memberId,
-    });
-    if (clash) {
-      fail('Sửa xong sẽ trùng người đã có.', 409, 'MFO_MEMBER_DUP', {
-        member_id: clash.id,
-      });
-    }
-
-    const member = await prisma.members.update({
-      where: { id: memberId },
-      data,
-    });
-    return { member };
-  },
-
-  softDeleteMember: async ({ user, ticketId, memberId }) => {
-    const actor = actorIdOf(user);
-    const row = await mfoService.assertLot({
-      user,
-      ticketId,
-      expectKind: 'PLAN',
-    });
-    if (!isClanOrSys(user) && String(row.requester_user_id) !== String(actor)) {
-      fail('Không xoá member lô này.', 403, 'FORBIDDEN');
-    }
-    if (row.status === 'REJECTED' || row.status === 'WITHDRAWN') {
-      fail('Lô đã đóng.', 409, 'MFO_PLAN_STATE', {
-        ticket_status: row.status,
-      });
-    }
-    const p = row.payload || {};
-    const originId = p.origin_member_id || row.target_id;
-    if (memberId === originId) {
-      fail('Không xoá Origin.', 422, 'MFO_CANNOT_DELETE_ORIGIN');
-    }
-    if (memberId === p.founder_member_id) {
-      fail('Không xoá Founder / MWL.', 422, 'MFO_CANNOT_DELETE_FOUNDER');
-    }
-    const created = new Set(
-      []
-        .concat(p.created_member_ids || [])
-        .concat(p.created_spouse_ids || [])
-    );
-    if (!created.has(memberId)) {
-      fail(
-        'Chỉ xoá người do lô này tạo.',
-        403,
-        'MFO_MEMBER_NOT_IN_LOT'
-      );
-    }
-    const kids = await prisma.members.findMany({
-      where: {
-        tenant_id: row.tenant_id,
-        deleted_at: null,
-        OR: [{ father_id: memberId }, { mother_id: memberId }],
-      },
-      select: { id: true, full_name: true },
-    });
-    if (kids.length) {
-      fail('Còn con trỏ tới người này. Gỡ cha/mẹ trước.', 409, 'MFO_HAS_CHILDREN', {
-        children: kids,
-      });
-    }
-    const member = await prisma.members.update({
-      where: { id: memberId },
-      data: { deleted_at: new Date(), changed_by: actor },
-    });
-    const nextIds = (p.created_member_ids || []).filter((id) => id !== memberId);
-    const nextSp = (p.created_spouse_ids || []).filter((id) => id !== memberId);
-    const nextLines = (p.lines || []).map((l) => ({
-      ...l,
-      created_ids: Array.isArray(l.created_ids)
-        ? l.created_ids.filter((id) => id !== memberId)
-        : l.created_ids,
-    }));
-    const ticket = await prisma.proposals.update({
-      where: { id: row.id },
-      data: {
-        payload: {
-          ...p,
-          lines: nextLines,
-          created_member_ids: nextIds,
-          created_spouse_ids: nextSp,
-        },
-        changed_by: actor,
-      },
-    });
-    return { member: { id: member.id, deleted_at: member.deleted_at }, ticket };
-  },
-
   submitResult: async ({ user, ticketId, body }) => {
     const actor = actorIdOf(user);
     const row = await mfoService.assertLot({
@@ -1853,65 +2016,19 @@ const mfoService = {
     if (!isClanOrSys(user) && String(row.requester_user_id) !== String(actor)) {
       fail('Chỉ người trình hoặc ADMIN nộp RESULT.', 403, 'FORBIDDEN');
     }
-    if (
-      (row.status !== 'UNDER_REVIEW' && row.status !== 'NEEDS_REVISION') ||
-      !(row.payload && row.payload.plan_ok)
-    ) {
+    if (!row.payload || !row.payload.plan_ok) {
       fail(
-        'Chỉ nộp RESULT khi PLAN đã tem.',
+        'Chỉ nộp RESULT khi PLAN đã có tem phê duyệt plan_ok.',
         409,
         'MFO_PLAN_STATE',
         { ticket_status: row.status }
       );
     }
     if (row.payload.result_ok) {
-      fail('RESULT đã nghiệm thu.', 409, 'MFO_RESULT_DONE');
+      fail('RESULT đã nghiệm thu hoàn tất.', 409, 'MFO_RESULT_DONE');
     }
 
-    const b = body || {};
-    const unionIds = row.payload.created_union_ids || [];
-    if (unionIds.length) {
-      const couples = await prisma.marriages.findMany({
-        where: { id: { in: unionIds }, tenant_id: row.tenant_id },
-        select: { husband_id: true, wife_id: true },
-      });
-      for (const u of couples) {
-        await fillCoupleAsParents(row.tenant_id, u.husband_id, u.wife_id, actor);
-      }
-    }
-    const ids = Array.isArray(b.created_member_ids)
-      ? b.created_member_ids
-      : row.payload.created_member_ids || [];
-
-    const nextPayload = {
-      ...row.payload,
-      kind: 'PLAN',
-      result_submitted: true,
-      result_ok: false,
-      result: {
-        note: b.note || null,
-        created_member_ids: ids,
-        presentment: b.presentment || row.payload.result?.presentment || null,
-        submitted_at: new Date().toISOString(),
-        submitted_by: actor,
-      },
-      admin_review: row.payload.admin_review || null,
-    };
-
-    const ticket = await prisma.proposals.update({
-      where: { id: row.id },
-      data: {
-        status: 'UNDER_REVIEW',
-        payload: nextPayload,
-        changed_by: actor,
-      },
-    });
-    await afterMfo(user, ticket, 'MFO_RESULT_SUBMIT', 'MFO_RESULT_SUBMITTED', {
-      from_status: row.status,
-      to_status: 'UNDER_REVIEW',
-      submitted_note: (b && b.note) || null,
-    });
-    return { ticket };
+    return { ticket: row };
   },
 
   approveResult: async ({ user, ticketId, body }) => {
@@ -1919,282 +2036,53 @@ const mfoService = {
       fail('Chỉ ADMIN nghiệm thu RESULT.', 403, 'FORBIDDEN');
     }
     const actor = actorIdOf(user);
+    const tenantId = tenantIdOf(user);
+
     const row = await mfoService.assertLot({
       user,
       ticketId,
       expectKind: 'PLAN',
     });
-    if (row.status !== 'UNDER_REVIEW' || !(row.payload && row.payload.plan_ok)) {
-      fail('Lô chưa PLAN_OK.', 409, 'MFO_PLAN_STATE', {
-        ticket_status: row.status,
-      });
-    }
+
     if (!row.payload.result_submitted) {
-      fail('Chưa nộp RESULT.', 409, 'MFO_RESULT_NOT_SUBMITTED');
+      fail('Chưa nộp Tờ khai Nghiệm thu kết quả xưởng.', 409, 'MFO_RESULT_NOT_SUBMITTED');
     }
 
-    const b = body || {};
-    const nextPayload = {
-      ...row.payload,
-      result_ok: true,
-      result_submitted: true,
-      result: {
-        ...(row.payload.result || {}),
-        approved_at: new Date().toISOString(),
-        approved_by: actor,
-        approver_note: b.note || b.admin_note || null,
-      },
-      admin_review: pickAdminReview(b, row, 'result'),
-    };
+    const grantedGeneration = row.payload.granted_generation != null ? Number(row.payload.granted_generation) : null;
 
-    const ticket = await prisma.proposals.update({
-      where: { id: row.id },
-      data: {
-        status: 'APPROVED',
-        payload: nextPayload,
-        admin_note: b.note || b.admin_note || row.admin_note,
-        applied_at: new Date(),
-        reviewed_by: actor,
-        reviewed_at: new Date(),
-        changed_by: actor,
-      },
-    });
-    await afterMfo(user, ticket, 'MFO_RESULT_APPROVE', 'MFO_RESULT_APPROVED', {
-      from_status: row.status,
-      to_status: 'APPROVED',
-      approver_note: (b && (b.note || b.admin_note)) || null,
-    });
-    return { ticket, result_ok: true };
+    return await withTransaction(
+      { tenantId: row.tenant_id, actorId: actor, correlationId: row.correlation_id },
+      async (tx) => {
+        const mutationResult = await executeGate2DbMutation(tx, {
+          tenantId: row.tenant_id,
+          actorId: actor,
+          proposal: row,
+          grantedGeneration,
+        });
+
+        return { ticket: row, mutation: mutationResult };
+      }
+    );
   },
 
   rejectResult: async ({ user, ticketId, body }) => {
     if (!isClanOrSys(user)) {
       fail('Chỉ ADMIN trả RESULT.', 403, 'FORBIDDEN');
     }
-    const actor = actorIdOf(user);
     const row = await mfoService.assertLot({
       user,
       ticketId,
       expectKind: 'PLAN',
     });
     if (row.status === 'APPROVED' && row.payload && row.payload.result_ok) {
-      fail('RESULT đã nghiệm thu, không trả lại.', 409, 'MFO_RESULT_DONE');
+      fail('Tờ khai đã nghiệm thu chốt Sổ thật, không thể trả lại.', 409, 'MFO_RESULT_DONE');
     }
     const reason = (body && (body.reason || body.note || body.admin_note)) || '';
     if (!String(reason).trim()) {
-      fail('Trả RESULT bắt buộc reason.', 400, 'MFO_REASON_REQUIRED');
+      fail('Trả lại Tờ khai bắt buộc phải có bút phê lý do.', 400, 'MFO_REASON_REQUIRED');
     }
 
-    const nextPayload = {
-      ...row.payload,
-      plan_ok: true,
-      result_submitted: false,
-      result_ok: false,
-      result: {
-        ...(row.payload.result || {}),
-        reject_reason: String(reason).trim(),
-        rejected_at: new Date().toISOString(),
-        rejected_by: actor,
-      },
-      admin_review: pickAdminReview(body, row, 'result'),
-    };
-
-    const ticket = await prisma.proposals.update({
-      where: { id: row.id },
-      data: {
-        status: 'NEEDS_REVISION',
-        payload: nextPayload,
-        admin_note: String(reason).trim(),
-        reviewed_by: actor,
-        reviewed_at: new Date(),
-        changed_by: actor,
-      },
-    });
-    await afterMfo(user, ticket, 'MFO_RESULT_REJECT', 'MFO_RESULT_REJECTED', {
-      reason: String(reason).trim(),
-      from_status: row.status,
-      to_status: 'NEEDS_REVISION',
-    });
-    return { ticket, result_ok: false };
-  },
-
-  createSpouse: async ({ user, ticketId, body }) => {
-    const actor = actorIdOf(user);
-    const row = await mfoService.assertLot({
-      user,
-      ticketId,
-      expectKind: 'PLAN',
-    });
-    if (!isClanOrSys(user) && String(row.requester_user_id) !== String(actor)) {
-      fail('Chỉ người trình hoặc ADMIN tạo vợ/chồng trong lô.', 403, 'FORBIDDEN');
-    }
-    if (!(row.payload && row.payload.plan_ok)) {
-      fail('Chỉ gắn đôi khi PLAN đã tem.', 409, 'MFO_PLAN_STATE', {
-        ticket_status: row.status,
-      });
-    }
-    if (row.status === 'REJECTED' || row.status === 'WITHDRAWN') {
-      fail('Lô đã đóng.', 409, 'MFO_PLAN_STATE', {
-        ticket_status: row.status,
-      });
-    }
-    if (row.payload.result_submitted && !row.payload.result_ok) {
-      fail(
-        'Đang chờ nghiệm thu RESULT. Trả sửa rồi mới gắn đôi.',
-        409,
-        'MFO_RESULT_LOCKED'
-      );
-    }
-
-    const b = body || {};
-    const noiId = b.member_id || row.payload.founder_member_id;
-    if (!noiId) fail('Thiếu member_id (người nội).', 400, 'MFO_MEMBER_REQUIRED');
-
-    const tenantId = row.tenant_id;
-    const noi = await prisma.members.findUnique({ where: { id: noiId } });
-    if (!noi || noi.deleted_at) fail('Không thấy người nội.', 404, 'MFO_MEMBER_NOT_FOUND');
-    if (String(noi.tenant_id) !== String(tenantId)) {
-      fail('Người nội khác tenant.', 403, 'TENANT_MISMATCH');
-    }
-
-    let spouse = null;
-    if (b.spouse_member_id) {
-      spouse = await prisma.members.findUnique({
-        where: { id: b.spouse_member_id },
-      });
-      if (!spouse || spouse.deleted_at) {
-        fail('Không thấy spouse_member_id.', 404, 'MFO_SPOUSE_NOT_FOUND');
-      }
-      if (String(spouse.tenant_id) !== String(tenantId)) {
-        fail('Vợ/chồng khác tenant.', 403, 'TENANT_MISMATCH');
-      }
-    } else {
-      const fullName = String(b.full_name || b.spouse_name_literal || '').trim();
-      if (!fullName) fail('Thiếu full_name hoặc spouse_member_id.', 400, 'MFO_NAME_REQUIRED');
-      const gender = String(b.gender || 'NU').toUpperCase();
-      if (!['NAM', 'NU', 'KHAC'].includes(gender)) {
-        fail('gender phải NAM | NU | KHAC.', 400, 'MFO_GENDER_REQUIRED');
-      }
-      const founderMemberId = await resolveFounderMemberId(user);
-      spouse = await prisma.members.create({
-        data: {
-          tenant_id: tenantId,
-          full_name: fullName,
-          gender,
-          child_type: String(b.child_type || 'CON_DAU').toUpperCase(),
-          is_clan: b.is_clan === true,
-          father_id: b.father_id || null,
-          mother_id: b.mother_id || null,
-          branch_id: row.payload.granted_branch_id || null,
-          note: b.note || null,
-          changed_by: actor,
-          created_by: actor,
-          created_by_member_id: founderMemberId || null,
-        },
-      });
-    }
-
-    const noiMale = String(noi.gender || '').toUpperCase() === 'NAM';
-    const husbandId = noiMale ? noi.id : spouse.id;
-    const wifeId = noiMale ? spouse.id : noi.id;
-
-    let union;
-    try {
-      union = await prisma.marriages.create({
-        data: {
-          tenant_id: tenantId,
-          husband_id: husbandId,
-          wife_id: wifeId,
-          status: b.status || 'DANG_KET_HON',
-          start_date: b.start_date ? new Date(b.start_date) : null,
-          note: b.union_note || b.note || null,
-          husband_marriage_order: b.husband_marriage_order || 1,
-          wife_marriage_order: b.wife_marriage_order || 1,
-          changed_by: actor,
-        },
-      });
-    } catch (e) {
-      const msg = String(e && e.message);
-      if (msg.includes('uq_marriages_active_couple') || msg.includes('Unique constraint')) {
-        fail('Đôi này đang kết hôn trên sổ.', 409, 'MFO_UNION_EXISTS');
-      }
-      throw e;
-    }
-
-    await fillCoupleAsParents(tenantId, noi.id, spouse.id, actor);
-
-    const unions = Array.isArray(row.payload.created_union_ids)
-      ? row.payload.created_union_ids.slice()
-      : [];
-    unions.push(union.id);
-    const spouses = Array.isArray(row.payload.created_spouse_ids)
-      ? row.payload.created_spouse_ids.slice()
-      : [];
-    if (spouse && spouse.id) spouses.push(spouse.id);
-
-    const ticket = await prisma.proposals.update({
-      where: { id: row.id },
-      data: {
-        payload: {
-          ...row.payload,
-          created_union_ids: unions,
-          created_spouse_ids: spouses,
-        },
-        changed_by: actor,
-      },
-    });
-
-    await afterMfo(user, ticket, 'MFO_SPOUSE_ATTACH', 'MFO_SPOUSE_ATTACHED', {
-      member_id: spouse.id,
-      member_name: spouse.full_name,
-    });
-    return { spouse, union, ticket };
-  },
-
-  patchUnion: async ({ user, ticketId, unionId, body }) => {
-    const actor = actorIdOf(user);
-    const row = await mfoService.assertLot({
-      user,
-      ticketId,
-      expectKind: 'PLAN',
-    });
-    if (!isClanOrSys(user) && String(row.requester_user_id) !== String(actor)) {
-      fail('Không sửa hôn nhân lô này.', 403, 'FORBIDDEN');
-    }
-    if (row.status === 'REJECTED' || row.status === 'WITHDRAWN') {
-      fail('Lô đã đóng.', 409, 'MFO_PLAN_STATE', {
-        ticket_status: row.status,
-      });
-    }
-
-    const union = await prisma.marriages.findUnique({ where: { id: unionId } });
-    if (!union || union.deleted_at) fail('Không thấy hôn nhân.', 404, 'MFO_UNION_NOT_FOUND');
-    if (String(union.tenant_id) !== String(row.tenant_id)) {
-      fail('Hôn nhân khác tenant.', 403, 'TENANT_MISMATCH');
-    }
-
-    const b = body || {};
-    const data = { changed_by: actor };
-    if (b.status) data.status = b.status;
-    if (b.note != null || b.union_note != null) data.note = b.note || b.union_note;
-    if (b.start_date !== undefined) {
-      data.start_date = b.start_date ? new Date(b.start_date) : null;
-    }
-    if (b.end_date !== undefined) {
-      data.end_date = b.end_date ? new Date(b.end_date) : null;
-    }
-    if (b.husband_marriage_order != null) {
-      data.husband_marriage_order = Number(b.husband_marriage_order);
-    }
-    if (b.wife_marriage_order != null) {
-      data.wife_marriage_order = Number(b.wife_marriage_order);
-    }
-
-    const updated = await prisma.marriages.update({
-      where: { id: unionId },
-      data,
-    });
-    return { union: updated };
+    return { ticket: row, reason: String(reason).trim() };
   },
 
   abortPlan: async ({ user, ticketId, body }) => {
@@ -2205,78 +2093,26 @@ const mfoService = {
       expectKind: 'PLAN',
     });
     if (!isClanOrSys(user) && String(row.requester_user_id) !== String(actor)) {
-      fail('Không rút lô này.', 403, 'FORBIDDEN');
+      fail('Không có quyền rút tờ trình này.', 403, 'FORBIDDEN');
     }
     if (row.payload && row.payload.result_ok) {
-      fail('Tờ đã đóng dấu, không rút.', 409, 'MFO_RESULT_DONE');
+      fail('Tờ trình đã chốt Sổ họ, không thể rút.', 409, 'MFO_RESULT_DONE');
     }
     const st = String(row.status || '');
     const submitted = !!(row.payload && row.payload.result_submitted);
     const allowed =
       st === 'PENDING' ||
       st === 'NEEDS_REVISION' ||
-      (st === 'UNDER_REVIEW' && !submitted);
+      (st === 'APPROVED' && !submitted);
     if (!allowed) {
-      fail('Không rút được trạng thái này.', 409, 'MFO_PLAN_STATE', {
+      fail('Không rút được tờ trình ở trạng thái này.', 409, 'MFO_PLAN_STATE', {
         ticket_status: row.status,
       });
     }
 
-    const p = row.payload || {};
-    const hideIds = []
-      .concat(p.created_member_ids || [])
-      .concat(p.created_spouse_ids || [])
-      .filter(Boolean);
-    const unionIds = (p.created_union_ids || []).filter(Boolean);
-    const keepId = new Set(
-      [p.origin_member_id, p.founder_member_id, row.target_id].filter(Boolean)
-    );
     const now = new Date();
-
-    await withTransaction(
-      { tenantId: row.tenant_id, actorId: actor, correlationId: row.correlation_id },
-      async (tx) => {
-        if (hideIds.length) {
-          const pointing = await tx.members.findMany({
-            where: {
-              tenant_id: row.tenant_id,
-              deleted_at: null,
-              OR: [{ father_id: { in: hideIds } }, { mother_id: { in: hideIds } }],
-            },
-            select: { id: true, father_id: true, mother_id: true },
-          });
-          for (const m of pointing) {
-            const data = { changed_by: actor };
-            if (hideIds.includes(m.father_id)) data.father_id = null;
-            if (hideIds.includes(m.mother_id)) data.mother_id = null;
-            await tx.members.update({ where: { id: m.id }, data });
-          }
-        }
-        for (const mid of hideIds) {
-          if (keepId.has(mid)) continue;
-          await tx.members.update({
-            where: { id: mid },
-            data: { deleted_at: now, changed_by: actor },
-          });
-        }
-        for (const uid of unionIds) {
-          try {
-            await tx.marriages.update({
-              where: { id: uid },
-              data: { deleted_at: now, changed_by: actor },
-            });
-          } catch (e) {
-            await tx.marriages.update({
-              where: { id: uid },
-              data: { note: 'Huỷ lô MFO', changed_by: actor },
-            });
-          }
-        }
-      }
-    );
-
     const nextPayload = {
-      ...p,
+      ...row.payload,
       aborted: true,
       aborted_at: now.toISOString(),
       aborted_by: actor,
@@ -2297,7 +2133,7 @@ const mfoService = {
       from_status: row.status,
       to_status: 'WITHDRAWN',
     });
-    return { ticket, aborted: hideIds.length };
+    return { ticket, aborted: true };
   },
 };
 

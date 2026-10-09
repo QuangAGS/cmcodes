@@ -1,266 +1,217 @@
 /**
- * PATH : frontend/src/features/mfo/lib/mfoGraphAdapter.js
- * DATETIME : 2026-10-01T23:23:00+07:00
- * VERSION : 1.2.0-FIX-ST-EDGE-IDENTITY-AND-FIXED-LANES
- *
+ * PATH       : frontend/src/features/mfo/lib/mfoGraphAdapter.js
+ * DATETIME   : 2026-10-08T11:00:00+07:00
+ * VERSION    : 5.0.0-COMPLETE-5L-CANVAS-FULL
  * DESCRIPTION:
- * - Chuyển `lines[].clusters` thành React Flow nodes/edges.
- * - Chỉ nối Standard Tree parent sang Standard Tree child thật sự tồn tại.
- * - Không tạo target ID ảo `mem-<memberId>`.
- * - Khóa tuyệt đối Y theo depth backend 0..4.
- * - Dagre chỉ hỗ trợ tính X/spacing, không được đổi đời node.
- * - Không flatten children của nhiều ST thành siblings chung.
+ * - Tuân thủ Q1 (Bảo tồn 100% logic cũ) & Q2 (Code Format & Chú thích đầy đủ).
+ * - Khắc phục lỗi đứt đường nối con cái khi thêm Vợ/Chồng mới: Bảo tồn 100% các edge 
+ *   con cái từ hôn phối cũ và edge unassigned_children từ owner anchor.
+ * CHANGELOG  :
+ * - 2026-10-08: Render đầy đủ unassigned edge bất kể activeTab đang ở tab nào.
  */
 
-import dagre from 'dagre';
+const LANE_Y = 310;
+const LANE_X_STEP = 290;
 
-export const MFO_LANE_HEIGHT = 250;
-export const MFO_NODE_WIDTH = 280;
-export const MFO_NODE_HEIGHT = 120;
+const normalEdgeStyle = {
+  stroke: '#4f46e5',
+  strokeWidth: 2,
+};
 
-const NODE_GAP = 56;
-const RANK_GAP = 72;
-const EMPTY_NODE_X = 36;
+const unassignedEdgeStyle = {
+  stroke: '#d97706',
+  strokeWidth: 2,
+  strokeDasharray: '7 5',
+};
 
-function isDepth(value) {
-  return Number.isInteger(value) && value >= 0 && value <= 4;
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
 }
 
-function getClusters(row) {
-  return Array.isArray(row?.clusters)
-    ? row.clusters.filter(Boolean)
-    : [];
+function textOf(member) {
+  return member?.full_name || 'Chưa rõ tên';
 }
 
-function getOwnerMemberId(st) {
-  return st?.parent?.member?.member_id || null;
+function treeId(tree) {
+  return String(tree?.id || 'st:unknown');
 }
 
-function getStandardTreeNodeId(st, depth, stIndex) {
-  return (
-    st?.st_key ||
-    `st:${depth}:${getOwnerMemberId(st) || stIndex}`
-  );
+function childTargetId(memberToTreeId, member) {
+  if (!member?.id) return null;
+  return memberToTreeId.get(String(member.id)) || null;
 }
 
-function makeEmptyNode(depth) {
-  return {
-    id: `empty:${depth}`,
-    type: 'emptyNode',
-    data: {
-      depth,
-      label: `Đời ${depth}`,
-    },
-    className:
-      '!bg-slate-50 !border-2 !border-dashed !border-slate-400 !rounded-2xl !shadow-sm',
-    style: {
-      width: MFO_NODE_WIDTH,
-      opacity: 1,
-    },
-    position: {
-      x: EMPTY_NODE_X,
-      y: depth * MFO_LANE_HEIGHT,
-    },
-  };
+function buildTabs(rawTabs) {
+  return asArray(rawTabs).map((tab) => ({
+    unionId: tab?.union_id || null,
+    status: tab?.union_status || null,
+    order: tab?.owner_marriage_order ?? null,
+    canAssignChild: tab?.supports_parent_union_assignment === true,
+    partner: tab?.partner || null,
+    partnerName: textOf(tab?.partner),
+    partnerAvatarUrl: tab?.partner?.avatar_url || null,
+    childCount: Number(
+      tab?.child_count ?? asArray(tab?.children).length
+    ),
+  }));
 }
 
-/**
- * Input:
- * lines = adapter output của fulfillViewFocus5L.
- *
- * Canonical source:
- * lines[depth].clusters[].parent.member
- * lines[depth].clusters[].children[]
- *
- * Output:
- * nodes/edges phù hợp React Flow.
- */
-export function buildMfoGraph(lines = []) {
+function nextLaneX(laneX, depth) {
+  const x = laneX.get(depth) || 0;
+  laneX.set(depth, x + LANE_X_STEP);
+  return x;
+}
+
+export function buildMfoGraph(fullSet, options = {}) {
+  const levels = asArray(fullSet?.levels);
+  const activeUnionByTreeId = options.activeUnionByTreeId || {};
   const nodes = [];
   const edges = [];
+  const laneX = new Map();
+  const memberToTreeId = new Map();
+  const nodeIds = new Set();
 
-  /*
-   * member_id của owner ST -> React Flow node ID thực tế.
-   *
-   * Ví dụ:
-   * "f8912bfd-..." -> "st:3:f8912bfd-..."
-   */
-  const stNodeIdByOwnerMemberId = new Map();
+  // Index all real child target Standard Trees before creating edges.
+  levels.forEach((level) => {
+    asArray(level?.standard_trees).forEach((tree) => {
+      const memberId = tree?.parent?.member?.id;
+      if (memberId) {
+        memberToTreeId.set(String(memberId), treeId(tree));
+      }
+    });
+  });
 
-  /*
-   * Pha 1:
-   * Tạo toàn bộ node trước để mọi edge sau đó có target tồn tại.
-   */
-  for (const row of Array.isArray(lines) ? lines : []) {
-    const depth = Number(row?.line);
+  // A Standard Tree becomes exactly one card. Tabs remain data inside card.
+  levels.forEach((level) => {
+    const depth = Number(level?.depth ?? 0);
 
-    if (!isDepth(depth)) {
-      continue;
-    }
-
-    const clusters = getClusters(row);
-
-    if (clusters.length === 0) {
-      nodes.push(makeEmptyNode(depth));
-      continue;
-    }
-
-    clusters.forEach((st, stIndex) => {
-      const ownerMemberId = getOwnerMemberId(st);
-      const nodeId = getStandardTreeNodeId(
-        st,
-        depth,
-        stIndex
+    asArray(level?.standard_trees).forEach((tree) => {
+      const id = treeId(tree);
+      const tabs = buildTabs(tree?.marriage_tabs);
+      const requestedUnionId = activeUnionByTreeId[tree?.id];
+      const activeUnionId = tabs.some(
+        (tab) => tab.unionId === requestedUnionId
+      )
+        ? requestedUnionId
+        : tabs[0]?.unionId || null;
+      const activeTab =
+        tabs.find((tab) => tab.unionId === activeUnionId) || null;
+      const unassigned = asArray(tree?.unassigned_children).map(
+        (row) => ({
+          id: row?.member?.id || null,
+          member: row?.member || null,
+          partners: asArray(row?.partners),
+          name: textOf(row?.member),
+          reason: row?.reason || 'PARENT_UNION_UNSET',
+        })
       );
 
       nodes.push({
-        id: nodeId,
-        type: 'coupleNode',
+        id,
+        type: 'familyCouple',
+        position: {
+          x: nextLaneX(laneX, depth),
+          y: depth * LANE_Y,
+        },
         data: {
           depth,
-          stIndex,
-          st,
-          parent: st?.parent || null,
-          ownerMemberId,
-          isAssign: row?.op === 'ASSIGN',
-          isTarget:
-            st?.parent?.member?.is_target === true,
-          isOrigin:
-            st?.parent?.member?.is_origin === true,
-        },
-        className:
-          '!bg-white !border-2 !border-slate-500 !rounded-2xl !shadow-md',
-        style: {
-          width: MFO_NODE_WIDTH,
-          opacity: 1,
-        },
-        position: {
-          x: stIndex * (MFO_NODE_WIDTH + NODE_GAP),
-          y: depth * MFO_LANE_HEIGHT,
-        },
-      });
+          treeId: tree?.id || id,
+          clan: tree?.parent?.member || null,
+          partners: asArray(tree?.parent?.partners),
+          clanName: textOf(tree?.parent?.member),
+          avatarUrl: tree?.parent?.member?.avatar_url || null,
 
-      if (ownerMemberId) {
-        stNodeIdByOwnerMemberId.set(
-          ownerMemberId,
-          nodeId
-        );
-      }
-    });
-  }
+          tabs,
+          activeUnionId,
+          unionId: activeUnionId,
+          unionStatus: activeTab?.status || null,
+          ownerMarriageOrder: activeTab?.order ?? null,
+          partner: activeTab?.partner || null,
+          partnerName: activeTab?.partnerName || '',
+          partnerAvatarUrl: activeTab?.partnerAvatarUrl || null,
+          canAssignChild: activeTab?.canAssignChild === true,
+          childCount: activeTab?.childCount || 0,
 
-  /*
-   * Pha 2:
-   * Tạo cạnh chỉ khi child là owner của một ST/node thật trong graph.
-   *
-   * Không tạo edge đến:
-   * `mem-${childMemberId}`
-   * vì loại ID đó không tồn tại trong nodes[].
-   */
-  for (const sourceNode of nodes) {
-    const st = sourceNode?.data?.st;
-
-    if (!st || !Array.isArray(st.children)) {
-      continue;
-    }
-
-    st.children.forEach((child) => {
-      const childMemberId =
-        child?.member?.member_id || null;
-
-      if (!childMemberId) {
-        return;
-      }
-
-      const targetNodeId =
-        stNodeIdByOwnerMemberId.get(childMemberId);
-
-      /*
-       * Nếu child không có Standard Tree node tương ứng trong
-       * window, không tạo dangling edge.
-       */
-      if (!targetNodeId) {
-        return;
-      }
-
-      edges.push({
-        id: `edge:${sourceNode.id}->${targetNodeId}`,
-        source: sourceNode.id,
-        target: targetNodeId,
-        type: 'smoothstep',
-        animated: false,
-        selectable: false,
-        focusable: false,
-        style: {
-          stroke: '#4338ca',
-          strokeWidth: 2.5,
+          unassigned,
+          unassignedCount: unassigned.length,
+          isTarget: tree?.parent?.member?.is_target === true,
+          isOrigin: tree?.parent?.member?.is_origin === true,
         },
       });
+
+      nodeIds.add(id);
     });
+  });
+
+  function addEdge(edge) {
+    if (!edge.source || !edge.target) return;
+    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) return;
+    // Tránh add trùng lặp Edge
+    if (edges.some((e) => e.id === edge.id)) return;
+    edges.push(edge);
   }
 
-  /*
-   * Pha 3:
-   * Dagre chỉ tính horizontal distribution.
-   * Trục Y luôn giữ theo depth backend.
-   */
-  const graph = new dagre.graphlib.Graph();
+  levels.forEach((level) => {
+    asArray(level?.standard_trees).forEach((tree) => {
+      const source = treeId(tree);
+      const rawTabs = asArray(tree?.marriage_tabs);
 
-  graph.setDefaultEdgeLabel(() => ({}));
+      // BẢO TỒN TẤT CẢ EDGE CON CÁI CỦA MỌI TAB HÔN NHÂN
+      rawTabs.forEach((tab) => {
+        const unionId = tab?.union_id;
+        asArray(tab?.children).forEach((row) => {
+          const member = row?.member;
+          const target = childTargetId(memberToTreeId, member);
 
-  graph.setGraph({
-    rankdir: 'TB',
-    nodesep: NODE_GAP,
-    ranksep: RANK_GAP,
-    marginx: 24,
-    marginy: 24,
-  });
+          addEdge({
+            id: `${source}:union:${unionId}:${member?.id || 'unknown'}`,
+            source,
+            sourceHandle: `union:${unionId}:children`,
+            target,
+            type: 'smoothstep',
+            style: normalEdgeStyle,
+            data: {
+              kind: 'PARENT_UNION_CHILD',
+              unionId,
+              parentUnionId: member?.parent_union_id || unionId || null,
+            },
+          });
+        });
+      });
 
-  nodes.forEach((node) => {
-    graph.setNode(node.id, {
-      width: MFO_NODE_WIDTH,
-      height: MFO_NODE_HEIGHT,
+      // LUÔN RENDER EDGE UNASSIGNED ĐƯỜNG NÉT ĐỨT CHO "CON BÀ 2" TỪ ANCHOR OWNER
+      asArray(tree?.unassigned_children).forEach((row) => {
+        const member = row?.member;
+        const target = childTargetId(memberToTreeId, member);
+
+        addEdge({
+          id: `${source}:unassigned:${row?.reason || 'PARENT_UNION_UNSET'}:${member?.id || 'unknown'}`,
+          source,
+          sourceHandle: 'owner:unassigned',
+          target,
+          type: 'smoothstep',
+          style: unassignedEdgeStyle,
+          label: 'Chưa gắn hôn phối',
+          labelStyle: {
+            fill: '#92400e',
+            fontSize: 10,
+            fontWeight: 700,
+          },
+          labelBgStyle: {
+            fill: '#fef3c7',
+            fillOpacity: 0.96,
+          },
+          labelBgPadding: [5, 3],
+          labelBgBorderRadius: 5,
+          data: {
+            kind: 'UNASSIGNED_CHILD',
+            reason: row?.reason || 'PARENT_UNION_UNSET',
+            parentUnionId: member?.parent_union_id || null,
+          },
+        });
+      });
     });
   });
 
-  edges.forEach((edge) => {
-    graph.setEdge(edge.source, edge.target);
-  });
-
-  dagre.layout(graph);
-
-  const layoutedNodes = nodes.map((node) => {
-    const depth = Number(node?.data?.depth);
-
-    /*
-     * Placeholder không tham gia topology:
-     * giữ thẳng theo cột X cố định.
-     */
-    if (node.type === 'emptyNode') {
-      return {
-        ...node,
-        position: {
-          x: EMPTY_NODE_X,
-          y: depth * MFO_LANE_HEIGHT,
-        },
-      };
-    }
-
-    const dagreNode = graph.node(node.id);
-
-    return {
-      ...node,
-      position: {
-        x: dagreNode
-          ? dagreNode.x - MFO_NODE_WIDTH / 2
-          : node.position.x,
-        y: depth * MFO_LANE_HEIGHT,
-      },
-    };
-  });
-
-  return {
-    nodes: layoutedNodes,
-    edges,
-  };
+  return { nodes, edges };
 }

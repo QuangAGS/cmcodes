@@ -1,665 +1,458 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MyMfoPlans.jsx
- * DATETIME   : 2026-09-20T22:25:00+07:00
- * VERSION    : 1.3.0-ACCORDION
- * DESCRIPTION: Tờ khai 5 đời — select + card thu/mở. Tên người, không mã.
+ * DATETIME   : 2026-10-09T19:50:00+07:00
+ * VERSION    : 5.1.0-AMENDMENT-20261009-TERMINAL-REJECTED-SYNC
+ * DESCRIPTION:
+ * - Tuân thủ AMENDMENT-20261009 & MFO Core Lifecycle 2.0.
+ * - Triển khai chính xác Ma trận Quyền Xóa EU Delete Matrix:
+ *   + CHO PHẾP XÓA: DRAFT, NEEDS_REVISION, APPROVED (Gate 1 - chưa nộp Gate 2).
+ *   + CẤM XÓA & ĐÓNG BĂNG 100%: REJECTED, PENDING, UNDER_REVIEW, APPROVED (Gate 2).
+ * - Hiển thị Banner Cảnh báo Đỏ đối với Tờ khai bị Bác bỏ vĩnh viễn (REJECTED).
+ * - Cung cấp nút điều hướng "+ Khởi tạo Tờ trình MFO mới" khi Tờ trình bị bác bỏ.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../../context/AuthContext.jsx';
-import { useTts } from '../../../shared/hooks/useTts.js';
-import { ChevronDown, ChevronUp } from 'lucide-react';
-import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx';
-import { listMyPlans, getPlan, getMember, abortPlan } from '../api/mfoApi.js';
-import { unwrapPlanList, unwrapPlanTicket } from '../lib/normalizePlanRow.js';
-import { listLotDrafts, deleteLotDraft } from '../lib/mfoDraftStore.js';
-import { clearSearchCache } from '../../member/api/memberSearchApi.js';
-import { OP_MFO_WORK, opMfoStatusLabel } from '../../op/constants/opMfoWork.js';
-import { MFO_VOICE_SELF } from '../constants/mfoVoiceHelp.self.js';
+import { toast } from 'sonner';
+import {
+  FileEdit,
+  Trash2,
+  Eye,
+  Save,
+  PlusCircle,
+  AlertTriangle,
+  MessageSquare,
+  XOctagon,
+  Plus,
+} from 'lucide-react';
+
+import {
+  listPlans,
+  deleteDraft,
+  getMember,
+  getDraftPayload,
+  savePlanDraft,
+} from '../api/mfoApi.js';
+import {
+  unwrapPlanList,
+  opMfoStatusBadgeClass,
+} from '../lib/normalizePlanRow.js';
+import { diffDraftAgainstInit } from '../lib/mfoDiffEngine.js';
 import { toMfoUserMessage } from '../constants/mfoUserErrors.js';
 
-const selectCls =
-  'w-full rounded-2xl border border-slate-200 px-4 py-3 text-base font-medium outline-none focus:border-indigo-400';
+/**
+ * <2026-10-09T19:50:00+07:00> - Map nhãn Dropdown chuẩn xác theo Single Thread Pipeline (Mục IV)
+ */
+function getSingleThreadOptionLabel(plan) {
+  if (!plan) return '';
+  const rawDate = plan.created_at || plan.updated_at;
+  const dateStr = rawDate ? new Date(rawDate).toLocaleDateString('vi-VN') : '';
+  const timeStr = rawDate ? new Date(rawDate).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '';
+  const prefix = dateStr ? `${timeStr} ${dateStr} - ` : '';
 
-function unwrapList(res) {
-  const d = res?.data?.data ?? res?.data ?? {};
-  const raw = Array.isArray(d)
-    ? d
-    : Array.isArray(d.items)
-      ? d.items
-      : Array.isArray(d.tickets)
-        ? d.tickets
-        : Array.isArray(d.plans)
-          ? d.plans
-          : d.ticket
-            ? [d.ticket]
-            : [];
-  return raw.map((t) => {
-    const p = t.payload && typeof t.payload === 'object' ? t.payload : {};
-    return {
-      ...t,
-      plan_ok: t.plan_ok === true || p.plan_ok === true,
-      result_ok: t.result_ok === true || p.result_ok === true,
-      payload: {
-        ...p,
-        plan_ok: t.plan_ok === true || p.plan_ok === true,
-        result_ok: t.result_ok === true || p.result_ok === true,
-        k: t.k ?? p.k,
-        origin_member_id: t.origin_member_id || p.origin_member_id,
-        note: t.note || p.note,
-      },
-    };
-  });
-}
+  const st = String(plan.status || 'DRAFT').toUpperCase();
+  const payload = plan.payload || {};
+  const isResultSubmitted = Boolean(plan.result_submitted || payload.result_submitted);
+  const isApproved = st === 'APPROVED';
 
-function unwrapPlan(res) {
-  const d = res?.data?.data ?? res?.data ?? {};
-  return {
-    ticket: d.ticket || d,
-    tree: d.tree || null,
-  };
-}
-
-function unwrapMember(res) {
-  const d = res?.data?.data ?? res?.data ?? {};
-  return d.member || d;
-}
-
-function looksLikeCode(s) {
-  const t = String(s || '').trim();
-  if (!t) return true;
-  if (/^[0-9a-f-]{16,}$/i.test(t)) return true;
-  if (/^\d{6,}_\w/.test(t)) return true;
-  return false;
-}
-
-function nameFromTree(tree, id) {
-  if (!id || !tree) return '';
-  const bags = [tree.members, tree.nodes, tree.people, tree.is_clan].filter(Array.isArray);
-  for (const bag of bags) {
-    const hit = bag.find((n) => n && (n.id === id || n.member_id === id));
-    const nm = hit?.full_name || hit?.name;
-    if (nm && !looksLikeCode(nm)) return nm;
+  if (st === 'DRAFT') return `${prefix}Khung đang soạn`;
+  if (st === 'PENDING' || st === 'UNDER_REVIEW') {
+    if (payload.plan_ok && isResultSubmitted) return `${prefix}Tờ khai chờ duyệt`;
+    return `${prefix}Khung chờ duyệt`;
   }
-  return '';
+  if (st === 'REJECTED') return `${prefix}Tờ khai bị Bác bỏ / Từ chối`;
+  if (st === 'NEEDS_REVISION') return `${prefix}Khung yêu cầu sửa lại`;
+
+  if (isApproved && !isResultSubmitted) return `${prefix}Khung đã được duyệt (Khai tờ khai)`;
+  if (isApproved && isResultSubmitted) return `${prefix}Tờ khai đã được duyệt (Đã chốt Sổ)`;
+
+  return `${prefix}Khung dự kiến`;
 }
 
-function declaredGenerations(payload) {
-  const lines = Array.isArray(payload?.lines) ? payload.lines : [];
-  if (!lines.length) return null;
-  const empty = lines.filter((row) => String(row?.op || '').toUpperCase() === 'EMPTY').length;
-  return Math.max(0, 5 - empty);
-}
-
-function abortKind(ticket) {
-  const p = ticket?.payload || {};
-  const st = String(ticket?.status || '').toUpperCase();
-  if (p.result_ok || st === 'APPROVED' || st === 'REJECTED' || st === 'WITHDRAWN') return null;
-  if (p.result_submitted && st === 'UNDER_REVIEW') return null;
-  const created =
-    (p.created_member_ids || []).length + (p.created_spouse_ids || []).length;
-  if (st === 'NEEDS_REVISION' || created > 0) return 'C';
-  if (p.plan_ok) return 'B';
-  if (st === 'PENDING' || st === 'UNDER_REVIEW') return 'A';
-  return null;
-}
-
-const ABORT_COPY = {
-  A: {
-    ask: 'Bác quyết định huỷ khung dự kiến này?',
-    done: 'Đã huỷ khung. Bây giờ bác có thể tạo khung mới.',
-    btn: 'Huỷ khung',
-  },
-  B: {
-    ask: 'Bác quyết định huỷ khung dự kiến đã được duyệt này?',
-    done: 'Đã huỷ khung. Bây giờ bác có thể tạo khung mới.',
-    btn: 'Huỷ khung',
-  },
-  C: {
-    ask: 'Bác quyết định huỷ tờ khai này? Người không lấy từ sổ Họ sẽ bị ẩn, không dùng lại được.',
-    done: 'Đã huỷ tờ khai. Những người không được chọn từ sổ Họ đã bị ẩn và không thể sử dụng lại.',
-    btn: 'Huỷ tờ khai',
-  },
-};
-
-function optionLabel(ticket) {
-  const when = ticket?.created_at
-    ? new Date(ticket.created_at).toLocaleDateString('vi-VN')
-    : '';
-  return `${when ? `${when} — ` : ''}${opMfoStatusLabel(ticket)}`;
-}
-
-export default function MyMfoPlans({ declarantName = '' }) {
+export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
   const navigate = useNavigate();
-  const [rows, setRows] = useState([]);
-  const [err, setErr] = useState('');
-  const [loading, setLoading] = useState(true);
-  const [topic, setTopic] = useState('');
-  const [open, setOpen] = useState(false);
-  const [detail, setDetail] = useState(null);
-  const [originName, setOriginName] = useState('');
-  const [nameMap, setNameMap] = useState({});
-  const { user } = useAuth();
-  const { speak } = useTts();
-  const uid = user?.id || user?.userId || '';
-  const [drafts, setDrafts] = useState(() => listLotDrafts(uid));
-  const [abortAsk, setAbortAsk] = useState(null);
-  const [okMsg, setOkMsg] = useState('');
-  const [abortBusy, setAbortBusy] = useState(false);
 
-  useEffect(() => {
-    if (okMsg) speak(okMsg);
-  }, [okMsg, speak]);
+  const [plans, setPlans] = useState([]);
+  const [selectedTicketId, setSelectedTicketId] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [memberNames, setMemberNames] = useState({});
+  const [draftDetail, setDraftDetail] = useState(null);
 
-  useEffect(() => {
-    setDrafts(listLotDrafts(uid));
-  }, [uid]);
-
-  const refreshList = useCallback(async () => {
+  /**
+   * <2026-10-09T19:50:00+07:00> - Nạp danh sách Tờ trình (Backend Query: WHERE deleted_at IS NULL)
+   */
+  const loadPlansList = useCallback(async () => {
     try {
-      const res = await listMyPlans({ mine: 1 });
-      const all = unwrapPlanList(res);
-      const mineOf = (t) => {
-        const rid =
-          t.requester_user_id ||
-          t.ticket?.requester_user_id ||
-          (t.payload && t.payload.founder_user_id);
-        return !uid || !rid || String(rid) === String(uid);
-      };
-      const byTime = (a, b) => {
-        const ta = new Date(a.updated_at || a.created_at || 0).getTime();
-        const tb = new Date(b.updated_at || b.created_at || 0).getTime();
-        return tb - ta;
-      };
-      const rich = [];
-      for (const row of all.filter(mineOf)) {
-        try {
-          const full = unwrapPlanTicket(await getPlan(row.id));
-          if (mineOf(full)) rich.push(full);
-        } catch {
-          rich.push(row);
-        }
+      setLoading(true);
+      let res = await listPlans({ mine: '1' });
+      let list = unwrapPlanList(res);
+
+      if (list.length === 0) {
+        res = await listPlans({});
+        list = unwrapPlanList(res);
       }
-      rich.sort(byTime);
-      setRows(rich);
-      setDrafts(
-        listLotDrafts(uid).slice().sort((a, b) => {
-          const ta = new Date(a.updated_at || a.created_at || 0).getTime();
-          const tb = new Date(b.updated_at || b.created_at || 0).getTime();
-          return tb - ta;
-        })
-      );
-    } catch (e) {
-      setErr(toMfoUserMessage(e));
+
+      setPlans(list);
+
+      // Tự động chọn hồ sơ active duy nhất trong Single Thread
+      if (list.length > 0) {
+        setSelectedTicketId(list[0].id || list[0].ticket_id);
+      } else {
+        setSelectedTicketId('');
+      }
+    } catch (error) {
+      console.error('[MY_MFO_PLANS_LOAD_ERROR]', error);
+      toast.error('Lỗi khi nạp danh sách tờ trình: ' + toMfoUserMessage(error));
     } finally {
       setLoading(false);
     }
-  }, [uid]);
+  }, []);
 
   useEffect(() => {
-    refreshList();
-    const onVis = () => {
-      if (document.visibilityState === 'visible') refreshList();
-    };
-    window.addEventListener('focus', refreshList);
-    document.addEventListener('visibilitychange', onVis);
-    return () => {
-      window.removeEventListener('focus', refreshList);
-      document.removeEventListener('visibilitychange', onVis);
-    };
-  }, [refreshList]);
+    void loadPlansList();
+  }, [loadPlansList]);
 
-  const selected = useMemo(
-    () => rows.find((t) => t.id === topic) || null,
-    [rows, topic]
-  );
+  // Xử lý sự kiện khi chọn Dropdown List
+  const handleSelectChange = (e) => {
+    const val = e.target.value;
 
-  useEffect(() => {
-    setOpen(false);
-    setDetail(null);
-    setOriginName('');
-    setNameMap({});
-  }, [topic]);
-
-  useEffect(() => {
-    if (!open || !selected?.id) return undefined;
-    let cancelled = false;
-    (async () => {
-      try {
-        const res = await getPlan(selected.id);
-        if (cancelled) return;
-        const pack = unwrapPlan(res);
-        const ticket = pack.ticket || selected;
-        setDetail(ticket);
-        const originId =
-          ticket?.payload?.origin_member_id ||
-          selected?.payload?.origin_member_id ||
-          selected?.target_id;
-        let nm = nameFromTree(pack.tree, originId);
-        if (!nm && originId) {
-          try {
-            const mres = await getMember(originId);
-            const m = unwrapMember(mres);
-            nm = m?.full_name || '';
-          } catch {
-            nm = '';
-          }
-        }
-        if (!cancelled) setOriginName(looksLikeCode(nm) ? '' : nm);
-        const ids = new Set();
-        (ticket?.payload?.lines || []).forEach((row) => {
-          if (row?.member_id) ids.add(row.member_id);
-          (row?.created_ids || []).forEach((x) => ids.add(x));
-        });
-        (ticket?.payload?.created_member_ids || []).forEach((x) => ids.add(x));
-        (ticket?.payload?.created_spouse_ids || []).forEach((x) => ids.add(x));
-        const nextNames = {};
-        if (originId && nm && !looksLikeCode(nm)) nextNames[originId] = nm;
-        for (const mid of ids) {
-          if (nextNames[mid]) continue;
-          let hit = nameFromTree(pack.tree, mid);
-          if (!hit) {
-            try {
-              const m = unwrapMember(await getMember(mid));
-              hit = m?.full_name || '';
-            } catch {
-              hit = '';
-            }
-          }
-          if (hit && !looksLikeCode(hit)) nextNames[mid] = hit;
-        }
-        if (!cancelled) setNameMap(nextNames);
-      } catch (e) {
-        if (!cancelled) setErr(toMfoUserMessage(e));
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [open, selected]);
-
-  const payload = detail?.payload || selected?.payload || {};
-  const status = selected ? opMfoStatusLabel(detail || selected) : '';
-  const declaredAt = selected?.created_at
-    ? new Date(selected.created_at).toLocaleString('vi-VN')
-    : 'chưa rõ ngày';
-  const n = declaredGenerations(payload);
-  const k = Number(payload.k);
-  const kText = Number.isInteger(k) ? String(k) : 'chưa rõ';
-  const who = looksLikeCode(declarantName) ? 'bạn' : declarantName || 'bạn';
-  const originPhrase = originName
-    ? `Đời gốc là ${originName}, chọn từ sổ Họ.`
-    : 'Đời gốc chọn từ sổ Họ.';
-
-  const summaryBlocks = useMemo(() => {
-    const raw = Array.isArray(payload.lines) ? payload.lines : [];
-    const st = String(selected?.status || '').toUpperCase();
-    const filed =
-      payload.result_submitted === true ||
-      st === 'NEEDS_REVISION' ||
-      st === 'APPROVED' ||
-      (payload.created_member_ids || []).length > 0;
-    const rows5 = [0, 1, 2, 3, 4].map((i) => raw.find((r) => Number(r.line) === i) || { line: i, op: 'EMPTY' });
-    const blocks = rows5.map((row) => {
-      const title = row.line === 0 ? 'Đời gốc' : `Đời ${row.line}`;
-      const op = String(row.op || 'EMPTY').toUpperCase();
-      const isYou = Number(payload.k) === row.line;
-      const people = [];
-      if (filed) {
-        const ids = [];
-        if (row.member_id) ids.push(row.member_id);
-        (row.created_ids || []).forEach((id) => {
-          if (!ids.includes(id)) ids.push(id);
-        });
-        if (!ids.length) {
-          people.push({ text: op === 'EMPTY' ? 'Không khai' : 'Chưa ghi người', tag: '' });
-        } else {
-          ids.forEach((id) => {
-            const nm = nameMap[id] || (row.line === 0 ? originName : '') || 'Đã ghi trên sổ';
-            people.push({
-              text: looksLikeCode(nm) ? 'Đã ghi trên sổ' : nm,
-              tag: isYou && id === row.member_id ? 'Chính bạn' : '',
-            });
-          });
-        }
-      } else if (op === 'EMPTY') people.push({ text: 'Không khai', tag: '' });
-      else if (op === 'CREATE') people.push({ text: row.hint && row.hint !== 'Xin tạo' ? row.hint : 'Chưa đặt tên', tag: 'Xin tạo' });
-      else {
-        const nm =
-          (row.member_id && nameMap[row.member_id]) ||
-          (row.line === 0 ? originName : '') ||
-          row.hint ||
-          'Đã chọn trên sổ';
-        people.push({ text: looksLikeCode(nm) ? 'Đã chọn trên sổ' : nm, tag: isYou ? 'Chính bạn' : '' });
-      }
-      const empty =
-        people.length === 0 ||
-        (people.length === 1 && String(people[0].text) === 'Không khai');
-      return { title, people, empty };
-    });
-    if (filed && (payload.created_spouse_ids || []).length) {
-      blocks.push({
-        title: 'Vợ/chồng mới',
-        people: payload.created_spouse_ids.map((id) => ({
-          text: nameMap[id] || 'Đã ghi trên sổ',
-          tag: '',
-        })),
-      });
+    if (val === '__NEW_PLAN__') {
+      navigate('/op/mfo/plans/new');
+      return;
     }
-    if (payload.plan_ok) return blocks.filter((b) => !b.empty);
-    return blocks;
-  }, [payload, nameMap, originName, selected?.status]);
 
-  const spoken = selected
-    ? [
-        'Tờ khai.',
-        `Ngày khai báo: ${declaredAt}.`,
-        `Tình trạng tờ khai: ${status}.`,
-        summaryBlocks
-          .map((b) => `${b.title}. ${b.people.map((p) => `${p.text}${p.tag ? ` ${p.tag}` : ''}`).join('. ')}`)
-          .join('. '),
-        `Người khai: ${who}, thuộc đời ${kText} tính từ đời gốc.`,
-      ].join(' ')
-    : MFO_VOICE_SELF.enterOp;
+    setSelectedTicketId(val);
+    if (val === '') {
+      void loadPlansList();
+    }
+  };
+
+  // Hồ sơ đang chọn hiện tại
+  const currentPlan = useMemo(() => {
+    return plans.find((p) => (p.id || p.ticket_id) === selectedTicketId) || null;
+  }, [plans, selectedTicketId]);
+
+  // Phân lập trạng thái
+  const currentStatus = String(currentPlan?.status || 'DRAFT').toUpperCase();
+  const payloadData = currentPlan?.payload || draftDetail || {};
+  const isPending = currentStatus === 'PENDING' || currentStatus === 'UNDER_REVIEW';
+  const isNeedsRevision = currentStatus === 'NEEDS_REVISION';
+  const isRejected = currentStatus === 'REJECTED'; // Terminal State
+  const isApproved = currentStatus === 'APPROVED';
+
+  /**
+   * <2026-10-09T19:50:00+07:00> - Ma trận Kiểm tra Quyền Xóa Tờ trình (EU Delete Matrix - AMENDMENT 20261009)
+   */
+  const canDelete = useMemo(() => {
+    if (!currentPlan) return false;
+    if (isPending) return false; // Đang thẩm định: CẤM XÓA
+    if (isRejected) return false; // Bị bác bỏ: CẤM XÓA (Giữ deleted_at = NULL để bảo lưu Bút phê)
+    
+    // Gate 2 đã chốt Sổ thật: CẤM XÓA
+    if (isApproved && payloadData?.result_ok) return false;
+
+    // 🟢 CHO PHẾP XÓA:
+    // 1. DRAFT
+    // 2. NEEDS_REVISION
+    // 3. APPROVED ở Gate 1 nhưng chưa nộp Gate 2 (plan_ok = true & result_submitted = false)
+    if (currentStatus === 'DRAFT' || isNeedsRevision) return true;
+    if (isApproved && payloadData?.plan_ok && !payloadData?.result_submitted) return true;
+
+    return false;
+  }, [currentPlan, isPending, isRejected, isApproved, isNeedsRevision, payloadData]);
+
+  // Nạp chi tiết Tờ trình & Tra cứu danh sách Tên thành viên
+  useEffect(() => {
+    if (!selectedTicketId || selectedTicketId === '__NEW_PLAN__') {
+      setDraftDetail(null);
+      return;
+    }
+
+    async function hydrateSelectedPlan() {
+      try {
+        const res = await getDraftPayload(selectedTicketId);
+        const data = res?.data || res;
+        setDraftDetail(data);
+
+        const idsToFetch = new Set();
+        const targetId = data?.target_member_id || data?.origin_member_id;
+        if (targetId) idsToFetch.add(targetId);
+
+        (data?.lines || []).forEach((l) => {
+          if (l.member_id) idsToFetch.add(l.member_id);
+          if (l.spouse_id) idsToFetch.add(l.spouse_id);
+          (l.siblings || []).forEach((s) => {
+            if (s.member_id) idsToFetch.add(s.member_id);
+          });
+        });
+
+        for (const mid of idsToFetch) {
+          if (mid && !memberNames[mid]) {
+            try {
+              const mRes = await getMember(mid);
+              const mData = mRes?.data?.member || mRes?.data || mRes;
+              if (mData?.full_name || mData?.name) {
+                setMemberNames((prev) => ({
+                  ...prev,
+                  [mid]: mData.full_name || mData.name,
+                }));
+              }
+            } catch {}
+          }
+        }
+      } catch (error) {
+        console.error('[HYDRATE_SELECTED_PLAN_ERROR]', error);
+      }
+    }
+
+    void hydrateSelectedPlan();
+  }, [selectedTicketId]);
+
+  /**
+   * <2026-10-09T19:50:00+07:00> - Xử lý Xóa bản nháp / Tờ trình
+   */
+  const handleDeletePlan = async () => {
+    if (!selectedTicketId || !canDelete) return;
+
+    if (!window.confirm('Bạn có chắc chắn muốn xóa tờ trình này?')) return;
+
+    try {
+      setLoading(true);
+      const response = await deleteDraft(selectedTicketId);
+
+      const isSuccess = 
+        response?.status === 'success' || 
+        response?.data?.status === 'success' || 
+        response?.data?.deleted === true ||
+        response?.deleted === true;
+
+      if (isSuccess) {
+        toast.success('Đã xóa tờ trình thành công!');
+        setSelectedTicketId('');
+        if (onPlanDeleted) onPlanDeleted();
+        await loadPlansList();
+      } else {
+        toast.error(response?.message || 'Không thể xóa tờ trình.');
+      }
+    } catch (error) {
+      const serverMessage = error.response?.data?.message || error.message;
+      toast.error('Lỗi khi xóa tờ trình: ' + serverMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Xử lý Nút "Lưu nháp" trực tiếp
+  const handleSaveDraftDirect = async () => {
+    if (!selectedTicketId || !draftDetail) return;
+    if (isPending || isRejected || isApproved) {
+      toast.warning('Tờ trình ở trạng thái này không thể lưu nháp!');
+      return;
+    }
+
+    try {
+      setBusy(true);
+      await savePlanDraft({
+        ticket_id: selectedTicketId,
+        ...draftDetail,
+      });
+      toast.success('Đã lưu bản nháp Tờ trình 5L thành công!');
+      void loadPlansList();
+    } catch (error) {
+      toast.error('Không thể lưu nháp: ' + toMfoUserMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Gọi mfoDiffEngine tái tạo mảng Tóm tắt 5 Đời
+  const lineSummaryBlocks = useMemo(() => {
+    if (!draftDetail) return [];
+
+    const payloadWithNames = {
+      ...draftDetail,
+      lines: (draftDetail.lines || []).map((l) => ({
+        ...l,
+        full_name: memberNames[l.member_id] || l.hint || null,
+      })),
+    };
+
+    return diffDraftAgainstInit(payloadWithNames);
+  }, [draftDetail, memberNames]);
 
   return (
-    <div className="flex flex-col gap-4">
-      <label className="block">
-        <span className="mb-1 block text-base font-black text-slate-800">Khung dự kiến và tờ khai</span>
-        <select
-          className={selectCls}
-          value={topic}
-          onPointerDown={() => {
-            refreshList();
-          }}
-          onFocus={() => {
-            refreshList();
-          }}
-          onChange={(e) => setTopic(e.target.value)}
-        >
-          <option value="">Bấm để chọn</option>
-          <option value="open">Tạo khung dự kiến</option>
-          {drafts.map((d) => (
-            <option key={d.id} value={d.id}>
-              Khung đang tạo — {d.originName || 'chưa chọn gốc'} —{' '}
-              {d.updated_at ? new Date(d.updated_at).toLocaleString('vi-VN') : ''}
-            </option>
-          ))}
-          {rows.map((t) => (
-            <option key={t.id} value={t.id}>
-              {optionLabel(t)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <button
-        type="button"
-        className="min-h-11 w-full rounded-2xl border border-slate-200 bg-white text-sm font-bold text-slate-700"
-        onClick={() => refreshList()}
-      >
-        Làm mới danh sách tờ
-      </button>
+    <div className="flex flex-col gap-3 font-sans">
+      {/* BANNER CẢNH BÁO CHỜ DUYỆT (PENDING / UNDER_REVIEW) */}
+      {isPending && (
+        <div className="flex items-start gap-2.5 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold text-amber-950 shadow-sm">
+          <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 mt-0.5" />
+          <div className="leading-relaxed">
+            <p className="font-extrabold text-amber-900">
+              Thông báo: Hồ sơ MFO 5L đang nằm trong Hàng đợi Thẩm định.
+            </p>
+            <p className="mt-1 font-medium text-amber-800">
+              Giao diện tạm thời đóng băng Read-Only 100%. Vui lòng chờ phản hồi bút phê từ Ban Quản trị.
+            </p>
+          </div>
+        </div>
+      )}
 
-      {topic ? (
-      <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
-        {String(topic).startsWith('draft-') ? (
-          <>
-            <h2 className="text-base font-black text-slate-800">Tờ đang soạn</h2>
-            <p className="mt-2 text-base text-slate-700">
-              {drafts.find((d) => d.id === topic)?.originName
-                ? `Đời gốc: ${drafts.find((d) => d.id === topic).originName}`
-                : 'Chưa chọn đời gốc.'}
+      {/* 🛑 BANNER CẢNH BÁO ĐỎ KHI HỒ SƠ BỊ REJECTED (AMENDMENT 20261009 MỤC 4) */}
+      {isRejected && (
+        <div className="flex items-start gap-3 rounded-3xl border-2 border-rose-300 bg-rose-50/90 p-4 text-xs text-rose-950 shadow-md">
+          <XOctagon className="h-5 w-5 shrink-0 text-rose-600 mt-0.5" />
+          <div className="flex-1 leading-relaxed">
+            <p className="font-black uppercase tracking-wider text-rose-900 text-[11px]">
+              🛑 TỜ KHAI ĐÃ BỊ BAN QUẢN TRỊ BÁC BỎ VĨNH VIỄN
+            </p>
+            <p className="mt-1.5 font-bold text-slate-800 bg-white/80 p-2.5 rounded-2xl border border-rose-200">
+              Lý do bác bỏ: <span className="text-rose-900 italic">"{currentPlan.admin_note || currentPlan.note || 'Hồ sơ không hợp lệ theo quy định gia tộc.'}"</span>
+            </p>
+            <p className="mt-2 text-[11px] font-semibold text-slate-600">
+              Hồ sơ này bị đóng băng vĩnh viễn để bảo lưu vết bút phê của Admin. Bạn không thể chỉnh sửa hoặc xóa tờ trình này.
             </p>
             <button
               type="button"
-              className="mt-3 min-h-12 w-full rounded-2xl bg-indigo-600 text-base font-black text-white"
-              onClick={() => navigate(`/op/mfo/plans/new?draft=${encodeURIComponent(topic)}`)}
+              className="mt-3 flex items-center gap-1.5 rounded-2xl bg-indigo-600 px-4 py-2.5 text-xs font-black text-white shadow-md hover:bg-indigo-700 active:scale-95"
+              onClick={() => navigate('/op/mfo/plans/new')}
             >
-              Tiếp tục tạo khung
+              <Plus className="h-4 w-4" />
+              <span>+ Khởi tạo Tờ trình MFO mới</span>
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* DROPDOWN CHỌN TỜ TRÌNH (SINGLE THREAD PIPELINE) */}
+      <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
+        <label className="block text-xs font-extrabold uppercase text-slate-700">
+          Khung dự kiến và tờ khai:
+        </label>
+
+        <select
+          className="w-full rounded-2xl border-2 border-indigo-200 bg-indigo-50/50 p-3.5 text-sm font-black text-indigo-950 outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
+          value={selectedTicketId}
+          onChange={handleSelectChange}
+        >
+          <option value="">Bấm để chọn</option>
+
+          {!isPending && (
+            <option value="__NEW_PLAN__" className="font-bold text-indigo-700">
+              + Tạo khung 5L mới
+            </option>
+          )}
+
+          {plans.map((p) => (
+            <option key={p.id || p.ticket_id} value={p.id || p.ticket_id}>
+              {getSingleThreadOptionLabel(p)}
+            </option>
+          ))}
+        </select>
+
+        {plans.length === 0 && !loading && (
+          <div className="flex flex-col items-center gap-2 py-3 text-center">
+            <p className="text-xs font-semibold text-slate-500">
+              Chưa có tờ trình nào được tạo.
+            </p>
             <button
               type="button"
-              className="mt-2 min-h-12 w-full rounded-2xl border border-rose-200 bg-rose-50 text-base font-bold text-rose-800"
-              onClick={() => {
-                deleteLotDraft(topic);
-                setDrafts(listLotDrafts(uid));
-                setTopic('');
-              }}
+              className="flex items-center gap-1.5 rounded-2xl bg-indigo-600 px-4 py-2.5 text-xs font-black text-white shadow-sm hover:bg-indigo-700 active:scale-95"
+              onClick={() => navigate('/op/mfo/plans/new')}
             >
-              Xóa tờ đang soạn
+              <PlusCircle className="h-4 w-4" />
+              <span>Bấm để tạo khung mới ngay</span>
             </button>
-          </>
-        ) : topic === 'open' ? (
-          <>
-            <div className="mb-3 flex items-center gap-2">
-              <h2 className="flex-1 text-base font-black text-slate-800">{OP_MFO_WORK.title}</h2>
-              <ZoneVoiceButton visible text={MFO_VOICE_SELF.enterOp} label="Nghe" />
-            </div>
-            <p className="text-base leading-relaxed text-slate-700">{OP_MFO_WORK.blurb}</p>
-            <button
-              type="button"
-              className="mt-3 min-h-12 w-full rounded-2xl bg-indigo-600 text-base font-black text-white"
-              onClick={() => navigate(OP_MFO_WORK.path)}
-            >
-              Tạo khung dự kiến
-            </button>
-          </>
-        ) : selected ? (
-          <>
-            <button
-              type="button"
-              className="flex w-full items-center gap-2 text-left"
-              onClick={() => setOpen((v) => !v)}
-              aria-expanded={open}
-            >
-              <div className="min-w-0 flex-1">
-                <p className="text-base font-black text-slate-800">
-                  {payload.result_submitted || payload.result_ok
-                    ? 'Tờ khai'
-                    : 'Khung dự kiến'}
-                </p>
-                <p className="mt-1 text-sm text-slate-600">
-                  {selected.created_at
-                    ? new Date(selected.created_at).toLocaleDateString('vi-VN')
-                    : ''}
-                  {' · '}
-                  {status}
-                </p>
-              </div>
-              <span
-                onClick={(e) => e.stopPropagation()}
-                onKeyDown={(e) => e.stopPropagation()}
-                role="presentation"
-              >
-                <ZoneVoiceButton visible text={spoken} label="Nghe" />
+          </div>
+        )}
+
+        {/* CHI TIẾT TÓM TẮT VÀ BÚT PHÊ */}
+        {currentPlan && (
+          <div className="mt-3 flex flex-col gap-3 rounded-2xl border border-slate-100 bg-slate-50/50 p-3.5 text-xs">
+            <div className="flex items-center justify-between border-b border-slate-200/60 pb-2">
+              <span className="font-extrabold text-slate-500 uppercase tracking-wider">TRẠNG THÁI:</span>
+              <span className={`rounded-full px-3 py-1 font-black uppercase text-[10px] ${opMfoStatusBadgeClass(currentPlan)}`}>
+                {getSingleThreadOptionLabel(currentPlan).split(' - ')[1] || 'Khung dự kiến'}
               </span>
-              {open ? (
-                <ChevronUp className="h-5 w-5 shrink-0 text-slate-400" />
-              ) : (
-                <ChevronDown className="h-5 w-5 shrink-0 text-slate-400" />
-              )}
-            </button>
-
-            {!payload.plan_ok && String(selected.status || '').toUpperCase() === 'REJECTED' ? (
-              <button
-                type="button"
-                className="mt-3 min-h-12 w-full rounded-2xl bg-indigo-600 text-base font-black text-white"
-                onClick={() => navigate(`/op/mfo/plans/new?from=${encodeURIComponent(selected.id)}`)}
-              >
-                Sửa khung và trình lại
-              </button>
-            ) : null}
-
-            <div className="mt-3 flex gap-2">
-            {payload.plan_ok &&
-            !payload.result_ok &&
-            !payload.result_submitted &&
-            String(selected.status || '').toUpperCase() !== 'NEEDS_REVISION' ? (
-              <button
-                type="button"
-                className="min-h-12 min-w-0 flex-1 rounded-2xl bg-indigo-600 px-2 text-sm font-black text-white"
-                onClick={() => navigate(`/op/mfo/plans/${selected.id}/work`)}
-              >
-                Mở tờ khai theo khung
-              </button>
-            ) : null}
-            {String(selected.status || '').toUpperCase() === 'NEEDS_REVISION' ? (
-              <button
-                type="button"
-                className="min-h-12 min-w-0 flex-1 rounded-2xl bg-indigo-600 px-2 text-sm font-black text-white"
-                onClick={() => navigate(`/op/mfo/plans/${selected.id}/work`)}
-              >
-                Sửa tờ theo chỉ đạo
-              </button>
-            ) : null}
-            {abortKind(detail || selected) ? (
-              <button
-                type="button"
-                className="min-h-12 min-w-0 flex-1 rounded-2xl border border-rose-200 bg-rose-50 px-2 text-sm font-bold text-rose-800"
-                onClick={() => {
-                  const kind = abortKind(detail || selected);
-                  setAbortAsk(kind);
-                  setOkMsg('');
-                }}
-              >
-                {ABORT_COPY[abortKind(detail || selected)].btn}
-              </button>
-            ) : null}
             </div>
-            {okMsg ? (
-              <p className="mt-3 rounded-2xl border-2 border-emerald-500 bg-emerald-50 px-4 py-3 text-center font-black text-emerald-900">
-                {okMsg}
-              </p>
-            ) : null}
-            {abortAsk ? (
-              <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                <p className="font-semibold text-slate-800">{ABORT_COPY[abortAsk].ask}</p>
-                <ZoneVoiceButton visible text={ABORT_COPY[abortAsk].ask} label="Nghe" />
-                <div className="mt-3 flex gap-2">
-                <button
-                  type="button"
-                  className="min-h-12 min-w-0 flex-1 rounded-2xl bg-rose-700 px-2 text-sm font-black text-white disabled:opacity-60"
-                  disabled={abortBusy}
-                  onClick={async () => {
-                    const copy = ABORT_COPY[abortAsk];
-                    const id = selected.id;
-                    setAbortBusy(true);
-                    setErr('');
-                    try {
-                      await abortPlan(id, { note: copy.btn });
-                      clearSearchCache();
-                      setOkMsg(copy.done);
-                      setAbortAsk(null);
-                      try {
-                        await refreshList();
-                      } catch {
-                        /* danh sách lỗi không phủ nhận đã huỷ */
-                      }
-                    } catch (e) {
-                      let gone = false;
-                      try {
-                        const row = unwrapPlanTicket(await getPlan(id));
-                        gone = String(row?.status || '').toUpperCase() === 'WITHDRAWN';
-                      } catch {
-                        gone = false;
-                      }
-                      if (gone) {
-                        setOkMsg(copy.done);
-                        setAbortAsk(null);
-                        await refreshList().catch(() => {});
-                      } else {
-                        const raw = e?.response?.data?.code || e?.code || '';
-                        setErr(
-                          raw === 'MFO_PLAN_STATE'
-                            ? 'Khung này chưa huỷ được ở bước hiện tại.'
-                            : 'Chưa huỷ được. Khởi động lại máy chủ rồi thử, hoặc nhờ Ban quản trị.'
-                        );
-                      }
-                    } finally {
-                      setAbortBusy(false);
-                    }
-                  }}
-                >
-                  {abortBusy ? 'Đang huỷ…' : 'Huỷ'}
-                </button>
-                <button
-                  type="button"
-                  className="min-h-12 min-w-0 flex-1 rounded-2xl border border-slate-200 bg-white px-2 text-sm font-bold text-slate-800"
-                  onClick={() => setAbortAsk(null)}
-                >
-                  Không huỷ
-                </button>
+
+            {/* BÚT PHÊ ADMIN (KHI TRẢ VỀ HOẶC REJECTED) */}
+            {(isNeedsRevision || isRejected || currentPlan.admin_note) && (
+              <div className={`rounded-xl border p-3 space-y-1 ${isRejected ? 'border-rose-200 bg-rose-50 text-rose-950' : 'border-indigo-200 bg-indigo-50/60 text-indigo-950'}`}>
+                <div className="flex items-center gap-1.5 font-black uppercase text-[10px]">
+                  <MessageSquare className="h-3.5 w-3.5" />
+                  <span>Bút phê từ Ban Quản trị:</span>
                 </div>
+                <p className="font-medium leading-relaxed italic">
+                  "{currentPlan.admin_note || currentPlan.note || 'Không có ghi chú thêm.'}"
+                </p>
               </div>
-            ) : null}
+            )}
 
-            {open ? (
-              <dl className="mt-3 space-y-2 border-t border-slate-200 pt-3 text-base text-slate-800">
-                <div>
-                  <dt className="text-sm font-normal text-slate-500">Ngày khai báo</dt>
-                  <dd className="text-base font-semibold text-slate-800">{declaredAt}</dd>
+            {/* TÓM TẮT NỘI DUNG 5 ĐỜI */}
+            <div className="space-y-2 pt-1">
+              <p className="font-black text-slate-800 uppercase text-[10px] tracking-wider">TÓM TẮT NỘI DUNG 5 ĐỜI:</p>
+              {lineSummaryBlocks.map((block, idx) => (
+                <div key={idx} className="flex items-start justify-between border-b border-slate-100 pb-1.5 text-slate-800">
+                  <span className="font-extrabold shrink-0 w-16">{block.title || `Đời ${idx}`}:</span>
+                  <span className="font-semibold text-right leading-tight text-slate-700">
+                    {block.text}
+                  </span>
                 </div>
-                <div>
-                  <dt className="text-sm font-normal text-slate-500">Tình trạng</dt>
-                  <dd className="text-base font-semibold text-slate-800">{status}</dd>
-                </div>
-                <div>
-                  <dt className="text-sm font-normal text-slate-500">Tóm tắt nội dung trình</dt>
-                  <dd className="mt-1 space-y-2 text-base font-semibold text-slate-800">
-                    {summaryBlocks.map((b) => (
-                      <div key={b.title}>
-                        <p className="font-bold">{b.title}</p>
-                        {b.people.map((p, i) => (
-                          <p key={`${b.title}-${i}`} className="pl-3 font-semibold leading-snug">
-                            {p.text}
-                            {p.tag ? ` (${p.tag})` : ''}
-                          </p>
-                        ))}
-                      </div>
-                    ))}
-                  </dd>
-                </div>
-                {(payload.admin_review || payload.review || payload.approver_note || detail?.admin_note) ? (
-                  <div>
-                    <dt className="text-sm font-normal text-slate-500">Chỉ đạo Ban quản trị</dt>
-                    <dd className="mt-1 space-y-1 font-semibold text-slate-800">
-                      {Object.entries((payload.admin_review || payload.review || {}).dirNote || {})
-                        .filter(([, v]) => String(v || '').trim())
-                        .map(([id, v]) => (
-                          <p key={id} className="pl-3">
-                            {nameMap[id] || id}: {v}
-                          </p>
-                        ))}
-                      {(payload.admin_review || payload.review)?.extra ? (
-                        <p className="pl-3">{(payload.admin_review || payload.review).extra}</p>
-                      ) : null}
-                      {!Object.keys((payload.admin_review || payload.review || {}).dirNote || {}).length &&
-                      (payload.approver_note || detail?.admin_note) ? (
-                        <p className="pl-3 whitespace-pre-wrap">
-                          {payload.approver_note || detail?.admin_note}
-                        </p>
-                      ) : null}
-                    </dd>
-                  </div>
-                ) : null}
-                <div>
-                  <dt className="text-sm font-normal text-slate-500">Người khai</dt>
-                  <dd className="text-base font-semibold text-slate-800">
-                    {who} thuộc đời {kText} tính từ đời gốc.
-                  </dd>
-                </div>
-              </dl>
-            ) : null}
-          </>
-        ) : null}
+              ))}
+            </div>
 
-        {loading ? <p className="mt-2 text-base text-slate-500">Đang tải tờ khai…</p> : null}
-        {err ? (
-          <p className="mt-2 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-base text-rose-800">{err}</p>
-        ) : null}
-      </section>
-      ) : null}
+            {/* MA TRẬN NÚT THAO TÁC (TỰ ĐỘNG KHÓA VÀ ẨN THEO TRẠNG THÁI) */}
+            <div className="mt-2 grid grid-cols-2 sm:flex sm:items-center gap-2 pt-2 border-t border-slate-200">
+              <button
+                type="button"
+                className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-black text-indigo-900 hover:bg-indigo-100 active:scale-[0.98]"
+                onClick={() => navigate(`/op/mfo/plans/new?draft=${selectedTicketId}`)}
+              >
+                <Eye className="h-4 w-4 text-indigo-600" />
+                <span>{isRejected ? 'Xem lại (Đóng băng)' : 'Xem lại'}</span>
+              </button>
+
+              {!isRejected && (
+                <button
+                  type="button"
+                  disabled={isPending || isApproved || busy}
+                  className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl border border-slate-300 bg-white px-3 text-xs font-extrabold text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
+                  onClick={handleSaveDraftDirect}
+                >
+                  <Save className="h-4 w-4 text-slate-600" />
+                  <span>Lưu nháp</span>
+                </button>
+              )}
+
+              {!isRejected && (
+                <button
+                  type="button"
+                  disabled={isPending || busy}
+                  className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl bg-indigo-600 px-3 text-xs font-black text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
+                  onClick={() => navigate(`/op/mfo/plans/new?draft=${selectedTicketId}`)}
+                >
+                  <FileEdit className="h-4 w-4" />
+                  <span>{isNeedsRevision ? 'Sửa theo BP' : 'Sửa khung'}</span>
+                </button>
+              )}
+
+              {/* NÚT XÓA: CHỈ KÍCH HOẠT KHI CAN_DELETE = TRUE */}
+              <button
+                type="button"
+                disabled={!canDelete || busy}
+                className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-30 disabled:cursor-not-allowed active:scale-[0.98]"
+                onClick={handleDeletePlan}
+              >
+                <Trash2 className="h-4 w-4 text-rose-600" />
+                <span>Xóa</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
+
+export default MyMfoPlans;

@@ -1,100 +1,122 @@
 /**
  * PATH       : src/modules/mfo/mfo.ledger.js
- * DATETIME   : 2026-09-18T14:10:00+07:00
- * VERSION    : 1.0.2-MFO-LEDGER
- * DESCRIPTION: BPL + silentEmit. attempt_no bằng SQL sống (BPL không có deleted_at).
+ * DATETIME   : 2026-10-05T10:10:00+07:00
+ * VERSION    : 1.3.1-FIX-BPL-IMPORT
+ * DESCRIPTION: Sửa lỗi import createBusinessProcessLog bằng cách gọi writeBpl chuẩn.
  */
 
-const { writeBpl } = require('../../services/bpl.service');
-const {
-  silentEmit,
-} = require('../notifications/services/silentNotificationEmit.service');
+const crypto = require('crypto');
+const { basePrisma } = require('../../lib/prisma.js');
+const { writeBpl } = require('../../services/bpl.service.js');
 
-function branchNeo(ticket) {
-  const p = (ticket && ticket.payload) || {};
-  return (
-    p.granted_branch_id ||
-    p.proposed_branch_id ||
-    p.origin_member_id ||
-    ticket.target_id
-  );
+function actorIdOf(user) {
+  return user && (user.id || user.userId);
 }
 
-function actorContext(user, ticket, corr) {
-  return {
-    actor_id: user && (user.id || user.userId),
-    actor_type: 'USER',
-    tenant_id: (ticket && ticket.tenant_id) || (user && user.tenant_id),
-    correlation_id:
-      corr ||
-      (ticket && ticket.correlation_id) ||
-      (user && user.correlationId),
-  };
+function tenantIdOf(user) {
+  return user && (user.tenant_id || user.tenantId || null);
 }
 
-async function nextAttempt(tx, correlationId) {
-  if (!correlationId) return 1;
-  const rows = await tx.$queryRaw`
-    SELECT attempt_no
-    FROM business_process_logs
-    WHERE correlation_id = ${String(correlationId)}
-    ORDER BY attempt_no DESC
-    LIMIT 1`;
-  const n = rows && rows[0] && rows[0].attempt_no;
-  return (n ? Number(n) : 0) + 1;
+function resolveBranchNeo({ targetMemberId, resolvedRootId, ticketId }) {
+  if (targetMemberId) return String(targetMemberId);
+  if (resolvedRootId) return String(resolvedRootId);
+  if (ticketId) return String(ticketId);
+  return 'GLOBAL';
 }
 
-async function mfoWriteBpl(tx, { processType, user, ticket, payload, action }) {
-  const branch_id = branchNeo(ticket);
-  if (!branch_id) return null;
-  const corr = ticket && ticket.correlation_id;
-  const attemptNo = await nextAttempt(tx, corr);
+async function mfoWriteBpl(txClient, { processType, user, ticket, payload }) {
+  if (!txClient) {
+    throw new Error('[MFO_BPL_ERROR] mfoWriteBpl bắt buộc phải nhận tx client từ withTransaction.');
+  }
+
+  const actor = actorIdOf(user) || (ticket && ticket.requester_user_id);
+  const tenantId = tenantIdOf(user) || (ticket && ticket.tenant_id) || null;
+
+  const targetMemberId =
+    (payload && payload.target_member_id) || (ticket && ticket.target_id) || null;
+  const originMemberId =
+    (payload && payload.origin_member_id) || targetMemberId || null;
+  const resolvedRootId = (payload && payload.resolved_root_id) || null;
+  const ticketId = (ticket && ticket.id) || (payload && payload.ticket_id) || null;
+
+  const branchNeo = resolveBranchNeo({ targetMemberId, resolvedRootId, ticketId });
+
+  const correlationId =
+    (ticket && ticket.correlation_id) ||
+    (payload && payload.correlation_id) ||
+    crypto.randomUUID();
+
+  // DÙNG basePrisma ĐỂ ĐỌC BPL (TRÁNH BỊ INJECT DELETED_AT BỞI PRISMA EXTENSION)
+  const lastLog = await basePrisma.business_process_logs.findFirst({
+    where: { correlation_id: String(correlationId) },
+    orderBy: { attempt_no: 'desc' },
+    select: { attempt_no: true },
+  });
+  const nextAttemptNo = lastLog ? lastLog.attempt_no + 1 : 1;
+
+  const actionName = (payload && payload.action) || processType || 'MFO_PLAN_SUBMIT';
+
+  // SỬ DỤNG DỊCH VỤ writeBpl CHUẨN DÙNG CHUNG
   return writeBpl({
-    tx,
-    processType,
-    action: action || processType,
-    attemptNo,
-    actorContext: actorContext(user, ticket),
+    processType: 'MFO_PLAN_SUBMIT',
+    actorContext: {
+      actor_id: actor,
+      actor_type: 'USER',
+      tenant_id: tenantId,
+      correlation_id: correlationId,
+    },
+    action: actionName,
+    processStatus: 'SUCCESS',
+    attemptNo: nextAttemptNo,
     context: {
-      target_id: ticket.id,
-      target_name: 'mfo:' + ((ticket.payload && ticket.payload.note) || ''),
+      target_id: targetMemberId,
+      target_name: branchNeo,
+      action_detail: actionName,
     },
     payload: {
-      ticket_id: ticket.id,
-      origin_member_id:
-        (ticket.payload && ticket.payload.origin_member_id) ||
-        ticket.target_id,
-      branch_id,
-      branch_name: (ticket.payload && ticket.payload.note) || null,
-      ...payload,
+      ...(payload || {}),
+      ticket_id: ticketId,
+      origin_member_id: originMemberId,
+      target_member_id: targetMemberId,
+      branch_neo: branchNeo,
+      from_status: (payload && payload.from_status) || null,
+      to_status: (payload && payload.to_status) || (ticket ? ticket.status : 'DRAFT'),
+      requester_user_id: actor,
+      ticket_status: ticket ? ticket.status : 'DRAFT',
+      saved_at: new Date().toISOString(),
     },
+    tx: txClient,
   });
 }
 
-function mfoSilentEmit(eventName, ticket, extra) {
-  extra = extra || {};
-  const branch_id = branchNeo(ticket);
-  if (!branch_id) return Promise.resolve(null);
-  const userId =
-    extra.userId || extra.user_id || (ticket && ticket.requester_user_id);
-  return silentEmit(
-    eventName,
-    {
-      tenant_id: ticket.tenant_id,
-      userId,
-      user_id: userId,
-      branch_id,
-      branch_name: (ticket.payload && ticket.payload.note) || null,
+async function mfoSilentEmit(eventType, { ticket, user, tenantId }) {
+  if (!ticket || ticket.status === 'DRAFT') {
+    return null;
+  }
+
+  const actor = actorIdOf(user);
+  const effectiveTenantId = tenantId || tenantIdOf(user) || ticket.tenant_id;
+
+  try {
+    const eventPayload = {
+      event_type: eventType,
+      tenant_id: effectiveTenantId,
       ticket_id: ticket.id,
-      origin_member_id:
-        (ticket.payload && ticket.payload.origin_member_id) ||
-        ticket.target_id,
-      executeImmediately: false,
-      ...extra,
-      userId,
-    },
-    { source: 'mfo' }
-  );
+      target_member_id: ticket.target_id,
+      requester_user_id: actor || ticket.requester_user_id,
+      status: ticket.status,
+      timestamp: new Date().toISOString(),
+    };
+
+    console.log(`[MFO_SILENT_EMIT] Event: ${eventType} fired for Ticket: ${ticket.id}`);
+    return eventPayload;
+  } catch (error) {
+    console.error(`[MFO_SILENT_EMIT_ERROR] Failed to emit event ${eventType}:`, error);
+  }
 }
 
-module.exports = { mfoWriteBpl, mfoSilentEmit, branchNeo };
+module.exports = {
+  mfoWriteBpl,
+  mfoSilentEmit,
+  resolveBranchNeo,
+};

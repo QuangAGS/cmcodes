@@ -5,6 +5,7 @@
  */
 
 @import 'reactflow/dist/style.css';
+@import './styles/mfoEmptyCanvasLock.css';
 
 @tailwind base;
 @tailwind components;

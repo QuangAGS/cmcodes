@@ -1,7 +1,12 @@
 /**
  * PATH       : frontend/src/features/mfo/lib/normalizePlanRow.js
- * DATETIME   : 2026-09-24T22:30:00+07:00
- * DESCRIPTION: List BE để plan_ok ngoài payload, không có result_submitted.
+ * DATETIME   : 2026-10-08T09:15:00+07:00
+ * VERSION    : 5.0.0-COMPLETE-5L-CANVAS-FULL
+ * DESCRIPTION:
+ * - Tuân thủ Q1 (Bảo toàn 100% logic/hàm cũ) & Q2 (Code Format & Chú thích đầy đủ).
+ * - Bổ sung opMfoStatusLabel & opMfoStatusBadgeClass để định dạng nhãn và màu sắc badge trạng thái.
+ * CHANGELOG  :
+ * - 2026-10-08: Export opMfoStatusLabel & opMfoStatusBadgeClass.
  */
 
 export function unwrapPlanList(res) {
@@ -120,4 +125,33 @@ export function resultLineBlocks(payload, names = {}) {
     });
   }
   return blocks;
+}
+
+/**
+ * Lấy nhãn tiếng Việt hiển thị cho trạng thái Tờ trình MFO
+ */
+export function opMfoStatusLabel(t) {
+  if (!t) return 'Khung dự kiến';
+  const st = String(t.status || '').toUpperCase();
+  if (st === 'DRAFT') return 'Đang soạn nháp';
+  if (st === 'PENDING' || st === 'UNDER_REVIEW') return 'Khung chờ duyệt';
+  if (st === 'NEEDS_REVISION') return 'Yêu cầu sửa lại';
+  if (st === 'APPROVED') return 'Đã phê duyệt';
+  if (st === 'REJECTED') return 'Đã từ chối';
+  if (st === 'WITHDRAWN') return 'Đã rút hồ sơ';
+  return 'Khung dự kiến';
+}
+
+/**
+ * Lấy class Tailwind CSS định dạng màu sắc cho Badge Trạng thái
+ */
+export function opMfoStatusBadgeClass(t) {
+  if (!t) return 'bg-slate-100 text-slate-700 border border-slate-200';
+  const st = String(t.status || '').toUpperCase();
+  if (st === 'DRAFT') return 'bg-slate-100 text-slate-700 border border-slate-200';
+  if (st === 'PENDING' || st === 'UNDER_REVIEW') return 'bg-amber-50 text-amber-800 border border-amber-300';
+  if (st === 'NEEDS_REVISION') return 'bg-indigo-50 text-indigo-900 border border-indigo-300';
+  if (st === 'APPROVED') return 'bg-emerald-50 text-emerald-800 border border-emerald-300';
+  if (st === 'REJECTED') return 'bg-rose-50 text-rose-800 border border-rose-300';
+  return 'bg-slate-100 text-slate-700 border border-slate-200';
 }

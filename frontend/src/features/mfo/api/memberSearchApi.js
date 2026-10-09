@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/members/api/memberSearchApi.js
  * DATETIME   : 2026-09-21T10:10:00+07:00
- * VERSION    : 1.0.0-MS
+ * VERSION    : 5.0.0-COMPLETE-5L-CANVAS-FULL
  * DESCRIPTION: GET /members với q + limit. Cache theo câu trong phiên.
  */
 

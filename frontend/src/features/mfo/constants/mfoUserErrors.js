@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/mfo/constants/mfoUserErrors.js
  * DATETIME   : 2026-09-20T10:40:00+07:00
- * VERSION    : 1.0.0-C1-SELF
+ * VERSION    : 5.0.0-COMPLETE-5L-CANVAS-FULL
  * DESCRIPTION: Map mã BE MFO_* → câu End User (chữ + TTS).
  *              Không phơi code, HTTP, plan_ok, payload cho MWL.
  *              ADMIN IT có thể đọc code riêng; hàm này không gắn code vào câu.
