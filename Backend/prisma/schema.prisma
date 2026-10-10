@@ -637,7 +637,7 @@ model members {
   is_clan              Boolean?               @default(true)
   branch_id            String?                @db.VarChar(36)
   full_name            String                 @db.VarChar(255)
-  note                 String?                @db.VarChar(255)
+  note                 String?                @db.VarChar(1024)
   alias                String?                @db.VarChar(255)
   gender               members_gender
   is_alive             Boolean?               @default(true)
@@ -1268,6 +1268,8 @@ model proposals {
   updated_at             DateTime             @default(now()) @updatedAt @db.Timestamptz(6)
   changed_by             String?              @db.VarChar(36)
   deleted_at             DateTime?            @db.Timestamptz(6)
+  hold_member_ids        String[]             @default([])
+  expires_at             DateTime?            @db.Timestamptz(6)
 
   tenants   tenants @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_proposals_tenant")
   requester users   @relation("ProposalRequester", fields: [requester_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_proposals_requester")

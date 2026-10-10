@@ -1,10 +1,9 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx
  * DATETIME   : 2026-10-09T19:50:00+07:00
- * VERSION    : 4.7.0-LAT4-WORKBENCH-OPEN
+ * VERSION    : 4.8.0-AMENDMENT2-AF-CATALOG
  * DESCRIPTION:
- * - Lát 4. APPROVED mới có plan_ok không đóng băng canvas soạn.
- * - REJECTED vẫn đóng. Snapshot đọc gốc và ui_render_snapshot_layer.
+ * - Amendment 2. Khôi phục đủ danh mục AF và tác vụ đảo trên cây.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -600,6 +599,98 @@ export function OpMfoPlanPage() {
           break;
         }
 
+        case 'CANCEL_CHILD': {
+          if (!String(targetNodeId || '').startsWith('draft-child-')) {
+            mfoToast.warning('Chỉ huỷ được con nháp vừa xin tạo.');
+            return;
+          }
+          const hasLower = edges.some((e) => e.source === targetNodeId && String(e.target).startsWith('draft-child-'));
+          if (hasLower) {
+            mfoToast.warning('Hãy huỷ con nháp phía dưới trước.');
+            return;
+          }
+          setNodes((prev) => prev.filter((n) => n.id !== targetNodeId));
+          setEdges((prev) => prev.filter((e) => e.source !== targetNodeId && e.target !== targetNodeId));
+          mfoToast.success('Đã huỷ con nháp và gỡ cạnh.');
+          break;
+        }
+
+        case 'CANCEL_SPOUSE': {
+          const owner = nodes.find((n) => n.id === targetNodeId);
+          const tabs = Array.isArray(owner?.data?.tabs) ? owner.data.tabs : [];
+          const draftTabs = tabs.filter((tab) => String(tab.unionId).startsWith('union-draft-'));
+          if (!draftTabs.length) {
+            mfoToast.warning('Node này không có vợ/chồng xin tạo để huỷ.');
+            return;
+          }
+          const removeId = draftTabs[draftTabs.length - 1].unionId;
+          setNodes((prev) => prev.map((n) => {
+            if (n.id !== targetNodeId) return n;
+            const nextTabs = (n.data?.tabs || []).filter((tab) => tab.unionId !== removeId);
+            const nextActive = n.data?.activeUnionId === removeId ? (nextTabs[0]?.unionId || null) : n.data?.activeUnionId;
+            return {
+              ...n,
+              data: { ...n.data, tabs: nextTabs, activeUnionId: nextActive, hasPartner: nextTabs.length > 0 },
+            };
+          }));
+          mfoToast.success('Đã huỷ vợ/chồng xin tạo.');
+          break;
+        }
+
+        case 'MARK_ANONYMOUS': {
+          const emptyId = targetNodeId || `empty-${targetDepth}`;
+          const kdId = `kd-${targetDepth}-${Date.now()}`;
+          setNodes((prev) => prev.map((n) => {
+            if (n.id !== emptyId && !(n.type === 'emptyNode' && Number(n.data?.depth) === targetDepth)) return n;
+            return {
+              id: kdId,
+              type: 'familyCouple',
+              position: { x: n.position?.x ?? 40, y: targetDepth * 310 },
+              style: { width: 240 },
+              data: {
+                id: kdId,
+                treeId: kdId,
+                depth: targetDepth,
+                clanName: 'Khuyết danh',
+                partnerName: null,
+                unassignedCount: 0,
+                tabs: [],
+                isAnonymous: true,
+                originSource: 'from_empty',
+                onOpenActionForm: handleOpenActionForm,
+              },
+            };
+          }));
+          mfoToast.success(`Đã khai khuyết danh ở Đời ${targetDepth}.`);
+          break;
+        }
+
+        case 'CANCEL_ANONYMOUS': {
+          const node = nodes.find((n) => n.id === targetNodeId);
+          if (!node?.data?.isAnonymous || node.data.originSource !== 'from_empty') {
+            mfoToast.warning('Chỉ huỷ được khuyết danh khai trên ô trống.');
+            return;
+          }
+          setNodes((prev) => prev.map((n) => {
+            if (n.id !== targetNodeId) return n;
+            return {
+              id: `empty-${targetDepth}`,
+              type: 'emptyNode',
+              position: { x: 40, y: targetDepth * 310 },
+              style: { width: 180, height: 80 },
+              data: {
+                depth: targetDepth,
+                isReadOnly: false,
+                onOpenActionForm: handleOpenActionForm,
+                label: `Đời ${targetDepth}`,
+              },
+            };
+          }));
+          setEdges((prev) => prev.filter((e) => e.source !== targetNodeId && e.target !== targetNodeId));
+          mfoToast.success('Đã huỷ khai khuyết danh.');
+          break;
+        }
+
         case 'ADD_SPOUSE':
           triggerAddSpouseDialog(payloadInfo);
           break;
@@ -1021,8 +1112,20 @@ export function OpMfoPlanPage() {
           document.body
         )}
 
-      {activeActionNode && !isReadOnly &&
-        createPortal(
+      {activeActionNode && !isReadOnly && (() => {
+        const live = nodes.find((n) => n.id === activeActionNode.nodeId);
+        const catalogOpen = Boolean(targetMemberId) || String(proposalStatus).toUpperCase() === 'NEEDS_REVISION';
+        const depth = Number(activeActionNode.depth);
+        const isEmpty = activeActionNode.isEmptyNode || live?.type === 'emptyNode';
+        const isDraftChild = String(activeActionNode.nodeId || '').startsWith('draft-child-');
+        const tabs = Array.isArray(live?.data?.tabs) ? live.data.tabs : [];
+        const canAddChild = catalogOpen && !isEmpty && depth < 4;
+        const canCancelChild = catalogOpen && isDraftChild;
+        const canAddSpouse = catalogOpen && !isEmpty;
+        const canCancelSpouse = catalogOpen && tabs.some((tab) => String(tab.unionId).startsWith('union-draft-'));
+        const canMarkAnonymous = catalogOpen && (isEmpty || live?.data?.isAnonymous !== true);
+        const canCancelAnonymous = catalogOpen && live?.data?.isAnonymous === true && live?.data?.originSource === 'from_empty';
+        return createPortal(
           <div
             className="fixed inset-0 z-[99998] touch-none select-none"
             onPointerMove={handlePointerMove}
@@ -1087,30 +1190,28 @@ export function OpMfoPlanPage() {
                   <span>Chọn người từ sổ họ</span>
                 </button>
 
-                <div className="grid grid-cols-2 gap-1.5">
-                  <button
-                    type="button"
-                    className="flex items-center justify-center gap-1 rounded-xl border border-emerald-300 bg-emerald-50 px-2 py-2 font-bold text-emerald-800 hover:bg-emerald-100 active:scale-95"
-                    onClick={() => handleNodeAction('ADD_CHILD', activeActionNode)}
-                  >
-                    <Plus className="h-3.5 w-3.5 text-emerald-600" />
-                    <span>Thêm con</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className="flex items-center justify-center gap-1 rounded-xl border border-rose-300 bg-rose-50 px-2 py-2 font-bold text-rose-800 hover:bg-rose-100 active:scale-95"
-                    onClick={() => handleNodeAction('ADD_SPOUSE', activeActionNode)}
-                  >
-                    <Heart className="h-3.5 w-3.5 text-rose-600" />
-                    <span>Thêm vợ/chồng</span>
-                  </button>
-                </div>
+                {catalogOpen && (
+                  <div className="flex flex-col gap-1.5">
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button type="button" disabled={!canAddChild} className="rounded-xl border border-emerald-300 bg-emerald-50 px-2 py-2 font-bold text-emerald-800 disabled:opacity-40" onClick={() => handleNodeAction('ADD_CHILD', activeActionNode)}>Thêm con</button>
+                      <button type="button" disabled={!canCancelChild} className="rounded-xl border border-emerald-200 bg-white px-2 py-2 font-bold text-emerald-700 disabled:opacity-40" onClick={() => handleNodeAction('CANCEL_CHILD', activeActionNode)}>Huỷ thêm con</button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button type="button" disabled={!canAddSpouse} className="rounded-xl border border-rose-300 bg-rose-50 px-2 py-2 font-bold text-rose-800 disabled:opacity-40" onClick={() => handleNodeAction('ADD_SPOUSE', activeActionNode)}>Thêm vợ/chồng</button>
+                      <button type="button" disabled={!canCancelSpouse} className="rounded-xl border border-rose-200 bg-white px-2 py-2 font-bold text-rose-700 disabled:opacity-40" onClick={() => handleNodeAction('CANCEL_SPOUSE', activeActionNode)}>Huỷ thêm vợ/chồng</button>
+                    </div>
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <button type="button" disabled={!canMarkAnonymous} className="rounded-xl border border-amber-300 bg-amber-50 px-2 py-2 font-bold text-amber-800 disabled:opacity-40" onClick={() => handleNodeAction('MARK_ANONYMOUS', activeActionNode)}>Khai khuyết danh</button>
+                      <button type="button" disabled={!canCancelAnonymous} className="rounded-xl border border-amber-200 bg-white px-2 py-2 font-bold text-amber-700 disabled:opacity-40" onClick={() => handleNodeAction('CANCEL_ANONYMOUS', activeActionNode)}>Huỷ khai khuyết danh</button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>,
           document.body
-        )}
+        );
+      })()}
 
       <AppFooterNav {...footerNav} />
     </div>
