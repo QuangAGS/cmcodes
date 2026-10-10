@@ -1,8 +1,8 @@
 /**
  * PATH       : backend/src/shared/frameworks/srpf/engine/ActionExecutor.js
  * DATETIME   : 2026-08-13T11:40:00+07:00
- * VERSION    : 0.6.0-phase3.3
- * DESCRIPTION: Core Action Executor of SRPF — CED-aware throws (Phase 3.3).
+ * VERSION    : 0.7.0-LAT-SUBMIT-PROPOSALS
+ * DESCRIPTION: Nạp proposals qua resolveInstance. Gọi side effect mọi trạng thái.
  */
 
 'use strict';
@@ -42,7 +42,17 @@ async function executeAction({
     );
   }
 
-  const instance = await processInstanceLoader.load(instanceId);
+  const instance = typeof definition.resolveInstance === 'function'
+    ? await definition.resolveInstance(prisma, instanceId)
+    : await processInstanceLoader.load(instanceId);
+
+  if (!instance) {
+    throw srpfError(
+      SRPF_ERROR_CODES.INSTANCE_NOT_FOUND,
+      `Instance not found: ${instanceId}`,
+      { details: { instanceId, processType } }
+    );
+  }
 
   if (typeof definition.entryCondition === 'function') {
     await definition.entryCondition({
@@ -83,7 +93,7 @@ async function executeAction({
       actorContext: actorWithPayload,
     });
 
-    if (isTerminalState(nextState) && definition.sideEffects && definition.sideEffects[nextState]) {
+    if (definition.sideEffects && definition.sideEffects[nextState]) {
       await definition.sideEffects[nextState](updated, tx, actorWithPayload);
     }
 

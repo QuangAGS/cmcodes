@@ -1,12 +1,9 @@
 /**
  * PATH       : backend/src/modules/mfo/mfo.controller.js
  * DATETIME   : 2026-10-09T16:30:00+07:00
- * VERSION    : 3.1.0-AMENDMENT-ALIGNED
+ * VERSION    : 3.2.0-LAT3-PREPARED-PAYLOAD
  * DESCRIPTION:
- * - Điều phối HTTP Request/Response cho Phân hệ MFO 5L thông qua ActionExecutor của SRPF Engine.
- * - Đấu nối trọn vẹn Gate 1 (MFO_PLAN) và Gate 2 (MFO_RESULT) về SRPF Lifecycle.
- * - Triệt tiêu hoàn toàn Double-Execution, bảo toàn Correlation ID và chuẩn hóa phản hồi lỗi.
- * REFERENCE  : MFO Core Lifecycle 2.0 & AMENDMENT-20261009
+ * - Lát 3. Đưa payload service đã dựng sang SRPF, không chỉ vài trường lẻ.
  */
 
 'use strict';
@@ -110,7 +107,7 @@ const mfoController = {
         processType: 'MFO_PLAN',
         instanceId: targetTicketId,
         action: SRPF_ACTIONS.SUBMIT,
-        payload: body,
+        payload: serviceResult.payload || (serviceResult.ticket && serviceResult.ticket.payload) || body,
         actorContext,
       });
 
@@ -148,8 +145,11 @@ const mfoController = {
         instanceId: ticketId,
         action: SRPF_ACTIONS.APPROVE,
         payload: {
+          prepared_payload: serviceResult.ticket && serviceResult.ticket.payload,
           granted_generation: body.granted_generation || body.generation,
           granted_branch_id: body.granted_branch_id || null,
+          review_scs: body.review_scs || null,
+          admin_review: body.admin_review || null,
           note: body.note || body.admin_note || null,
         },
         actorContext,
@@ -186,8 +186,13 @@ const mfoController = {
         instanceId: ticketId,
         action: SRPF_ACTIONS.RETURN_FOR_REVISION,
         payload: {
-          review_scs: body.review_scs || [],
-          revision_request: body.note || body.admin_note || 'Yêu cầu hiệu chỉnh theo bút phê',
+          prepared_payload: serviceResult.ticket && serviceResult.ticket.payload,
+          review_scs: serviceResult.reviewScs || body.review_scs || [],
+          review_rounds: serviceResult.ticket && serviceResult.ticket.payload
+            ? serviceResult.ticket.payload.review_rounds
+            : [],
+          revision_request: serviceResult.globalAdminNote || body.note || body.admin_note || 'Yêu cầu hiệu chỉnh theo bút phê',
+          admin_note: serviceResult.globalAdminNote || body.note || body.admin_note || null,
         },
         actorContext,
       });
@@ -223,8 +228,9 @@ const mfoController = {
         instanceId: ticketId,
         action: SRPF_ACTIONS.REJECT,
         payload: {
-          reason: body.reason || body.note || body.admin_note,
-          admin_note: body.reason || body.note || body.admin_note,
+          prepared_payload: serviceResult.ticket && serviceResult.ticket.payload,
+          reason: serviceResult.reason,
+          admin_note: serviceResult.reason,
         },
         actorContext,
       });

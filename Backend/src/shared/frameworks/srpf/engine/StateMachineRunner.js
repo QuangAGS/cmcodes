@@ -166,6 +166,9 @@ async function apply(tx, instance, nextState, action, payload = {}, options = {}
   }
 
   const storage = instance._storage || 'onboarding_cases';
+  if (storage === 'proposals') {
+    return { ...instance, status: nextState, currentState: nextState };
+  }
   if (storage !== 'onboarding_cases') {
     throw new Error(`[SRPF] StateMachineRunner.apply: unsupported storage "${storage}"`);
   }

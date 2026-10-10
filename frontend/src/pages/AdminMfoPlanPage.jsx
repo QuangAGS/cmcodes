@@ -1,11 +1,10 @@
 /**
  * PATH       : frontend/src/pages/AdminMfoPlanPage.jsx
  * DATETIME   : 2026-10-09T23:30:00+07:00
- * VERSION    : 2.7.2-AMENDMENT-20261009-BUSY-STATE-AND-REFRESH-FIXED
+ * VERSION    : 2.8.0-LAT4-GATE2-BUTTONS
  * DESCRIPTION:
- * - Khắc phục lỗi bấm "Bấm để chọn" không refresh danh sách (Tự động trigger loadQueue()).
- * - Phân lập cờ busyAction ('APPROVE' | 'RETURN' | 'REJECT') để nút nào bấm hiện "Đang xử lý..." chuẩn nút đó.
- * - Tuân thủ Q1 & Q2.
+ * - Lát 4. Nút chốt sổ gọi approveResult. Nút trả sửa gọi rejectResult.
+ * - Bác bỏ vĩnh viễn cửa 2 chưa có route riêng, không gọi rejectPlan.
  */
 
 import React, { useEffect, useState, useMemo, useRef } from 'react';
@@ -23,7 +22,7 @@ import {
   ShieldCheck,
   RefreshCw,
 } from 'lucide-react';
-import { toast } from 'sonner';
+import { mfoToast } from '../features/mfo/lib/mfoToastVoice.js';
 
 import { useAuth } from '../context/AuthContext.jsx';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
@@ -37,7 +36,8 @@ import {
   getDraftPayload,
   adminApprovePlan,
   adminReturnPlanForRevision,
-  rejectPlan,
+  approveResult,
+  rejectResult,
 } from '../features/mfo/api/mfoApi.js';
 import { diffDraftAgainstInit } from '../features/mfo/lib/mfoDiffEngine.js';
 import { toMfoUserMessage } from '../features/mfo/constants/mfoUserErrors.js';
@@ -115,7 +115,7 @@ export function AdminMfoPlanPage() {
       setPlans(queueList);
     } catch (error) {
       console.error('[ADMIN_LOAD_QUEUE_ERROR]', error);
-      toast.error('Lỗi khi nạp hàng đợi: ' + toMfoUserMessage(error));
+      mfoToast.error('Lỗi khi nạp hàng đợi: ' + toMfoUserMessage(error));
     } finally {
       setLoading(false);
     }
@@ -144,7 +144,7 @@ export function AdminMfoPlanPage() {
 
     // KHI BẤM "BẤM ĐỂ CHỌN" (val === '') -> REFRESH HÀNG ĐỢI TỪ MÁY CHỦ
     if (val === '') {
-      toast.info('Đang làm mới danh sách hàng đợi...');
+      mfoToast.info('Đang làm mới danh sách hàng đợi...');
       void loadQueue();
     }
   };
@@ -170,7 +170,11 @@ export function AdminMfoPlanPage() {
         if (!draftData) return;
         setDetail(draftData);
 
-        const snapshot = draftData.graph_snapshot;
+        const snapshot =
+          draftData.graph_snapshot ||
+          draftData.ui_render_snapshot_layer?.graph_snapshot ||
+          draftData.payload?.graph_snapshot ||
+          draftData.payload?.ui_render_snapshot_layer?.graph_snapshot;
         if (snapshot && Array.isArray(snapshot.nodes) && snapshot.nodes.length > 0) {
           setNodes(
             snapshot.nodes.map((n) => ({
@@ -212,7 +216,7 @@ export function AdminMfoPlanPage() {
         }
       } catch (error) {
         console.error('===> [ADMIN_HYDRATE_ERROR]', error);
-        toast.error('Lỗi khi khôi phục dữ liệu tờ trình: ' + toMfoUserMessage(error));
+        mfoToast.error('Lỗi khi khôi phục dữ liệu tờ trình: ' + toMfoUserMessage(error));
       } finally {
         setLoading(false);
       }
@@ -258,11 +262,11 @@ export function AdminMfoPlanPage() {
         note: globalAdminNote || 'Đã phê duyệt Khung 5L.',
       });
 
-      toast.success('Đã phê duyệt Khung 5L và cấp tem plan_ok thành công!');
+      mfoToast.success('Đã phê duyệt Khung 5L và cấp tem plan_ok thành công!');
       setSelectedTicketId('');
       void loadQueue();
     } catch (error) {
-      toast.error('Lỗi khi duyệt Khung: ' + toMfoUserMessage(error));
+      mfoToast.error('Lỗi khi duyệt Khung: ' + toMfoUserMessage(error));
     } finally {
       setBusyAction(null);
     }
@@ -274,7 +278,7 @@ export function AdminMfoPlanPage() {
   const handleReturnPlanGate1 = async () => {
     const reasonText = String(globalAdminNote || '').trim();
     if (!reasonText) {
-      toast.error('Vui lòng nhập Bút phê lý do không duyệt vào ô Bút phê tổng thể Admin!');
+      mfoToast.error('Vui lòng nhập Bút phê lý do không duyệt vào ô Bút phê tổng thể Admin!');
       return;
     }
 
@@ -292,11 +296,11 @@ export function AdminMfoPlanPage() {
         note: reasonText,
       });
 
-      toast.warning('Đã trả hồ sơ Khung về trạng thái NEEDS_REVISION kèm bút phê.');
+      mfoToast.warning('Đã trả hồ sơ Khung về trạng thái NEEDS_REVISION kèm bút phê.');
       setSelectedTicketId('');
       void loadQueue();
     } catch (error) {
-      toast.error('Lỗi khi không duyệt Khung: ' + toMfoUserMessage(error));
+      mfoToast.error('Lỗi khi không duyệt Khung: ' + toMfoUserMessage(error));
     } finally {
       setBusyAction(null);
     }
@@ -308,15 +312,15 @@ export function AdminMfoPlanPage() {
   const handleApproveResultGate2 = async () => {
     try {
       setBusyAction('APPROVE_RESULT');
-      await adminApprovePlan(selectedTicketId, {
+      await approveResult(selectedTicketId, {
         note: globalAdminNote || 'Đã phê duyệt Nghiệm thu Tờ khai và chính thức ghi Sổ họ.',
       });
 
-      toast.success('Đã phê duyệt Nghiệm thu Tờ khai và chính thức ghi Sổ họ thành công!');
+      mfoToast.success('Đã phê duyệt Nghiệm thu Tờ khai và chính thức ghi Sổ họ thành công!');
       setSelectedTicketId('');
       void loadQueue();
     } catch (error) {
-      toast.error('Lỗi khi phê duyệt Nghiệm thu: ' + toMfoUserMessage(error));
+      mfoToast.error('Lỗi khi phê duyệt Nghiệm thu: ' + toMfoUserMessage(error));
     } finally {
       setBusyAction(null);
     }
@@ -328,22 +332,22 @@ export function AdminMfoPlanPage() {
   const handleReturnResultGate2 = async () => {
     const reasonText = String(globalAdminNote || '').trim();
     if (!reasonText) {
-      toast.error('Vui lòng nhập lý do yêu cầu sửa Tờ khai vào ô Bút phê tổng thể Admin!');
+      mfoToast.error('Vui lòng nhập lý do yêu cầu sửa Tờ khai vào ô Bút phê tổng thể Admin!');
       return;
     }
 
     try {
       setBusyAction('RETURN_RESULT');
-      await adminReturnPlanForRevision(selectedTicketId, {
+      await rejectResult(selectedTicketId, {
         reason: reasonText,
         note: reasonText,
       });
 
-      toast.warning('Đã trả Tờ khai Nghiệm thu về trạng thái sửa đổi (NEEDS_REVISION).');
+      mfoToast.warning('Đã trả Tờ khai Nghiệm thu về trạng thái sửa đổi (NEEDS_REVISION).');
       setSelectedTicketId('');
       void loadQueue();
     } catch (error) {
-      toast.error('Lỗi khi trả Tờ khai: ' + toMfoUserMessage(error));
+      mfoToast.error('Lỗi khi trả Tờ khai: ' + toMfoUserMessage(error));
     } finally {
       setBusyAction(null);
     }
@@ -355,25 +359,17 @@ export function AdminMfoPlanPage() {
   const handleRejectResultGate2 = async () => {
     const reasonText = String(globalAdminNote || '').trim();
     if (!reasonText) {
-      toast.error('Vui lòng nhập lý do bác bỏ vĩnh viễn vào ô Bút phê tổng thể Admin!');
+      mfoToast.error('Vui lòng nhập lý do bác bỏ vĩnh viễn vào ô Bút phê tổng thể Admin!');
       return;
     }
 
     try {
       setBusyAction('REJECT_RESULT');
-      const res = await rejectPlan(selectedTicketId, reasonText);
-      const isSuccess = res?.status === 'success' || res?.status === 200 || res?.data;
-
-      if (isSuccess) {
-        toast.success('Đã bác bỏ / từ chối vĩnh viễn (REJECTED) Tờ khai thành công!');
-        setSelectedTicketId('');
-        void loadQueue();
-      } else {
-        toast.error(res?.message || 'Không thể bác bỏ hồ sơ.');
-      }
+      mfoToast.error('Cửa 2 chưa có route bác bỏ vĩnh viễn. result/reject hiện là trả sửa, không gọi rejectPlan.');
+      return;
     } catch (error) {
       const errMsg = error.response?.data?.message || error.message || 'Lỗi hệ thống';
-      toast.error('Lỗi khi bác bỏ: ' + errMsg);
+      mfoToast.error('Lỗi khi bác bỏ: ' + errMsg);
     } finally {
       setBusyAction(null);
     }

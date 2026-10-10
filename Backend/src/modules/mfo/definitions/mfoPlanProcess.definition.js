@@ -18,33 +18,39 @@ const PROCESS_TYPE = 'MFO_PLAN';
 
 const mfoPlanProcessDefinition = Object.freeze({
   processType: PROCESS_TYPE,
-  targetTicketTypes: ['MFO_REVIEW', 'BRANCH_REVIEW', 'MFO_PLAN'],
+  targetTicketTypes: ['MFO_REVIEW', 'BRANCH_REVIEW'],
 
   /**
    * <2026-10-09T23:55:00+07:00> - Custom Instance Resolver định vị row trong DB proposals
    */
   async resolveInstance(tx, instanceId) {
-    return await tx.proposals.findFirst({
+    const row = await tx.proposals.findFirst({
       where: {
         id: instanceId,
-        ticket_type: { in: ['MFO_REVIEW', 'BRANCH_REVIEW', 'MFO_PLAN'] },
+        ticket_type: { in: ['MFO_REVIEW', 'BRANCH_REVIEW'] },
         deleted_at: null,
       },
     });
+    if (!row) return null;
+    return {
+      ...row,
+      currentState: row.status,
+      _storage: 'proposals',
+    };
   },
 
   // 1. MA TRẬN CHUYỂN DỊCH TRẠNG THÁI GATE 1 (MFO_PLAN)
   transitions: {
     [SRPF_STATES.DRAFT]: {
       [SRPF_ACTIONS.SAVE_DRAFT]: SRPF_STATES.DRAFT,
-      [SRPF_ACTIONS.SUBMIT]: SRPF_STATES.PENDING,
+      [SRPF_ACTIONS.SUBMIT]: 'PENDING',
       [SRPF_ACTIONS.CANCEL]: SRPF_STATES.CANCELLED,
     },
     [SRPF_STATES.PENDING]: {
       [SRPF_ACTIONS.START_REVIEW]: SRPF_STATES.UNDER_REVIEW,
       [SRPF_ACTIONS.RETURN_FOR_REVISION]: SRPF_STATES.NEEDS_REVISION, // PENDING -> NEEDS_REVISION
       [SRPF_ACTIONS.APPROVE]: SRPF_STATES.APPROVED,                   // PENDING -> APPROVED
-      [SRPF_STATES.REJECT]: SRPF_STATES.REJECTED,                     // PENDING -> REJECTED
+      [SRPF_ACTIONS.REJECT]: SRPF_STATES.REJECTED,                    // PENDING -> REJECTED
       [SRPF_ACTIONS.WITHDRAW]: SRPF_STATES.CANCELLED,
     },
     [SRPF_STATES.UNDER_REVIEW]: {
@@ -54,21 +60,21 @@ const mfoPlanProcessDefinition = Object.freeze({
     },
     [SRPF_STATES.NEEDS_REVISION]: {
       [SRPF_ACTIONS.SAVE_DRAFT]: SRPF_STATES.NEEDS_REVISION,
-      [SRPF_ACTIONS.SUBMIT]: SRPF_STATES.PENDING,                     // NEEDS_REVISION -> PENDING
+      [SRPF_ACTIONS.SUBMIT]: 'PENDING',                     // NEEDS_REVISION -> PENDING
       [SRPF_ACTIONS.WITHDRAW]: SRPF_STATES.CANCELLED,
     },
   },
 
   // 2. CONTEXT GUARDS
   contextGuards: {
-    [SRPF_ACTIONS.SAVE_DRAFT]: ['MWL', 'FOUNDER', 'CLAN_ADMIN', 'SYSTEM_ADMIN'],
-    [SRPF_ACTIONS.SUBMIT]: ['MWL', 'FOUNDER'],
+    [SRPF_ACTIONS.SAVE_DRAFT]: ['MWL', 'FOUNDER', 'USER', 'CLAN_ADMIN', 'SYSTEM_ADMIN'],
+    [SRPF_ACTIONS.SUBMIT]: ['MWL', 'FOUNDER', 'USER', 'CLAN_ADMIN', 'SYSTEM_ADMIN'],
     [SRPF_ACTIONS.START_REVIEW]: ['CLAN_ADMIN', 'SYSTEM_ADMIN'],
     [SRPF_ACTIONS.RETURN_FOR_REVISION]: ['CLAN_ADMIN', 'SYSTEM_ADMIN'],
     [SRPF_ACTIONS.APPROVE]: ['CLAN_ADMIN', 'SYSTEM_ADMIN'],
     [SRPF_ACTIONS.REJECT]: ['CLAN_ADMIN', 'SYSTEM_ADMIN'],
-    [SRPF_ACTIONS.WITHDRAW]: ['MWL', 'FOUNDER'],
-    [SRPF_ACTIONS.CANCEL]: ['MWL', 'FOUNDER', 'CLAN_ADMIN', 'SYSTEM_ADMIN'],
+    [SRPF_ACTIONS.WITHDRAW]: ['MWL', 'FOUNDER', 'USER'],
+    [SRPF_ACTIONS.CANCEL]: ['MWL', 'FOUNDER', 'USER', 'CLAN_ADMIN', 'SYSTEM_ADMIN'],
   },
 
   // 3. ĐIỀU KIỆN ĐẦU VÀO

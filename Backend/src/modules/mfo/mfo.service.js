@@ -1,7 +1,7 @@
 /**
  * PATH       : backend/src/modules/mfo/mfo.service.js
  * DATETIME   : 2026-10-09T23:55:00+07:00
- * VERSION    : 4.6.0-AMENDMENT-20261009-PREPARE-REVIEW-PAYLOAD-FIXED
+ * VERSION    : 4.7.0-LAT2-NO-PRE-MUTATION
  * DESCRIPTION:
  * - Tuân thủ Q1 (Bảo tồn 100% UI/UX & hàm critical) & Q2 (Code Format & DateTime Annotation).
  * - Sửa returnPlanForRevision & approvePlan: Chỉ đóng gói Payload Bút phê, không tự ý gán status mới trước khi qua SRPF Engine.
@@ -2048,21 +2048,7 @@ const mfoService = {
       fail('Chưa nộp Tờ khai Nghiệm thu kết quả xưởng.', 409, 'MFO_RESULT_NOT_SUBMITTED');
     }
 
-    const grantedGeneration = row.payload.granted_generation != null ? Number(row.payload.granted_generation) : null;
-
-    return await withTransaction(
-      { tenantId: row.tenant_id, actorId: actor, correlationId: row.correlation_id },
-      async (tx) => {
-        const mutationResult = await executeGate2DbMutation(tx, {
-          tenantId: row.tenant_id,
-          actorId: actor,
-          proposal: row,
-          grantedGeneration,
-        });
-
-        return { ticket: row, mutation: mutationResult };
-      }
-    );
+    return { ticket: row };
   },
 
   rejectResult: async ({ user, ticketId, body }) => {

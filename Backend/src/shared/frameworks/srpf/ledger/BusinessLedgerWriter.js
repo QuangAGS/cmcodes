@@ -73,6 +73,16 @@ function safeChangedBy(actorId) {
  * @returns {string}
  */
 function resolveBplProcessType(processType, action) {
+  if (processType === 'MFO_PLAN') {
+    if (action === SRPF_ACTIONS.APPROVE) return 'MFO_PLAN_APPROVE';
+    if (action === SRPF_ACTIONS.REJECT || action === SRPF_ACTIONS.RETURN_FOR_REVISION) return 'MFO_PLAN_REJECT';
+    return 'MFO_PLAN_SUBMIT';
+  }
+  if (processType === 'MFO_RESULT') {
+    if (action === SRPF_ACTIONS.APPROVE) return 'MFO_RESULT_APPROVE';
+    if (action === SRPF_ACTIONS.REJECT || action === SRPF_ACTIONS.RETURN_FOR_REVISION) return 'MFO_RESULT_REJECT';
+    return 'MFO_RESULT_SUBMIT';
+  }
   if (
     processType &&
     typeof processType === 'string' &&
@@ -120,6 +130,13 @@ async function write({
     action: action,
     processStatus: 'SUCCESS',
     attemptNo: 1,
+    payload: {
+      ticket_id: instance?.id || null,
+      origin_member_id: instance?.target_id || instance?.payload?.origin_member_id || instance?.payload?.target_member_id || null,
+      from_status: metadata.from || null,
+      to_status: metadata.to || null,
+      reason: metadata.payload?.reason || metadata.payload?.revision_request || 'SRPF',
+    },
     extraMetadata: {
       srpf_process_type: processType,
       srpf_action: action,

@@ -43,7 +43,22 @@ export function resolveMfoLifecycle(ticket) {
   // ---------------------------------------------------------------------------
   if (!planOk) {
     // 1.1 Soạn nháp, Yêu cầu sửa lại, hoặc Bị bác bỏ -> Mở lại Canvas chỉnh sửa
-    if (status === 'DRAFT' || status === 'NEEDS_REVISION' || status === 'REJECTED') {
+    if (status === 'REJECTED') {
+      return {
+        stage: 'PLAN',
+        mode: 'VIEW_CANVAS_FROZEN',
+        statusLabel: 'Bị bác bỏ vĩnh viễn',
+        isReadOnly: true,
+        isWorkbench: false,
+        canEditCanvas: false,
+        canSubmitPlan: false,
+        canSubmitResult: false,
+        afContext: 'DISABLED',
+        badgeClass: 'bg-rose-100 text-rose-900 border-rose-300',
+      };
+    }
+
+    if (status === 'DRAFT' || status === 'NEEDS_REVISION') {
       return {
         stage: 'PLAN',
         mode: 'EDIT_CANVAS',

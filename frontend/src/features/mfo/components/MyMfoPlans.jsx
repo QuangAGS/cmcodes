@@ -1,19 +1,13 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MyMfoPlans.jsx
  * DATETIME   : 2026-10-09T19:50:00+07:00
- * VERSION    : 5.1.0-AMENDMENT-20261009-TERMINAL-REJECTED-SYNC
- * DESCRIPTION:
- * - Tuân thủ AMENDMENT-20261009 & MFO Core Lifecycle 2.0.
- * - Triển khai chính xác Ma trận Quyền Xóa EU Delete Matrix:
- *   + CHO PHẾP XÓA: DRAFT, NEEDS_REVISION, APPROVED (Gate 1 - chưa nộp Gate 2).
- *   + CẤM XÓA & ĐÓNG BĂNG 100%: REJECTED, PENDING, UNDER_REVIEW, APPROVED (Gate 2).
- * - Hiển thị Banner Cảnh báo Đỏ đối với Tờ khai bị Bác bỏ vĩnh viễn (REJECTED).
- * - Cung cấp nút điều hướng "+ Khởi tạo Tờ trình MFO mới" khi Tờ trình bị bác bỏ.
+ * VERSION    : 5.2.0-LAT4-SINGLE-OPEN
+ * DESCRIPTION: Lát 4. Không hiện tạo mới khi đang có hồ sơ mở.
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
+import { mfoToast } from '../lib/mfoToastVoice.js';
 import {
   FileEdit,
   Trash2,
@@ -103,7 +97,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
       }
     } catch (error) {
       console.error('[MY_MFO_PLANS_LOAD_ERROR]', error);
-      toast.error('Lỗi khi nạp danh sách tờ trình: ' + toMfoUserMessage(error));
+      mfoToast.error('Lỗi khi nạp danh sách tờ trình: ' + toMfoUserMessage(error));
     } finally {
       setLoading(false);
     }
@@ -138,8 +132,14 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
   const payloadData = currentPlan?.payload || draftDetail || {};
   const isPending = currentStatus === 'PENDING' || currentStatus === 'UNDER_REVIEW';
   const isNeedsRevision = currentStatus === 'NEEDS_REVISION';
-  const isRejected = currentStatus === 'REJECTED'; // Terminal State
+  const isRejected = currentStatus === 'REJECTED';
   const isApproved = currentStatus === 'APPROVED';
+  const hasOpenProfile = plans.some((p) => {
+    const st = String(p.status || '').toUpperCase();
+    if (st === 'REJECTED' || st === 'WITHDRAWN') return false;
+    if (st === 'APPROVED' && (p.result_ok || p.payload?.result_ok)) return false;
+    return true;
+  });
 
   /**
    * <2026-10-09T19:50:00+07:00> - Ma trận Kiểm tra Quyền Xóa Tờ trình (EU Delete Matrix - AMENDMENT 20261009)
@@ -228,16 +228,16 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
         response?.deleted === true;
 
       if (isSuccess) {
-        toast.success('Đã xóa tờ trình thành công!');
+        mfoToast.success('Đã xóa tờ trình thành công!');
         setSelectedTicketId('');
         if (onPlanDeleted) onPlanDeleted();
         await loadPlansList();
       } else {
-        toast.error(response?.message || 'Không thể xóa tờ trình.');
+        mfoToast.error(response?.message || 'Không thể xóa tờ trình.');
       }
     } catch (error) {
       const serverMessage = error.response?.data?.message || error.message;
-      toast.error('Lỗi khi xóa tờ trình: ' + serverMessage);
+      mfoToast.error('Lỗi khi xóa tờ trình: ' + serverMessage);
     } finally {
       setLoading(false);
     }
@@ -247,7 +247,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
   const handleSaveDraftDirect = async () => {
     if (!selectedTicketId || !draftDetail) return;
     if (isPending || isRejected || isApproved) {
-      toast.warning('Tờ trình ở trạng thái này không thể lưu nháp!');
+      mfoToast.warning('Tờ trình ở trạng thái này không thể lưu nháp!');
       return;
     }
 
@@ -257,10 +257,10 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
         ticket_id: selectedTicketId,
         ...draftDetail,
       });
-      toast.success('Đã lưu bản nháp Tờ trình 5L thành công!');
+      mfoToast.success('Đã lưu bản nháp Tờ trình 5L thành công!');
       void loadPlansList();
     } catch (error) {
-      toast.error('Không thể lưu nháp: ' + toMfoUserMessage(error));
+      mfoToast.error('Không thể lưu nháp: ' + toMfoUserMessage(error));
     } finally {
       setBusy(false);
     }
@@ -337,7 +337,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
         >
           <option value="">Bấm để chọn</option>
 
-          {!isPending && (
+          {!hasOpenProfile && (
             <option value="__NEW_PLAN__" className="font-bold text-indigo-700">
               + Tạo khung 5L mới
             </option>

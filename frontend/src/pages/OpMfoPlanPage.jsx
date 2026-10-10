@@ -1,20 +1,16 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx
  * DATETIME   : 2026-10-09T19:50:00+07:00
- * VERSION    : 4.6.0-AMENDMENT-20261009-LIFECYCLE-READONLY-SYNC
+ * VERSION    : 4.7.0-LAT4-WORKBENCH-OPEN
  * DESCRIPTION:
- * - Tuân thủ AMENDMENT-20261009 & MFO Core Lifecycle 2.0.
- * - Đóng băng Read-Only Canvas và Active Form khi hồ sơ ở các trạng thái:
- *   + PENDING, UNDER_REVIEW (Đang thẩm định)
- *   + APPROVED (Đã phê duyệt / Đóng lô)
- *   + REJECTED (Bị bác bỏ vĩnh viễn)
- * - Mở 100% Active Form thao tác Node nháp khi ở trạng thái DRAFT hoặc NEEDS_REVISION.
+ * - Lát 4. APPROVED mới có plan_ok không đóng băng canvas soạn.
+ * - REJECTED vẫn đóng. Snapshot đọc gốc và ui_render_snapshot_layer.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
-import { toast } from 'sonner';
+import { mfoToast } from '../features/mfo/lib/mfoToastVoice.js';
 import ReactFlow, { Background, Controls, useEdgesState, useNodesState } from 'reactflow';
 import 'reactflow/dist/style.css';
 import {
@@ -168,7 +164,8 @@ export function OpMfoPlanPage() {
    */
   const isReadOnly = useMemo(() => {
     const st = String(proposalStatus || 'DRAFT').toUpperCase();
-    return st === 'PENDING' || st === 'UNDER_REVIEW' || st === 'APPROVED' || st === 'REJECTED';
+    if (st === 'REJECTED' || st === 'PENDING' || st === 'UNDER_REVIEW') return true;
+    return false;
   }, [proposalStatus]);
 
   // STATE MODAL HÔN NHÂN
@@ -278,7 +275,7 @@ export function OpMfoPlanPage() {
         setDraftSet(JSON.parse(JSON.stringify(payload)));
         rebuildGraph(payload, {});
         isUserMutatedRef.current = true;
-        toast.success(`Đã chọn thành công người trên Sổ vào Đời ${selected}!`);
+        mfoToast.success(`Đã chọn thành công người trên Sổ vào Đời ${selected}!`);
       }
     } catch (error) {
       if (sequence === requestRef.current) setErr(toMfoUserMessage(error));
@@ -338,7 +335,7 @@ export function OpMfoPlanPage() {
           if (!draftData) return;
 
           const st = String(draftData.status || 'DRAFT').toUpperCase();
-          const readOnlyFlag = st === 'PENDING' || st === 'UNDER_REVIEW' || st === 'APPROVED' || st === 'REJECTED';
+          const readOnlyFlag = st === 'PENDING' || st === 'UNDER_REVIEW' || st === 'REJECTED';
 
           if (draftData.ticket_id) setCurrentDraftTicketId(draftData.ticket_id);
           if (draftData.updated_at) setCurrentDraftUpdatedAt(draftData.updated_at);
@@ -348,7 +345,11 @@ export function OpMfoPlanPage() {
           if (draftData.selected_canvas_depth != null) setK(String(draftData.selected_canvas_depth));
           if (Array.isArray(draftData.lines)) setLines(draftData.lines);
 
-          const snapshot = draftData.graph_snapshot;
+          const snapshot =
+            draftData.graph_snapshot ||
+            draftData.ui_render_snapshot_layer?.graph_snapshot ||
+            draftData.payload?.graph_snapshot ||
+            draftData.payload?.ui_render_snapshot_layer?.graph_snapshot;
 
           if (snapshot && Array.isArray(snapshot.nodes) && snapshot.nodes.length > 0) {
             setNodes(
@@ -383,13 +384,13 @@ export function OpMfoPlanPage() {
           }
 
           if (st === 'REJECTED') {
-            toast.error('🛑 Tờ trình đã bị Ban Quản trị Bác bỏ vĩnh viễn!');
+            mfoToast.error('🛑 Tờ trình đã bị Ban Quản trị Bác bỏ vĩnh viễn!');
           } else if (readOnlyFlag) {
-            toast.warning(`Tờ trình đang ở trạng thái [${st}]. Giao diện đóng băng Read-Only!`);
+            mfoToast.warning(`Tờ trình đang ở trạng thái [${st}]. Giao diện đóng băng Read-Only!`);
           } else if (st === 'NEEDS_REVISION') {
-            toast.info('Tờ trình bị trả về sửa. Hãy chỉnh sửa theo Bút phê rồi Trình lại!');
+            mfoToast.info('Tờ trình bị trả về sửa. Hãy chỉnh sửa theo Bút phê rồi Trình lại!');
           } else {
-            toast.success('Đã nạp bản nháp Tờ trình!');
+            mfoToast.success('Đã nạp bản nháp Tờ trình!');
           }
         } catch (error) {
           console.error('[FE_HYDRATE_DRAFT_ERROR]', error);
@@ -506,7 +507,7 @@ export function OpMfoPlanPage() {
       })
     );
 
-    toast.success(`Đã bổ sung Cụm Hôn phối (Lần thứ ${chosenOrder}) thành công.`);
+    mfoToast.success(`Đã bổ sung Cụm Hôn phối (Lần thứ ${chosenOrder}) thành công.`);
     setShowSpouseOrderModal(false);
     setPendingSpouseNodeInfo(null);
   };
@@ -514,7 +515,7 @@ export function OpMfoPlanPage() {
   const handleNodeAction = useCallback(
     (actionType, payloadInfo) => {
       if (isReadOnly) {
-        toast.warning('Tờ trình đã đóng băng. Không thể thực hiện thao tác!');
+        mfoToast.warning('Tờ trình đã đóng băng. Không thể thực hiện thao tác!');
         return;
       }
 
@@ -539,7 +540,7 @@ export function OpMfoPlanPage() {
         case 'ADD_CHILD': {
           const childDepth = targetDepth + 1;
           if (childDepth > 4) {
-            toast.error('Khung Tờ trình MFO giới hạn tối đa 5 đời (từ Đời 0 đến Đời 4).');
+            mfoToast.error('Khung Tờ trình MFO giới hạn tối đa 5 đời (từ Đời 0 đến Đời 4).');
             return;
           }
 
@@ -595,7 +596,7 @@ export function OpMfoPlanPage() {
             });
           }
 
-          toast.success(`Đã thêm ô con nháp tại Đời ${childDepth}.`);
+          mfoToast.success(`Đã thêm ô con nháp tại Đời ${childDepth}.`);
           break;
         }
 
@@ -750,15 +751,15 @@ export function OpMfoPlanPage() {
    */
   async function handleSaveDraft() {
     if (isReadOnly) {
-      toast.warning('Tờ trình ở trạng thái đóng băng. Không thể lưu nháp!');
+      mfoToast.warning('Tờ trình ở trạng thái đóng băng. Không thể lưu nháp!');
       return;
     }
     if (!hasCanvasChanges) {
-      toast.warning('Khung ban đầu chưa có biến động mới để lưu nháp!');
+      mfoToast.warning('Khung ban đầu chưa có biến động mới để lưu nháp!');
       return;
     }
     if (!targetMemberId) {
-      toast.error('Vui lòng chọn Thành viên mốc M trước khi Lưu nháp!');
+      mfoToast.error('Vui lòng chọn Thành viên mốc M trước khi Lưu nháp!');
       return;
     }
 
@@ -776,9 +777,9 @@ export function OpMfoPlanPage() {
       }
       if (returnedUpdatedAt) setCurrentDraftUpdatedAt(returnedUpdatedAt);
 
-      toast.success('Đã lưu bản nháp Tờ trình 5L thành công!');
+      mfoToast.success('Đã lưu bản nháp Tờ trình 5L thành công!');
     } catch (error) {
-      toast.error('Lỗi khi lưu bản nháp: ' + (error?.response?.data?.message || error.message));
+      mfoToast.error('Lỗi khi lưu bản nháp: ' + (error?.response?.data?.message || error.message));
     } finally {
       setBusy(false);
     }
@@ -789,11 +790,11 @@ export function OpMfoPlanPage() {
    */
   async function handleSubmitPlan() {
     if (isReadOnly) {
-      toast.warning('Tờ trình ở trạng thái đóng băng. Không thể gửi lại!');
+      mfoToast.warning('Tờ trình ở trạng thái đóng băng. Không thể gửi lại!');
       return;
     }
     if (!hasCanvasChanges) {
-      toast.warning('Khung ban đầu chưa có biến động mới để trình duyệt!');
+      mfoToast.warning('Khung ban đầu chưa có biến động mới để trình duyệt!');
       return;
     }
 
@@ -834,7 +835,7 @@ export function OpMfoPlanPage() {
 
       if (isSuccess) {
         const ticketId = resData?.ticket?.id || resData?.id || currentDraftTicketId;
-        toast.success(MFO_VOICE_SELF.submitted || 'Đã trình Khung 5L thành công!');
+        mfoToast.success(MFO_VOICE_SELF.submitted || 'Đã trình Khung 5L thành công!');
         clearPickCache();
         navigate(ticketId ? `/op/mfo/plans/${ticketId}` : '/op', { replace: true });
       } else {

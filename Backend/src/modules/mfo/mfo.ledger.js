@@ -1,8 +1,8 @@
 /**
  * PATH       : src/modules/mfo/mfo.ledger.js
  * DATETIME   : 2026-10-05T10:10:00+07:00
- * VERSION    : 1.3.1-FIX-BPL-IMPORT
- * DESCRIPTION: Sửa lỗi import createBusinessProcessLog bằng cách gọi writeBpl chuẩn.
+ * VERSION    : 1.4.0-LAT3-PROCESS-TYPE
+ * DESCRIPTION: BPL dùng processType được truyền. Không ép MFO_PLAN_SUBMIT.
  */
 
 const crypto = require('crypto');
@@ -58,7 +58,7 @@ async function mfoWriteBpl(txClient, { processType, user, ticket, payload }) {
 
   // SỬ DỤNG DỊCH VỤ writeBpl CHUẨN DÙNG CHUNG
   return writeBpl({
-    processType: 'MFO_PLAN_SUBMIT',
+    processType: processType || 'MFO_PLAN_SUBMIT',
     actorContext: {
       actor_id: actor,
       actor_type: 'USER',

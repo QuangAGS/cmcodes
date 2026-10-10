@@ -28,7 +28,14 @@ const SRPF_EVENT_TO_NOTIFICATION_EVENT = Object.freeze({
   MEMBER_PROMOTE_REJECT: 'ONBOARDING_REJECTED',
   MEMBER_PROMOTE_CANCEL: 'ONBOARDING_CANCELLED',
   MEMBER_PROMOTE_WITHDRAW: 'ONBOARDING_CANCELLED',
-  MEMBER_PROMOTE_SAVE_DRAFT: null, // no emit expected without correlation anyway
+  MEMBER_PROMOTE_SAVE_DRAFT: null,
+  MFO_PLAN_SUBMIT: 'MFO_PLAN_SUBMITTED',
+  MFO_PLAN_APPROVE: 'MFO_PLAN_APPROVED',
+  MFO_PLAN_REJECT: 'MFO_PLAN_REJECTED',
+  MFO_PLAN_RETURN_FOR_REVISION: 'MFO_PLAN_REJECTED',
+  MFO_RESULT_SUBMIT: 'MFO_RESULT_SUBMITTED',
+  MFO_RESULT_APPROVE: 'MFO_RESULT_APPROVED',
+  MFO_RESULT_REJECT: 'MFO_RESULT_REJECTED',
 });
 
 /** Default Vietnamese copy (orchestrator catalog may still apply by enum name) */
@@ -53,9 +60,29 @@ const NOTIFICATION_EVENT_TEXT = Object.freeze({
     title: 'Hồ sơ chưa được phê duyệt',
     content: 'Hồ sơ đề nghị chính thức hóa thành viên chưa được phê duyệt.',
   },
-  ONBOARDING_CANCELLED: {
-    title: 'Hồ sơ đã được hủy',
-    content: 'Tiến trình chính thức hóa thành viên đã được hủy.',
+  MFO_PLAN_SUBMITTED: {
+    title: 'Có khung 5L mới chờ duyệt',
+    content: 'Một tờ trình khung năm đời vừa được trình. Vào hàng đợi thẩm định để xem.',
+  },
+  MFO_PLAN_APPROVED: {
+    title: 'Khung 5L đã được duyệt',
+    content: 'Khung năm đời đã có tem. Có thể khai tờ khai theo phiếu.',
+  },
+  MFO_PLAN_REJECTED: {
+    title: 'Khung 5L chưa được duyệt',
+    content: 'Khung năm đời chưa được duyệt hoặc bị trả về sửa.',
+  },
+  MFO_RESULT_SUBMITTED: {
+    title: 'Có tờ khai nghiệm thu mới',
+    content: 'Một tờ khai nghiệm thu vừa được trình.',
+  },
+  MFO_RESULT_APPROVED: {
+    title: 'Tờ khai đã được nghiệm thu',
+    content: 'Tờ khai đã được duyệt và ghi sổ họ.',
+  },
+  MFO_RESULT_REJECTED: {
+    title: 'Tờ khai chưa được nghiệm thu',
+    content: 'Tờ khai nghiệm thu chưa được duyệt.',
   },
 });
 
@@ -124,7 +151,6 @@ async function emit({ event, correlationId, instance, actorContext }) {
 
   const notificationEvent = toNotificationEvent(event);
   if (!notificationEvent) {
-    // eslint-disable-next-line no-console
     console.warn('[SRPF CommunicationHook] skip emit — unmapped event_type', {
       event,
       correlationId,
@@ -132,62 +158,62 @@ async function emit({ event, correlationId, instance, actorContext }) {
     return null;
   }
 
-  const userId = resolveUserId(instance, actorContext);
-  if (!userId) {
-    // eslint-disable-next-line no-console
-    console.warn('[SRPF CommunicationHook] skip emit — no userId', {
-      event,
-      notificationEvent,
-      correlationId,
-      instanceId: instance && instance.id,
-    });
-    return null;
-  }
-
   const silentEmit = loadSilentEmit();
   if (!silentEmit) {
-    // eslint-disable-next-line no-console
     console.warn('[SRPF CommunicationHook] silentEmit not found — skip');
     return null;
   }
 
   const text = NOTIFICATION_EVENT_TEXT[notificationEvent] || {};
+  const userId = resolveUserId(instance, actorContext);
+  const base = {
+    correlationId,
+    correlation_id: correlationId,
+    title: text.title,
+    content: text.content,
+    metadata: {
+      source: 'SRPF',
+      srpf_event: event,
+      notification_event: notificationEvent,
+      instance_id: instance && instance.id,
+      process_storage: instance && instance._storage,
+      case_type: instance && instance.case_type,
+      status: instance && (instance.currentState || instance.status),
+    },
+    executeImmediately: false,
+  };
 
-  try {
-    return await silentEmit(
-      notificationEvent,
-      {
-        userId,
-        correlationId,
-        correlation_id: correlationId,
-        title: text.title,
-        content: text.content,
-        metadata: {
-          source: 'SRPF',
-          srpf_event: event,
-          notification_event: notificationEvent,
-          instance_id: instance && instance.id,
-          process_storage: instance && instance._storage,
-          case_type: instance && instance.case_type,
-          status: instance && (instance.currentState || instance.status),
-        },
-        executeImmediately: false,
-      },
-      {
-        source: 'SRPF.CommunicationHook',
-        instanceId: instance && instance.id,
-      }
-    );
-  } catch (err) {
-    // eslint-disable-next-line no-console
-    console.error('[SRPF CommunicationHook] emit failed', {
-      event,
-      notificationEvent,
-      correlationId,
-      message: err && err.message,
-    });
-    return null;
+  const results = [];
+  if (userId) {
+    results.push(await silentEmit(notificationEvent, { ...base, userId }, { source: 'SRPF.CommunicationHook', instanceId: instance && instance.id }));
   }
+
+  if (event === 'MFO_PLAN_SUBMIT' && instance && instance.tenant_id) {
+    try {
+      const { prisma } = require('../../../../lib/prisma.js');
+      const admins = await prisma.users.findMany({
+        where: {
+          tenant_id: instance.tenant_id,
+          role: { in: ['CLAN_ADMIN', 'SYSTEM_ADMIN'] },
+          deleted_at: null,
+        },
+        select: { id: true },
+      });
+      for (const admin of admins) {
+        if (!admin.id || admin.id === userId) continue;
+        results.push(await silentEmit(notificationEvent, {
+          ...base,
+          userId: admin.id,
+          title: 'Có khung 5L mới chờ duyệt',
+          content: 'Một tờ trình khung năm đời vừa được trình. Vào hàng đợi thẩm định để xem.',
+        }, { source: 'SRPF.CommunicationHook.admin', instanceId: instance.id }));
+      }
+    } catch (err) {
+      console.warn('[SRPF CommunicationHook] admin fan-out failed', err && err.message);
+    }
+  }
+
+  return results;
 }
 
 module.exports = {
