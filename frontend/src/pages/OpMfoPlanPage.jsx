@@ -155,6 +155,7 @@ export function OpMfoPlanPage() {
   // STATE DRAFT TIMESTAMPS VÀ TRẠNG THÁI HỒ SƠ
   const [currentDraftTicketId, setCurrentDraftTicketId] = useState(null);
   const [currentDraftUpdatedAt, setCurrentDraftUpdatedAt] = useState(null);
+  const [expiresAt, setExpiresAt] = useState(null);
   const [proposalStatus, setProposalStatus] = useState('DRAFT');
   const [adminNote, setAdminNote] = useState('');
 
@@ -277,7 +278,11 @@ export function OpMfoPlanPage() {
         mfoToast.success(`Đã chọn thành công người trên Sổ vào Đời ${selected}!`);
       }
     } catch (error) {
-      if (sequence === requestRef.current) setErr(toMfoUserMessage(error));
+      if (sequence === requestRef.current) {
+        const message = toMfoUserMessage(error);
+        setErr(message);
+        mfoToast.error(message);
+      }
     } finally {
       if (sequence === requestRef.current) setLoadingTree(false);
     }
@@ -338,6 +343,7 @@ export function OpMfoPlanPage() {
 
           if (draftData.ticket_id) setCurrentDraftTicketId(draftData.ticket_id);
           if (draftData.updated_at) setCurrentDraftUpdatedAt(draftData.updated_at);
+          setExpiresAt(draftData.expires_at || draftData.ticket?.expires_at || null);
           setProposalStatus(st);
           if (draftData.admin_note) setAdminNote(draftData.admin_note);
           if (draftData.target_member_id) setTargetMemberId(draftData.target_member_id);
@@ -423,7 +429,11 @@ export function OpMfoPlanPage() {
             setDraftSet(JSON.parse(JSON.stringify(payload)));
             rebuildGraph(payload, {});
           })
-          .catch(() => {});
+          .catch((error) => {
+            const message = toMfoUserMessage(error);
+            setErr(message);
+            mfoToast.error(message);
+          });
       }
     }
   }, [authLoading, fulfill, handleOpenActionForm, k, location.key, location.state, navigate, rebuildGraph, searchParams, targetMemberId, user, setEdges, setNodes]);
@@ -779,6 +789,7 @@ export function OpMfoPlanPage() {
         data: {
           depth: n.data?.depth,
           clanName: n.data?.clanName,
+          clan: n.data?.clan ? { id: n.data.clan.id } : null,
           partnerName: n.data?.partnerName,
           activeUnionId: n.data?.activeUnionId,
           unassignedCount: n.data?.unassignedCount,
@@ -817,6 +828,9 @@ export function OpMfoPlanPage() {
       lines,
       canvas_delta: draftPayloadTemp.canvas_delta,
       graph_snapshot: graphSnapshot,
+      hold_member_ids: Array.isArray(fullSet?.hold_member_ids) && fullSet.hold_member_ids.length
+        ? fullSet.hold_member_ids
+        : (Array.isArray(fullSet?.nodes) ? fullSet.nodes.map((node) => node && node.id).filter(Boolean) : []),
       init_scs: initScs,
       diff_summary: initScs,
       updated_at: currentDraftUpdatedAt || null,
@@ -867,10 +881,11 @@ export function OpMfoPlanPage() {
         navigate(`/op/mfo/plans/new?draft=${returnedTicket.id}`, { replace: true });
       }
       if (returnedUpdatedAt) setCurrentDraftUpdatedAt(returnedUpdatedAt);
+      if (returnedTicket?.expires_at) setExpiresAt(returnedTicket.expires_at);
 
       mfoToast.success('Đã lưu bản nháp Tờ trình 5L thành công!');
     } catch (error) {
-      mfoToast.error('Lỗi khi lưu bản nháp: ' + (error?.response?.data?.message || error.message));
+      mfoToast.error(toMfoUserMessage(error));
     } finally {
       setBusy(false);
     }
@@ -916,6 +931,7 @@ export function OpMfoPlanPage() {
         note: null,
         lines: sanitizeLines(lines, { originId: effectiveOriginId, k: parsedK }),
         canvas_delta: fullPayload.canvas_delta,
+        hold_member_ids: fullPayload.hold_member_ids,
         graph_snapshot: fullPayload.graph_snapshot,
         init_scs: fullPayload.init_scs,
         diff_summary: fullPayload.diff_summary,
@@ -933,7 +949,9 @@ export function OpMfoPlanPage() {
         setErr(resData?.message || 'Có lỗi xảy ra khi nộp tờ trình.');
       }
     } catch (error) {
-      setErr(toMfoUserMessage(error));
+      const message = toMfoUserMessage(error);
+      setErr(message);
+      mfoToast.error(message);
     } finally {
       setBusy(false);
     }
@@ -969,6 +987,12 @@ export function OpMfoPlanPage() {
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-slate-50">
       <TenantHeader tenant={tenant} subtitle="Khai năm đời (Tạo khung mới)" />
+
+      {expiresAt && !isReadOnly && (
+        <div className="mx-3 mt-3 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700">
+          Hạn của cửa này: {new Date(expiresAt).toLocaleString('vi-VN')}
+        </div>
+      )}
       
       {proposalStatus === 'REJECTED' ? (
         <div className="mx-3 mt-3 flex flex-col gap-1 rounded-2xl border-2 border-rose-300 bg-rose-50 px-4 py-3 text-xs font-black text-rose-950 shadow-sm">

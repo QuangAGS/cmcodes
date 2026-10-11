@@ -12,6 +12,8 @@ const crypto = require('crypto');
 const { prisma, withTransaction, audit } = require('../../lib/prisma.js');
 const { normalizePlanBody, fail } = require('./mfo.payload.js');
 const { mfoWriteBpl, mfoSilentEmit } = require('./mfo.ledger.js');
+const { collectHoldMemberIds, findHoldConflict } = require('./mfo.hold.js');
+const { expiresAtFor } = require('./mfo.ttl.js');
 
 const OPEN = ['DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION'];
 
@@ -408,6 +410,20 @@ const mfoService = {
         'Thành viên ngoại tộc không thể là M của khung MFO.',
         422,
         'MFO_TARGET_NOT_CLAN_MEMBER'
+      );
+    }
+
+    const earlyConflict = await findHoldConflict(prisma, {
+      tenantId: targetMember.tenant_id,
+      memberIds: [targetId],
+      excludeRequesterId: actorIdOf(user),
+    });
+    if (earlyConflict) {
+      fail(
+        'MFO_HOLD_CONFLICT',
+        409,
+        'MFO_HOLD_CONFLICT',
+        { expires_at: earlyConflict.expires_at || null }
       );
     }
 
@@ -1057,6 +1073,21 @@ const mfoService = {
       resolvedAncestorSteps: actualAncestorSteps,
     });
 
+    const fulfilledIds = nodes.map((node) => node && node.id).filter(Boolean);
+    const setConflict = await findHoldConflict(prisma, {
+      tenantId: targetMember.tenant_id,
+      memberIds: fulfilledIds,
+      excludeRequesterId: actorIdOf(user),
+    });
+    if (setConflict) {
+      fail(
+        'MFO_HOLD_CONFLICT',
+        409,
+        'MFO_HOLD_CONFLICT',
+        { expires_at: setConflict.expires_at || null }
+      );
+    }
+
     return {
       request_context: {
         target_member_id: targetMember.id,
@@ -1106,6 +1137,8 @@ const mfoService = {
       levels,
 
       nodes,
+
+      hold_member_ids: nodes.map((node) => node && node.id).filter(Boolean),
 
       ancestor_path_from_root_to_target: ancestorPathFromRootToTarget,
 
@@ -1202,6 +1235,29 @@ const mfoService = {
       result_submitted: false,
       result_ok: false,
     };
+    const holdMemberIds = collectHoldMemberIds({
+      ...payloadToSave,
+      hold_member_ids: body.hold_member_ids,
+      nodes: body.nodes,
+      levels: body.levels,
+    });
+    const draftConflict = await findHoldConflict(prisma, {
+      tenantId,
+      memberIds: holdMemberIds,
+      excludeProposalId: existingDraft && existingDraft.id,
+      excludeRequesterId: actor,
+    });
+    if (draftConflict) {
+      fail(
+        'MFO_HOLD_CONFLICT',
+        409,
+        'MFO_HOLD_CONFLICT',
+        { expires_at: draftConflict.expires_at || null }
+      );
+    }
+    if (existingDraft && existingDraft.expires_at && new Date(existingDraft.expires_at).getTime() <= now.getTime() && existingDraft.status === 'DRAFT') {
+      fail('Bản nháp đã hết hạn. Hãy mở tờ mới.', 409, 'MFO_HOLD_EXPIRED');
+    }
 
     const corr = correlationId || existingDraft?.correlation_id || crypto.randomUUID();
 
@@ -1224,6 +1280,7 @@ const mfoService = {
             data: {
               target_id: targetMemberId,
               payload: payloadToSave,
+              hold_member_ids: holdMemberIds,
               updated_at: now,
               changed_by: actor,
             },
@@ -1238,6 +1295,8 @@ const mfoService = {
               target_table: 'members',
               target_id: targetMemberId,
               payload: payloadToSave,
+              hold_member_ids: holdMemberIds,
+              expires_at: expiresAtFor('DRAFT', now),
               payload_schema_version: 2,
               correlation_id: corr,
               changed_by: actor,
@@ -1293,6 +1352,7 @@ const mfoService = {
       status: proposal.status,
       ticket_type: proposal.ticket_type,
       updated_at: proposal.updated_at,
+      expires_at: proposal.expires_at,
       admin_note: proposal.admin_note || payload.admin_note || payload.reject_reason || null,
 
       selected_canvas_depth: payload.selected_canvas_depth ?? payload.k ?? 0,
@@ -1481,6 +1541,7 @@ const mfoService = {
           },
           smp_staging_data: body.smp_staging_data || existingPayload.smp_staging_data || {},
           graph_snapshot: body.graph_snapshot || existingPayload.graph_snapshot || null,
+          hold_member_ids: body.hold_member_ids || existingPayload.hold_member_ids || [],
           init_scs: body.init_scs || body.diff_summary || existingPayload.init_scs || null,
           diff_summary: body.diff_summary || body.init_scs || existingPayload.diff_summary || null,
           review_scs: null,
@@ -1494,6 +1555,24 @@ const mfoService = {
           result_submitted: false,
           result_ok: false,
         };
+        const holdMemberIds = collectHoldMemberIds(mergedPayload);
+        const submitConflict = await findHoldConflict(tx, {
+          tenantId,
+          memberIds: holdMemberIds,
+          excludeProposalId: existing && existing.id,
+          excludeRequesterId: actor,
+        });
+        if (submitConflict) {
+          fail(
+            'MFO_HOLD_CONFLICT',
+            409,
+            'MFO_HOLD_CONFLICT',
+            { expires_at: submitConflict.expires_at || null }
+          );
+        }
+        if (existing && existing.expires_at && new Date(existing.expires_at).getTime() <= Date.now()) {
+          fail('Tờ đã hết hạn, không thể trình.', 409, 'MFO_HOLD_EXPIRED');
+        }
 
         let row;
         if (ticketIdFromBody) {
@@ -1503,6 +1582,7 @@ const mfoService = {
             where: { id: ticketIdFromBody },
             data: {
               payload: mergedPayload,
+              hold_member_ids: holdMemberIds,
               target_id: mergedPayload.origin_member_id,
               updated_at: new Date(),
               changed_by: actor,
@@ -1518,6 +1598,8 @@ const mfoService = {
               target_table: 'members',
               target_id: mergedPayload.origin_member_id,
               payload: mergedPayload,
+              hold_member_ids: holdMemberIds,
+              expires_at: expiresAtFor('DRAFT', new Date()),
               payload_schema_version: 2,
               correlation_id: corr,
               changed_by: actor,

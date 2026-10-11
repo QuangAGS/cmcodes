@@ -10,6 +10,7 @@
 
 'use strict';
 
+const { expiresAtFor } = require('../mfo.ttl.js');
 const { SRPF_STATES } = require('../../../shared/frameworks/srpf/constants/states');
 const { SRPF_ACTIONS } = require('../../../shared/frameworks/srpf/constants/actions');
 const { srpfError, SRPF_ERROR_CODES } = require('../../../shared/frameworks/srpf/errors/srpfCreateError');
@@ -125,6 +126,8 @@ const mfoPlanProcessDefinition = Object.freeze({
         data: {
           status: 'PENDING',
           payload: updatedPayload,
+          hold_member_ids: instance.hold_member_ids || [],
+          expires_at: expiresAtFor('PENDING', new Date()),
           target_id: updatedPayload.origin_member_id || updatedPayload.target_member_id || instance.target_id,
           updated_at: new Date(),
         },
@@ -150,6 +153,7 @@ const mfoPlanProcessDefinition = Object.freeze({
         data: {
           status: 'NEEDS_REVISION',
           payload: updatedPayload,
+          expires_at: expiresAtFor('NEEDS_REVISION', new Date()),
           admin_note: updatedPayload.admin_note,
           updated_at: new Date(),
         },
@@ -178,6 +182,7 @@ const mfoPlanProcessDefinition = Object.freeze({
         data: {
           status: 'APPROVED',
           payload: updatedPayload,
+          expires_at: expiresAtFor('APPROVED', new Date()),
           admin_note: incomingPayload.note || currentPayload.admin_note || null,
           updated_at: new Date(),
         },
@@ -204,6 +209,8 @@ const mfoPlanProcessDefinition = Object.freeze({
         data: {
           status: 'REJECTED',
           payload: updatedPayload,
+          hold_member_ids: [],
+          expires_at: null,
           admin_note: updatedPayload.reject_reason,
           updated_at: new Date(),
         },

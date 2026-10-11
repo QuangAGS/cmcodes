@@ -36,8 +36,7 @@ export const MFO_USER_ERRORS = {
   MFO_LINE_RANGE: 'Chỉ tạo người từ đời 1 đến đời 4.',
   MFO_UNION_EXISTS: 'Đôi này đã có trên sổ.',
 
-  MFO_MEMBER_DUP:
-    'Trùng với người đã có trên sổ. Chọn người đó, đừng tạo thêm.',
+  MFO_HOLD_EXPIRED: 'Tờ này đã hết hạn. Hãy mở tờ mới.',
 
   MFO_MEMBER_NOT_IN_LOT: 'Người này không thuộc tờ khai đang mở.',
 
@@ -81,6 +80,9 @@ export const MFO_USER_ERRORS = {
   HTTP_403: 'Bạn không được làm việc này.',
   HTTP_404: 'Không thấy tờ khai hoặc người này.',
   HTTP_409: 'Tờ khai đang ở trạng thái khác. Tải lại trang.',
+  MFO_HOLD_CONFLICT:
+    'Không thể tiếp tục. Có thể ý định của bác đang được người khác thực hiện. Xin chờ sau thời gian {thời điểm}.',
+  MFO_HOLD_EXPIRED: 'Tờ này đã hết hạn. Hãy mở tờ mới.',
   HTTP_422: 'Nội dung chưa đủ để duyệt. Xem lại tờ khai.',
   HTTP_500: 'Hệ thống đang bận. Thử lại sau.',
 };
@@ -106,6 +108,12 @@ export function toMfoUserMessage(err, fallback = MFO_USER_FALLBACK) {
     err?.response?.data?.error?.code ||
     err?.response?.data?.errorCode ||
     '';
+
+  if (code === 'MFO_HOLD_CONFLICT') {
+    const when = err?.response?.data?.expires_at || err?.expires_at || null;
+    const whenText = when ? new Date(when).toLocaleString('vi-VN') : 'hết hạn tờ kia';
+    return MFO_USER_ERRORS.MFO_HOLD_CONFLICT.replace('{thời điểm}', whenText);
+  }
 
   if (code && MFO_USER_ERRORS[code]) return MFO_USER_ERRORS[code];
 

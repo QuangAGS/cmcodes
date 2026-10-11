@@ -27,7 +27,7 @@ function sendError(res, error) {
   };
   if (error.k != null) body.k = error.k;
   if (error.ticket_id) body.ticket_id = error.ticket_id;
-  if (error.ticket_status) body.ticket_status = error.ticket_status;
+  if (error.expires_at) body.expires_at = error.expires_at;
   if (error.correlation_id) body.correlation_id = error.correlation_id;
   return res.status(status).json(body);
 }
