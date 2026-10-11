@@ -14,6 +14,7 @@ const { normalizePlanBody, fail } = require('./mfo.payload.js');
 const { mfoWriteBpl, mfoSilentEmit } = require('./mfo.ledger.js');
 const { collectHoldMemberIds, findHoldConflict } = require('./mfo.hold.js');
 const { expiresAtFor } = require('./mfo.ttl.js');
+const { normalizeStaging } = require('./mfo.smp.js');
 
 const OPEN = ['DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION'];
 
@@ -2086,6 +2087,40 @@ const mfoService = {
         path_to_origin: path,
       },
     };
+  },
+
+  saveStaging: async ({ user, ticketId, body }) => {
+    const actor = actorIdOf(user);
+    const row = await mfoService.assertLot({
+      user,
+      ticketId,
+      expectKind: 'PLAN',
+    });
+    if (!isClanOrSys(user) && String(row.requester_user_id) !== String(actor)) {
+      fail('Chỉ người trình được lưu tờ khai.', 403, 'FORBIDDEN');
+    }
+    const payload = row.payload || {};
+    if (!payload.plan_ok || payload.result_submitted || payload.result_ok) {
+      fail('Xưởng chưa mở hoặc tờ khai đã đóng.', 409, 'MFO_GATE2_CLOSED');
+    }
+    const delta = payload.canvas_delta || {};
+    const incoming = normalizeStaging(body && body.smp_staging_data, delta);
+    const nextPayload = {
+      ...payload,
+      smp_staging_data: {
+        ...(payload.smp_staging_data || {}),
+        ...incoming,
+      },
+    };
+    const ticket = await prisma.proposals.update({
+      where: { id: row.id },
+      data: {
+        payload: nextPayload,
+        updated_at: new Date(),
+        changed_by: actor,
+      },
+    });
+    return { ticket, smp_staging_data: nextPayload.smp_staging_data };
   },
 
   submitResult: async ({ user, ticketId, body }) => {

@@ -1,10 +1,10 @@
 /**
  * PATH       : backend/src/modules/mfo/mfo.gate2.js
- * DATETIME   : 2026-10-10T00:28:00+07:00
- * VERSION    : 1.0.0-LAT2-BOOK-TX
- * DESCRIPTION: Ghi sổ chỉ khi cửa 2 đã vào side effect. Đọc business_layer.
- *              Thiếu staging của node nháp thì không ghi rỗng.
+ * DATETIME   : 2026-10-11T14:10:00+07:00
+ * VERSION    : 1.1.0-AMENDMENT4-LAT4-PROPAGATE
+ * DESCRIPTION: Ghi sổ lúc duyệt Cửa 2. Đời lấy từ sổ. Không bịa hôn phối.
  */
+'use strict';
 
 function fail(message, statusCode, code) {
   const err = new Error(message);
@@ -20,35 +20,59 @@ function layerOf(payload) {
   return {
     staging: layer.smp_staging_data || root.smp_staging_data || {},
     delta: layer.canvas_delta || root.canvas_delta || {},
-    grantedGeneration: root.granted_generation != null ? Number(root.granted_generation) : null,
   };
 }
 
 function ownerIdOf(ownerNodeId, memberMap) {
   if (!ownerNodeId) return null;
-  if (ownerNodeId.startsWith('draft-child-')) return memberMap.get(ownerNodeId) || null;
-  if (ownerNodeId.startsWith('st:')) {
-    const parts = ownerNodeId.split(':');
+  if (String(ownerNodeId).startsWith('draft-child-')) return memberMap.get(ownerNodeId) || null;
+  if (String(ownerNodeId).startsWith('st:')) {
+    const parts = String(ownerNodeId).split(':');
     return parts[2] || parts[1] || null;
   }
   return ownerNodeId;
 }
 
+async function generationAfter(tx, parentId) {
+  if (!parentId) fail('Thiếu người đời trên để tính đời.', 422, 'MFO_GENERATION_REQUIRED');
+  const parent = await tx.members.findUnique({
+    where: { id: parentId },
+    select: { generation: true },
+  });
+  if (!parent || parent.generation == null) {
+    fail('Người đời trên chưa có đời trên sổ.', 422, 'MFO_GENERATION_REQUIRED');
+  }
+  return Number(parent.generation) + 1;
+}
+
+async function refuseIfOnBook(tx, tenantId, { fullName, fatherId, motherId }) {
+  if (!fullName || (!fatherId && !motherId)) return;
+  const where = {
+    tenant_id: tenantId,
+    deleted_at: null,
+    full_name: fullName,
+  };
+  if (fatherId) where.father_id = fatherId;
+  if (motherId) where.mother_id = motherId;
+  const existing = await tx.members.findFirst({ where, select: { id: true } });
+  if (existing) fail('Người này đã có trên sổ với cùng cha mẹ.', 409, 'MFO_ALREADY_ON_BOOK');
+}
+
 async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
-  const { staging, delta, grantedGeneration } = layerOf(proposal.payload);
-  const children = Array.isArray(delta.draft_children) ? delta.draft_children : [];
+  const { staging, delta } = layerOf(proposal.payload);
+  const children = (Array.isArray(delta.draft_children) ? delta.draft_children : [])
+    .slice()
+    .sort((a, b) => Number(a.depth || 0) - Number(b.depth || 0));
   const spouses = Array.isArray(delta.draft_spouses) ? delta.draft_spouses : [];
 
   for (const child of children) {
     const smp = staging[child.id] || {};
-    if (!String(smp.full_name || child.label || '').trim()) {
-      fail('Con nháp chưa có họ tên trong staging.', 422, 'MFO_STAGING_INCOMPLETE');
-    }
+    if (!String(smp.full_name || '').trim()) fail('Con nháp chưa có hồ sơ.', 422, 'MFO_STAGING_INCOMPLETE');
   }
   for (const spouse of spouses) {
     const smp = staging[spouse.union_id] || {};
-    if (!String(smp.partner_full_name || spouse.partner_name || '').trim()) {
-      fail('Hôn phối nháp chưa có tên trong staging.', 422, 'MFO_STAGING_INCOMPLETE');
+    if (!String(smp.full_name || smp.partner_full_name || '').trim()) {
+      fail('Hôn phối nháp chưa có hồ sơ.', 422, 'MFO_STAGING_INCOMPLETE');
     }
   }
 
@@ -57,17 +81,28 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
 
   for (const child of children) {
     const smp = staging[child.id] || {};
-    const depth = Number(child.depth || 0);
+    const parentId = ownerIdOf(child.parent_node_id, memberMap);
+    const generation = await generationAfter(tx, parentId);
+    const parent = parentId
+      ? await tx.members.findUnique({ where: { id: parentId }, select: { gender: true } })
+      : null;
+    const fatherId = parent && parent.gender !== 'NU' ? parentId : null;
+    const motherId = parent && parent.gender === 'NU' ? parentId : null;
+    await refuseIfOnBook(tx, tenantId, { fullName: smp.full_name, fatherId, motherId });
     const created = await tx.members.create({
       data: {
         tenant_id: tenantId,
-        full_name: smp.full_name || child.label,
-        gender: smp.gender || 'NAM',
-        generation: grantedGeneration != null ? grantedGeneration + depth : null,
+        full_name: smp.full_name,
+        gender: smp.gender,
+        generation,
         is_clan: true,
-        birth_year: smp.birth_year ? Number(smp.birth_year) : null,
-        sibling_seq: smp.child_order ? Number(smp.child_order) : null,
-        note: smp.is_anonymous ? '[UM] Khuyết danh tạo bởi MFO 5L' : null,
+        is_alive: smp.is_alive !== false,
+        child_type: smp.child_type || 'CON_DE',
+        birth_day: smp.birth_day || null,
+        birth_month: smp.birth_month || null,
+        birth_year: smp.birth_year || null,
+        sibling_seq: child.child_order != null ? Number(child.child_order) : null,
+        note: smp.is_anonymous ? '[UM] Khuyết danh tạo bởi MFO 5L' : (smp.note || null),
         changed_by: actorId,
       },
     });
@@ -79,10 +114,11 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
     const created = await tx.members.create({
       data: {
         tenant_id: tenantId,
-        full_name: smp.partner_full_name || spouse.partner_name,
-        gender: smp.partner_gender || 'NU',
+        full_name: smp.full_name || smp.partner_full_name,
+        gender: smp.gender || smp.partner_gender || 'NU',
         is_clan: false,
-        birth_year: smp.partner_birth_year ? Number(smp.partner_birth_year) : null,
+        is_alive: smp.is_alive !== false,
+        birth_year: smp.birth_year || smp.partner_birth_year || null,
         changed_by: actorId,
       },
     });
@@ -103,7 +139,6 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
         husband_marriage_order: ownerMale ? Number(spouse.owner_marriage_order || 1) : 1,
         wife_marriage_order: ownerMale ? 1 : Number(spouse.owner_marriage_order || 1),
         status: 'DANG_KET_HON',
-        spouse_name_literal: spouse.partner_name || null,
         changed_by: actorId,
       },
     });
@@ -135,7 +170,12 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
     }
     await tx.members.update({
       where: { id: childId },
-      data: { parent_union_id: unionId, father_id: fatherId, mother_id: motherId, changed_by: actorId },
+      data: {
+        parent_union_id: unionId,
+        father_id: fatherId,
+        mother_id: motherId,
+        changed_by: actorId,
+      },
     });
   }
 

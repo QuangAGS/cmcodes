@@ -98,6 +98,13 @@ router.post(
 // =============================================================================
 // 4. NHÓM API TRÌNH & NGHIỆM THU TỜ KHAI (GATE 2 - MFO_RESULT)
 // =============================================================================
+router.post(
+  '/plans/:id/staging',
+  verifyToken,
+  checkRole(WRITE),
+  mfoController.saveStaging
+);
+
 // Người trình nộp Tờ khai Nghiệm thu Kết quả Xưởng
 router.post(
   '/plans/:id/result',

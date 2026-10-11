@@ -111,6 +111,12 @@ export async function getFullMfoSet(targetMemberId, selectedCanvasDepth = 0) {
  * 3. CÁC HÀM THAO TÁC TRONG BẢN KÊ (IN-PLAN MUTATIONS)
  * ========================================================================= */
 
+export function saveStaging(planId, smpStagingData) {
+  return apiClient.post(`/mfo/plans/${planId}/staging`, {
+    smp_staging_data: smpStagingData || {},
+  });
+}
+
 export function createMemberInPlan(planId, body) {
   return apiClient.post(`/mfo/plans/${planId}/members`, body);
 }

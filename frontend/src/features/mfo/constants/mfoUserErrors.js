@@ -83,6 +83,7 @@ export const MFO_USER_ERRORS = {
   MFO_HOLD_CONFLICT:
     'Không thể tiếp tục. Có thể ý định của bác đang được người khác thực hiện. Xin chờ sau thời gian {thời điểm}.',
   MFO_HOLD_EXPIRED: 'Tờ này đã hết hạn. Hãy mở tờ mới.',
+  MFO_ALREADY_ON_BOOK: 'Người này đã có trên sổ với cùng cha mẹ. Không ghi trùng.',
   HTTP_422: 'Nội dung chưa đủ để duyệt. Xem lại tờ khai.',
   HTTP_500: 'Hệ thống đang bận. Thử lại sau.',
 };

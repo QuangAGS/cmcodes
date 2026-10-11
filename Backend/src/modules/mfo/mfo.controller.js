@@ -249,6 +249,19 @@ const mfoController = {
   /**
    * 7. Nộp Tờ khai Nghiệm thu Kết quả Xưởng (SUBMIT - Gate 2 MFO_RESULT -> UNDER_REVIEW)
    */
+  saveStaging: async (req, res) => {
+    try {
+      const data = await mfoService.saveStaging({
+        user: req.user,
+        ticketId: req.params.id,
+        body: req.body || {},
+      });
+      res.status(200).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
   submitResult: async (req, res) => {
     try {
       const ticketId = req.params.id;

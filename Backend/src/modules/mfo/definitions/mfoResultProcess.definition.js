@@ -115,6 +115,8 @@ const mfoResultProcessDefinition = Object.freeze({
         data: {
           status: 'APPROVED',
           payload: updatedPayload,
+          hold_member_ids: [],
+          expires_at: null,
           admin_note: updatedPayload.note || updatedPayload.admin_note || currentPayload.admin_note || null,
           updated_at: new Date(),
         },
@@ -136,6 +138,8 @@ const mfoResultProcessDefinition = Object.freeze({
         data: {
           status: 'REJECTED',
           payload: updatedPayload,
+          hold_member_ids: [],
+          expires_at: null,
           admin_note: reason,
           deleted_at: null,
           updated_at: new Date(),

@@ -26,8 +26,7 @@ import {
   getPlan,
   getMember,
   getOriginTree,
-  createMemberInPlan,
-  createSpouseInPlan,
+  saveStaging,
   submitResult,
 } from '../features/mfo/api/mfoApi.js';
 import { toMfoUserMessage } from '../features/mfo/constants/mfoUserErrors.js';
@@ -74,7 +73,8 @@ export default function OpMfoWorkbenchPage() {
   const [draftName, setDraftName] = useState({});
   const [draftGender, setDraftGender] = useState({});
   const [draftYear, setDraftYear] = useState({});
-  const [draftNote, setDraftNote] = useState({});
+  const [draftAlive, setDraftAlive] = useState({});
+  const [draftChildType, setDraftChildType] = useState({});
   const [genders, setGenders] = useState({});
   const [spName, setSpName] = useState({});
   const [spGender, setSpGender] = useState({});
@@ -242,42 +242,22 @@ export default function OpMfoWorkbenchPage() {
           }
         }
         if (sibPick?.id && Number.isInteger(Number(sibPick.line))) {
-          const lineNo = Number(sibPick.line);
-          setExtraSibs((p) => ({
-            ...p,
-            [lineNo]: [...(p[lineNo] || []).filter((x) => x.id !== sibPick.id), { id: sibPick.id, name: sibPick.name }],
-          }));
-          try {
-            const m = unwrapMember(await getMember(sibPick.id));
-            if (m?.full_name) setNames((n) => ({ ...n, [sibPick.id]: m.full_name }));
-          } catch {
-            /* skip */
-          }
+          setErr('Khung đã đóng tem. Không thêm người từ sổ ở xưởng.');
           try {
             sessionStorage.removeItem('mfo.siblingPick');
             sessionStorage.removeItem('mfo.pickRole');
           } catch {
             /* ignore */
           }
-          setOk('Đã thêm anh/chị/em từ sổ Họ. Bác gắn vợ hoặc chồng cho người này nếu cần.');
         }
         if (pick?.id && host) {
+          setErr('Khung đã đóng tem. Vợ hoặc chồng xin tạo chỉ ghi vào tờ khai.');
           try {
-            await createSpouseInPlan(id, {
-              member_id: host,
-              spouse_member_id: pick.id,
-            });
-            setOk('Đã gắn vợ hoặc chồng từ sổ Họ.');
-            try {
-              sessionStorage.removeItem('mfo.spousePick');
-              sessionStorage.removeItem('mfo.spouseHost');
-              sessionStorage.removeItem('mfo.pickRole');
-            } catch {
-              /* ignore */
-            }
-            await load();
-          } catch (e) {
-            if (live) setErr(toMfoUserMessage(e));
+            sessionStorage.removeItem('mfo.spousePick');
+            sessionStorage.removeItem('mfo.spouseHost');
+            sessionStorage.removeItem('mfo.pickRole');
+          } catch {
+            /* ignore */
           }
         }
       } catch (e) {
@@ -291,24 +271,26 @@ export default function OpMfoWorkbenchPage() {
 
   const payload = ticket?.payload || {};
   const lines = Array.isArray(payload.lines) ? payload.lines : [];
-  const createRows = lines.filter((r) => String(r.op || '').toUpperCase() === 'CREATE');
-  const openCreate = createRows.filter(
-    (r) => !r.member_id && !(Array.isArray(r.created_ids) && r.created_ids.length)
-  );
+  const delta = payload.canvas_delta || {};
+  const draftChildren = Array.isArray(delta.draft_children) ? delta.draft_children : [];
+  const draftSpouses = Array.isArray(delta.draft_spouses) ? delta.draft_spouses : [];
+  const staging = payload.smp_staging_data || {};
+  const missingChild = draftChildren.filter((child) => !staging[child.id]?.full_name);
   const canSubmitResult =
     payload.plan_ok &&
     !payload.result_ok &&
-    openCreate.length === 0 &&
-    !payload.result_submitted;
+    !payload.result_submitted &&
+    draftChildren.length > 0 &&
+    missingChild.length === 0;
 
   const voice = useMemo(() => {
     if (ok) return ok;
     if (!ticket) return 'Đang mở xưởng khai báo.';
-    if (openCreate.length) {
-      return `Tờ đã có dấu. Còn ${openCreate.length} đời xin tạo. Ghi tên thật rồi lưu từng đời.`;
+    if (missingChild.length) {
+      return `Tờ đã có dấu. Còn ${missingChild.length} người xin tạo chưa có hồ sơ.`;
     }
-    return 'Đã ghi đủ người xin tạo. Có thể trình kết quả.';
-  }, [ticket, openCreate.length, ok]);
+    return 'Đã ghi đủ hồ sơ. Có thể trình tờ khai.';
+  }, [ticket, missingChild.length, ok]);
 
   function parentsOf(lineNo) {
     const prev = lines.find((r) => Number(r.line) === Number(lineNo) - 1);
@@ -328,30 +310,34 @@ export default function OpMfoWorkbenchPage() {
   async function saveCreate(row) {
     const name = String(draftName[row.line] || '').trim();
     const gender = String(draftGender[row.line] || '').toUpperCase();
+    const child = draftChildren.find((item) => Number(item.depth) === Number(row.line));
+    if (!child?.id) {
+      setErr('Đời này không có người nháp trên khung.');
+      return;
+    }
     if (!name) {
       setErr('Điền họ tên.');
       return;
     }
-    if (!['NAM', 'NU', 'KHAC'].includes(gender)) {
+    if (!['NAM', 'NU'].includes(gender)) {
       setErr('Chọn nam hoặc nữ.');
       return;
     }
-    const parents = parentsOf(row.line);
     setBusy(`c-${row.line}`);
     setErr('');
     setOk('');
     try {
-      await createMemberInPlan(id, {
-        line: row.line,
-        full_name: name,
-        gender,
-        birth_year: draftYear[row.line] ? Number(draftYear[row.line]) : null,
-        note: draftNote[row.line] || null,
-        father_id: parents.father_id,
-        mother_id: parents.mother_id,
-        child_type: 'CON_DE',
+      await saveStaging(id, {
+        [child.id]: {
+          full_name: name,
+          gender,
+          is_alive: draftAlive[row.line] !== 'false',
+          child_type: draftChildType[row.line] || 'CON_DE',
+          birth_year: draftYear[row.line] ? Number(draftYear[row.line]) : null,
+          note: draftNote[row.line] || null,
+        },
       });
-      const msg = `Đã ghi đời ${row.line === 0 ? 'gốc' : row.line}.`;
+      const msg = `Đã ghi hồ sơ đời ${row.line}.`;
       setOk(msg);
       if (typeof speak === 'function') speak(msg, { rate: 0.82 });
       await load();
@@ -364,14 +350,19 @@ export default function OpMfoWorkbenchPage() {
     }
   }
 
-  async function saveSpouse(memberId, key) {
+  async function saveSpouse(ownerNodeId, key) {
     const name = String(spName[key] || '').trim();
     const gender = String(spGender[key] || '').toUpperCase();
+    const spouse = draftSpouses.find((item) => item.owner_node_id === ownerNodeId) || draftSpouses[0];
+    if (!spouse?.union_id) {
+      setErr('Khung chưa có hôn phối nháp để ghi hồ sơ.');
+      return;
+    }
     if (!name) {
       setErr('Điền họ tên vợ hoặc chồng.');
       return;
     }
-    if (!['NAM', 'NU', 'KHAC'].includes(gender)) {
+    if (!['NAM', 'NU'].includes(gender)) {
       setErr('Chọn nam hoặc nữ cho vợ hoặc chồng.');
       return;
     }
@@ -379,14 +370,14 @@ export default function OpMfoWorkbenchPage() {
     setErr('');
     setOk('');
     try {
-      await createSpouseInPlan(id, {
-        member_id: memberId,
-        full_name: name,
-        gender,
-        child_type: gender === 'NAM' ? 'CON_RE' : 'CON_DAU',
-        is_clan: false,
+      await saveStaging(id, {
+        [spouse.union_id]: {
+          full_name: name,
+          gender,
+          is_alive: true,
+        },
       });
-      const msg = 'Đã ghi vợ hoặc chồng.';
+      const msg = 'Đã ghi hồ sơ vợ hoặc chồng.';
       setOk(msg);
       if (typeof speak === 'function') speak(msg, { rate: 0.82 });
       setSpName((p) => ({ ...p, [key]: '' }));
@@ -430,21 +421,14 @@ export default function OpMfoWorkbenchPage() {
     if (!mid) return null;
     return (
       <div className="mt-3 rounded-2xl border border-slate-100 p-3">
-        <p className="text-sm font-bold text-slate-700">Thêm vợ hoặc chồng</p>
-        <div className="mt-2 flex gap-2">
+        <p className="text-sm font-bold text-slate-700">Hồ sơ vợ hoặc chồng xin tạo</p>
+        <div className="mt-2">
           <button
             type="button"
-            className="min-h-11 min-w-0 flex-1 rounded-2xl bg-indigo-600 px-2 text-sm font-black text-white"
-            onClick={() => openSpouseSearch(mid)}
-          >
-            Chọn từ sổ
-          </button>
-          <button
-            type="button"
-            className="min-h-11 min-w-0 flex-1 rounded-2xl border border-indigo-200 bg-indigo-50 px-2 text-sm font-bold text-indigo-800"
+            className="min-h-11 w-full rounded-2xl border border-indigo-200 bg-indigo-50 px-2 text-sm font-bold text-indigo-800"
             onClick={() => setSpCreate((p) => ({ ...p, [mid]: !p[mid] }))}
           >
-            Tạo mới
+            Ghi hồ sơ
           </button>
         </div>
         {spCreate[mid] ? (
@@ -632,17 +616,6 @@ export default function OpMfoWorkbenchPage() {
                   : ''}
               </p>
               {spouseTools(pickedNode)}
-              <button
-                type="button"
-                className="mt-2 min-h-11 w-full rounded-2xl border border-slate-200 text-sm font-bold text-slate-800"
-                onClick={() => {
-                  const row = lines.find((r) => r.member_id === pickedNode)
-                    || lines.find((r) => (r.siblings || []).some((s) => s.member_id === pickedNode));
-                  openSibSearch(row ? Number(row.line) : Number(payload.k) || 1);
-                }}
-              >
-                Thêm anh/chị/em từ sổ
-              </button>
             </div>
           ) : null}
         </section>
@@ -679,6 +652,23 @@ export default function OpMfoWorkbenchPage() {
                   <option value="NAM">Nam</option>
                   <option value="NU">Nữ</option>
                 </select>
+                <select
+                  className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base"
+                  value={draftAlive[i] || 'true'}
+                  onChange={(e) => setDraftAlive((p) => ({ ...p, [i]: e.target.value }))}
+                >
+                  <option value="true">Còn sống</option>
+                  <option value="false">Đã mất</option>
+                </select>
+                <select
+                  className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base"
+                  value={draftChildType[i] || 'CON_DE'}
+                  onChange={(e) => setDraftChildType((p) => ({ ...p, [i]: e.target.value }))}
+                >
+                  <option value="CON_DE">Con đẻ</option>
+                  <option value="CON_NUOI">Con nuôi</option>
+                  <option value="CON_RIENG">Con riêng</option>
+                </select>
                 <input
                   className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base"
                   placeholder="Năm sinh (không bắt buộc)"
@@ -693,7 +683,7 @@ export default function OpMfoWorkbenchPage() {
                   onChange={(e) => setDraftNote((p) => ({ ...p, [i]: e.target.value }))}
                 />
                 <p className="mt-2 text-sm text-slate-600">
-                  Cha/mẹ lấy từ đời trên trên khung.
+                  Đời và cha mẹ do hệ thống gắn lúc duyệt.
                 </p>
                 <button
                   type="button"
@@ -719,8 +709,8 @@ export default function OpMfoWorkbenchPage() {
           </button>
         ) : (
           <p className="mt-4 text-sm text-slate-600">
-            {openCreate.length
-              ? 'Ghi đủ tên các đời xin tạo rồi mới trình kết quả.'
+            {missingChild.length
+              ? 'Ghi đủ hồ sơ người xin tạo rồi mới trình tờ khai.'
               : payload.result_ok
                 ? 'Đã trình kết quả.'
                 : ''}
