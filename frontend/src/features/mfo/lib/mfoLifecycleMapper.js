@@ -1,171 +1,153 @@
 /**
- * PATH       : frontend/src/features/mfo/lib/mfoLifecycleMapper.js
- * DATETIME   : 2026-10-09T09:25:00+07:00
- * VERSION    : 2.0.0-LIFECYCLE-MAPPER-SRPF
+ * PATH       : src/features/mfo/lib/mfoLifecycleMapper.js
+ * DATETIME   : 2026-10-12T15:25:00+07:00
+ * VERSION    : 2.1.1-DOCTRINE211-MAPPER
  * DESCRIPTION:
- * - Mapper giải mã Vòng đời 2 Cổng MFO (Gate 1 PLAN <-> Workbench <-> Gate 2 RESULT).
- * - Chuyển đổi trạng thái ticket/proposal từ Backend thành chế độ UI/UX nhất quán.
- * REFERENCE  : MFO Core Lifecycle 2.0 Architectural Specification
+ * - Ánh xạ trạng thái Backend sang viewMode, Nhãn Dropdown chuẩn Cửa 1 & 2.
+ * - Đã chốt: Sau khi Khung duyệt (plan_ok = true), nhãn là "Tờ khai đang soạn"[cite: 18, 20].
+ * - Thực thi Ma trận Quyền xóa EU chuẩn[cite: 8, 20].
+ * REFERENCE  : MFO-FE-DOCTRINE-2.1 Section 7; Patch Plan 2.1.1 Section 4
  */
 
-/**
- * Thuật toán giải mã Vòng đời MFO 5L (Lifecycle Resolver)
- * 
- * @param {Object|null} ticket - Bản ghi tờ trình từ Backend API
- * @returns {Object} Cấu hình chế độ giao diện, cờ read-only và trạng thái Active Form (AF)
- */
-export function resolveMfoLifecycle(ticket) {
-  // 1. Trường hợp Khung mới hoàn toàn (Chưa khởi tạo tờ trình)
-  if (!ticket) {
+export function resolveMfoLifecycle(proposalRow) {
+  if (!proposalRow) {
     return {
-      stage: 'PLAN',
-      mode: 'NEW_CANVAS',
-      statusLabel: 'Chưa khởi tạo',
+      stage: 'GATE1',
+      gate: 1,
+      viewMode: 'EDITABLE',
       isReadOnly: false,
       isWorkbench: false,
-      canEditCanvas: true,
-      canSubmitPlan: true,
-      canSubmitResult: false,
-      afContext: 'FULL_UNLOCKED', // Mở 100% 3 nút tác vụ trên AF
-      badgeClass: 'bg-slate-100 text-slate-700',
+      dropdownLabel: 'Khung đang soạn',
+      bannerText: 'Bạn tự do thể hiện ý định của mình bằng cách: Chọn người từ sổ họ làm mốc rồi có thể thêm con, thêm hôn phối, khai khuyết danh. Sau đó có thể lưu bản nháp hoặc trình ban quản trị.',
+      canDelete: true,
     };
   }
 
-  const status = String(ticket.status || 'DRAFT').toUpperCase();
-  const payload = ticket.payload || ticket || {};
-  
+  const status = String(proposalRow.status || 'DRAFT').toUpperCase();
+  const payload = proposalRow.payload || {};
   const planOk = Boolean(payload.plan_ok);
   const resultSubmitted = Boolean(payload.result_submitted);
   const resultOk = Boolean(payload.result_ok);
 
-  // ---------------------------------------------------------------------------
-  // GIAI ĐOẠN 1: THẨM ĐỊNH KHUNG HÌNH HỌC (PLAN - GATE 1)
-  // ---------------------------------------------------------------------------
+  // 1. CỬA 1 (GATE 1 - KHUNG Ý ĐỊNH)
   if (!planOk) {
-    // 1.1 Soạn nháp, Yêu cầu sửa lại, hoặc Bị bác bỏ -> Mở lại Canvas chỉnh sửa
-    if (status === 'REJECTED') {
+    if (status === 'DRAFT') {
       return {
-        stage: 'PLAN',
-        mode: 'VIEW_CANVAS_FROZEN',
-        statusLabel: 'Bị bác bỏ vĩnh viễn',
+        stage: 'GATE1',
+        gate: 1,
+        viewMode: 'EDITABLE',
+        isReadOnly: false,
+        isWorkbench: false,
+        dropdownLabel: 'Khung đang soạn',
+        bannerText: 'Bạn tự do thể hiện ý định của mình bằng cách: Chọn người từ sổ họ làm mốc rồi có thể thêm con, thêm hôn phối, khai khuyết danh.',
+        canDelete: true,
+      };
+    }
+
+    if (status === 'PENDING' || status === 'UNDER_REVIEW') {
+      return {
+        stage: 'GATE1',
+        gate: 1,
+        viewMode: 'READONLY',
         isReadOnly: true,
         isWorkbench: false,
-        canEditCanvas: false,
-        canSubmitPlan: false,
-        canSubmitResult: false,
-        afContext: 'DISABLED',
-        badgeClass: 'bg-rose-100 text-rose-900 border-rose-300',
+        dropdownLabel: 'Khung chờ phê duyệt',
+        bannerText: 'Giai đoạn 1 - Trình ý định qua Khung 5L: Đang chờ Ban Quản trị thẩm định. Bác chỉ được quyền xem.',
+        canDelete: false, // CẤM XÓA KHI ĐANG CHỜ DUYỆT[cite: 8, 20]
       };
     }
 
-    if (status === 'DRAFT' || status === 'NEEDS_REVISION') {
-      return {
-        stage: 'PLAN',
-        mode: 'EDIT_CANVAS',
-        statusLabel: status === 'NEEDS_REVISION' ? 'Khung yêu cầu sửa lại' : status === 'REJECTED' ? 'Khung không được duyệt' : 'Khung đang soạn',
-        isReadOnly: false,
-        isWorkbench: false,
-        canEditCanvas: true,
-        canSubmitPlan: true,
-        canSubmitResult: false,
-        afContext: 'FULL_UNLOCKED', // Mở 100% 3 nút tác vụ trên AF để sửa theo Bút phê
-        badgeClass: status === 'NEEDS_REVISION' ? 'bg-amber-100 text-amber-900 border-amber-300' : status === 'REJECTED' ? 'bg-rose-100 text-rose-900 border-rose-300' : 'bg-indigo-100 text-indigo-900 border-indigo-300',
-      };
-    }
-
-    // 1.2 Đang chờ thẩm định (SUBMITTED / PENDING / UNDER_REVIEW) -> Đóng băng Read-Only
-    return {
-      stage: 'PLAN',
-      mode: 'VIEW_CANVAS_FROZEN',
-      statusLabel: 'Khung chờ duyệt',
-      isReadOnly: true,
-      isWorkbench: false,
-      canEditCanvas: false,
-      canSubmitPlan: false,
-      canSubmitResult: false,
-      afContext: 'DISABLED', // Khóa popup AF
-      badgeClass: 'bg-amber-500 text-white',
-    };
-  }
-
-  // ---------------------------------------------------------------------------
-  // GIAI ĐOẠN TRUNG GIAN & 2: XƯỞNG THI CÔNG & NGHIỆM THU TỜ KHAI (RESULT - GATE 2)
-  // ---------------------------------------------------------------------------
-
-  // 2.1 Đã duyệt Khung (plan_ok = true), Đang mở Xưởng kê khai Workbench
-  if (planOk && !resultSubmitted && !resultOk) {
     if (status === 'NEEDS_REVISION') {
       return {
-        stage: 'WORKBENCH',
-        mode: 'WORKBENCH_ACTIVE',
-        statusLabel: 'Tờ khai yêu cầu sửa lại',
+        stage: 'GATE1',
+        gate: 1,
+        viewMode: 'EDITABLE',
         isReadOnly: false,
-        isWorkbench: true,
-        canEditCanvas: false,
-        canSubmitPlan: false,
-        canSubmitResult: true,
-        afContext: 'WORKBENCH_SMP', // Mở form điền SMP
-        badgeClass: 'bg-amber-100 text-amber-900 border-amber-300',
+        isWorkbench: false,
+        dropdownLabel: 'Khung cần sửa',
+        bannerText: 'Giai đoạn 1 - Khung ý định bị yêu cầu sửa lại. Hãy điều chỉnh theo Bút phê rồi bấm Trình lại.',
+        canDelete: true,
       };
     }
 
+    if (status === 'REJECTED') {
+      return {
+        stage: 'GATE1',
+        gate: 1,
+        viewMode: 'TERMINAL_REJECT',
+        isReadOnly: true,
+        isWorkbench: false,
+        dropdownLabel: 'Khung không được duyệt',
+        bannerText: `🛑 KHUNG Ý ĐỊNH KHÔNG ĐƯỢC BAN QUẢN TRỊ DUYỆT. Lý do: ${proposalRow.admin_note || payload.admin_note || 'Bác bỏ vĩnh viễn'}`,
+        canDelete: false, // CẤM XÓA REJECTED ĐỂ BẢO LƯU BÚT PHÊ[cite: 8, 20]
+      };
+    }
+  }
+
+  // 2. CỬA 2 (GATE 2 - TỜ KHAI WORKBENCH) - KHUNG ĐÃ DUYỆT (plan_ok = true)
+  if (planOk && !resultSubmitted && !resultOk) {
+    const isRevision = status === 'NEEDS_REVISION';
     return {
-      stage: 'WORKBENCH',
-      mode: 'WORKBENCH_ACTIVE',
-      statusLabel: 'Khung đã duyệt (Khai tờ khai)',
+      stage: 'GATE2',
+      gate: 2,
+      viewMode: isRevision ? 'WORKBENCH_EDIT' : 'WORKBENCH',
       isReadOnly: false,
       isWorkbench: true,
-      canEditCanvas: false,
-      canSubmitPlan: false,
-      canSubmitResult: true,
-      afContext: 'WORKBENCH_SMP',
-      badgeClass: 'bg-emerald-100 text-emerald-900 border-emerald-300',
+      dropdownLabel: isRevision ? 'Tờ khai cần sửa' : 'Tờ khai đang soạn', // ĐÃ CHỐT NHÃN TỜ KHAI[cite: 18, 20]
+      bannerText: isRevision
+        ? 'Giai đoạn 2 - Tờ khai bị yêu cầu sửa lại. Bác mở lại Tờ khai để hiệu chỉnh, bổ sung rồi Trình lại.'
+        : 'Khung ý định đã niêm phong ➔ Tờ khai mới đã sẵn sàng! Mời bác thực hiện khai báo chi tiết các ý định.',
+      canDelete: true, // Cho phép xóa khi Khung đã duyệt mà chưa trình Tờ khai[cite: 8, 20]
     };
   }
 
-  // 2.2 Đã nộp Tờ khai Kết quả (result_submitted = true), Chờ Admin Nghiệm thu
   if (planOk && resultSubmitted && !resultOk) {
     return {
-      stage: 'RESULT',
-      mode: 'RESULT_FROZEN',
-      statusLabel: 'Tờ khai chờ duyệt',
+      stage: 'GATE2',
+      gate: 2,
+      viewMode: 'READONLY',
       isReadOnly: true,
       isWorkbench: false,
-      canEditCanvas: false,
-      canSubmitPlan: false,
-      canSubmitResult: false,
-      afContext: 'DISABLED',
-      badgeClass: 'bg-amber-600 text-white',
+      dropdownLabel: 'Tờ khai chờ duyệt',
+      bannerText: 'Giai đoạn 2 - Tờ khai đang chờ Ban quản trị thẩm định. Tờ khai chỉ được xem.',
+      canDelete: false, // CẤM XÓA KHI CHỜ NGHIỆM THU[cite: 8, 20]
     };
   }
 
-  // 2.3 Lô đã Nghiệm thu hoàn tất (result_ok = true / APPROVED)
   if (resultOk || status === 'APPROVED') {
     return {
       stage: 'CLOSED',
-      mode: 'ARCHIVED',
-      statusLabel: 'Tờ khai đã được duyệt',
+      gate: 2,
+      viewMode: 'TERMINAL_OK',
       isReadOnly: true,
       isWorkbench: false,
-      canEditCanvas: false,
-      canSubmitPlan: false,
-      canSubmitResult: false,
-      afContext: 'DISABLED',
-      badgeClass: 'bg-blue-600 text-white',
+      dropdownLabel: 'Tờ khai đã duyệt',
+      bannerText: 'Giai đoạn 2 Tờ khai đã được duyệt. Hai giai đoạn đã hoàn tất vĩnh viễn và ý định của bác đã được ghi nhận trên sổ họ.',
+      canDelete: false, // CẤM XÓA KHI ĐÃ GHI SỔ[cite: 8, 20]
     };
   }
 
-  // Fallback an toàn
+  if (status === 'REJECTED') {
+    return {
+      stage: 'GATE2',
+      gate: 2,
+      viewMode: 'TERMINAL_REJECT',
+      isReadOnly: true,
+      isWorkbench: false,
+      dropdownLabel: 'Tờ khai không được duyệt',
+      bannerText: `🛑 TỜ KHAI ĐÃ BỊ BAN QUẢN TRỊ BÁC BỎ VĨNH VIỄN. Lý do: ${proposalRow.admin_note || payload.admin_note || 'Bác bỏ vĩnh viễn'}`,
+      canDelete: false,
+    };
+  }
+
   return {
-    stage: 'PLAN',
-    mode: 'VIEW_CANVAS_FROZEN',
-    statusLabel: 'Đóng băng',
+    stage: 'GATE1',
+    gate: 1,
+    viewMode: 'READONLY',
     isReadOnly: true,
     isWorkbench: false,
-    canEditCanvas: false,
-    canSubmitPlan: false,
-    canSubmitResult: false,
-    afContext: 'DISABLED',
-    badgeClass: 'bg-slate-200 text-slate-800',
+    dropdownLabel: 'Khung chờ phê duyệt',
+    bannerText: 'Giai đoạn 1 - Trình ý định qua Khung 5L: Đang chờ Ban Quản trị thẩm định.',
+    canDelete: false,
   };
 }

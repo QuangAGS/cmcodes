@@ -124,12 +124,20 @@ async function write({
     tenant_id: actorContext.tenant_id || instance?.tenant_id || null,
   };
 
+  const { basePrisma } = require('../../../../lib/prisma.js');
+  const lastLog = await basePrisma.business_process_logs.findFirst({
+    where: { correlation_id: String(correlationId) },
+    orderBy: { attempt_no: 'desc' },
+    select: { attempt_no: true },
+  });
+  const nextAttemptNo = lastLog ? lastLog.attempt_no + 1 : 1;
+
   const bpl = await writeBpl({
     processType: bplProcessType,
     actorContext: actorForBpl,
     action: action,
     processStatus: 'SUCCESS',
-    attemptNo: 1,
+    attemptNo: nextAttemptNo,
     payload: {
       ticket_id: instance?.id || null,
       origin_member_id: instance?.target_id || instance?.payload?.origin_member_id || instance?.payload?.target_member_id || null,

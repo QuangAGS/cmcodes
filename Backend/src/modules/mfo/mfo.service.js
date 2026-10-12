@@ -1608,18 +1608,6 @@ const mfoService = {
           });
         }
 
-        await mfoWriteBpl(tx, {
-          processType: 'MFO_PLAN_SUBMIT',
-          user,
-          ticket: row,
-          payload: {
-            action: 'MFO_PLAN_SUBMIT_PREPARED',
-            from_status: existing ? existing.status : 'NEW',
-            attempt_no: mergedPayload.current_attempt,
-            submitted_note: mergedPayload.note || null,
-          },
-        });
-
         return row;
       }
     );

@@ -1,265 +1,66 @@
 /**
  * PATH       : frontend/src/pages/OpMfoWorkbenchPage.jsx
- * DATETIME   : 2026-09-28T08:35:00+07:00
- * VERSION    : 1.1.0-AUTH-GUARD-ENFORCED
- * DESCRIPTION: Xưởng sau plan_ok — ghi tên CREATE rồi trình kết quả.
- *              Đã bổ sung Auth Guard chặn gọi API load() khi chưa đăng nhập/hydrate token xong,
- *              triệt tiêu triệt để lỗi 401 UNAUTHORIZED phía Backend.
- * REFERENCE  : SSOT BFA-Branch-Family-Doctrine-v1.3.1.md & Rule applied to AI_3.md
- * 
- * CHANGELOG  :
- * - 2026-09-28T08:35:00+07:00:
- *   + [2026-09-28T08:35:00+07:00] Bổ sung cờ authLoading & user từ useAuth() vào hook useEffect.
- *   + [2026-09-28T08:35:00+07:00] Chặn gọi load() nếu authLoading === true hoặc user === null.
- *   + [2026-09-28T08:35:00+07:00] Bảo tồn 100% logic loadData, createMember, createSpouse, presentment.
+ * DATETIME   : 2026-10-11T14:40:00+07:00
+ * VERSION    : 2.0.0-GATE2-WORKBENCH
+ * DESCRIPTION: Xưởng Cửa 2. Khung đóng. Chỉ điền SMP vào staging.
  */
-
 import { useEffect, useMemo, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router-dom';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 import AudioHelpButton from '../features/elder-doctrine/components/AudioHelpButton.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
 import { resolveFooterNav } from '../lib/resolveFooterNav.js';
-import {
-  getPlan,
-  getMember,
-  getOriginTree,
-  saveStaging,
-  submitResult,
-} from '../features/mfo/api/mfoApi.js';
+import { getPlan, saveStaging, submitResult } from '../features/mfo/api/mfoApi.js';
 import { toMfoUserMessage } from '../features/mfo/constants/mfoUserErrors.js';
-import { opMfoStatusLabel } from '../features/op/constants/opMfoWork.js';
 import { useTts } from '../shared/hooks/useTts.js';
-import MfoDeclaredTree from '../features/mfo/components/MfoDeclaredTree.jsx';
 
 function unwrapPlan(res) {
   const d = res?.data?.data ?? res?.data ?? {};
-  return { ticket: d.ticket || d, tree: d.tree || null };
+  return d.ticket || d;
 }
 
-function unwrapMember(res) {
-  const d = res?.data?.data ?? res?.data ?? {};
-  return d.member || d;
-}
-
-function looksLikeCode(s) {
-  const t = String(s || '').trim();
-  return !t || /^[0-9a-f-]{16,}$/i.test(t) || /^\d{6,}_\w/.test(t);
+function ready(item, staging, kind) {
+  const smp = staging[item.key] || {};
+  if (!smp.full_name || !smp.gender || smp.is_alive == null) return false;
+  if (kind === 'child' && !smp.child_type) return false;
+  return true;
 }
 
 export default function OpMfoWorkbenchPage() {
   const { id } = useParams();
-  
-  /**
-   * <2026-09-28T08:35:00+07:00>
-   * Purpose: Bổ sung cờ authLoading từ AuthContext để kiểm tra trạng thái Hydrate Token
-   */
   const { user, loading: authLoading } = useAuth();
-  
   const navigate = useNavigate();
-  const location = useLocation();
   const { speak } = useTts();
   const tenant = resolveTenant(user);
-  const footerNav = resolveFooterNav(user, {
-    pageKey: 'op-mfo-work',
-    backTo: '/op',
-    showBack: true,
-  });
+  const footerNav = resolveFooterNav(user, { pageKey: 'op-mfo-work', backTo: '/op', showBack: true });
 
   const [ticket, setTicket] = useState(null);
-  const [names, setNames] = useState({});
-  const [draftName, setDraftName] = useState({});
-  const [draftGender, setDraftGender] = useState({});
-  const [draftYear, setDraftYear] = useState({});
-  const [draftAlive, setDraftAlive] = useState({});
-  const [draftChildType, setDraftChildType] = useState({});
-  const [genders, setGenders] = useState({});
-  const [spName, setSpName] = useState({});
-  const [spGender, setSpGender] = useState({});
-  const [spCreate, setSpCreate] = useState({});
-  const [extraSibs, setExtraSibs] = useState({});
+  const [picked, setPicked] = useState('');
+  const [form, setForm] = useState({ full_name: '', gender: '', is_alive: 'true', child_type: 'CON_DE', birth_year: '', note: '', is_anonymous: false });
   const [err, setErr] = useState('');
   const [ok, setOk] = useState('');
   const [busy, setBusy] = useState('');
-  const [bookLanes, setBookLanes] = useState([]);
-  const [pickedNode, setPickedNode] = useState('');
 
   async function load() {
-    const pack = unwrapPlan(await getPlan(id));
-    const t = pack.ticket;
+    const t = unwrapPlan(await getPlan(id));
     setTicket(t);
-    const map = {};
-    const gmap = {};
-    const lines = t?.payload?.lines || [];
-    const ids = [];
-    for (const row of lines) {
-      if (row?.member_id) ids.push(row.member_id);
-      if (row?.spouse_id) ids.push(row.spouse_id);
-      (row?.created_ids || []).forEach((x) => ids.push(x));
-      (row?.siblings || []).forEach((s) => {
-        if (s?.member_id) ids.push(s.member_id);
-        if (s?.spouse_id) ids.push(s.spouse_id);
-      });
-    }
-    (t?.payload?.created_member_ids || []).forEach((x) => ids.push(x));
-    (t?.payload?.created_spouse_ids || []).forEach((x) => ids.push(x));
-    (t?.payload?.reuse_member_ids || []).forEach((x) => ids.push(x));
-    (t?.payload?.result?.presentment || []).forEach((ln) => {
-      (ln.people || []).forEach((p) => {
-        if (p?.id) ids.push(p.id);
-        if (p?.spouse_id) ids.push(p.spouse_id);
-      });
-    });
-    if (t?.payload?.founder_member_id) ids.push(t.payload.founder_member_id);
-    for (const mid of [...new Set(ids)]) {
-      try {
-        const m = unwrapMember(await getMember(mid));
-        const nm = m?.full_name || '';
-        if (nm && !looksLikeCode(nm)) map[mid] = nm;
-        if (m?.gender) gmap[mid] = String(m.gender).toUpperCase();
-      } catch {
-        /* skip */
-      }
-    }
-    setNames(map);
-    setGenders(gmap);
-    const seeded = {};
-    const seedOrigin = t?.payload?.origin_member_id;
-    const founderId0 = t?.payload?.founder_member_id;
-    const kLine = Number(t?.payload?.k);
-    (t?.payload?.lines || []).forEach((row) => {
-      const i = Number(row.line);
-      const bag = [];
-      (row.siblings || []).forEach((s) => {
-        if (s?.member_id && s.member_id !== row.member_id) {
-          bag.push({ id: s.member_id, name: map[s.member_id] || s.hint || '' });
-        }
-      });
-      seeded[i] = bag;
-    });
-    if (Number.isInteger(kLine)) {
-      const skip = new Set([seedOrigin, founderId0, (t?.payload?.lines || []).find((r) => Number(r.line) === kLine)?.member_id]);
-      (t?.payload?.reuse_member_ids || []).forEach((rid) => {
-        if (!rid || skip.has(rid)) return;
-        seeded[kLine] = [...(seeded[kLine] || []).filter((x) => x.id !== rid), { id: rid, name: map[rid] || '' }];
-      });
-    }
-    (t?.payload?.result?.presentment || []).forEach((ln) => {
-      const i = Number(ln.line);
-      (ln.people || []).forEach((p) => {
-        if (!p?.id || p.id === seedOrigin) return;
-        const main = (t?.payload?.lines || []).find((r) => Number(r.line) === i)?.member_id;
-        if (p.id === main) return;
-        seeded[i] = [...(seeded[i] || []).filter((x) => x.id !== p.id), { id: p.id, name: p.name || map[p.id] || '' }];
-      });
-    });
-    setExtraSibs((prev) => {
-      const next = { ...prev };
-      Object.keys(seeded).forEach((k) => {
-        next[k] = [...(next[k] || [])];
-        seeded[k].forEach((p) => {
-          if (!next[k].some((x) => x.id === p.id)) next[k].push(p);
-        });
-      });
-      return next;
-    });
-    const originId = t?.payload?.origin_member_id || t?.target_id;
-    if (originId) {
-      try {
-        let bag = pack.tree;
-        if (!bag || !Array.isArray(bag.nodes)) {
-          const tr = await getOriginTree(originId);
-          bag = tr?.data?.data ?? tr?.data ?? tr ?? {};
-        }
-        const nodes = Array.isArray(bag.nodes) ? bag.nodes : [];
-        const lanes = [[], [], [], [], []];
-        nodes.forEach((n) => {
-          if (!n?.id || n.deleted_at) return;
-          if (n.role === 'partner') return;
-          const d = Number(n.depth);
-          if (!Number.isInteger(d) || d < 0 || d > 4) return;
-          const partner = Array.isArray(n.partners) && n.partners[0] ? n.partners[0] : null;
-          lanes[d].push({
-            id: n.id,
-            name: n.full_name || n.name || '',
-            spouse: partner ? partner.full_name || partner.name || '' : '',
-          });
-        });
-        setBookLanes(lanes);
-      } catch {
-        setBookLanes([]);
-      }
-    }
     return t;
   }
 
-  /**
-   * <2026-09-28T08:35:00+07:00>
-   * Purpose: Auth Guard kiểm tra cờ authLoading & user trước khi thực thi load().
-   *          Đảm bảo 100% người dùng đăng nhập thành công mới gọi API getPlan(id).
-   */
   useEffect(() => {
-    let live = true;
-
-    // 1. Chờ AuthContext khôi phục phiên xong
     if (authLoading) return;
-
-    // 2. Nếu không có user -> Điều hướng ngay về /auth, tuyệt đối không gọi API
     if (!user) {
       navigate('/auth?mode=login', { replace: true });
       return;
     }
-
+    let live = true;
     (async () => {
       try {
         const t = await load();
         if (!live) return;
-        if (!t?.payload?.plan_ok) {
-          navigate(`/op/mfo/plans/${id}`, { replace: true });
-        }
-        let pick = location.state?.spousePick;
-        if (!pick) {
-          try {
-            pick = JSON.parse(sessionStorage.getItem('mfo.spousePick') || 'null');
-          } catch {
-            pick = null;
-          }
-        }
-        let host = '';
-        try {
-          host = sessionStorage.getItem('mfo.spouseHost') || '';
-        } catch {
-          host = '';
-        }
-        let sibPick = location.state?.siblingPick;
-        if (!sibPick) {
-          try {
-            sibPick = JSON.parse(sessionStorage.getItem('mfo.siblingPick') || 'null');
-          } catch {
-            sibPick = null;
-          }
-        }
-        if (sibPick?.id && Number.isInteger(Number(sibPick.line))) {
-          setErr('Khung đã đóng tem. Không thêm người từ sổ ở xưởng.');
-          try {
-            sessionStorage.removeItem('mfo.siblingPick');
-            sessionStorage.removeItem('mfo.pickRole');
-          } catch {
-            /* ignore */
-          }
-        }
-        if (pick?.id && host) {
-          setErr('Khung đã đóng tem. Vợ hoặc chồng xin tạo chỉ ghi vào tờ khai.');
-          try {
-            sessionStorage.removeItem('mfo.spousePick');
-            sessionStorage.removeItem('mfo.spouseHost');
-            sessionStorage.removeItem('mfo.pickRole');
-          } catch {
-            /* ignore */
-          }
-        }
+        if (!t?.payload?.plan_ok) navigate(`/op/mfo/plans/${id}`, { replace: true });
       } catch (e) {
         if (live) setErr(toMfoUserMessage(e));
       }
@@ -270,74 +71,71 @@ export default function OpMfoWorkbenchPage() {
   }, [id, authLoading, user]);
 
   const payload = ticket?.payload || {};
-  const lines = Array.isArray(payload.lines) ? payload.lines : [];
   const delta = payload.canvas_delta || {};
-  const draftChildren = Array.isArray(delta.draft_children) ? delta.draft_children : [];
-  const draftSpouses = Array.isArray(delta.draft_spouses) ? delta.draft_spouses : [];
   const staging = payload.smp_staging_data || {};
-  const missingChild = draftChildren.filter((child) => !staging[child.id]?.full_name);
-  const canSubmitResult =
-    payload.plan_ok &&
-    !payload.result_ok &&
-    !payload.result_submitted &&
-    draftChildren.length > 0 &&
-    missingChild.length === 0;
+  const locked = Boolean(payload.result_submitted || payload.result_ok);
+  const items = useMemo(() => {
+    const children = (delta.draft_children || []).map((row) => ({
+      key: row.id,
+      kind: 'child',
+      depth: Number(row.depth || 0),
+      label: staging[row.id]?.full_name || row.label || 'Con xin tạo',
+    }));
+    const spouses = (delta.draft_spouses || []).map((row) => ({
+      key: row.union_id,
+      kind: 'spouse',
+      depth: null,
+      label: staging[row.union_id]?.full_name || row.partner_name || 'Vợ hoặc chồng xin tạo',
+    }));
+    return [...children, ...spouses];
+  }, [delta, staging]);
+  const missing = items.filter((item) => !ready(item, staging, item.kind));
+  const selected = items.find((item) => item.key === picked) || null;
 
-  const voice = useMemo(() => {
-    if (ok) return ok;
-    if (!ticket) return 'Đang mở xưởng khai báo.';
-    if (missingChild.length) {
-      return `Tờ đã có dấu. Còn ${missingChild.length} người xin tạo chưa có hồ sơ.`;
-    }
-    return 'Đã ghi đủ hồ sơ. Có thể trình tờ khai.';
-  }, [ticket, missingChild.length, ok]);
-
-  function parentsOf(lineNo) {
-    const prev = lines.find((r) => Number(r.line) === Number(lineNo) - 1);
-    if (!prev) return { father_id: null, mother_id: null };
-    const ids = [prev.member_id, ...(prev.created_ids || [])].filter(Boolean);
-    let father_id = null;
-    let mother_id = null;
-    ids.forEach((mid) => {
-      const g = genders[mid];
-      if (g === 'NAM' && !father_id) father_id = mid;
-      if (g === 'NU' && !mother_id) mother_id = mid;
+  useEffect(() => {
+    if (!selected) return;
+    const smp = staging[selected.key] || {};
+    setForm({
+      full_name: smp.full_name || '',
+      gender: smp.gender || '',
+      is_alive: smp.is_alive === false ? 'false' : 'true',
+      child_type: smp.child_type || 'CON_DE',
+      birth_year: smp.birth_year || '',
+      note: smp.note || '',
+      is_anonymous: smp.is_anonymous === true,
     });
-    if (!father_id && !mother_id && ids[0]) father_id = ids[0];
-    return { father_id, mother_id };
-  }
+  }, [picked]);
 
-  async function saveCreate(row) {
-    const name = String(draftName[row.line] || '').trim();
-    const gender = String(draftGender[row.line] || '').toUpperCase();
-    const child = draftChildren.find((item) => Number(item.depth) === Number(row.line));
-    if (!child?.id) {
-      setErr('Đời này không có người nháp trên khung.');
-      return;
-    }
-    if (!name) {
-      setErr('Điền họ tên.');
-      return;
-    }
-    if (!['NAM', 'NU'].includes(gender)) {
-      setErr('Chọn nam hoặc nữ.');
-      return;
-    }
-    setBusy(`c-${row.line}`);
+  const voice = ok || (missing.length ? `Còn ${missing.length} người chưa đủ hồ sơ.` : 'Đủ hồ sơ. Có thể trình tờ khai.');
+
+  function pick(item) {
+    setPicked(item.key);
     setErr('');
     setOk('');
+  }
+
+  async function save() {
+    if (!selected || locked) return;
+    if (!form.full_name.trim() || !form.gender) {
+      setErr('Điền họ tên và giới tính.');
+      return;
+    }
+    const smp = {
+      full_name: form.full_name.trim(),
+      gender: form.gender,
+      is_alive: form.is_alive !== 'false',
+      birth_year: form.birth_year ? Number(form.birth_year) : null,
+      note: form.note || null,
+    };
+    if (selected.kind === 'child') {
+      smp.child_type = form.child_type || 'CON_DE';
+      smp.is_anonymous = form.is_anonymous === true;
+    }
+    setBusy('save');
+    setErr('');
     try {
-      await saveStaging(id, {
-        [child.id]: {
-          full_name: name,
-          gender,
-          is_alive: draftAlive[row.line] !== 'false',
-          child_type: draftChildType[row.line] || 'CON_DE',
-          birth_year: draftYear[row.line] ? Number(draftYear[row.line]) : null,
-          note: draftNote[row.line] || null,
-        },
-      });
-      const msg = `Đã ghi hồ sơ đời ${row.line}.`;
+      await saveStaging(id, { [selected.key]: smp });
+      const msg = 'Đã lưu hồ sơ.';
       setOk(msg);
       if (typeof speak === 'function') speak(msg, { rate: 0.82 });
       await load();
@@ -350,149 +148,13 @@ export default function OpMfoWorkbenchPage() {
     }
   }
 
-  async function saveSpouse(ownerNodeId, key) {
-    const name = String(spName[key] || '').trim();
-    const gender = String(spGender[key] || '').toUpperCase();
-    const spouse = draftSpouses.find((item) => item.owner_node_id === ownerNodeId) || draftSpouses[0];
-    if (!spouse?.union_id) {
-      setErr('Khung chưa có hôn phối nháp để ghi hồ sơ.');
-      return;
-    }
-    if (!name) {
-      setErr('Điền họ tên vợ hoặc chồng.');
-      return;
-    }
-    if (!['NAM', 'NU'].includes(gender)) {
-      setErr('Chọn nam hoặc nữ cho vợ hoặc chồng.');
-      return;
-    }
-    setBusy(`sp-${key}`);
+  async function submit() {
+    if (missing.length || locked) return;
+    setBusy('submit');
     setErr('');
-    setOk('');
     try {
-      await saveStaging(id, {
-        [spouse.union_id]: {
-          full_name: name,
-          gender,
-          is_alive: true,
-        },
-      });
-      const msg = 'Đã ghi hồ sơ vợ hoặc chồng.';
-      setOk(msg);
-      if (typeof speak === 'function') speak(msg, { rate: 0.82 });
-      setSpName((p) => ({ ...p, [key]: '' }));
-      await load();
-    } catch (e) {
-      const msg = toMfoUserMessage(e);
-      setErr(msg);
-      if (typeof speak === 'function') speak(msg, { rate: 0.82 });
-    } finally {
-      setBusy('');
-    }
-  }
-
-  function openSpouseSearch(hostId) {
-    try {
-      sessionStorage.setItem('mfo.pickRole', 'spouse');
-      sessionStorage.setItem('mfo.spouseHost', hostId);
-      sessionStorage.setItem('mfo.assignLine', '0');
-    } catch {
-      /* ignore */
-    }
-    navigate(
-      `/op/members/search?preset=assign&returnTo=${encodeURIComponent(`/op/mfo/plans/${id}/work`)}`
-    );
-  }
-
-  function openSibSearch(lineNo) {
-    try {
-      sessionStorage.setItem('mfo.pickRole', 'sibling');
-      sessionStorage.setItem('mfo.assignLine', String(lineNo));
-      sessionStorage.setItem('mfo.siblingIndex', '0');
-    } catch {
-      /* ignore */
-    }
-    navigate(
-      `/op/members/search?preset=assign&returnTo=${encodeURIComponent(`/op/mfo/plans/${id}/work`)}`
-    );
-  }
-
-  function spouseTools(mid) {
-    if (!mid) return null;
-    return (
-      <div className="mt-3 rounded-2xl border border-slate-100 p-3">
-        <p className="text-sm font-bold text-slate-700">Hồ sơ vợ hoặc chồng xin tạo</p>
-        <div className="mt-2">
-          <button
-            type="button"
-            className="min-h-11 w-full rounded-2xl border border-indigo-200 bg-indigo-50 px-2 text-sm font-bold text-indigo-800"
-            onClick={() => setSpCreate((p) => ({ ...p, [mid]: !p[mid] }))}
-          >
-            Ghi hồ sơ
-          </button>
-        </div>
-        {spCreate[mid] ? (
-          <>
-            <input
-              className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base"
-              placeholder="Họ tên"
-              value={spName[mid] || ''}
-              onChange={(e) => setSpName((p) => ({ ...p, [mid]: e.target.value }))}
-            />
-            <select
-              className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base"
-              value={spGender[mid] || ''}
-              onChange={(e) => setSpGender((p) => ({ ...p, [mid]: e.target.value }))}
-            >
-              <option value="">Bấm để chọn giới tính</option>
-              <option value="NAM">Nam</option>
-              <option value="NU">Nữ</option>
-            </select>
-            <button
-              type="button"
-              disabled={busy === `sp-${mid}`}
-              className="mt-2 min-h-11 w-full rounded-2xl border border-indigo-200 bg-indigo-50 font-bold text-indigo-800 disabled:opacity-60"
-              onClick={() => saveSpouse(mid, mid)}
-            >
-              {busy === `sp-${mid}` ? 'Đang ghi…' : 'Lưu vợ hoặc chồng'}
-            </button>
-          </>
-        ) : null}
-      </div>
-    );
-  }
-
-  async function onSubmitResult() {
-    setBusy('result');
-    setErr('');
-    setOk('');
-    try {
-      const founderId = user?.member_id || user?.memberId || payload.founder_member_id || '';
-      const presentment = [0, 1, 2, 3, 4].map((i) => {
-        const row = lines.find((r) => Number(r.line) === i) || { line: i, op: 'EMPTY' };
-        const people = [];
-        const pushP = (id, name, role, spouseId) => {
-          if (!id && !name) return;
-          if (people.some((p) => p.id && id && p.id === id)) return;
-          people.push({
-            id: id || null,
-            name: name || names[id] || '',
-            role: founderId && id && String(id) === String(founderId) ? 'khai' : role,
-            spouse_id: spouseId || null,
-          });
-        };
-        if (row.member_id || String(row.op).toUpperCase() === 'ASSIGN' || String(row.op).toUpperCase() === 'CREATE') {
-          pushP(row.member_id, names[row.member_id] || row.hint, 'chinh', row.spouse_id);
-        }
-        (row.siblings || []).forEach((s) =>
-          pushP(s.member_id, names[s.member_id] || s.hint, 'anh_em', s.spouse_id)
-        );
-        (extraSibs[i] || []).forEach((s) => pushP(s.id, s.name, 'anh_em', null));
-        (row.created_ids || []).forEach((id) => pushP(id, names[id], 'tao', null));
-        return { line: i, op: row.op || 'EMPTY', people };
-      });
-      await submitResult(id, { presentment });
-      const msg = 'Đã trình kết quả. Chờ Ban quản trị đóng dấu lần hai.';
+      await submitResult(id, {});
+      const msg = 'Đã trình tờ khai. Chờ Ban quản trị duyệt.';
       setOk(msg);
       if (typeof speak === 'function') speak(msg, { rate: 0.82 });
       await load();
@@ -505,223 +167,80 @@ export default function OpMfoWorkbenchPage() {
     }
   }
 
-  /**
-   * <2026-09-28T08:35:00+07:00>
-   * Purpose: Render màn hình chờ khi AuthContext đang nạp phiên làm việc.
-   */
   if (authLoading) {
-    return (
-      <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col items-center justify-center bg-slate-50 p-6 text-center">
-        <p className="text-base font-bold text-slate-600">Đang xác thực phiên làm việc...</p>
-      </div>
-    );
+    return <div className="mx-auto flex min-h-screen max-w-[480px] items-center justify-center">Đang mở xưởng.</div>;
   }
 
   return (
     <div className="flex min-h-dvh flex-col bg-slate-50">
       <TenantHeader tenant={tenant} />
       <main className="mx-auto w-full max-w-[480px] flex-1 px-4 py-4">
-        <div className="mb-3 flex justify-end">
+        <div className="mb-3 flex items-center justify-between">
+          <h1 className="text-lg font-black text-slate-900">Xưởng tờ khai</h1>
           <AudioHelpButton text={voice} />
         </div>
-        <h1 className="text-lg font-bold text-slate-900">Tờ khai theo khung</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          {ticket ? opMfoStatusLabel(ticket) : 'Đang tải…'}
-        </p>
+        <p className="text-sm text-slate-600">Khung đã đóng tem. Chỉ ghi hồ sơ người xin tạo.</p>
+        {err ? <p className="mt-3 text-sm text-rose-700">{err}</p> : null}
+        {ok ? <p className="mt-3 text-sm text-emerald-700">{ok}</p> : null}
 
-        {ok ? (
-          <section className="mt-4 rounded-3xl border-2 border-emerald-500 bg-emerald-50 px-4 py-5 text-center">
-            <p className="text-base font-black text-emerald-900">{ok}</p>
-          </section>
-        ) : null}
-        {err ? (
-          <p className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-base text-rose-800">
-            {err}
-          </p>
-        ) : null}
-
-        {bookLanes.some((a) => a.length) ? (
-          <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-4">
-            <p className="font-black text-slate-900">Đã có trên sổ dưới đời gốc</p>
-            <p className="mt-1 text-sm text-slate-600">
-              Đây là người đã ghi trên sổ. Phần dưới là chỗ khai thêm theo khung.
-            </p>
-            {bookLanes.map((lane, d) =>
-              lane.length ? (
-                <div key={d} className="mt-3">
-                  <p className="text-sm font-bold text-slate-600">
-                    {d === 0 ? 'Đời gốc' : `Đời ${d}`}
-                  </p>
-                  <ul className="mt-1 space-y-1">
-                    {lane.map((p) => (
-                      <li key={p.id} className="text-base font-semibold text-slate-800">
-                        {p.name}
-                        {p.spouse ? ` · ${p.spouse}` : ''}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null
-            )}
-          </section>
-        ) : null}
-
-        {(payload.admin_review?.dirNote || payload.admin_review?.extra || payload.approver_note) ? (
-          <section className="mt-4 rounded-3xl border border-amber-200 bg-amber-50 p-4">
-            <p className="font-black text-amber-950">Chỉ đạo Ban quản trị</p>
-            {Object.entries(payload.admin_review?.dirNote || {})
-              .filter(([, v]) => String(v || '').trim())
-              .map(([mid, v]) => (
-                <p key={mid} className="mt-2 font-semibold text-slate-800">
-                  {names[mid] || mid}: {v}
-                </p>
-              ))}
-            {payload.admin_review?.extra ? (
-              <p className="mt-2 font-semibold text-slate-800">{payload.admin_review.extra}</p>
-            ) : null}
-            {!payload.admin_review?.dirNote && payload.approver_note ? (
-              <p className="mt-2 whitespace-pre-wrap font-semibold text-slate-800">
-                {payload.approver_note}
-              </p>
-            ) : null}
-          </section>
-        ) : null}
-
-        <section className="mt-4">
-          <MfoDeclaredTree
-            lines={lines.map((row) => ({
-              ...row,
-              siblings: [
-                ...(row.siblings || []),
-                ...(extraSibs[row.line] || []).map((s) => ({
-                  member_id: s.id,
-                  hint: s.name,
-                })),
-              ],
-            }))}
-            names={names}
-            genders={genders}
-            k={payload.k}
-            founderId={payload.founder_member_id || user?.member_id}
-            selectedId={pickedNode}
-            onSelect={(mid) => setPickedNode(mid)}
-          />
-          <p className="mt-2 text-center text-sm text-slate-600">Bấm một hộ trên cây để khai vợ/chồng hoặc xem.</p>
-          {pickedNode ? (
-            <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-3">
-              <p className="font-bold text-slate-800">
-                {names[pickedNode] || 'Đã chọn'}
-                {String(pickedNode) === String(payload.founder_member_id || user?.member_id)
-                  ? ' (Người khai)'
-                  : ''}
-              </p>
-              {spouseTools(pickedNode)}
-            </div>
-          ) : null}
-        </section>
-        <section className="mt-4 space-y-3">
-          {[0, 1, 2, 3, 4].map((i) => {
-            const row = lines.find((r) => Number(r.line) === i) || { line: i, op: 'EMPTY' };
-            const op = String(row.op || 'EMPTY').toUpperCase();
-            const title = i === 0 ? 'Đời gốc' : `Đời ${i}`;
-            const founderId = user?.member_id || user?.memberId || payload.founder_member_id || '';
-            const isFounder = (mid) =>
-              !!(founderId && mid && String(mid) === String(founderId));
-            if (op === 'EMPTY' && !(extraSibs[i] || []).length) {
-              return null;
-            }
-            const created = row.created_ids || [];
-            if (op === 'ASSIGN' || (row.member_id && op !== 'CREATE')) {
-              return null;
-            }
-            return (
-              <article key={i} className="rounded-2xl border border-indigo-200 bg-white p-4">
-                <p className="font-bold text-slate-800">{title} (Xin tạo)</p>
-                <input
-                  className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base"
-                  placeholder="Họ tên"
-                  value={draftName[i] || ''}
-                  onChange={(e) => setDraftName((p) => ({ ...p, [i]: e.target.value }))}
-                />
-                <select
-                  className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base"
-                  value={draftGender[i] || ''}
-                  onChange={(e) => setDraftGender((p) => ({ ...p, [i]: e.target.value }))}
-                >
-                  <option value="">Bấm để chọn giới tính</option>
-                  <option value="NAM">Nam</option>
-                  <option value="NU">Nữ</option>
-                </select>
-                <select
-                  className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base"
-                  value={draftAlive[i] || 'true'}
-                  onChange={(e) => setDraftAlive((p) => ({ ...p, [i]: e.target.value }))}
-                >
-                  <option value="true">Còn sống</option>
-                  <option value="false">Đã mất</option>
-                </select>
-                <select
-                  className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base"
-                  value={draftChildType[i] || 'CON_DE'}
-                  onChange={(e) => setDraftChildType((p) => ({ ...p, [i]: e.target.value }))}
-                >
-                  <option value="CON_DE">Con đẻ</option>
-                  <option value="CON_NUOI">Con nuôi</option>
-                  <option value="CON_RIENG">Con riêng</option>
-                </select>
-                <input
-                  className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base"
-                  placeholder="Năm sinh (không bắt buộc)"
-                  inputMode="numeric"
-                  value={draftYear[i] || ''}
-                  onChange={(e) => setDraftYear((p) => ({ ...p, [i]: e.target.value }))}
-                />
-                <input
-                  className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-base"
-                  placeholder="Ghi chú (không bắt buộc)"
-                  value={draftNote[i] || ''}
-                  onChange={(e) => setDraftNote((p) => ({ ...p, [i]: e.target.value }))}
-                />
-                <p className="mt-2 text-sm text-slate-600">
-                  Đời và cha mẹ do hệ thống gắn lúc duyệt.
-                </p>
-                <button
-                  type="button"
-                  disabled={busy === `c-${i}`}
-                  className="mt-2 min-h-12 w-full rounded-2xl bg-indigo-600 font-black text-white disabled:opacity-60"
-                  onClick={() => saveCreate(row)}
-                >
-                  {busy === `c-${i}` ? 'Đang ghi…' : 'Lưu đời này'}
-                </button>
-              </article>
-            );
-          })}
+        <section className="mt-4 space-y-2">
+          {items.length === 0 ? <p className="text-sm text-slate-600">Khung không có người xin tạo.</p> : null}
+          {items.map((item) => (
+            <button
+              key={item.key}
+              type="button"
+              className={`min-h-12 w-full rounded-2xl border px-4 text-left ${picked === item.key ? 'border-indigo-600 bg-indigo-50' : 'border-slate-200 bg-white'}`}
+              onClick={() => pick(item)}
+            >
+              <span className="font-bold text-slate-900">{item.label}</span>
+              <span className="ml-2 text-xs font-bold text-indigo-700">{item.kind === 'child' ? 'XT' : 'Hôn phối'}</span>
+              <span className="ml-2 text-xs text-slate-500">{ready(item, staging, item.kind) ? 'Đủ' : 'Chưa đủ'}</span>
+            </button>
+          ))}
         </section>
 
-        {canSubmitResult ? (
-          <button
-            type="button"
-            disabled={busy === 'result'}
-            className="mt-6 min-h-12 w-full rounded-2xl bg-indigo-700 font-black text-white disabled:opacity-60"
-            onClick={onSubmitResult}
-          >
-            {busy === 'result' ? 'Đang gửi…' : 'Trình kết quả'}
+        {selected && !locked ? (
+          <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
+            <p className="font-bold text-slate-900">Hồ sơ người này</p>
+            <input className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3" placeholder="Họ tên" value={form.full_name} onChange={(e) => setForm((p) => ({ ...p, full_name: e.target.value }))} />
+            <select className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3" value={form.gender} onChange={(e) => setForm((p) => ({ ...p, gender: e.target.value }))}>
+              <option value="">Bấm để chọn giới tính</option>
+              <option value="NAM">Nam</option>
+              <option value="NU">Nữ</option>
+            </select>
+            <select className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3" value={form.is_alive} onChange={(e) => setForm((p) => ({ ...p, is_alive: e.target.value }))}>
+              <option value="true">Còn sống</option>
+              <option value="false">Đã mất</option>
+            </select>
+            {selected.kind === 'child' ? (
+              <select className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3" value={form.child_type} onChange={(e) => setForm((p) => ({ ...p, child_type: e.target.value }))}>
+                <option value="CON_DE">Con đẻ</option>
+                <option value="CON_NUOI">Con nuôi</option>
+                <option value="CON_RIENG">Con riêng</option>
+              </select>
+            ) : null}
+            <input className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3" placeholder="Năm sinh, không bắt buộc" inputMode="numeric" value={form.birth_year} onChange={(e) => setForm((p) => ({ ...p, birth_year: e.target.value }))} />
+            <input className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3" placeholder="Ghi chú, không bắt buộc" value={form.note} onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))} />
+            {selected.kind === 'child' ? (
+              <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+                <input type="checkbox" checked={form.is_anonymous} onChange={(e) => setForm((p) => ({ ...p, is_anonymous: e.target.checked }))} />
+                Đề xuất khuyết danh
+              </label>
+            ) : null}
+            <p className="mt-2 text-sm text-slate-500">Đời và cha mẹ do hệ thống gắn lúc duyệt.</p>
+            <button type="button" disabled={busy === 'save'} className="mt-3 min-h-12 w-full rounded-2xl bg-indigo-600 font-black text-white disabled:opacity-60" onClick={save}>
+              {busy === 'save' ? 'Đang lưu…' : 'Lưu hồ sơ'}
+            </button>
+          </section>
+        ) : null}
+
+        {locked ? <p className="mt-4 text-sm text-slate-600">Tờ khai đã trình. Chỉ xem.</p> : null}
+        {!locked && missing.length === 0 && items.length > 0 ? (
+          <button type="button" disabled={busy === 'submit'} className="mt-4 min-h-12 w-full rounded-2xl bg-indigo-700 font-black text-white disabled:opacity-60" onClick={submit}>
+            {busy === 'submit' ? 'Đang trình…' : 'Trình tờ khai'}
           </button>
-        ) : (
-          <p className="mt-4 text-sm text-slate-600">
-            {missingChild.length
-              ? 'Ghi đủ hồ sơ người xin tạo rồi mới trình tờ khai.'
-              : payload.result_ok
-                ? 'Đã trình kết quả.'
-                : ''}
-          </p>
-        )}
-
-        <button
-          type="button"
-          className="mt-3 min-h-12 w-full rounded-2xl border border-slate-300 bg-white font-bold text-slate-800"
-          onClick={() => navigate('/op')}
-        >
+        ) : null}
+        <button type="button" className="mt-3 min-h-12 w-full rounded-2xl border border-slate-300 bg-white font-bold text-slate-800" onClick={() => navigate('/op')}>
           Về trang việc
         </button>
       </main>

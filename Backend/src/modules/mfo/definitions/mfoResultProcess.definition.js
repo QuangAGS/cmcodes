@@ -1,10 +1,11 @@
 /**
  * PATH       : backend/src/modules/mfo/definitions/mfoResultProcess.definition.js
- * DATETIME   : 2026-10-10T00:26:00+07:00
- * VERSION    : 2.4.0-LAT2-BOOK-IN-SIDE-EFFECT
+ * DATETIME   : 2026-10-12T09:25:00+07:00
+ * VERSION    : 2.4.1-TICKET-TYPE-ENUM
  * DESCRIPTION:
  * - Lát 2. Ghi sổ nằm trong side effect APPROVED, cùng transaction SRPF.
  * - Đọc business_layer. Không ghi trước khi chuyển trạng thái.
+ * - <2026-10-12T09:25:00+07:00> ticket_type chỉ MFO_REVIEW / BRANCH_REVIEW. MFO_RESULT là process type, không có trong enum.
  */
 
 'use strict';
@@ -18,19 +19,26 @@ const PROCESS_TYPE = 'MFO_RESULT';
 
 const mfoResultProcessDefinition = Object.freeze({
   processType: PROCESS_TYPE,
-  targetTicketTypes: ['MFO_REVIEW', 'BRANCH_REVIEW', 'MFO_RESULT'],
+  targetTicketTypes: ['MFO_REVIEW', 'BRANCH_REVIEW'],
 
   /**
    * Custom Instance Resolver giúp SRPF Executor định vị đúng row trong DB proposals
+   * <2026-10-12T09:25:00+07:00> Bỏ MFO_RESULT khỏi in. Enum proposal_ticket_type không có giá trị này.
    */
   async resolveInstance(tx, instanceId) {
-    return await tx.proposals.findFirst({
+    const row = await tx.proposals.findFirst({
       where: {
         id: instanceId,
-        ticket_type: { in: ['MFO_REVIEW', 'BRANCH_REVIEW', 'MFO_RESULT'] },
+        ticket_type: { in: ['MFO_REVIEW', 'BRANCH_REVIEW'] },
         deleted_at: null,
       },
     });
+    if (!row) return null;
+    return {
+      ...row,
+      currentState: row.status,
+      _storage: 'proposals',
+    };
   },
 
   // 1. MA TRẬN CHUYỂN DỊCH TRẠNG THÁI CỔNG 2
