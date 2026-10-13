@@ -275,7 +275,7 @@ export function OpMfoPlanPage() {
         setDraftSet(JSON.parse(JSON.stringify(payload)));
         rebuildGraph(payload, {});
         isUserMutatedRef.current = true;
-        mfoToast.success(`Đã chọn thành công người trên Sổ vào Đời ${selected}!`);
+        mfoToast.success(`Đã gán người vào đời ${selected}.`);
       }
     } catch (error) {
       if (sequence === requestRef.current) {
@@ -864,7 +864,7 @@ export function OpMfoPlanPage() {
       return;
     }
     if (!targetMemberId) {
-      mfoToast.error('Vui lòng chọn Thành viên mốc M trước khi Lưu nháp!');
+      mfoToast.error('Hãy bấm một ô và chọn người từ sổ trước khi lưu.');
       return;
     }
 
@@ -986,7 +986,12 @@ export function OpMfoPlanPage() {
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-slate-50">
-      <TenantHeader tenant={tenant} subtitle="Khai năm đời (Tạo khung mới)" />
+      <TenantHeader tenant={tenant} subtitle="Tạo nhánh phả hệ" />
+      {!targetMemberId ? (
+        <p className="mx-3 mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+          Bấm một ô trên cây, rồi chọn người từ sổ.
+        </p>
+      ) : null}
 
       {expiresAt && !isReadOnly && (
         <div className="mx-3 mt-3 rounded-2xl border border-slate-200 bg-white px-4 py-2 text-xs font-bold text-slate-700">

@@ -7,7 +7,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { mfoToast } from '../lib/mfoToastVoice.js';
+import MfoAlarmOverlay from './MfoAlarmOverlay.jsx';
 import {
   FileEdit,
   Trash2,
@@ -50,19 +50,19 @@ function getSingleThreadOptionLabel(plan) {
   const isResultSubmitted = Boolean(plan.result_submitted || payload.result_submitted);
   const isApproved = st === 'APPROVED';
 
-  if (st === 'DRAFT') return `${prefix}Khung đang soạn`;
+  if (st === 'DRAFT') return `${prefix}Nhánh phả hệ đang soạn`;
   if (st === 'PENDING' || st === 'UNDER_REVIEW') {
     if (payload.plan_ok && isResultSubmitted) return `${prefix}Tờ khai chờ duyệt`;
     if (payload.plan_ok) return `${prefix}Tờ khai đang soạn`;
-    return `${prefix}Khung chờ phê duyệt`;
+    return `${prefix}Nhánh phả hệ chờ phê duyệt`;
   }
-  if (st === 'REJECTED') return `${prefix}${payload.plan_ok ? 'Tờ khai không được duyệt' : 'Khung không được duyệt'}`;
-  if (st === 'NEEDS_REVISION') return `${prefix}${payload.plan_ok ? 'Tờ khai cần sửa' : 'Khung cần sửa'}`;
-  if (isApproved && payload.result_ok) return `${prefix}Tờ khai đã duyệt`;
+  if (st === 'REJECTED') return `${prefix}${payload.plan_ok ? 'Tờ khai không được duyệt' : 'Nhánh phả hệ không được duyệt'}`;
+  if (st === 'NEEDS_REVISION') return `${prefix}${payload.plan_ok ? 'Tờ khai cần sửa' : 'Nhánh phả hệ cần sửa'}`;
+  if (isApproved && payload.result_ok) return `${prefix}Đã ghi sổ`;
   if (isApproved && payload.plan_ok) return `${prefix}Tờ khai đang soạn`;
-  if (isApproved) return `${prefix}Khung đã duyệt`;
+  if (isApproved) return `${prefix}Nhánh phả hệ đã duyệt`;
 
-  return `${prefix}Khung dự kiến`;
+  return `${prefix}Nhánh phả hệ đang soạn`;
 }
 
 export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
@@ -77,6 +77,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
   const [historyStep, setHistoryStep] = useState('');
   const [openNow, setOpenNow] = useState(true);
   const [openHistory, setOpenHistory] = useState(false);
+  const [alarm, setAlarm] = useState('');
 
   /**
    * <2026-10-09T19:50:00+07:00> - Nạp danh sách Tờ trình (Backend Query: WHERE deleted_at IS NULL)
@@ -102,7 +103,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
       }
     } catch (error) {
       console.error('[MY_MFO_PLANS_LOAD_ERROR]', error);
-      mfoToast.error('Lỗi khi nạp danh sách tờ trình: ' + toMfoUserMessage(error));
+      setAlarm(toMfoUserMessage(error));
     } finally {
       setLoading(false);
     }
@@ -253,16 +254,16 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
         response?.deleted === true;
 
       if (isSuccess) {
-        mfoToast.success('Đã xóa tờ trình thành công!');
+        setAlarm('Đã xóa tờ.');
         setSelectedTicketId('');
         if (onPlanDeleted) onPlanDeleted();
         await loadPlansList();
       } else {
-        mfoToast.error(response?.message || 'Không thể xóa tờ trình.');
+        setAlarm(toMfoUserMessage({ message: response?.message }) || 'Không xóa được.');
       }
     } catch (error) {
       const serverMessage = error.response?.data?.message || error.message;
-      mfoToast.error('Lỗi khi xóa tờ trình: ' + serverMessage);
+      setAlarm(toMfoUserMessage(error));
     } finally {
       setLoading(false);
     }
@@ -272,7 +273,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
   const handleSaveDraftDirect = async () => {
     if (!selectedTicketId || !draftDetail) return;
     if (isPending || isRejected || isApproved) {
-      mfoToast.warning('Tờ trình ở trạng thái này không thể lưu nháp!');
+      setAlarm('Tờ này không lưu được ở bước hiện tại.');
       return;
     }
 
@@ -282,10 +283,10 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
         ticket_id: selectedTicketId,
         ...draftDetail,
       });
-      mfoToast.success('Đã lưu bản nháp Tờ trình 5L thành công!');
+      setAlarm('Đã lưu nhánh phả hệ.');
       void loadPlansList();
     } catch (error) {
-      mfoToast.error('Không thể lưu nháp: ' + toMfoUserMessage(error));
+      setAlarm(toMfoUserMessage(error));
     } finally {
       setBusy(false);
     }
@@ -343,7 +344,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
               onClick={() => navigate('/op/mfo/plans/new')}
             >
               <Plus className="h-4 w-4" />
-              <span>+ Khởi tạo Tờ trình MFO mới</span>
+              <span>+ Tạo nhánh phả hệ mới</span>
             </button>
           </div>
         </div>
@@ -469,7 +470,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                   onClick={() => navigate(`/op/mfo/plans/new?draft=${selectedTicketId}`)}
                 >
                   <FileEdit className="h-4 w-4" />
-                  <span>{isNeedsRevision ? 'Sửa theo BP' : 'Sửa khung'}</span>
+                  <span>{isNeedsRevision ? 'Sửa theo ý kiến' : 'Sửa nhánh'}</span>
                 </button>
               )}
 
@@ -487,6 +488,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
           </div>
         )}
       </div>
+      <MfoAlarmOverlay open={Boolean(alarm)} message={alarm} onClose={() => setAlarm('')} />
     </div>
   );
 }

@@ -47,7 +47,7 @@ export function resolveMfoLifecycle(ticket) {
       return {
         stage: 'PLAN',
         mode: 'VIEW_CANVAS_FROZEN',
-        statusLabel: 'Bị bác bỏ vĩnh viễn',
+        statusLabel: 'Nhánh phả hệ không được duyệt',
         isReadOnly: true,
         isWorkbench: false,
         canEditCanvas: false,
@@ -62,7 +62,7 @@ export function resolveMfoLifecycle(ticket) {
       return {
         stage: 'PLAN',
         mode: 'EDIT_CANVAS',
-        statusLabel: status === 'NEEDS_REVISION' ? 'Khung yêu cầu sửa lại' : status === 'REJECTED' ? 'Khung không được duyệt' : 'Khung đang soạn',
+        statusLabel: status === 'NEEDS_REVISION' ? 'Nhánh phả hệ cần sửa' : 'Nhánh phả hệ đang soạn',
         isReadOnly: false,
         isWorkbench: false,
         canEditCanvas: true,
@@ -77,7 +77,7 @@ export function resolveMfoLifecycle(ticket) {
     return {
       stage: 'PLAN',
       mode: 'VIEW_CANVAS_FROZEN',
-      statusLabel: 'Khung chờ duyệt',
+      statusLabel: 'Nhánh phả hệ chờ phê duyệt',
       isReadOnly: true,
       isWorkbench: false,
       canEditCanvas: false,
@@ -98,7 +98,7 @@ export function resolveMfoLifecycle(ticket) {
       return {
         stage: 'WORKBENCH',
         mode: 'WORKBENCH_ACTIVE',
-        statusLabel: 'Tờ khai yêu cầu sửa lại',
+        statusLabel: 'Tờ khai cần sửa',
         isReadOnly: false,
         isWorkbench: true,
         canEditCanvas: false,
@@ -112,7 +112,7 @@ export function resolveMfoLifecycle(ticket) {
     return {
       stage: 'WORKBENCH',
       mode: 'WORKBENCH_ACTIVE',
-      statusLabel: 'Khung đã duyệt (Khai tờ khai)',
+      statusLabel: 'Tờ khai đang soạn',
       isReadOnly: false,
       isWorkbench: true,
       canEditCanvas: false,
@@ -144,7 +144,7 @@ export function resolveMfoLifecycle(ticket) {
     return {
       stage: 'CLOSED',
       mode: 'ARCHIVED',
-      statusLabel: 'Tờ khai đã được duyệt',
+      statusLabel: 'Đã ghi sổ',
       isReadOnly: true,
       isWorkbench: false,
       canEditCanvas: false,
