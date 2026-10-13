@@ -129,4 +129,12 @@ router.post(
   mfoController.rejectResult
 );
 
+// <2026-10-12T17:30:00+07:00> Bác bỏ tờ khai cửa 2. Không gọi từ chối khung.
+router.post(
+  '/plans/:id/result/terminate',
+  verifyToken,
+  checkRole(ADMIN),
+  mfoController.terminateResult
+);
+
 module.exports = router;

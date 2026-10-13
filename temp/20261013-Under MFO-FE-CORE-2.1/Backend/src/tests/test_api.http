@@ -1,0 +1,29 @@
+### 1. KIỂM TRA TRẠNG THÁI SERVER (Health Check)
+# Mục tiêu: Xác nhận Server đang chạy và đúng Version.
+
+@https://gia-pha-backend.onrender.com/
+GET https://gia-pha-backend.onrender.com/
+
+### 2. KIỂM TRA KẾT NỐI DATABASE (Debug DB)
+# Mục tiêu: Xác nhận Prisma đã kết nối được tới Supabase.
+# Endpoint này trả về chi tiết lỗi nếu DATABASE_URL sai.
+GET https://gia-pha-backend.onrender.com/api/debug-db
+
+### 3. KIỂM TRA DỮ LIỆU THÀNH VIÊN (Business Logic)
+# Mục tiêu: Test luồng Multi-tenant (Tự động lọc theo slug).
+# Lưu ý: Thay 'NHTB01' bằng slug thật trong DB của bạn nếu cần.
+GET https://gia-pha-backend.onrender.com/api/members
+
+### 4. KIỂM TRA LUỒNG ĐĂNG NHẬP (BR3 Auth)
+# Mục tiêu: Xác nhận express.json() đã hoạt động (không còn lỗi 500 undefined).
+POST https://gia-pha-backend.onrender.com/api/auth/login
+Content-Type: application/json
+
+{
+    "phone": "abcd@gmail.com",
+    "password": "userpassword"
+}
+
+### 5. UPDATE user
+# Mục tiêu: update existing usser
+

@@ -2132,6 +2132,7 @@ const mfoService = {
     if (row.payload.result_ok) {
       fail('RESULT đã nghiệm thu hoàn tất.', 409, 'MFO_RESULT_DONE');
     }
+    assertClanConfirmed(row.payload);
 
     return { ticket: row };
   },
@@ -2152,6 +2153,7 @@ const mfoService = {
     if (!row.payload.result_submitted) {
       fail('Chưa nộp Tờ khai Nghiệm thu kết quả xưởng.', 409, 'MFO_RESULT_NOT_SUBMITTED');
     }
+    assertClanConfirmed(row.payload);
 
     return { ticket: row };
   },
@@ -2173,6 +2175,32 @@ const mfoService = {
       fail('Trả lại Tờ khai bắt buộc phải có bút phê lý do.', 400, 'MFO_REASON_REQUIRED');
     }
 
+    return { ticket: row, reason: String(reason).trim() };
+  },
+
+  /**
+   * <2026-10-12T17:30:00+07:00>
+   * Purpose: Bác bỏ tờ khai cửa 2. Giữ plan_ok. Không ghi sổ. Không gọi từ chối khung.
+   */
+  terminateResult: async ({ user, ticketId, body }) => {
+    if (!isClanOrSys(user)) {
+      fail('Chỉ ADMIN bác bỏ tờ khai.', 403, 'FORBIDDEN');
+    }
+    const row = await mfoService.assertLot({
+      user,
+      ticketId,
+      expectKind: 'PLAN',
+    });
+    if (!row.payload || !row.payload.plan_ok) {
+      fail('Chưa có khung đã duyệt.', 409, 'MFO_PLAN_STATE');
+    }
+    if (row.payload.result_ok) {
+      fail('Tờ khai đã ghi sổ, không bác bỏ.', 409, 'MFO_RESULT_DONE');
+    }
+    const reason = (body && (body.reason || body.note || body.admin_note)) || '';
+    if (!String(reason).trim()) {
+      fail('Bác bỏ tờ khai bắt buộc có ý kiến.', 400, 'MFO_REASON_REQUIRED');
+    }
     return { ticket: row, reason: String(reason).trim() };
   },
 
@@ -2227,5 +2255,20 @@ const mfoService = {
     return { ticket, aborted: true };
   },
 };
+
+function assertClanConfirmed(payload) {
+  const root = payload || {};
+  const layer = root.business_layer && typeof root.business_layer === 'object' ? root.business_layer : root;
+  const staging = layer.smp_staging_data || root.smp_staging_data || {};
+  const delta = layer.canvas_delta || root.canvas_delta || {};
+  const people = [
+    ...(delta.draft_children || []).map((row) => staging[row.id]),
+    ...(delta.draft_spouses || []).map((row) => staging[row.union_id]),
+  ];
+  const missing = people.some((smp) => !smp || (smp.is_clan !== true && smp.is_clan !== false));
+  if (missing) {
+    fail('Chưa khẳng định nội tộc.', 422, 'MFO_CLAN_UNCONFIRMED');
+  }
+}
 
 module.exports = mfoService;

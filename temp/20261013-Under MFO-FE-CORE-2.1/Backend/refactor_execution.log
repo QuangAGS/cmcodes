@@ -1,0 +1,172 @@
+[2026-07-18 10:00:55] [INFO    ] ====================================================================
+[2026-07-18 10:00:55] [INFO    ] 🚀 KÍCH HOẠT BẢN VÁ MAC-HARDENED V1.4: ĐỒNG BỘ TOÀN DIỆN HỆ THỐNG
+[2026-07-18 10:00:55] [INFO    ] ====================================================================
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 19: './lib/prisma' -> './lib/prisma.js'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 29: './routes/branchRoutes' -> './modules/members/branch.routes'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 30: './routes/memberRoutes' -> './modules/members/member.routes'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 31: './routes/addressRoutes' -> './modules/interactions/address.routes'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 32: './routes/worshipRoutes' -> './modules/worship/worship.routes'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 33: './routes/tenantRoutes' -> './modules/tenants/tenant.routes'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 34: './routes/authLogRoutes' -> './modules/auth/authLog.routes'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 35: './routes/notificationRoutes' -> './modules/notifications/notification.routes'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 36: './middlewares/rateLimitMiddleware' -> './middlewares/rateLimit.middleware'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 37: './routes/achievementRoutes' -> './modules/tenants/achievement.routes'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 38: './routes/assetRoutes' -> './modules/finance/asset.routes'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 39: './routes/cemeteryRoutes' -> './modules/worship/cemetery.routes'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 40: './routes/graveRoutes' -> './modules/worship/grave.routes'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 41: './routes/eventRoutes' -> './modules/interactions/event.routes'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 42: './routes/fundRoutes' -> './modules/finance/fund.routes'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 43: './routes/fundTransactionRoutes' -> './modules/finance/fundTransaction.routes'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 44: './routes/suggestionRoutes' -> './modules/interactions/suggestion.routes'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 45: './routes/mediaRoutes' -> './modules/interactions/media.routes'
+[2026-07-18 10:00:55] [DEBUG   ] [src/app.js] Dòng 47: './routes/authRoutes' -> './modules/auth/auth.routes'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/app.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/config/validateEnv.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/tests/notificationRepoTest.js] Dòng 10: '../lib/prisma' -> '../lib/prisma.js'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/tests/notificationRepoTest.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/tests/deliveryExecutionTest.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/middlewares/rateLimit.middleware.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/middlewares/correlation.middleware.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/middlewares/ipBlock.middleware.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/middlewares/role.middleware.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/middlewares/validate.middleware.js] Dòng 2: '../validations/baseValidation' -> '../shared/validations/base.validation'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/middlewares/validate.middleware.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/middlewares/auth.middleware.js] Dòng 15: '../lib/prisma' -> '../lib/prisma.js'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/middlewares/auth.middleware.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/middlewares/upload.middleware.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/middlewares/securityGuard.middleware.js] Dòng 9: '../services/securityGuard.service' -> '../services/security.service'
+[2026-07-18 10:00:55] [DEBUG   ] [src/middlewares/securityGuard.middleware.js] Dòng 10: './ipBlockMiddleware' -> './ipBlock.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/middlewares/securityGuard.middleware.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/middlewares/tenant.middleware.js] Dòng 3: '../lib/prisma' -> '../lib/prisma.js'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/middlewares/tenant.middleware.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/shared/utils/common.utils.service.js] Dòng 13: '../lib/prisma' -> '../../lib/prisma.js'
+[2026-07-18 10:00:55] [DEBUG   ] [src/shared/utils/common.utils.service.js] Dòng 15: './auditService' -> '../../services/audit.service'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/shared/utils/common.utils.service.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/shared/utils/slug.utils.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/shared/utils/turnstile.utils.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/shared/validations/base.validation.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/shared/controllers/base.controller.js] Dòng 11: '../services/commonService' -> '../utils/common.utils.service'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/shared/controllers/base.controller.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/lib/initialSetup.js] Dòng 16: './prisma' -> './prisma.js'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/lib/initialSetup.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/lib/prisma.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/interactions/suggestion.routes.js] Dòng 9: '../controllers/baseController' -> '../../shared/controllers/base.controller'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/interactions/suggestion.routes.js] Dòng 10: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/interactions/suggestion.routes.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/interactions/media.service.js] Dòng 9: '../lib/prisma' -> '../../lib/prisma.js'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/interactions/media.service.js] Dòng 11: './auditService' -> '../../services/audit.service'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/interactions/media.service.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/interactions/address.routes.js] Dòng 8: '../controllers/baseController' -> '../../shared/controllers/base.controller'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/interactions/address.routes.js] Dòng 9: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/interactions/address.routes.js] Dòng 10: '../middlewares/validateMiddleware' -> '../../middlewares/validate.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/interactions/address.routes.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/interactions/media.controller.js] Dòng 4: '../services/mediaService' -> './media.service'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/interactions/media.controller.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/interactions/event.routes.js] Dòng 9: '../controllers/baseController' -> '../../shared/controllers/base.controller'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/interactions/event.routes.js] Dòng 10: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/interactions/event.routes.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/interactions/address.controller.js] Dòng 3: '../services/commonService' -> '../../shared/utils/common.utils.service'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/interactions/address.controller.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/interactions/media.routes.js] Dòng 6: '../services/mediaService' -> './media.service'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/interactions/media.routes.js] Dòng 7: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/interactions/media.routes.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/auth/authLog.controller.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/auth/authLog.service.js] Dòng 12: '../../lib/prisma' -> '../../lib/prisma.js'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/auth/authLog.service.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/auth/auth.routes.js] Dòng 15: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/auth/auth.routes.js] Dòng 18: '../middlewares/securityGuard.middleware' -> '../../middlewares/securityGuard.middleware'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/auth/auth.routes.js] Dòng 23: '../middlewares/rateLimitMiddleware' -> '../../middlewares/rateLimit.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/auth/auth.routes.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/auth/auth.service.js] Dòng 27: '../lib/prisma' -> '../../lib/prisma.js'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/auth/auth.service.js] Dòng 28: './authLogService' -> './authLog.service'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/auth/auth.service.js] Dòng 29: '../utils/slugUtils' -> '../../shared/utils/slug.utils'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/auth/auth.service.js] Dòng 32: './business-logger.service' -> '../../services/ledger.service'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/auth/auth.service.js] Dòng 35: './auditService' -> '../../services/audit.service'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/auth/auth.service.js] Dòng 36: './emailService' -> '../../services/email.service'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/auth/auth.service.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/auth/auth.controller.js] Dòng 13: '../../services/authService' -> './auth.service'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/auth/auth.controller.js] Dòng 15: '../utils/turnstile' -> '../../shared/utils/turnstile.utils'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/auth/auth.controller.js] Dòng 22: '../middlewares/ipBlockMiddleware' -> '../../middlewares/ipBlock.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/auth/auth.controller.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/auth/authLog.routes.js] Dòng 13: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/auth/authLog.routes.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/auth/core/login.core.js] Dòng 18: '../../../lib/prisma' -> '../../../lib/prisma.js'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/auth/core/login.core.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/auth/core/shared/egalAuthErrors.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/auth/core/common/error.codes.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/worship/grave.routes.js] Dòng 10: '../controllers/baseController' -> '../../shared/controllers/base.controller'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/worship/grave.routes.js] Dòng 11: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/worship/grave.routes.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/worship/worship.routes.js] Dòng 11: '../controllers/baseController' -> '../../shared/controllers/base.controller'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/worship/worship.routes.js] Dòng 14: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/worship/worship.routes.js] Dòng 15: '../middlewares/validateMiddleware' -> '../../middlewares/validate.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/worship/worship.routes.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/worship/cemetery.routes.js] Dòng 10: '../controllers/baseController' -> '../../shared/controllers/base.controller'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/worship/cemetery.routes.js] Dòng 11: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/worship/cemetery.routes.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/tenants/achievement.routes.js] Dòng 9: '../controllers/baseController' -> '../../shared/controllers/base.controller'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/tenants/achievement.routes.js] Dòng 10: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/tenants/achievement.routes.js] Dòng 11: '../middlewares/validateMiddleware' -> '../../middlewares/validate.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/tenants/achievement.routes.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/tenants/tenant.routes.js] Dòng 9: '../controllers/baseController' -> '../../shared/controllers/base.controller'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/tenants/tenant.routes.js] Dòng 10: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/tenants/tenant.routes.js] Dòng 11: '../middlewares/validateMiddleware' -> '../../middlewares/validate.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/tenants/tenant.routes.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/finance/fund.routes.js] Dòng 10: '../controllers/baseController' -> '../../shared/controllers/base.controller'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/finance/fund.routes.js] Dòng 11: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/finance/fund.routes.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/finance/fundTransaction.routes.js] Dòng 10: '../controllers/baseController' -> '../../shared/controllers/base.controller'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/finance/fundTransaction.routes.js] Dòng 11: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/finance/fundTransaction.routes.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/finance/asset.routes.js] Dòng 9: '../controllers/baseController' -> '../../shared/controllers/base.controller'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/finance/asset.routes.js] Dòng 10: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/finance/asset.routes.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/members/branch.controller.js] Dòng 7: '../services/branchService' -> './branch.service'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/members/branch.controller.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/members/member.routes.js] Dòng 11: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/members/member.routes.js] Dòng 53: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/members/member.routes.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/members/member.service.js] Dòng 12: '../lib/prisma' -> '../../lib/prisma.js'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/members/member.service.js] Dòng 14: './auditService' -> '../../services/audit.service'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/members/member.service.js] Dòng 15: './dataIntegrityService' -> '../../services/dataIntegrity.service'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/members/member.service.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/members/branch.routes.js] Dòng 8: '../controllers/baseController' -> '../../shared/controllers/base.controller'
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/members/branch.routes.js] Dòng 10: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/members/branch.routes.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/members/member.controller.js] Dòng 8: '../services/memberService' -> './member.service'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/members/member.controller.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/members/branch.service.js] Dòng 9: '../lib/prisma' -> '../../lib/prisma.js'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/members/branch.service.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/notifications/notification.routes.js] Dòng 9: '../middlewares/authMiddleware' -> '../../middlewares/auth.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/notifications/notification.routes.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/notifications/notification.service.js] Dòng 11: '../lib/prisma' -> '../../lib/prisma.js'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/notifications/notification.service.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/notifications/notification.controller.js] Dòng 9: '../services/notificationService' -> './notification.service'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/notifications/notification.controller.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/notifications/repository/communication.repository.js] Dòng 11: '../../../lib/prisma' -> '../../../lib/prisma.js'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/notifications/repository/communication.repository.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/notifications/repository/notification.repository.js] Dòng 11: '../../../lib/prisma' -> '../../../lib/prisma.js'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/notifications/repository/notification.repository.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/notifications/repository/delivery.repository.js] Dòng 12: '../../../lib/prisma' -> '../../../lib/prisma.js'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/notifications/repository/delivery.repository.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/notifications/services/communicationPropagation.service.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/notifications/services/notification-builder.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/notifications/services/silentNotificationEmit.service.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/notifications/policy/notification-metadata-schemas.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/modules/onboarding/onboarding.service.js] Dòng 11: '../lib/prisma' -> '../../lib/prisma.js'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/modules/onboarding/onboarding.service.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/services/email.service.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/services/security.service.js] Dòng 9: './authLogService' -> '../modules/auth/authLog.service'
+[2026-07-18 10:00:55] [DEBUG   ] [src/services/security.service.js] Dòng 10: '../middlewares/ipBlockMiddleware' -> '../middlewares/ipBlock.middleware'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/services/security.service.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/services/audit.service.js] Dòng 10: '../lib/prisma' -> '../lib/prisma.js'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/services/audit.service.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/services/businessLogSchemas.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/services/dataIntegrity.service.js
+[2026-07-18 10:00:55] [DEBUG   ] [src/services/ledger.service.js] Dòng 13: '../lib/prisma' -> '../lib/prisma.js'
+[2026-07-18 10:00:55] [DEBUG   ] [src/services/ledger.service.js] Dòng 14: './business-log-schemas' -> './businessLogSchemas'
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/services/ledger.service.js
+[2026-07-18 10:00:55] [INFO    ] Đã cập nhật cấu trúc thành công: src/services/correlation.service.js
+[2026-07-18 10:00:55] [INFO    ] ====================================================================
+[2026-07-18 10:00:55] [INFO    ] 🏁 HOÀN TẤT CHIẾN DỊCH V1.4: Sửa lỗi gãy import thành công trên 68 files.
+[2026-07-18 10:00:55] [INFO    ] ====================================================================

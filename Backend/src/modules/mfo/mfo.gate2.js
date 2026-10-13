@@ -1,8 +1,8 @@
 /**
  * PATH       : backend/src/modules/mfo/mfo.gate2.js
- * DATETIME   : 2026-10-11T14:10:00+07:00
- * VERSION    : 1.1.0-AMENDMENT4-LAT4-PROPAGATE
- * DESCRIPTION: Ghi sổ lúc duyệt Cửa 2. Đời lấy từ sổ. Không bịa hôn phối.
+ * DATETIME   : 2026-10-12T17:30:00+07:00
+ * VERSION    : 1.2.0-AMENDMENT5-CLAN-STATUS
+ * DESCRIPTION: Ghi sổ lúc duyệt Cửa 2. Đời lấy từ sổ. is_clan lấy từ khẳng định. status = CHINH_THUC.
  */
 'use strict';
 
@@ -43,6 +43,13 @@ async function generationAfter(tx, parentId) {
     fail('Người đời trên chưa có đời trên sổ.', 422, 'MFO_GENERATION_REQUIRED');
   }
   return Number(parent.generation) + 1;
+}
+
+function requireClan(smp, who) {
+  if (smp.is_clan !== true && smp.is_clan !== false) {
+    fail(`Chưa khẳng định nội tộc cho ${who}.`, 422, 'MFO_CLAN_UNCONFIRMED');
+  }
+  return smp.is_clan === true;
 }
 
 async function refuseIfOnBook(tx, tenantId, { fullName, fatherId, motherId }) {
@@ -95,7 +102,8 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
         full_name: smp.full_name,
         gender: smp.gender,
         generation,
-        is_clan: true,
+        is_clan: requireClan(smp, 'người con'),
+        status: 'CHINH_THUC',
         is_alive: smp.is_alive !== false,
         child_type: smp.child_type || 'CON_DE',
         birth_day: smp.birth_day || null,
@@ -116,7 +124,8 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
         tenant_id: tenantId,
         full_name: smp.full_name || smp.partner_full_name,
         gender: smp.gender || smp.partner_gender || 'NU',
-        is_clan: false,
+        is_clan: requireClan(smp, 'người hôn phối'),
+        status: 'CHINH_THUC',
         is_alive: smp.is_alive !== false,
         birth_year: smp.birth_year || smp.partner_birth_year || null,
         changed_by: actorId,

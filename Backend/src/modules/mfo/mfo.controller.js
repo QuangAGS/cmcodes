@@ -364,6 +364,41 @@ const mfoController = {
     }
   },
 
+  /**
+   * <2026-10-12T17:30:00+07:00>
+   * Purpose: Bác bỏ tờ khai cửa 2 qua SRPF REJECT của MFO_RESULT. Giữ plan_ok.
+   */
+  terminateResult: async (req, res) => {
+    try {
+      const ticketId = req.params.id;
+      const body = req.body || {};
+      const actorContext = buildActorContext(req);
+      const serviceResult = await mfoService.terminateResult({
+        user: req.user,
+        ticketId,
+        body,
+      });
+      const srpfResult = await executeAction({
+        processType: 'MFO_RESULT',
+        instanceId: ticketId,
+        action: SRPF_ACTIONS.REJECT,
+        payload: {
+          reason: serviceResult.reason,
+          admin_note: serviceResult.reason,
+        },
+        actorContext,
+      });
+      res.status(200).json({
+        status: 'success',
+        message: 'Đã bác bỏ tờ khai. Khung đã duyệt vẫn được giữ.',
+        correlation_id: srpfResult.correlationId,
+        data: serviceResult,
+      });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
   // ---------------------------------------------------------------------------
   // CÁC HÀM READ-ONLY VÀ TRUY VẤN DỮ LIỆU CÂY / FULL-SET
   // ---------------------------------------------------------------------------
