@@ -1,4 +1,11 @@
 /**
+ * PATH       : Backend/src/modules/mfo/mfo.service.js
+ * DATETIME   : 2026-10-13T15:24:00+07:00
+ * VERSION    : 4.7.1-LAT4-HISTORY-READ
+ * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ.
+ * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
+ */
+/**
  * PATH       : backend/src/modules/mfo/mfo.service.js
  * DATETIME   : 2026-10-09T23:55:00+07:00
  * VERSION    : 4.7.0-LAT2-NO-PRE-MUTATION
@@ -18,29 +25,35 @@ const { normalizeStaging } = require('./mfo.smp.js');
 
 const OPEN = ['DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION'];
 
+/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý actorIdOf; phần thay đổi giới hạn lịch sử lát 4. */
 function actorIdOf(user) {
   return user && (user.id || user.userId);
 }
 
+/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý tenantIdOf; phần thay đổi giới hạn lịch sử lát 4. */
 function tenantIdOf(user) {
   return user && (user.tenant_id || user.tenantId || null);
 }
 
+/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý memberIdOf; phần thay đổi giới hạn lịch sử lát 4. */
 function memberIdOf(user) {
   return user && (user.member_id || user.memberId || null);
 }
 
+/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý isClanOrSys; phần thay đổi giới hạn lịch sử lát 4. */
 function isClanOrSys(user) {
   const r = (user && user.role) || '';
   return r === 'CLAN_ADMIN' || r === 'SYSTEM_ADMIN';
 }
 
+/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý avatarUrlOf; phần thay đổi giới hạn lịch sử lát 4. */
 function avatarUrlOf(memberId, row) {
   if (!memberId || !row) return null;
   const ver = row.checksum || (row.updated_at ? new Date(row.updated_at).getTime() : '1');
   return '/api/media/members/' + memberId + '/avatar?v=' + ver;
 }
 
+/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý assertFullSetInvariants; phần thay đổi giới hạn lịch sử lát 4. */
 function assertFullSetInvariants({
   levels,
   nodes,
@@ -49,7 +62,8 @@ function assertFullSetInvariants({
   rootCanvasDepth,
   resolvedAncestorSteps,
 }) {
-  const broken = (code) => {
+  /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý broken; phần thay đổi giới hạn lịch sử lát 4. */
+const broken = (code) => {
     const correlationId = crypto.randomUUID();
     console.error('MFO_FULL_SET_INVARIANT_BROKEN', {
       correlation_id: correlationId,
@@ -116,6 +130,7 @@ function assertFullSetInvariants({
   if (rootCanvasDepth !== selectedCanvasDepth - resolvedAncestorSteps) broken('MFO_ROOT_DEPTH_INVARIANT_BROKEN');
 }
 
+/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý ensureNoActiveProposal; phần thay đổi giới hạn lịch sử lát 4. */
 async function ensureNoActiveProposal(tx, { tenantId, actorId, excludeId = null }) {
   const where = {
     tenant_id: tenantId,
@@ -152,12 +167,14 @@ async function ensureNoActiveProposal(tx, { tenantId, actorId, excludeId = null 
   }
 }
 
+/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý sliceReview; phần thay đổi giới hạn lịch sử lát 4. */
 function sliceReview(raw) {
   if (!raw || typeof raw !== 'object') return null;
   if (raw.plan || raw.result) return raw;
   return { checks: raw.checks, dirNote: raw.dirNote, extra: raw.extra, note: raw.note };
 }
 
+/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý pickAdminReview; phần thay đổi giới hạn lịch sử lát 4. */
 function pickAdminReview(body, row, stage) {
   const prev = sliceReview(((row && row.payload) || {}).admin_review) || {};
   const incoming = (body && (body.admin_review || body.review)) || {};
@@ -176,6 +193,7 @@ function pickAdminReview(body, row, stage) {
   return next;
 }
 
+/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý resolveFounderMemberId; phần thay đổi giới hạn lịch sử lát 4. */
 async function resolveFounderMemberId(user) {
   const fromJwt = memberIdOf(user);
   if (fromJwt) return fromJwt;
@@ -188,6 +206,7 @@ async function resolveFounderMemberId(user) {
   return (row && row.member_id) || null;
 }
 
+/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý afterMfo; phần thay đổi giới hạn lịch sử lát 4. */
 async function afterMfo(user, ticket, processType, event, payload) {
   if (!ticket) return;
   await withTransaction(
@@ -205,6 +224,7 @@ async function afterMfo(user, ticket, processType, event, payload) {
   });
 }
 
+/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý executeGate2DbMutation; phần thay đổi giới hạn lịch sử lát 4. */
 async function executeGate2DbMutation(tx, { tenantId, actorId, proposal, grantedGeneration }) {
   const payload = proposal.payload || {};
   const stagingData = payload.smp_staging_data || {};
@@ -493,13 +513,15 @@ const mfoService = {
     }
     const unionById = new Map(unions.map((union) => [union.id, union]));
 
-    const isClanMember = (member) => !member || member.is_clan !== false;
+    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý isClanMember; phần thay đổi giới hạn lịch sử lát 4. */
+const isClanMember = (member) => !member || member.is_clan !== false;
 
     const byId = new Map(all.map((member) => [member.id, member]));
 
     const childrenOfMap = new Map();
 
-    const addChild = (parentId, childId) => {
+    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý addChild; phần thay đổi giới hạn lịch sử lát 4. */
+const addChild = (parentId, childId) => {
       if (!parentId || !childId) return;
 
       if (!childrenOfMap.has(parentId)) {
@@ -518,7 +540,8 @@ const mfoService = {
 
     const partnersOf = new Map();
 
-    const pushPartner = (ownerId, partner, meta = {}) => {
+    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý pushPartner; phần thay đổi giới hạn lịch sử lát 4. */
+const pushPartner = (ownerId, partner, meta = {}) => {
       if (!ownerId || !partner) return;
       if (partner.id && String(partner.id) === String(ownerId)) return;
 
@@ -622,7 +645,8 @@ const mfoService = {
       }
     }
 
-    const isUnknownMember = (member) => {
+    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý isUnknownMember; phần thay đổi giới hạn lịch sử lát 4. */
+const isUnknownMember = (member) => {
       const note = String(member?.note || '');
       const name = String(member?.full_name || '');
 
@@ -632,7 +656,8 @@ const mfoService = {
       );
     };
 
-    const packMember = (member, extra = {}) => ({
+    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý packMember; phần thay đổi giới hạn lịch sử lát 4. */
+const packMember = (member, extra = {}) => ({
       id: member?.id || null,
       full_name: member?.full_name || null,
       is_unknown: isUnknownMember(member),
@@ -662,7 +687,8 @@ const mfoService = {
       ...extra,
     });
 
-    const compareSiblings = (aId, bId) => {
+    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý compareSiblings; phần thay đổi giới hạn lịch sử lát 4. */
+const compareSiblings = (aId, bId) => {
       const a = byId.get(aId);
       const b = byId.get(bId);
 
@@ -686,13 +712,15 @@ const mfoService = {
       );
     };
 
-    const getSortedChildrenIds = (parentId) => {
+    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý getSortedChildrenIds; phần thay đổi giới hạn lịch sử lát 4. */
+const getSortedChildrenIds = (parentId) => {
       return [...(childrenOfMap.get(parentId) || new Set())]
         .filter((id) => byId.has(id))
         .sort(compareSiblings);
     };
 
-    const getSortedPartners = (memberId, depth) => {
+    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý getSortedPartners; phần thay đổi giới hạn lịch sử lát 4. */
+const getSortedPartners = (memberId, depth) => {
       return [...(partnersOf.get(memberId) || [])]
         .sort((a, b) => {
           if (a._ord !== b._ord) {
@@ -819,7 +847,8 @@ const mfoService = {
       }
     }
 
-    const makeStandardTree = (ownerNode) => {
+    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý makeStandardTree; phần thay đổi giới hạn lịch sử lát 4. */
+const makeStandardTree = (ownerNode) => {
       const ownerId = ownerNode.id;
       const ownerDepth = ownerNode.depth;
 
@@ -1369,6 +1398,11 @@ const mfoService = {
       init_scs: payload.init_scs || payload.diff_summary || null,
       diff_summary: payload.diff_summary || payload.init_scs || null,
       review_scs: payload.review_scs || null,
+/**
+ * <2026-10-13T15:24:00+07:00>
+ * Mục đích: Expose history đã lưu để FE xem lại, không thay các field cũ.
+ */
+      submission_history: payload.submission_history || [],
       review_rounds: payload.review_rounds || [],
       current_attempt: payload.current_attempt || 1,
 
@@ -1890,7 +1924,8 @@ const mfoService = {
       },
     });
 
-    const isNoi = (m) => !m || m.is_clan !== false;
+    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý isNoi; phần thay đổi giới hạn lịch sử lát 4. */
+const isNoi = (m) => !m || m.is_clan !== false;
 
     const byId = new Map(all.map((m) => [m.id, m]));
     const noiOf = new Map();
@@ -1904,7 +1939,8 @@ const mfoService = {
     }
 
     const partnersOf = new Map();
-    const pushPartner = (ownerId, partner, meta) => {
+    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý pushPartner; phần thay đổi giới hạn lịch sử lát 4. */
+const pushPartner = (ownerId, partner, meta) => {
       if (!ownerId || !partner) return;
       if (partner.id && partner.id === ownerId) return;
       if (!partnersOf.has(ownerId)) partnersOf.set(ownerId, []);
@@ -1940,7 +1976,8 @@ const mfoService = {
       }
     }
 
-    const pack = (m, extra) => ({
+    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý pack; phần thay đổi giới hạn lịch sử lát 4. */
+const pack = (m, extra) => ({
       id: m.id || null,
       full_name: m.full_name,
       is_unknown: !!(
@@ -1958,7 +1995,8 @@ const mfoService = {
       ...extra,
     });
 
-    const sibSort = (ids) =>
+    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý sibSort; phần thay đổi giới hạn lịch sử lát 4. */
+const sibSort = (ids) =>
       ids
         .map((id) => byId.get(id))
         .filter(Boolean)
@@ -2256,6 +2294,7 @@ const mfoService = {
   },
 };
 
+/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý assertClanConfirmed; phần thay đổi giới hạn lịch sử lát 4. */
 function assertClanConfirmed(payload) {
   const root = payload || {};
   const layer = root.business_layer && typeof root.business_layer === 'object' ? root.business_layer : root;

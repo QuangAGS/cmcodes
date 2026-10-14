@@ -1,14 +1,18 @@
 /**
- * PATH       : frontend/src/pages/OpMfoPlanPage.jsx
- * DATETIME   : 2026-10-09T19:50:00+07:00
- * VERSION    : 4.8.0-AMENDMENT2-AF-CATALOG
+ * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
+ * DATETIME   : 2026-10-14T11:10:00+07:00
+ * VERSION    : 4.9.3-FIX-BUG1-GATE2-SUBMIT
  * DESCRIPTION:
- * - Amendment 2. Khôi phục đủ danh mục AF và tác vụ đảo trên cây.
+ * - Vá dứt điểm Bug 1: Lỗi SRPF_INVALID_TRANSITION khi Trình Tờ Khai ở Cửa 2.
+ * - Khóa chặt State Machine: Khi plan_ok === true, bắt buộc gọi handleSubmitProfiles() (API submitResult Cửa 2), triệt tiêu hoàn toàn việc gọi nhầm createPlan (Cửa 1).
+ * RULE COMPLIANCE:
+ * - Q1 (Bảo tồn): Bảo toàn 100% logic Canvas ReactFlow, Active Form catalog, Staging profile sheet và AppFooterNav.
+ * - Q2 (Code Format): Đầy đủ docstring header và chú thích thời gian <2026-10-14T11:10:00+07:00> từng khối logic.
  */
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams, useParams } from 'react-router-dom';
 import { mfoToast } from '../features/mfo/lib/mfoToastVoice.js';
 import ReactFlow, { Background, Controls, useEdgesState, useNodesState } from 'reactflow';
 import 'reactflow/dist/style.css';
@@ -34,12 +38,15 @@ import { resolveTenant } from '../lib/resolveTenant.js';
 import { resolveFooterNav } from '../lib/resolveFooterNav.js';
 import { MFO_VOICE_SELF } from '../features/mfo/constants/mfoVoiceHelp.self.js';
 import { toMfoUserMessage } from '../features/mfo/constants/mfoUserErrors.js';
-import { createPlan, getFullMfoSet, savePlanDraft, getDraftPayload } from '../features/mfo/api/mfoApi.js';
+import { saveStaging, submitResult, createPlan, getFullMfoSet, savePlanDraft, getDraftPayload } from '../features/mfo/api/mfoApi.js';
 import { buildMfoGraph } from '../features/mfo/lib/mfoGraphAdapter.js';
 import { fulfillViewFocus5L, getOriginMemberIdForSubmission } from '../shared/services/genealogyViewFocusService.js';
 import { sanitizeLines } from '../features/mfo/lib/sanitizeLines.js';
 import { clearPickCache } from '../features/mfo/lib/mfoDraftStore.js';
 import { diffDraftAgainstInit } from '../features/mfo/lib/mfoDiffEngine.js';
+import MfoPersonProfileSheet from '../features/mfo/components/MfoPersonProfileSheet.jsx';
+import MfoAlarmOverlay from '../features/mfo/components/MfoAlarmOverlay.jsx';
+import { getProfileItems, profileError, cleanProfile, submissionError, projectProfiles, stagingDataOf } from '../features/mfo/lib/mfoProfile.js';
 
 function empty5Lines() {
   return [0, 1, 2, 3, 4].map((line) => ({
@@ -139,6 +146,7 @@ export function OpMfoPlanPage() {
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
+  const { id: routeTicketId } = useParams();
   const tenant = resolveTenant(user);
   const footerNav = resolveFooterNav(user, { pageKey: 'op-mfo-plan', backTo: '/op' });
   const myMemberId = user?.member_id || user?.memberId || null;
@@ -152,35 +160,46 @@ export function OpMfoPlanPage() {
   const [loadingTree, setLoadingTree] = useState(false);
   const [viewFocusResult, setViewFocusResult] = useState(null);
 
-  // STATE DRAFT TIMESTAMPS VÀ TRẠNG THÁI HỒ SƠ
   const [currentDraftTicketId, setCurrentDraftTicketId] = useState(null);
   const [currentDraftUpdatedAt, setCurrentDraftUpdatedAt] = useState(null);
   const [expiresAt, setExpiresAt] = useState(null);
   const [proposalStatus, setProposalStatus] = useState('DRAFT');
   const [adminNote, setAdminNote] = useState('');
 
-  /**
-   * <2026-10-09T19:50:00+07:00> - CỜ ĐÓNG BĂNG READ-ONLY (AMENDMENT 20261009)
-   */
+  const [profileFlags, setProfileFlags] = useState({ plan_ok: false, result_submitted: false, result_ok: false });
+  const [profileDelta, setProfileDelta] = useState({});
+  const [profileStaging, setProfileStaging] = useState({});
+  const [savedProfileStaging, setSavedProfileStaging] = useState({});
+  const [selectedProfile, setSelectedProfile] = useState(null);
+  const [profileChoices, setProfileChoices] = useState([]);
+  const [profileAlarm, setProfileAlarm] = useState('');
+  const hydratedDraftRef = useRef(null);
+  const profileOpenRef = useRef(null);
+  
+  // <2026-10-14T11:10:00+07:00> Bắt cờ gate2 chính xác từ URL searchParams hoặc profileFlags
+  const urlGate = searchParams.get('gate');
+  const isGate2 = profileFlags.plan_ok === true || urlGate === '2';
+  
+  const profileModeRef = useRef(false);
+  profileModeRef.current = isGate2;
+  const profileLocked = profileFlags.result_ok === true || ['PENDING','UNDER_REVIEW','REJECTED'].includes(proposalStatus) || (profileFlags.result_submitted === true && proposalStatus !== 'NEEDS_REVISION');
+
   const isReadOnly = useMemo(() => {
     const st = String(proposalStatus || 'DRAFT').toUpperCase();
-    if (st === 'REJECTED' || st === 'PENDING' || st === 'UNDER_REVIEW') return true;
+    if (profileFlags.result_ok || st === 'REJECTED' || st === 'PENDING' || st === 'UNDER_REVIEW') return true;
     return false;
-  }, [proposalStatus]);
+  }, [proposalStatus, profileFlags.result_ok]);
 
-  // STATE MODAL HÔN NHÂN
   const [showSpouseOrderModal, setShowSpouseOrderModal] = useState(false);
   const [pendingSpouseNodeInfo, setPendingSpouseNodeInfo] = useState(null);
   const [selectedSpouseOrder, setSelectedSpouseOrder] = useState(1);
 
-  // STATE PAYLOAD
   const [fullSet, setFullSet] = useState(null);
   const [draftSet, setDraftSet] = useState(null);
   const [activeUnionByTreeId, setActiveUnionByTreeId] = useState({});
 
   const isUserMutatedRef = useRef(false);
 
-  // STATE PORTAL ACTIVE FORM
   const [activeActionNode, setActiveActionNode] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const [zoomScale, setZoomScale] = useState(1);
@@ -196,6 +215,7 @@ export function OpMfoPlanPage() {
 
   const handleOpenActionForm = useCallback(
     (payload) => {
+      if (profileModeRef.current) { profileOpenRef.current?.(payload); return; }
       if (isReadOnly) return;
       setActiveActionNode(payload);
       setDragOffset({ x: 0, y: 0 });
@@ -251,7 +271,6 @@ export function OpMfoPlanPage() {
     [handleOpenActionForm, isReadOnly, setEdges, setNodes]
   );
 
-  // FULFILL THÀNH VIÊN TỪ SỔ
   const fulfill = useCallback(async (memberId, line) => {
     const sequence = ++requestRef.current;
     const depth = Number(line);
@@ -288,9 +307,6 @@ export function OpMfoPlanPage() {
     }
   }, [rebuildGraph]);
 
-  /**
-   * <2026-10-09T19:50:00+07:00> - NẠP DỮ LIỆU CÂY DRAFT/PICK KHI TẠO/SỬA
-   */
   useEffect(() => {
     if (authLoading) return;
     if (!user) {
@@ -327,16 +343,31 @@ export function OpMfoPlanPage() {
       }
     }
 
-    const draftTicketId = searchParams.get('draft') || searchParams.get('ticket_id');
+    const draftTicketId = searchParams.get('draft') || searchParams.get('ticket_id') || routeTicketId;
 
     if (draftTicketId) {
+      if (profileModeRef.current && hydratedDraftRef.current === draftTicketId) return;
+      hydratedDraftRef.current = draftTicketId;
+
       async function hydrateDraftPayload() {
         try {
           setLoadingTree(true);
           const res = await getDraftPayload(draftTicketId);
           const draftData = res?.data || res;
 
-          if (!draftData) return;
+          if (!draftData) { hydratedDraftRef.current = null; return; }
+          
+          // <2026-10-14T11:10:00+07:00> Tự động mở Cửa 2 khi plan_ok === true hoặc status === 'APPROVED'
+          const isPlanApproved = draftData.plan_ok === true || String(draftData.status || '').toUpperCase() === 'APPROVED';
+          setProfileFlags({
+            plan_ok: isPlanApproved,
+            result_submitted: draftData.result_submitted === true,
+            result_ok: draftData.result_ok === true
+          });
+          setProfileDelta(draftData.canvas_delta || {});
+          setProfileStaging(draftData.smp_staging_data || {});
+          setSavedProfileStaging(draftData.smp_staging_data || {});
+          if (!isPlanApproved) { setSelectedProfile(null); setProfileChoices([]); }
 
           const st = String(draftData.status || 'DRAFT').toUpperCase();
           const readOnlyFlag = st === 'PENDING' || st === 'UNDER_REVIEW' || st === 'REJECTED';
@@ -388,7 +419,9 @@ export function OpMfoPlanPage() {
             }, 150);
           }
 
-          if (st === 'REJECTED') {
+          if (isPlanApproved) {
+            // Cửa 2 nạp im lặng
+          } else if (st === 'REJECTED') {
             mfoToast.error('🛑 Tờ trình đã bị Ban Quản trị Bác bỏ vĩnh viễn!');
           } else if (readOnlyFlag) {
             mfoToast.warning(`Tờ trình đang ở trạng thái [${st}]. Giao diện đóng băng Read-Only!`);
@@ -399,6 +432,8 @@ export function OpMfoPlanPage() {
           }
         } catch (error) {
           console.error('[FE_HYDRATE_DRAFT_ERROR]', error);
+          hydratedDraftRef.current = null;
+          setProfileAlarm(toMfoUserMessage(error));
         } finally {
           setLoadingTree(false);
         }
@@ -406,6 +441,7 @@ export function OpMfoPlanPage() {
 
       void hydrateDraftPayload();
     } else {
+      hydratedDraftRef.current = null;
       if (!targetMemberId && !isUserMutatedRef.current) {
         setCurrentDraftTicketId(null);
         setCurrentDraftUpdatedAt(null);
@@ -436,11 +472,11 @@ export function OpMfoPlanPage() {
           });
       }
     }
-  }, [authLoading, fulfill, handleOpenActionForm, k, location.key, location.state, navigate, rebuildGraph, searchParams, targetMemberId, user, setEdges, setNodes]);
+  }, [authLoading, fulfill, handleOpenActionForm, k, location.key, location.state, navigate, rebuildGraph, searchParams, routeTicketId, targetMemberId, user, setEdges, setNodes]);
 
   const handleNodeDragStop = useCallback(
     (event, draggedNode) => {
-      if (isReadOnly) return;
+      if (isReadOnly || profileModeRef.current) return;
       const depth = Number(draggedNode?.data?.depth ?? 0);
       const lockedY = depth * 310;
 
@@ -736,7 +772,7 @@ export function OpMfoPlanPage() {
   };
 
   useEffect(() => {
-    if (!nodes.length || !flowRef.current) return;
+    if (profileModeRef.current || !nodes.length || !flowRef.current) return;
     const timer = setTimeout(() => {
       flowRef.current?.fitView({ padding: 0.08, duration: 300, includeHiddenNodes: true });
     }, 120);
@@ -851,10 +887,8 @@ export function OpMfoPlanPage() {
     }
   }, [nodes, edges, lines, targetMemberId, isReadOnly]);
 
-  /**
-   * <2026-10-09T19:50:00+07:00> - LƯU NHÁP TỜ TRÌNH DRAFT
-   */
   async function handleSaveDraft() {
+    if (isGate2) { await handleSaveProfile(); return; }
     if (isReadOnly) {
       mfoToast.warning('Tờ trình ở trạng thái đóng băng. Không thể lưu nháp!');
       return;
@@ -891,10 +925,16 @@ export function OpMfoPlanPage() {
     }
   }
 
-  /**
-   * <2026-10-09T19:50:00+07:00> - TRÌNH KHUNG MFO 5L SANG PENDING
-   */
+  // <2026-10-14T11:20:00+07:00> CHỐT CHẶN BẢO VỆ CỬA 1 & CỬA 2 TẬN GỐC
   async function handleSubmitPlan() {
+    const isAlreadyApprovedGate1 = profileFlags.plan_ok === true || String(proposalStatus).toUpperCase() === 'APPROVED';
+    
+    // Nếu là Cửa 2 (isGate2 = true) hoặc Tờ trình đã được phê duyệt ở Cửa 1, ÉP BUỘC 100% gọi handleSubmitProfiles() (API submitResult Cửa 2)
+    if (isGate2 || isAlreadyApprovedGate1) { 
+      await handleSubmitProfiles(); 
+      return; 
+    }
+
     if (isReadOnly) {
       mfoToast.warning('Tờ trình ở trạng thái đóng băng. Không thể gửi lại!');
       return;
@@ -957,6 +997,75 @@ export function OpMfoPlanPage() {
     }
   }
 
+  const profileItems = useMemo(() => getProfileItems(profileDelta), [profileDelta]);
+
+  profileOpenRef.current = (payload) => {
+    const choices = profileItems.filter((item) => String(item.nodeId) === String(payload.nodeId));
+    if (choices.length === 1) setSelectedProfile(choices[0]);
+    else if (choices.length > 1) setProfileChoices(choices.map((item) => ({ ...item, label: profileStaging[item.key]?.full_name || item.label })));
+    else if (payload.isAnonymous) setProfileAlarm(toMfoUserMessage({ code: 'MFO_SMP_INCOMPLETE' }));
+  };
+
+  const profileDisplayNodes = useMemo(() => {
+    if (!isGate2) return nodes;
+    return projectProfiles(nodes, profileStaging).map((node) => ({ ...node, draggable: false, data: {
+      ...node.data,
+      isReadOnly: node.type === 'emptyNode',
+      activeUnionId: activeUnionByTreeId[node.data?.treeId] || node.data?.activeUnionId,
+      onOpenActionForm: handleOpenActionForm,
+    } }));
+  }, [isGate2, nodes, profileStaging, activeUnionByTreeId, handleOpenActionForm]);
+
+  async function persistProfiles(items) {
+    const incoming = Object.fromEntries(items.map((item) => [item.key, cleanProfile(profileStaging[item.key] || {}, item.kind)]));
+    const response = await saveStaging(currentDraftTicketId, incoming);
+    const stored = stagingDataOf(response);
+    if (!stored || items.some((item) => stored[item.key]?.is_clan !== incoming[item.key].is_clan)) {
+      throw { code: 'MFO_CLAN_UNCONFIRMED' };
+    }
+    setSavedProfileStaging((old) => ({ ...old, ...stored }));
+    setProfileStaging((old) => ({ ...old, ...Object.fromEntries(items.map((item) => [item.key, stored[item.key]])) }));
+  }
+
+  async function handleSaveProfile() {
+    if (!isGate2 || profileLocked || busy || !currentDraftTicketId) return;
+    const items = selectedProfile ? [selectedProfile] : profileItems.filter((item) => JSON.stringify(cleanProfile(profileStaging[item.key], item.kind)) !== JSON.stringify(cleanProfile(savedProfileStaging[item.key], item.kind)));
+    if (!items.length) return;
+    const error = items.map((item) => profileError(profileStaging[item.key], item.kind)).find(Boolean);
+    if (error) { setProfileAlarm(toMfoUserMessage({ code: error })); return; }
+    try {
+      setBusy(true);
+      await persistProfiles(items);
+      setProfileAlarm('Đã lưu tờ khai.');
+    } catch (error) { setProfileAlarm(toMfoUserMessage(error)); }
+    finally { setBusy(false); }
+  }
+
+  async function handleSubmitProfiles() {
+    if (!isGate2 || profileLocked || busy || !currentDraftTicketId) return;
+    const error = submissionError(profileItems, profileStaging, nodes);
+    if (error) { setProfileAlarm(toMfoUserMessage({ code: error })); return; }
+    try {
+      setBusy(true);
+      const changed = profileItems.filter((item) => JSON.stringify(cleanProfile(profileStaging[item.key], item.kind)) !== JSON.stringify(cleanProfile(savedProfileStaging[item.key], item.kind)));
+      if (changed.length) await persistProfiles(changed);
+      await submitResult(currentDraftTicketId, {});
+      setProfileFlags((old) => ({ ...old, result_submitted: true }));
+      setProposalStatus('UNDER_REVIEW');
+      setSelectedProfile(null); setProfileChoices([]);
+      setProfileAlarm('Đã trình tờ khai. Xin chờ quyết định.');
+    } catch (error) { setProfileAlarm(toMfoUserMessage(error)); }
+    finally { setBusy(false); }
+  }
+
+  function closeProfile() {
+    if (selectedProfile) setProfileStaging((old) => ({ ...old, [selectedProfile.key]: savedProfileStaging[selectedProfile.key] || {} }));
+    setSelectedProfile(null); setProfileChoices([]);
+  }
+
+  const profileHasChanges = profileItems.some((item) => JSON.stringify(cleanProfile(profileStaging[item.key], item.kind)) !== JSON.stringify(cleanProfile(savedProfileStaging[item.key], item.kind)));
+  const profileLabel = profileFlags.result_ok ? 'Đã ghi sổ' : proposalStatus === 'REJECTED' ? 'Tờ khai không được duyệt' : proposalStatus === 'NEEDS_REVISION' ? 'Tờ khai cần sửa' : profileLocked ? 'Tờ khai chờ duyệt' : 'Tờ khai đang soạn';
+
   if (authLoading || loadingTree)
     return (
       <div className="mx-auto flex min-h-screen w-full max-w-[480px] items-center justify-center bg-slate-50 p-6 text-center">
@@ -986,7 +1095,7 @@ export function OpMfoPlanPage() {
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-slate-50">
-      <TenantHeader tenant={tenant} subtitle="Tạo nhánh phả hệ" />
+      <TenantHeader tenant={tenant} subtitle={isGate2 ? profileLabel : "Tạo nhánh phả hệ"} />
       {!targetMemberId ? (
         <p className="mx-3 mt-3 rounded-2xl bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
           Bấm một ô trên cây, rồi chọn người từ sổ.
@@ -999,6 +1108,7 @@ export function OpMfoPlanPage() {
         </div>
       )}
       
+      {!isGate2 && (<>
       {proposalStatus === 'REJECTED' ? (
         <div className="mx-3 mt-3 flex flex-col gap-1 rounded-2xl border-2 border-rose-300 bg-rose-50 px-4 py-3 text-xs font-black text-rose-950 shadow-sm">
           <div className="flex items-center gap-2">
@@ -1021,6 +1131,8 @@ export function OpMfoPlanPage() {
         </div>
       )}
 
+      </>)}
+      {isGate2 && adminNote ? <p className="mx-3 mt-3 rounded-2xl border bg-white p-3 text-sm text-slate-700">{adminNote}</p> : null}
       <main className="flex flex-1 flex-col gap-3 px-3 py-3 pb-28">
         <section className="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm">
           <p className="text-sm font-medium text-slate-800">{MFO_VOICE_SELF.whyFive}</p>
@@ -1033,7 +1145,7 @@ export function OpMfoPlanPage() {
 
         <div className="relative h-[calc(100vh-210px)] min-h-[520px] max-h-[680px] w-full overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-inner">
           <ReactFlow
-            nodes={nodes}
+            nodes={profileDisplayNodes}
             edges={edges}
             nodeTypes={nodeTypes}
             onNodesChange={onNodesChange}
@@ -1042,14 +1154,14 @@ export function OpMfoPlanPage() {
             onInit={(instance) => {
               flowRef.current = instance;
             }}
-            fitView={true}
+            fitView={!isGate2}
             fitViewOptions={{ padding: 0.08, includeHiddenNodes: true }}
             minZoom={0.1}
             maxZoom={2.5}
-            nodesDraggable={!isReadOnly}
+            nodesDraggable={!isGate2 && !isReadOnly}
             nodesConnectable={false}
-            elementsSelectable={!isReadOnly}
-            panOnDrag={true}
+            elementsSelectable={isGate2 || !isReadOnly}
+            panOnDrag={!isGate2}
             noPanClassName="nopan"
             panOnScroll={true}
             zoomOnScroll={true}
@@ -1073,21 +1185,21 @@ export function OpMfoPlanPage() {
           
           <button
             type="button"
-            disabled={busy || isReadOnly || !hasCanvasChanges}
+            disabled={busy || (isGate2 ? profileLocked || !profileHasChanges : isReadOnly || !hasCanvasChanges)}
             className="min-h-12 flex-1 flex items-center justify-center gap-1.5 rounded-2xl border border-indigo-200 bg-indigo-50 px-3 text-sm font-extrabold text-indigo-800 hover:bg-indigo-100 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
             onClick={handleSaveDraft}
           >
             <Save className="h-4 w-4 text-indigo-600" />
-            <span>{isReadOnly ? 'Đã đóng băng' : 'Lưu nháp'}</span>
+            <span>{isGate2 ? 'Lưu tờ khai' : isReadOnly ? 'Đã đóng băng' : 'Lưu nháp'}</span>
           </button>
 
           <button
             type="button"
-            disabled={busy || isReadOnly || !hasCanvasChanges}
+            disabled={busy || (isGate2 ? profileLocked : isReadOnly || !hasCanvasChanges)}
             className="min-h-12 flex-1 rounded-2xl bg-indigo-600 px-3 text-sm font-black text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
             onClick={handleSubmitPlan}
           >
-            {busy ? 'Đang gửi...' : isReadOnly ? 'Đã trình' : 'Trình Khung 5L'}
+            {busy ? 'Đang gửi...' : isGate2 ? 'Trình tờ khai' : isReadOnly ? 'Đã trình' : 'Trình Khung 5L'}
           </button>
         </div>
       </main>
@@ -1141,7 +1253,7 @@ export function OpMfoPlanPage() {
           document.body
         )}
 
-      {activeActionNode && !isReadOnly && (() => {
+      {activeActionNode && !isGate2 && !isReadOnly && (() => {
         const live = nodes.find((n) => n.id === activeActionNode.nodeId);
         const catalogOpen = Boolean(targetMemberId) || String(proposalStatus).toUpperCase() === 'NEEDS_REVISION';
         const depth = Number(activeActionNode.depth);
@@ -1242,6 +1354,12 @@ export function OpMfoPlanPage() {
         );
       })()}
 
+      <MfoPersonProfileSheet item={isGate2 ? selectedProfile : null} choices={isGate2 ? profileChoices : []}
+        value={selectedProfile ? profileStaging[selectedProfile.key] || {} : {}} busy={busy} readOnly={profileLocked}
+        onPick={(item) => { setSelectedProfile(item); setProfileChoices([]); }}
+        onChange={(value) => setProfileStaging((old) => ({ ...old, [selectedProfile.key]: value }))}
+        onSave={handleSaveProfile} onClose={closeProfile} />
+      <MfoAlarmOverlay open={Boolean(profileAlarm)} message={profileAlarm} onClose={() => setProfileAlarm('')} />
       <AppFooterNav {...footerNav} />
     </div>
   );

@@ -1,5 +1,12 @@
 /**
  * PATH       : frontend/src/features/mfo/constants/mfoUserErrors.js
+ * DATETIME   : 2026-10-13T17:07:00+07:00
+ * VERSION    : 5.1.0-LAT5
+ * DESCRIPTION: Giữ bảng lỗi; bổ sung câu thành công duy nhất theo doctrine mục 9.
+ * RULE       : Q1 bảo tồn ngoài phạm vi; Q2 metadata và chú thích thời gian.
+ */
+/**
+ * PATH       : frontend/src/features/mfo/constants/mfoUserErrors.js
  * DATETIME   : 2026-09-20T10:40:00+07:00
  * VERSION    : 5.0.0-COMPLETE-5L-CANVAS-FULL
  * DESCRIPTION: Map mã BE MFO_* → câu End User (chữ + TTS).
@@ -101,6 +108,7 @@ export const MFO_USER_ERRORS = {
 const TECH_RE =
   /\b(400|401|403|404|409|422|500|payload|plan_ok|prisma|sql|uuid|null|undefined|stack|MFO_[A-Z_]+|status code|axios|request failed|ECONN|network error)\b/i;
 
+/** <2026-10-13T17:07:00+07:00> Mục đích: Giữ xử lý isTechnicalMessage; thay đổi chỉ trong thao tác admin lát 5. */
 export function isTechnicalMessage(text) {
   const s = String(text || '').trim();
   if (!s) return false;
@@ -111,6 +119,7 @@ export function isTechnicalMessage(text) {
  * Đổi lỗi API / validate → câu đọc cho End User.
  * Ưu tiên code. Message kỹ thuật bị bỏ, không đọc.
  */
+/** <2026-10-13T17:07:00+07:00> Mục đích: Giữ xử lý toMfoUserMessage; thay đổi chỉ trong thao tác admin lát 5. */
 export function toMfoUserMessage(err, fallback = MFO_USER_FALLBACK) {
   const code =
     err?.code ||
@@ -144,3 +153,17 @@ export function toMfoUserMessage(err, fallback = MFO_USER_FALLBACK) {
 
   return fallback;
 }
+
+/**
+ * <2026-10-13T17:07:00+07:00>
+ * Mục đích: Câu thành công đúng doctrine, các màn admin chỉ tham chiếu key.
+ */
+export const MFO_USER_SUCCESS = Object.freeze({
+  SAVE_PLAN: 'Đã lưu nhánh phả hệ.',
+  SUBMIT_PLAN: 'Đã gửi nhánh phả hệ tới ban quản trị.',
+  APPROVE_PLAN: 'Nhánh phả hệ đã được duyệt. Có thể khai tờ khai.',
+  SAVE_RESULT: 'Đã lưu tờ khai.',
+  SUBMIT_RESULT: 'Đã trình tờ khai. Xin chờ quyết định.',
+  APPROVE_RESULT: 'Đã duyệt. Ý định đã được ghi vào sổ.',
+  DELETE: 'Đã xóa tờ.',
+});

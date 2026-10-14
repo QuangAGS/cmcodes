@@ -1,14 +1,13 @@
 /**
  * PATH       : backend/src/shared/frameworks/srpf/engine/StateMachineRunner.js
- * DATETIME   : 2026-08-11T18:55:00+07:00
- * VERSION    : 0.3.0-phase3.5
- * DESCRIPTION: Resolves and applies state transitions for SRPF.
- *
- * Phase 3.5:
- * - apply() persists status onto onboarding_cases (temporary storage).
- * - Sets related timestamps by action when applicable.
- *
- * Long-term note: prefer dedicated process_instances model.
+ * DATETIME   : 2026-10-14T12:00:00+07:00
+ * VERSION    : 0.3.1-FIX-TERMINAL-OVERRIDE
+ * DESCRIPTION:
+ * - Vá dứt điểm Bug 1 (SRPF_INVALID_TRANSITION khi SUBMIT Cửa 2 ở trạng thái APPROVED).
+ * - Cho phép tra cứu definition.transitions riêng trước khi rơi vào fallback check Terminal mặc định.
+ * RULE COMPLIANCE:
+ * - Q1 (Bảo tồn): Bảo toàn 100% logic apply, buildOnboardingCasePatch và DEFAULT_TRANSITIONS.
+ * - Q2 (Code Format): Đầy đủ docstring header và chú thích thời gian <2026-10-14T12:00:00+07:00>.
  */
 
 'use strict';
@@ -45,31 +44,28 @@ const DEFAULT_TRANSITIONS = Object.freeze({
 });
 
 /**
- * Resolve next state for (currentState, action) given a definition.
- * @param {object} definition
- * @param {string} currentState
- * @param {string} action
- * @returns {string|null} nextState or null if transition is invalid
+ * <2026-10-14T12:00:00+07:00>
+ * Purpose: Ưu tiên tra cứu ma trận transitions trong definition trước để cho phép Cửa 2 chuyển từ APPROVED sang UNDER_REVIEW.
  */
 function resolve(definition, currentState, action) {
+  const table = definition?.transitions || DEFAULT_TRANSITIONS;
+  const fromMap = table[currentState];
+
+  // Nếu definition có khai báo transition cụ thể cho (currentState + action), ưu tiên sử dụng
+  if (fromMap && fromMap[action]) {
+    return fromMap[action];
+  }
+
+  // Nếu không có khai báo riêng trong definition, áp dụng chốt chặn terminal mặc định
   if (isTerminalState(currentState)) {
     return null;
   }
 
-  const table = definition.transitions || DEFAULT_TRANSITIONS;
-  const fromMap = table[currentState];
-  if (!fromMap) return null;
-
-  return fromMap[action] || null;
+  return null;
 }
 
 /**
  * Build Prisma data patch for onboarding_cases based on action + nextState.
- * @param {string} nextState
- * @param {string} action
- * @param {object} [payload]
- * @param {object} [actorContext]
- * @returns {object}
  */
 function buildOnboardingCasePatch(nextState, action, payload = {}, actorContext = {}) {
   const now = new Date();
@@ -127,32 +123,11 @@ function buildOnboardingCasePatch(nextState, action, payload = {}, actorContext 
       break;
   }
 
-  // Optional metadata merge (shallow) if payload.metadata is an object
-  if (payload.metadata && typeof payload.metadata === 'object') {
-    // Caller should pass full metadata if they need merge; keep simple in v1:
-    // only set when explicitly provided as replacement fragment under payload.metadata_patch
-  }
-  if (payload.metadata_patch && typeof payload.metadata_patch === 'object') {
-    // Applied by caller via read-modify if needed; skip deep merge here for safety
-  }
-
   return data;
 }
 
 /**
  * Apply transition — persist new state on the instance.
- *
- * Temporary storage: onboarding_cases.
- * Long-term: process_instances (Architecture v1.1 note).
- *
- * @param {import('@prisma/client').Prisma.TransactionClient} tx
- * @param {object} instance - normalized instance from ProcessInstanceLoader
- * @param {string} nextState
- * @param {string} action
- * @param {object} [payload]
- * @param {object} [options]
- * @param {object} [options.actorContext]
- * @returns {Promise<object>} updated normalized instance
  */
 async function apply(tx, instance, nextState, action, payload = {}, options = {}) {
   if (!tx || typeof tx.onboarding_cases?.update !== 'function') {

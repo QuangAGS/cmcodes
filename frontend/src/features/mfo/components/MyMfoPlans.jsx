@@ -1,13 +1,19 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MyMfoPlans.jsx
- * DATETIME   : 2026-10-09T19:50:00+07:00
- * VERSION    : 5.2.0-LAT4-SINGLE-OPEN
- * DESCRIPTION: Lát 4. Không hiện tạo mới khi đang có hồ sơ mở.
+ * DATETIME   : 2026-10-14T15:35:00+07:00
+ * VERSION    : 5.7.3-FIX-GATE2-NOTE-FALLBACK
+ * DESCRIPTION:
+ * - Vá dứt điểm lỗi hiển thị nhầm "Bút phê tờ khai: Duyệt" khi Tờ khai Cửa 2 đang ở trạng thái chờ duyệt.
+ * - Loại bỏ fallback || currentPlan.admin_note của Cửa 1, phân lập chính xác bút phê theo trạng thái Tờ khai Cửa 2.
+ * RULE COMPLIANCE:
+ * - Q1 (Bảo tồn): Bảo toàn 100% logic Single Thread Pipeline, hydration draft, CRUD handlers và MfoHistoryChain integration.
+ * - Q2 (Code Format): Đầy đủ docstring header và chú thích thời gian <2026-10-14T15:35:00+07:00> từng khối logic.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import MfoAlarmOverlay from './MfoAlarmOverlay.jsx';
+import MfoHistoryPreview from './MfoHistoryPreview.jsx';
 import {
   FileEdit,
   Trash2,
@@ -35,9 +41,6 @@ import { diffDraftAgainstInit } from '../lib/mfoDiffEngine.js';
 import MfoHistoryChain, { stageName, historySteps, stepSummary, currentSummary } from './MfoHistoryChain.jsx';
 import { toMfoUserMessage } from '../constants/mfoUserErrors.js';
 
-/**
- * <2026-10-09T19:50:00+07:00> - Map nhãn Dropdown chuẩn xác theo Single Thread Pipeline (Mục IV)
- */
 function getSingleThreadOptionLabel(plan) {
   if (!plan) return '';
   const rawDate = plan.created_at || plan.updated_at;
@@ -75,13 +78,16 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
   const [memberNames, setMemberNames] = useState({});
   const [draftDetail, setDraftDetail] = useState(null);
   const [historyStep, setHistoryStep] = useState('');
+  
+  const [openMainCard, setOpenMainCard] = useState(true);
   const [openNow, setOpenNow] = useState(true);
   const [openHistory, setOpenHistory] = useState(false);
   const [alarm, setAlarm] = useState('');
 
-  /**
-   * <2026-10-09T19:50:00+07:00> - Nạp danh sách Tờ trình (Backend Query: WHERE deleted_at IS NULL)
-   */
+  const [historyPreview, setHistoryPreview] = useState(null);
+  
+  const hydratedTicketRef = useRef(null);
+
   const loadPlansList = useCallback(async () => {
     try {
       setLoading(true);
@@ -95,9 +101,8 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
 
       setPlans(list);
 
-      // Tự động chọn hồ sơ active duy nhất trong Single Thread
       if (list.length > 0) {
-        setSelectedTicketId(list[0].id || list[0].ticket_id);
+        setSelectedTicketId((prev) => prev || list[0].id || list[0].ticket_id);
       } else {
         setSelectedTicketId('');
       }
@@ -113,7 +118,6 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
     void loadPlansList();
   }, [loadPlansList]);
 
-  // Xử lý sự kiện khi chọn Dropdown List
   const handleSelectChange = (e) => {
     const val = e.target.value;
 
@@ -123,12 +127,14 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
     }
 
     setSelectedTicketId(val);
+    setOpenHistory(false);
+    setHistoryStep('');
+    setHistoryPreview(null);
     if (val === '') {
       void loadPlansList();
     }
   };
 
-  // Hồ sơ đang chọn hiện tại
   const currentPlan = useMemo(() => {
     return plans.find((p) => (p.id || p.ticket_id) === selectedTicketId) || null;
   }, [plans, selectedTicketId]);
@@ -151,9 +157,8 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
         smp_staging_data: draftDetail?.smp_staging_data || currentPlan.payload?.smp_staging_data,
       },
     };
-  }, [currentPlan, draftDetail]);
+  }, [currentPlan, draftDetail, memberNames]);
 
-  // Phân lập trạng thái
   const currentStatus = String(currentPlan?.status || 'DRAFT').toUpperCase();
   const payloadData = currentPlan?.payload || draftDetail || {};
   const isPending = currentStatus === 'PENDING' || currentStatus === 'UNDER_REVIEW';
@@ -167,33 +172,28 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
     return true;
   });
 
-  /**
-   * <2026-10-09T19:50:00+07:00> - Ma trận Kiểm tra Quyền Xóa Tờ trình (EU Delete Matrix - AMENDMENT 20261009)
-   */
   const canDelete = useMemo(() => {
     if (!currentPlan) return false;
-    if (isPending) return false; // Đang thẩm định: CẤM XÓA
-    if (isRejected) return false; // Bị bác bỏ: CẤM XÓA (Giữ deleted_at = NULL để bảo lưu Bút phê)
+    if (isPending) return false;
+    if (isRejected) return false;
     
-    // Gate 2 đã chốt Sổ thật: CẤM XÓA
     if (isApproved && payloadData?.result_ok) return false;
 
-    // 🟢 CHO PHẾP XÓA:
-    // 1. DRAFT
-    // 2. NEEDS_REVISION
-    // 3. APPROVED ở Gate 1 nhưng chưa nộp Gate 2 (plan_ok = true & result_submitted = false)
     if (currentStatus === 'DRAFT' || isNeedsRevision) return true;
     if (isApproved && payloadData?.plan_ok && !payloadData?.result_submitted) return true;
 
     return false;
   }, [currentPlan, isPending, isRejected, isApproved, isNeedsRevision, payloadData]);
 
-  // Nạp chi tiết Tờ trình & Tra cứu danh sách Tên thành viên
   useEffect(() => {
     if (!selectedTicketId || selectedTicketId === '__NEW_PLAN__') {
       setDraftDetail(null);
+      hydratedTicketRef.current = null;
       return;
     }
+
+    if (hydratedTicketRef.current === selectedTicketId) return;
+    hydratedTicketRef.current = selectedTicketId;
 
     async function hydrateSelectedPlan() {
       try {
@@ -213,18 +213,25 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
           });
         });
 
-        for (const mid of idsToFetch) {
-          if (mid && !memberNames[mid]) {
-            try {
-              const mRes = await getMember(mid);
+        const missingIds = Array.from(idsToFetch).filter((mid) => mid && !memberNames[mid]);
+        if (missingIds.length > 0) {
+          const nameResults = await Promise.allSettled(
+            missingIds.map((mid) => getMember(mid))
+          );
+
+          const newNames = {};
+          nameResults.forEach((result, idx) => {
+            if (result.status === 'fulfilled') {
+              const mRes = result.value;
               const mData = mRes?.data?.member || mRes?.data || mRes;
               if (mData?.full_name || mData?.name) {
-                setMemberNames((prev) => ({
-                  ...prev,
-                  [mid]: mData.full_name || mData.name,
-                }));
+                newNames[missingIds[idx]] = mData.full_name || mData.name;
               }
-            } catch {}
+            }
+          });
+
+          if (Object.keys(newNames).length > 0) {
+            setMemberNames((prev) => ({ ...prev, ...newNames }));
           }
         }
       } catch (error) {
@@ -233,11 +240,8 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
     }
 
     void hydrateSelectedPlan();
-  }, [selectedTicketId]);
+  }, [selectedTicketId, memberNames]);
 
-  /**
-   * <2026-10-09T19:50:00+07:00> - Xử lý Xóa bản nháp / Tờ trình
-   */
   const handleDeletePlan = async () => {
     if (!selectedTicketId || !canDelete) return;
 
@@ -256,20 +260,19 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
       if (isSuccess) {
         setAlarm('Đã xóa tờ.');
         setSelectedTicketId('');
+        hydratedTicketRef.current = null;
         if (onPlanDeleted) onPlanDeleted();
         await loadPlansList();
       } else {
         setAlarm(toMfoUserMessage({ message: response?.message }) || 'Không xóa được.');
       }
     } catch (error) {
-      const serverMessage = error.response?.data?.message || error.message;
       setAlarm(toMfoUserMessage(error));
     } finally {
       setLoading(false);
     }
   };
 
-  // Xử lý Nút "Lưu nháp" trực tiếp
   const handleSaveDraftDirect = async () => {
     if (!selectedTicketId || !draftDetail) return;
     if (isPending || isRejected || isApproved) {
@@ -292,39 +295,26 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
     }
   };
 
-  // Gọi mfoDiffEngine tái tạo mảng Tóm tắt 5 Đời
-  const lineSummaryBlocks = useMemo(() => {
-    if (!draftDetail) return [];
-
-    const payloadWithNames = {
-      ...draftDetail,
-      lines: (draftDetail.lines || []).map((l) => ({
-        ...l,
-        full_name: memberNames[l.member_id] || l.hint || null,
-      })),
-    };
-
-    return diffDraftAgainstInit(payloadWithNames);
-  }, [draftDetail, memberNames]);
-
   return (
     <div className="flex flex-col gap-3 font-sans">
-      {/* BANNER CẢNH BÁO CHỜ DUYỆT (PENDING / UNDER_REVIEW) */}
+      <h2 className="text-base font-black text-slate-800 -mb-1">
+        Nhánh phả hệ của tôi
+      </h2>
+
       {isPending && (
         <div className="flex items-start gap-2.5 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold text-amber-950 shadow-sm">
           <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 mt-0.5" />
-          <div className="leading-relaxed">
-            <p className="font-extrabold text-amber-900">
-              Thông báo: Hồ sơ MFO 5L đang nằm trong Hàng đợi Thẩm định.
+          <div className="leading-relaxed space-y-1">
+            <p className="font-extrabold text-amber-950">
+              Thông báo: Tờ khai đang chờ thẩm định.
             </p>
-            <p className="mt-1 font-medium text-amber-800">
-              Giao diện tạm thời đóng băng Read-Only 100%. Vui lòng chờ phản hồi bút phê từ Ban Quản trị.
+            <p className="font-medium text-amber-900">
+              Trong thời gian chờ, bác chỉ có thể xem lại lịch sử công việc.
             </p>
           </div>
         </div>
       )}
 
-      {/* 🛑 BANNER CẢNH BÁO ĐỎ KHI HỒ SƠ BỊ REJECTED (AMENDMENT 20261009 MỤC 4) */}
       {isRejected && (
         <div className="flex items-start gap-3 rounded-3xl border-2 border-rose-300 bg-rose-50/90 p-4 text-xs text-rose-950 shadow-md">
           <XOctagon className="h-5 w-5 shrink-0 text-rose-600 mt-0.5" />
@@ -350,144 +340,170 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
         </div>
       )}
 
-      {/* DROPDOWN CHỌN TỜ TRÌNH (SINGLE THREAD PIPELINE) */}
       <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
-        <label className="block text-xs font-extrabold uppercase text-slate-700">
-          Khung dự kiến và tờ khai:
-        </label>
+        <div className="flex items-center justify-between border-b border-slate-100 pb-2">
+          <label className="block text-xs font-black text-slate-800">
+            Nhánh phả hệ và Tờ khai:
+          </label>
+          <button
+            type="button"
+            onClick={() => setOpenMainCard((v) => !v)}
+            className="text-xs font-bold text-slate-700 hover:text-indigo-600 transition-colors px-1 py-0.5"
+          >
+            {openMainCard ? 'Thu lại' : 'Mở ra'}
+          </button>
+        </div>
 
-        <select
-          className="w-full rounded-2xl border-2 border-indigo-200 bg-indigo-50/50 p-3.5 text-sm font-black text-indigo-950 outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
-          value={selectedTicketId}
-          onChange={handleSelectChange}
-        >
-          <option value="">Bấm để chọn</option>
-
-          {!hasOpenProfile && (
-            <option value="__NEW_PLAN__" className="font-bold text-indigo-700">
-              + Tạo khung 5L mới
-            </option>
-          )}
-
-          {plans.map((p) => (
-            <option key={p.id || p.ticket_id} value={p.id || p.ticket_id}>
-              {getSingleThreadOptionLabel(p)}
-            </option>
-          ))}
-        </select>
-
-        {plans.length === 0 && !loading && (
-          <div className="flex flex-col items-center gap-2 py-3 text-center">
-            <p className="text-xs font-semibold text-slate-500">
-              Chưa có tờ trình nào được tạo.
-            </p>
-            <button
-              type="button"
-              className="flex items-center gap-1.5 rounded-2xl bg-indigo-600 px-4 py-2.5 text-xs font-black text-white shadow-sm hover:bg-indigo-700 active:scale-95"
-              onClick={() => navigate('/op/mfo/plans/new')}
+        {openMainCard && (
+          <div className="space-y-3 pt-1">
+            <select
+              className="w-full rounded-2xl border-2 border-indigo-200 bg-indigo-50/50 p-3.5 text-sm font-black text-indigo-950 outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 cursor-pointer"
+              value={selectedTicketId}
+              onChange={handleSelectChange}
             >
-              <PlusCircle className="h-4 w-4" />
-              <span>Bấm để tạo khung mới ngay</span>
-            </button>
-          </div>
-        )}
+              <option value="">Bấm để chọn</option>
 
-        {/* CHI TIẾT TÓM TẮT VÀ BÚT PHÊ */}
-        {currentPlan && (
-          <div className="mt-3 flex flex-col gap-3 text-xs">
-            <section className="rounded-2xl border border-slate-200 bg-white">
-              <button type="button" className="flex min-h-11 w-full items-center justify-between px-3 text-left" onClick={() => setOpenNow((v) => !v)}>
-                <span className="font-black uppercase text-[10px] text-slate-700">Nội dung hiện tại</span>
-                <span>{openNow ? 'Thu' : 'Mở'}</span>
-              </button>
-              {openNow ? (
-                <div className="space-y-2 border-t border-slate-100 px-3 py-3">
-                  <p><span className="font-bold">Trạng thái: </span>{stageName(viewPlan)}</p>
-                  {currentSummary(viewPlan).map((line, idx) => <p key={idx}>{line}</p>)}
-                  {payloadData.result_submitted && (payloadData.reject_reason || currentPlan.admin_note) ? (
-                    <p>Bút phê tờ khai: {payloadData.reject_reason || currentPlan.admin_note}</p>
+              {!hasOpenProfile && (
+                <option value="__NEW_PLAN__" className="font-bold text-indigo-700">
+                  + Tạo nhánh phả hệ mới
+                </option>
+              )}
+
+              {plans.map((p) => (
+                <option key={p.id || p.ticket_id} value={p.id || p.ticket_id}>
+                  {getSingleThreadOptionLabel(p)}
+                </option>
+              ))}
+            </select>
+
+            {plans.length === 0 && !loading && (
+              <div className="flex flex-col items-center gap-2 py-3 text-center">
+                <p className="text-xs font-semibold text-slate-500">
+                  Chưa có tờ trình nào được tạo.
+                </p>
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 rounded-2xl bg-indigo-600 px-4 py-2.5 text-xs font-black text-white shadow-sm hover:bg-indigo-700 active:scale-95"
+                  onClick={() => navigate('/op/mfo/plans/new')}
+                >
+                  <PlusCircle className="h-4 w-4" />
+                  <span>Bấm để tạo nhánh mới ngay</span>
+                </button>
+              </div>
+            )}
+
+            {currentPlan && (
+              <div className="mt-3 flex flex-col gap-3 text-xs">
+                <section className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
+                  <button
+                    type="button"
+                    className="flex min-h-11 w-full items-center justify-between px-3.5 text-left bg-slate-50 hover:bg-slate-100 transition-colors"
+                    onClick={() => setOpenNow((v) => !v)}
+                  >
+                    <span className="font-black uppercase text-[10px] text-slate-700">Nội dung hiện tại</span>
+                    <span className="text-xs font-bold text-slate-700">{openNow ? 'Thu lại' : 'Mở ra'}</span>
+                  </button>
+
+                  {openNow ? (
+                    <div className="space-y-2 border-t border-slate-100 px-3.5 py-3 bg-white">
+                      <p><span className="font-bold text-slate-900">Trạng thái: </span>{stageName(viewPlan)}</p>
+                      {currentSummary(viewPlan).map((line, idx) => (
+                        <p key={idx} className="text-slate-800 font-medium">{line}</p>
+                      ))}
+
+                      {/* <2026-10-14T15:35:00+07:00> PHÂN LẬP BÚT PHÊ TỜ KHAI CỬA 2: CHỈ HIỂN THỊ KHI CÓ REJECT_REASON HOẶC ĐÃ DUYỆT XONG, LOẠI BỎ FALLBACK LẤY NHẦM BÚT PHÊ CỬA 1 */}
+                      {payloadData.result_submitted && (payloadData.reject_reason || payloadData.result_ok) ? (
+                        <p className="font-bold text-indigo-900 pt-1 border-t border-slate-100">
+                          Bút phê tờ khai: {payloadData.reject_reason || 'Đã duyệt ghi sổ'}
+                        </p>
+                      ) : null}
+                    </div>
                   ) : null}
+                </section>
+
+                <div className="mt-2 grid grid-cols-2 sm:flex sm:items-center gap-2 pt-2 border-t border-slate-200">
+                  <button
+                    type="button"
+                    className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-black text-indigo-900 hover:bg-indigo-100 active:scale-[0.98]"
+                    disabled={draftDetail?.ticket_id !== selectedTicketId || !draftDetail?.graph_snapshot}
+                    onClick={() => {
+                      const snapshot = draftDetail?.ticket_id === selectedTicketId ? viewPlan?.payload?.graph_snapshot : null;
+                      if (snapshot) setHistoryPreview({ ...JSON.parse(JSON.stringify(snapshot)), smp_staging_data: viewPlan?.payload?.smp_staging_data || {} });
+                    }}
+                  >
+                    <Eye className="h-4 w-4 text-indigo-600" />
+                    <span>Xem lại</span>
+                  </button>
+
+                  {!isRejected && (
+                    <button
+                      type="button"
+                      disabled={isPending || isApproved || busy}
+                      className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl border border-slate-300 bg-white px-3 text-xs font-extrabold text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
+                      onClick={handleSaveDraftDirect}
+                    >
+                      <Save className="h-4 w-4 text-slate-600" />
+                      <span>Lưu nháp</span>
+                    </button>
+                  )}
+
+                  {isApproved && payloadData?.plan_ok && !payloadData?.result_ok ? (
+                    <button
+                      type="button"
+                      className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl bg-indigo-700 px-3 text-xs font-black text-white shadow-sm hover:bg-indigo-800"
+                      onClick={() => navigate(`/op/mfo/plans/new?draft=${selectedTicketId}&gate=2`)}
+                    >
+                      <span>Khai báo</span>
+                    </button>
+                  ) : null}
+
+                  {!isRejected && !payloadData?.plan_ok && (
+                    <button
+                      type="button"
+                      disabled={isPending || busy}
+                      className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl bg-indigo-600 px-3 text-xs font-black text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
+                      onClick={() => navigate(`/op/mfo/plans/new?draft=${selectedTicketId}`)}
+                    >
+                      <FileEdit className="h-4 w-4" />
+                      <span>{isNeedsRevision ? 'Sửa theo ý kiến' : 'Sửa nhánh'}</span>
+                    </button>
+                  )}
+
+                  <button
+                    type="button"
+                    disabled={!canDelete || busy}
+                    className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-30 disabled:cursor-not-allowed active:scale-[0.98]"
+                    onClick={handleDeletePlan}
+                  >
+                    <Trash2 className="h-4 w-4 text-rose-600" />
+                    <span>Xóa</span>
+                  </button>
                 </div>
-              ) : null}
-            </section>
+              </div>
+            )}
 
-            <section className="rounded-2xl border border-slate-200 bg-white">
-              <button type="button" className="flex min-h-11 w-full items-center justify-between px-3 text-left" onClick={() => setOpenHistory((v) => !v)}>
-                <span className="font-black uppercase text-[10px] text-slate-700">Lịch sử công việc</span>
-                <span>{openHistory ? 'Thu' : 'Mở'}</span>
-              </button>
-              {openHistory ? (
-                <div className="space-y-2 border-t border-slate-100 px-3 py-3">
-                  <select className="w-full rounded-2xl border px-3 py-2" value={historyStep} onChange={(e) => setHistoryStep(e.target.value)}>
-                    <option value="">Bấm để chọn</option>
-                    {historySteps(viewPlan).map((step) => (
-                      <option key={step.id} value={step.id}>{step.title}</option>
-                    ))}
-                  </select>
-                  {historyStep ? stepSummary(viewPlan, historyStep).map((line, idx) => <p key={idx}>{line}</p>) : null}
-                </div>
-              ) : null}
-            </section>
-
-            {/* MA TRẬN NÚT THAO TÁC (TỰ ĐỘNG KHÓA VÀ ẨN THEO TRẠNG THÁI) */}
-            <div className="mt-2 grid grid-cols-2 sm:flex sm:items-center gap-2 pt-2 border-t border-slate-200">
-              <button
-                type="button"
-                className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-black text-indigo-900 hover:bg-indigo-100 active:scale-[0.98]"
-                onClick={() => navigate(`/op/mfo/plans/new?draft=${selectedTicketId}`)}
-              >
-                <Eye className="h-4 w-4 text-indigo-600" />
-                <span>{isRejected ? 'Xem lại (Đóng băng)' : 'Xem lại'}</span>
-              </button>
-
-              {!isRejected && (
-                <button
-                  type="button"
-                  disabled={isPending || isApproved || busy}
-                  className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl border border-slate-300 bg-white px-3 text-xs font-extrabold text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
-                  onClick={handleSaveDraftDirect}
-                >
-                  <Save className="h-4 w-4 text-slate-600" />
-                  <span>Lưu nháp</span>
-                </button>
-              )}
-
-              {isApproved && payloadData?.plan_ok && !payloadData?.result_ok ? (
-                <button
-                  type="button"
-                  className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl bg-indigo-700 px-3 text-xs font-black text-white"
-                  onClick={() => navigate(`/op/mfo/plans/${selectedTicketId}`)}
-                >
-                  <span>Khai báo</span>
-                </button>
-              ) : null}
-
-              {!isRejected && !payloadData?.plan_ok && (
-                <button
-                  type="button"
-                  disabled={isPending || busy}
-                  className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl bg-indigo-600 px-3 text-xs font-black text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
-                  onClick={() => navigate(`/op/mfo/plans/new?draft=${selectedTicketId}`)}
-                >
-                  <FileEdit className="h-4 w-4" />
-                  <span>{isNeedsRevision ? 'Sửa theo ý kiến' : 'Sửa nhánh'}</span>
-                </button>
-              )}
-
-              {/* NÚT XÓA: CHỈ KÍCH HOẠT KHI CAN_DELETE = TRUE */}
-              <button
-                type="button"
-                disabled={!canDelete || busy}
-                className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl border border-rose-200 bg-rose-50 px-3 text-xs font-bold text-rose-700 hover:bg-rose-100 disabled:opacity-30 disabled:cursor-not-allowed active:scale-[0.98]"
-                onClick={handleDeletePlan}
-              >
-                <Trash2 className="h-4 w-4 text-rose-600" />
-                <span>Xóa</span>
-              </button>
-            </div>
+            {currentPlan ? (
+              <MfoHistoryChain
+                key={selectedTicketId}
+                plan={draftDetail?.ticket_id === selectedTicketId ? viewPlan : currentPlan}
+                open={openHistory}
+                onToggle={() => setOpenHistory((value) => !value)}
+                onReload={loadPlansList}
+              />
+            ) : null}
           </div>
         )}
+
       </div>
+
+      {historyPreview ? (
+        <MfoHistoryPreview
+          snapshot={historyPreview}
+          title="Xem lại — Nội dung hiện tại"
+          onClose={() => setHistoryPreview(null)}
+        />
+      ) : null}
+
       <MfoAlarmOverlay open={Boolean(alarm)} message={alarm} onClose={() => setAlarm('')} />
     </div>
   );

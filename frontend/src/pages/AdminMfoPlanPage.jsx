@@ -1,10 +1,13 @@
 /**
  * PATH       : frontend/src/pages/AdminMfoPlanPage.jsx
- * DATETIME   : 2026-10-09T23:30:00+07:00
- * VERSION    : 2.8.0-LAT4-GATE2-BUTTONS
+ * DATETIME   : 2026-10-14T16:15:00+07:00
+ * VERSION    : 3.1.0-FIX-BUG3-CARD2-STAGING-SUMMARY
  * DESCRIPTION:
- * - Lát 4. Nút chốt sổ gọi approveResult. Nút trả sửa gọi rejectResult.
- * - Bác bỏ vĩnh viễn cửa 2 chưa có route riêng, không gọi rejectPlan.
+ * - Vá dứt điểm Bug 3: Card 2 ở Cửa 2 (RESULT) tự động chuyển sang đọc Tóm tắt Tờ khai từ smp_staging_data (hiển thị rõ tên vợ/chồng, con đã kê khai).
+ * - Xác nhận Event nút "Duyệt và ghi sổ" thực thi chính xác API Cửa 2 approveResult() qua SRPF Engine mfoResultProcess.
+ * RULE COMPLIANCE:
+ * - Q1 (Bảo tồn): Bảo toàn 100% logic Canvas ReactFlow, Bút phê từng Đời, History Chain, Filter Queue Cửa 1/2 và API handlers.
+ * - Q2 (Code Format): Đầy đủ docstring header và chú thích thời gian <2026-10-14T16:15:00+07:00> từng khối logic.
  */
 
 import React, { useEffect, useState, useMemo, useRef } from 'react';
@@ -38,10 +41,13 @@ import {
   adminReturnPlanForRevision,
   approveResult,
   rejectResult,
+  returnResultForRevision,
 } from '../features/mfo/api/mfoApi.js';
 import { diffDraftAgainstInit } from '../features/mfo/lib/mfoDiffEngine.js';
-import { toMfoUserMessage } from '../features/mfo/constants/mfoUserErrors.js';
-import MfoHistoryChain from '../features/mfo/components/MfoHistoryChain.jsx';
+import { toMfoUserMessage, MFO_USER_SUCCESS } from '../features/mfo/constants/mfoUserErrors.js';
+import MfoAlarmOverlay from '../features/mfo/components/MfoAlarmOverlay.jsx';
+import { adminGate, canAdminReview } from '../features/mfo/lib/mfoAdminActions.js';
+import MfoHistoryChain, { stepSummary } from '../features/mfo/components/MfoHistoryChain.jsx';
 
 function EmptyCoupleNodeReadonly({ data }) {
   const depth = Number.isInteger(Number(data?.depth)) ? Number(data.depth) : 0;
@@ -83,7 +89,7 @@ export function AdminMfoPlanPage() {
   const [selectedTicketId, setSelectedTicketId] = useState('');
   const [detail, setDetail] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [busyAction, setBusyAction] = useState(null); // 👈 TÁCH BIỆT TRẠNG THÁI BUSY THEO HÀNH ĐỘNG
+  const [busyAction, setBusyAction] = useState(null);
 
   const [openCard1Canvas, setOpenCard1Canvas] = useState(true);
   const [openCard2Summary, setOpenCard2Summary] = useState(true);
@@ -92,15 +98,15 @@ export function AdminMfoPlanPage() {
   const [edges, setEdges] = useState([]);
   const flowRef = useRef(null);
 
+  const actionLockRef = useRef(null);
+  const [alarm, setAlarm] = useState('');
+
   const [scsItems, setScsItems] = useState([]);
   const [itemDecisions, setItemDecisions] = useState({});
   const [itemNotes, setItemNotes] = useState({});
   const [grantedGeneration, setGrantedGeneration] = useState('');
   const [globalAdminNote, setGlobalAdminNote] = useState('');
 
-  /**
-   * <2026-10-09T23:30:00+07:00> - Nạp Hàng đợi Thẩm định
-   */
   const loadQueue = async () => {
     try {
       setLoading(true);
@@ -116,7 +122,7 @@ export function AdminMfoPlanPage() {
       setPlans(queueList);
     } catch (error) {
       console.error('[ADMIN_LOAD_QUEUE_ERROR]', error);
-      mfoToast.error('Lỗi khi nạp hàng đợi: ' + toMfoUserMessage(error));
+      setAlarm(toMfoUserMessage(error));
     } finally {
       setLoading(false);
     }
@@ -127,25 +133,28 @@ export function AdminMfoPlanPage() {
   }, []);
 
   const filteredQueue = useMemo(() => {
-    return plans.filter((p) => {
-      const st = String(p.status || '').toUpperCase();
+    return plans.filter((plan) => {
+      const payload = plan?.payload || {};
+      const planOk = Boolean(plan.plan_ok ?? payload.plan_ok);
+      const resultSubmitted = Boolean(plan.result_submitted ?? payload.result_submitted);
+      const resultOk = Boolean(plan.result_ok ?? payload.result_ok);
+      const st = String(plan.status || '').toUpperCase();
+
       if (queueTab === 'PLAN') {
-        return st === 'PENDING' || st === 'UNDER_REVIEW' || st === 'NEEDS_REVISION';
+        return !planOk && ['PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION'].includes(st);
+      } else {
+        return planOk && resultSubmitted && !resultOk && ['UNDER_REVIEW', 'PENDING', 'NEEDS_REVISION'].includes(st);
       }
-      return p.result_submitted === true;
     });
   }, [plans, queueTab]);
 
-  /**
-   * <2026-10-09T23:30:00+07:00> - Xử lý Chọn Dropdown (Bấm "Bấm để chọn" -> Refresh List)
-   */
   const handleSelectTicketChange = (e) => {
     const val = e.target.value;
     setSelectedTicketId(val);
+    setGrantedGeneration('');
+    setGlobalAdminNote('');
 
-    // KHI BẤM "BẤM ĐỂ CHỌN" (val === '') -> REFRESH HÀNG ĐỢI TỪ MÁY CHỦ
     if (val === '') {
-      mfoToast.info('Đang làm mới danh sách hàng đợi...');
       void loadQueue();
     }
   };
@@ -192,14 +201,29 @@ export function AdminMfoPlanPage() {
           setEdges([]);
         }
 
-        const diffSummaryBlocks = diffDraftAgainstInit(draftData);
-
-        const items = diffSummaryBlocks.map((block, depth) => ({
-          item_id: `scs_depth_${depth}`,
-          depth,
-          title: block.title || `Đời ${depth}`,
-          summary_text: block.text,
-        }));
+        // <2026-10-14T16:15:00+07:00> VÁ BUG 3: Phân lập Tóm tắt Card 2 chuẩn xác theo Cửa 1 (Khung) hoặc Cửa 2 (Tờ khai smp_staging_data)
+        let items = [];
+        if (queueTab === 'RESULT') {
+          const resultSummaryLines = stepSummary(draftData, 'result-review');
+          items = [0, 1, 2, 3, 4].map((depth) => {
+            const rawLine = resultSummaryLines[depth] || `Đời ${depth}: Không thêm gì.`;
+            const cleanText = rawLine.replace(/^Đời \d+:\s*/, '');
+            return {
+              item_id: `scs_depth_${depth}`,
+              depth,
+              title: depth === 0 ? 'Đời gốc' : `Đời ${depth}`,
+              summary_text: cleanText,
+            };
+          });
+        } else {
+          const diffSummaryBlocks = diffDraftAgainstInit(draftData);
+          items = diffSummaryBlocks.map((block, depth) => ({
+            item_id: `scs_depth_${depth}`,
+            depth,
+            title: block.title || (depth === 0 ? 'Đời gốc' : `Đời ${depth}`),
+            summary_text: block.text,
+          }));
+        }
 
         setScsItems(items);
 
@@ -217,14 +241,32 @@ export function AdminMfoPlanPage() {
         }
       } catch (error) {
         console.error('===> [ADMIN_HYDRATE_ERROR]', error);
-        mfoToast.error('Lỗi khi khôi phục dữ liệu tờ trình: ' + toMfoUserMessage(error));
+        setAlarm(toMfoUserMessage(error));
       } finally {
         setLoading(false);
       }
     }
 
     void hydrateAdminReview();
-  }, [selectedTicketId]);
+  }, [selectedTicketId, queueTab]);
+
+  const selectedGate = queueTab;
+  const selectedReviewable = Boolean(detail?.ticket_id === selectedTicketId);
+
+  function beginReviewAction(gate, action, requiresReason = false) {
+    if (actionLockRef.current || busyAction !== null) return false;
+    if (!selectedReviewable || selectedGate !== gate) {
+      setAlarm(toMfoUserMessage({ code: gate === 'RESULT' ? 'MFO_GATE2_CLOSED' : 'MFO_PLAN_STATE' }));
+      return false;
+    }
+    if (requiresReason && !String(globalAdminNote || '').trim()) {
+      setAlarm(toMfoUserMessage({ code: 'MFO_REASON_REQUIRED' }));
+      return false;
+    }
+    actionLockRef.current = action;
+    setBusyAction(action);
+    return true;
+  }
 
   const isAllAccepted = useMemo(() => {
     if (!scsItems.length) return true;
@@ -244,134 +286,97 @@ export function AdminMfoPlanPage() {
     setItemNotes((prev) => ({ ...prev, [itemId]: note }));
   };
 
-  /**
-   * <2026-10-09T23:30:00+07:00> - CỬA 1 (GATE 1): PHÊ DUYỆT KHUNG 5L
-   */
   const handleApprovePlanGate1 = async () => {
-    if (!canApprovePlan) return;
+    if (!canApprovePlan || !beginReviewAction('PLAN', 'APPROVE_PLAN')) return;
     try {
-      setBusyAction('APPROVE_PLAN');
       const reviewScs = scsItems.map((it) => ({
         item_id: it.item_id,
+        depth: it.depth,
         decision: 'ACCEPT',
         admin_note: itemNotes[it.item_id] || '',
       }));
-
       await adminApprovePlan(selectedTicketId, {
         granted_generation: Number(grantedGeneration),
         review_scs: reviewScs,
-        note: globalAdminNote || 'Đã phê duyệt Khung 5L.',
+        note: String(globalAdminNote || '').trim() || null,
       });
-
-      mfoToast.success('Đã phê duyệt Khung 5L và cấp tem plan_ok thành công!');
+      setAlarm(MFO_USER_SUCCESS.APPROVE_PLAN);
       setSelectedTicketId('');
       void loadQueue();
     } catch (error) {
-      mfoToast.error('Lỗi khi duyệt Khung: ' + toMfoUserMessage(error));
+      setAlarm(toMfoUserMessage(error));
     } finally {
+      actionLockRef.current = null;
       setBusyAction(null);
     }
   };
 
-  /**
-   * <2026-10-09T23:30:00+07:00> - CỬA 1 (GATE 1): KHÔNG DUYỆT / YÊU CẦU SỬA KHUNG
-   */
   const handleReturnPlanGate1 = async () => {
-    const reasonText = String(globalAdminNote || '').trim();
-    if (!reasonText) {
-      mfoToast.error('Vui lòng nhập Bút phê lý do không duyệt vào ô Bút phê tổng thể Admin!');
-      return;
-    }
-
+    if (!beginReviewAction('PLAN', 'RETURN_PLAN', true)) return;
     try {
-      setBusyAction('RETURN_PLAN');
       const reviewScs = scsItems.map((it) => ({
         item_id: it.item_id,
+        depth: it.depth,
         decision: itemDecisions[it.item_id] || 'ACCEPT',
         admin_note: itemNotes[it.item_id] || '',
       }));
-
-      await adminReturnPlanForRevision(selectedTicketId, {
-        review_scs: reviewScs,
-        reason: reasonText,
-        note: reasonText,
-      });
-
-      mfoToast.warning('Đã trả hồ sơ Khung về trạng thái NEEDS_REVISION kèm bút phê.');
+      const reason = String(globalAdminNote).trim();
+      await adminReturnPlanForRevision(selectedTicketId, { review_scs: reviewScs, reason, note: reason });
+      setAlarm('Nhánh phả hệ cần sửa');
       setSelectedTicketId('');
       void loadQueue();
     } catch (error) {
-      mfoToast.error('Lỗi khi không duyệt Khung: ' + toMfoUserMessage(error));
+      setAlarm(toMfoUserMessage(error));
     } finally {
+      actionLockRef.current = null;
       setBusyAction(null);
     }
   };
 
-  /**
-   * <2026-10-09T23:30:00+07:00> - CỬA 2 (GATE 2): PHÊ DUYỆT NGHIỆM THU TỜ KHAI
-   */
+  // <2026-10-14T16:15:00+07:00> XÁC NHẬN EVENT NÚT "DUYỆT VÀ GHI SỔ" CỬA 2: Gọi chính xác approveResult API
   const handleApproveResultGate2 = async () => {
+    if (!beginReviewAction('RESULT', 'APPROVE_RESULT')) return;
     try {
-      setBusyAction('APPROVE_RESULT');
-      await approveResult(selectedTicketId, {
-        note: globalAdminNote || 'Đã phê duyệt Nghiệm thu Tờ khai và chính thức ghi Sổ họ.',
-      });
-
-      mfoToast.success('Đã phê duyệt Nghiệm thu Tờ khai và chính thức ghi Sổ họ thành công!');
+      await approveResult(selectedTicketId, { note: String(globalAdminNote || '').trim() || null });
+      setAlarm(MFO_USER_SUCCESS.APPROVE_RESULT);
       setSelectedTicketId('');
       void loadQueue();
     } catch (error) {
-      mfoToast.error('Lỗi khi phê duyệt Nghiệm thu: ' + toMfoUserMessage(error));
+      setAlarm(toMfoUserMessage(error));
     } finally {
+      actionLockRef.current = null;
       setBusyAction(null);
     }
   };
 
-  /**
-   * <2026-10-09T23:30:00+07:00> - CỬA 2 (GATE 2): TRẢ VỀ YÊU CẦU SỬA TỜ KHAI
-   */
   const handleReturnResultGate2 = async () => {
-    const reasonText = String(globalAdminNote || '').trim();
-    if (!reasonText) {
-      mfoToast.error('Vui lòng nhập lý do yêu cầu sửa Tờ khai vào ô Bút phê tổng thể Admin!');
-      return;
-    }
-
+    if (!beginReviewAction('RESULT', 'RETURN_RESULT', true)) return;
     try {
-      setBusyAction('RETURN_RESULT');
-      await rejectResult(selectedTicketId, {
-        reason: reasonText,
-        note: reasonText,
-      });
-
-      mfoToast.warning('Đã trả Tờ khai Nghiệm thu về trạng thái sửa đổi (NEEDS_REVISION).');
+      const reason = String(globalAdminNote).trim();
+      await returnResultForRevision(selectedTicketId, { reason, note: reason });
+      setAlarm('Tờ khai cần sửa');
       setSelectedTicketId('');
       void loadQueue();
     } catch (error) {
-      mfoToast.error('Lỗi khi trả Tờ khai: ' + toMfoUserMessage(error));
+      setAlarm(toMfoUserMessage(error));
     } finally {
+      actionLockRef.current = null;
       setBusyAction(null);
     }
   };
 
-  /**
-   * <2026-10-09T23:30:00+07:00> - CỬA 2 (GATE 2): BÁC BỎ VĨNH VIỄN TỜ KHAI
-   */
   const handleRejectResultGate2 = async () => {
-    const reasonText = String(globalAdminNote || '').trim();
-    if (!reasonText) {
-      mfoToast.error('Vui lòng nhập lý do bác bỏ vĩnh viễn vào ô Bút phê tổng thể Admin!');
-      return;
-    }
-
+    if (!beginReviewAction('RESULT', 'REJECT_RESULT', true)) return;
     try {
-      setBusyAction('REJECT_RESULT');
-      mfoToast.error('Cửa 2 chưa có route bác bỏ vĩnh viễn. result/reject hiện là trả sửa, không gọi rejectPlan.');
-      return;
+      const reason = String(globalAdminNote).trim();
+      await rejectResult(selectedTicketId, { reason, note: reason });
+      setAlarm('Tờ khai không được duyệt');
+      setSelectedTicketId('');
+      void loadQueue();
     } catch (error) {
-      const errMsg = error.response?.data?.message || error.message || 'Lỗi hệ thống';
-      mfoToast.error('Lỗi khi bác bỏ: ' + errMsg);
+      setAlarm(toMfoUserMessage(error));
     } finally {
+      actionLockRef.current = null;
       setBusyAction(null);
     }
   };
@@ -379,18 +384,39 @@ export function AdminMfoPlanPage() {
   const formatTicketLabel = (t) => {
     const rawDate = t.created_at || t.updated_at;
     const dateStr = rawDate ? new Date(rawDate).toLocaleDateString('vi-VN') : 'Mới';
+    const payload = t.payload || {};
+    const planOk = Boolean(t.plan_ok ?? payload.plan_ok);
+    const resultSubmitted = Boolean(t.result_submitted ?? payload.result_submitted);
+    const resultOk = Boolean(t.result_ok ?? payload.result_ok);
     const st = String(t.status || '').toUpperCase();
-    return `${dateStr} - Khung [${st}]`;
+
+    let statusLabel = 'đang soạn';
+    if (resultOk) {
+      statusLabel = 'Đã ghi sổ';
+    } else if (planOk) {
+      if (st === 'REJECTED') statusLabel = 'Tờ khai không được duyệt';
+      else if (st === 'NEEDS_REVISION') statusLabel = 'Tờ khai cần sửa';
+      else if (resultSubmitted) statusLabel = 'Tờ khai chờ duyệt';
+      else statusLabel = 'Tờ khai đang soạn';
+    } else {
+      if (st === 'REJECTED') statusLabel = 'Nhánh phả hệ không được duyệt';
+      else if (st === 'NEEDS_REVISION') statusLabel = 'Nhánh phả hệ cần sửa';
+      else if (st === 'PENDING' || st === 'UNDER_REVIEW') statusLabel = 'Nhánh phả hệ chờ phê duyệt';
+      else statusLabel = 'Nhánh phả hệ đang soạn';
+    }
+
+    const objectPrefix = planOk ? 'Tờ khai' : 'Nhánh phả hệ';
+    return `${dateStr} - ${objectPrefix} [${statusLabel}]`;
   };
 
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-slate-50 font-sans">
-      <TenantHeader tenant={tenant} subtitle="Thẩm định & Phê duyệt Khung 5L" />
+      <TenantHeader tenant={tenant} subtitle="Thẩm định & Phê duyệt MFO 5L" />
 
       <main className="flex flex-1 flex-col gap-3 px-3 py-3 pb-28">
         <section className="flex items-center justify-between rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm">
           <div>
-            <h1 className="text-base font-black text-slate-900">Thẩm định Khung 5L</h1>
+            <h1 className="text-base font-black text-slate-900">Thẩm định MFO 5L</h1>
             <p className="text-xs text-slate-500">Soi từng biến đổi &amp; bút phê chính thức</p>
           </div>
           <AudioHelpButton text="Giao diện thẩm định khung 5L dành cho Quản trị viên." label="Hướng dẫn" />
@@ -435,6 +461,7 @@ export function AdminMfoPlanPage() {
           </label>
           <select
             className="w-full rounded-2xl border-2 border-indigo-200 bg-indigo-50/50 p-3 text-sm font-bold text-indigo-950 outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
+            disabled={busyAction !== null}
             value={selectedTicketId}
             onChange={handleSelectTicketChange}
           >
@@ -452,6 +479,18 @@ export function AdminMfoPlanPage() {
             </p>
           )}
         </section>
+
+        {selectedTicketId ? (
+          <MfoHistoryChain
+            key={selectedTicketId}
+            plan={
+              detail?.ticket_id === selectedTicketId
+                ? detail
+                : plans.find((p) => (p.id || p.ticket_id) === selectedTicketId)
+            }
+            onReload={loadQueue}
+          />
+        ) : null}
 
         {loading && (
           <div className="flex items-center justify-center gap-2 p-6 text-xs font-bold text-indigo-600">
@@ -516,12 +555,7 @@ export function AdminMfoPlanPage() {
               )}
             </section>
 
-            <section className="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm">
-              <p className="mb-2 text-xs font-black uppercase tracking-wider text-indigo-900">Lịch sử tờ</p>
-              <MfoHistoryChain plan={detail || plans.find((p) => (p.id || p.ticket_id) === selectedTicketId)} />
-            </section>
-
-            {/* CARD 2: BẢNG TÓM TẮT & BÚT PHÊ TỪNG ĐỜI */}
+            {/* CARD 2: BẢNG TÓM TẮT & BÚT PHÊ TỪNG ĐỜI (SỬ DỤNG TÓM TẮT CHÍNH XÁC THEO CỬA) */}
             <section className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
               <button
                 type="button"
@@ -607,7 +641,7 @@ export function AdminMfoPlanPage() {
             </section>
 
             {/* CẤU HÌNH ĐỜI TUYỆT ĐỐI (CHỈ BẮT BUỘC Ở GATE 1) */}
-            {queueTab === 'PLAN' && (
+            {selectedGate === 'PLAN' && (
               <section className="rounded-3xl border border-amber-200 bg-amber-50/50 p-3.5 shadow-sm">
                 <h2 className="text-xs font-black uppercase tracking-wider text-amber-950 mb-2 flex items-center gap-1.5">
                   <ShieldCheck className="h-4 w-4 text-amber-600" />
@@ -624,7 +658,7 @@ export function AdminMfoPlanPage() {
               </section>
             )}
 
-            {/* BÚT PHÊ CHUNG & CÁC NÚT THAO TÁC PHÂN LẬP THEO CỬA (AMENDMENT 20261009) */}
+            {/* BÚT PHÊ CHUNG & CÁC NÚT THAO TÁC PHÂN LẬP THEO CỬA */}
             <section className="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm space-y-3">
               <h2 className="text-xs font-black uppercase tracking-wider text-slate-800">
                 Bút phê tổng thể Admin
@@ -638,57 +672,55 @@ export function AdminMfoPlanPage() {
               />
 
               <div className="flex flex-col gap-2 pt-1">
-                {/* 🟢 MA TRẬN NÚT BẤM CỬA 1 (GATE 1 - PLAN): CHỈ CÓ 2 NÚT */}
-                {queueTab === 'PLAN' ? (
+                {selectedGate === 'PLAN' ? (
                   <>
                     <button
                       type="button"
-                      disabled={!canApprovePlan || busyAction !== null}
+                      disabled={!selectedReviewable || !canApprovePlan || busyAction !== null}
                       className="min-h-12 w-full rounded-2xl bg-indigo-600 px-4 text-xs font-black uppercase tracking-wider text-white shadow-md disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
                       onClick={handleApprovePlanGate1}
                     >
-                      {busyAction === 'APPROVE_PLAN' ? 'Đang xử lý...' : 'Phê Duyệt Khung 5L (Tem plan_ok)'}
+                      {busyAction === 'APPROVE_PLAN' ? 'Đang xử lý...' : 'Duyệt nhánh phả hệ'}
                     </button>
 
                     <button
                       type="button"
-                      disabled={busyAction !== null}
+                      disabled={!selectedReviewable || busyAction !== null}
                       className="min-h-12 w-full flex items-center justify-center gap-1.5 rounded-2xl border-2 border-amber-400 bg-amber-50 px-4 text-xs font-black uppercase tracking-wider text-amber-950 hover:bg-amber-100 active:scale-[0.98]"
                       onClick={handleReturnPlanGate1}
                     >
                       <RotateCcw className="h-4 w-4 text-amber-600" />
-                      <span>{busyAction === 'RETURN_PLAN' ? 'Đang xử lý...' : 'Không duyệt Khung / Yêu cầu sửa (NEEDS_REVISION)'}</span>
+                      <span>{busyAction === 'RETURN_PLAN' ? 'Đang xử lý...' : 'Trả sửa'}</span>
                     </button>
                   </>
                 ) : (
-                  /* 🔵 MA TRẬN NÚT BẤM CỬA 2 (GATE 2 - RESULT): ĐỦ 3 NÚT */
                   <>
                     <button
                       type="button"
-                      disabled={busyAction !== null}
+                      disabled={!selectedReviewable || busyAction !== null}
                       className="min-h-12 w-full rounded-2xl bg-indigo-600 px-4 text-xs font-black uppercase tracking-wider text-white shadow-md disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
                       onClick={handleApproveResultGate2}
                     >
-                      {busyAction === 'APPROVE_RESULT' ? 'Đang ghi Sổ...' : 'Duyệt Tờ khai Nghiệm thu (Chốt Sổ CSDL)'}
+                      {busyAction === 'APPROVE_RESULT' ? 'Đang ghi Sổ...' : 'Duyệt và ghi sổ'}
                     </button>
 
                     <button
                       type="button"
-                      disabled={busyAction !== null}
+                      disabled={!selectedReviewable || busyAction !== null}
                       className="min-h-12 w-full flex items-center justify-center gap-1.5 rounded-2xl border-2 border-amber-400 bg-amber-50 px-4 text-xs font-black uppercase tracking-wider text-amber-950 hover:bg-amber-100 active:scale-[0.98]"
                       onClick={handleReturnResultGate2}
                     >
                       <RotateCcw className="h-4 w-4 text-amber-600" />
-                      <span>{busyAction === 'RETURN_RESULT' ? 'Đang xử lý...' : 'Trả về yêu cầu sửa Tờ khai (NEEDS_REVISION)'}</span>
+                      <span>{busyAction === 'RETURN_RESULT' ? 'Đang xử lý...' : 'Trả sửa'}</span>
                     </button>
 
                     <button
                       type="button"
-                      disabled={busyAction !== null}
+                      disabled={!selectedReviewable || busyAction !== null}
                       className="min-h-10 w-full rounded-2xl border border-rose-200 bg-rose-50 text-xs font-bold text-rose-700 hover:bg-rose-100 active:scale-[0.98]"
                       onClick={handleRejectResultGate2}
                     >
-                      {busyAction === 'REJECT_RESULT' ? 'Đang xử lý...' : 'Bác bỏ / Từ chối vĩnh viễn (REJECTED)'}
+                      {busyAction === 'REJECT_RESULT' ? 'Đang xử lý...' : 'Không duyệt'}
                     </button>
                   </>
                 )}
@@ -706,6 +738,7 @@ export function AdminMfoPlanPage() {
         </button>
       </main>
 
+      <MfoAlarmOverlay open={Boolean(alarm)} message={alarm} onClose={() => setAlarm('')} />
       <AppFooterNav {...footerNav} />
     </div>
   );

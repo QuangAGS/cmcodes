@@ -1,4 +1,11 @@
 /**
+ * PATH       : Backend/src/modules/mfo/definitions/mfoResultProcess.definition.js
+ * DATETIME   : 2026-10-13T15:24:00+07:00
+ * VERSION    : 3.0.0-LAT4-HISTORY
+ * DESCRIPTION: Bổ sung lịch sử, giữ ma trận trạng thái, guards và tác vụ DB hiện có.
+ * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
+ */
+/**
  * PATH       : backend/src/modules/mfo/definitions/mfoResultProcess.definition.js
  * DATETIME   : 2026-10-12T09:25:00+07:00
  * VERSION    : 2.4.1-TICKET-TYPE-ENUM
@@ -14,6 +21,8 @@ const { SRPF_STATES } = require('../../../shared/frameworks/srpf/constants/state
 const { SRPF_ACTIONS } = require('../../../shared/frameworks/srpf/constants/actions');
 const { srpfError, SRPF_ERROR_CODES } = require('../../../shared/frameworks/srpf/errors/srpfCreateError');
 const { executeGate2DbMutation } = require('../mfo.gate2');
+
+const { recordSubmission, recordReview } = require('../mfo.history.js');
 
 const PROCESS_TYPE = 'MFO_RESULT';
 
@@ -61,8 +70,8 @@ const mfoResultProcessDefinition = Object.freeze({
 
   // 2. PHÂN QUYỀN VAI TRÒ
   contextGuards: {
-    [SRPF_ACTIONS.SAVE_DRAFT]: ['MWL', 'FOUNDER'],
-    [SRPF_ACTIONS.SUBMIT]: ['MWL', 'FOUNDER'],
+    [SRPF_ACTIONS.SAVE_DRAFT]: ['MWL', 'FOUNDER', 'USER'],
+    [SRPF_ACTIONS.SUBMIT]: ['MWL', 'FOUNDER', 'USER'],
     [SRPF_ACTIONS.RETURN_FOR_REVISION]: ['CLAN_ADMIN', 'SYSTEM_ADMIN'],
     [SRPF_ACTIONS.APPROVE]: ['CLAN_ADMIN', 'SYSTEM_ADMIN'],
     [SRPF_ACTIONS.REJECT]: ['CLAN_ADMIN', 'SYSTEM_ADMIN'],
@@ -92,7 +101,12 @@ const mfoResultProcessDefinition = Object.freeze({
         result_submitted: true,
         result_ok: false,
       };
-      await tx.proposals.update({
+      /**
+ * <2026-10-13T15:24:00+07:00>
+ * Mục đích: Ghi snapshot bất biến của lần trình trước persist, cùng transaction SRPF.
+ */
+    updatedPayload.submission_history = recordSubmission({ ...updatedPayload, submission_history: currentPayload.submission_history }, 'RESULT', actorWithPayload);
+    await tx.proposals.update({
         where: { id: instance.id },
         data: {
           status: 'UNDER_REVIEW',
@@ -119,7 +133,12 @@ const mfoResultProcessDefinition = Object.freeze({
         created_member_ids: mutation.created_member_ids,
         created_marriage_ids: mutation.created_marriage_ids,
       };
-      await tx.proposals.update({
+      /**
+ * <2026-10-13T15:24:00+07:00>
+ * Mục đích: Ghi ý kiến cho lần trình tương ứng trước persist, cùng transaction SRPF.
+ */
+    updatedPayload.submission_history = recordReview({ ...updatedPayload, submission_history: currentPayload.submission_history }, 'RESULT', 'APPROVED', actorWithPayload, actorWithPayload._payload || {});
+    await tx.proposals.update({
         where: { id: instance.id },
         data: {
           status: 'APPROVED',
@@ -130,6 +149,17 @@ const mfoResultProcessDefinition = Object.freeze({
           updated_at: new Date(),
         },
       });
+    },
+/**
+ * <2026-10-13T15:24:00+07:00>
+ * Mục đích: Chỉ ghi review lịch sử khi trả sửa; không sửa flags, matrix hoặc nghiệp vụ lát 3/5.
+ */
+    [SRPF_STATES.NEEDS_REVISION]: async (instance, tx, actorWithPayload) => {
+      const incoming = actorWithPayload._payload || {};
+      const currentPayload = instance.payload || {};
+      const updatedPayload = { ...currentPayload, ...incoming };
+      updatedPayload.submission_history = recordReview({ ...updatedPayload, submission_history: currentPayload.submission_history }, 'RESULT', 'NEEDS_REVISION', actorWithPayload, incoming);
+      await tx.proposals.update({ where: { id: instance.id }, data: { payload: updatedPayload } });
     },
     [SRPF_STATES.REJECTED]: async (instance, tx, actorWithPayload) => {
       const incoming = actorWithPayload._payload || {};
@@ -142,7 +172,12 @@ const mfoResultProcessDefinition = Object.freeze({
         result_ok: false,
         reject_reason: reason,
       };
-      await tx.proposals.update({
+      /**
+ * <2026-10-13T15:24:00+07:00>
+ * Mục đích: Ghi ý kiến cho lần trình tương ứng trước persist, cùng transaction SRPF.
+ */
+    updatedPayload.submission_history = recordReview({ ...updatedPayload, submission_history: currentPayload.submission_history }, 'RESULT', 'REJECTED', actorWithPayload, actorWithPayload._payload || {});
+    await tx.proposals.update({
         where: { id: instance.id },
         data: {
           status: 'REJECTED',

@@ -1,4 +1,11 @@
 /**
+ * PATH       : Backend/src/modules/mfo/definitions/mfoPlanProcess.definition.js
+ * DATETIME   : 2026-10-13T15:24:00+07:00
+ * VERSION    : 3.0.0-LAT4-HISTORY
+ * DESCRIPTION: Bổ sung lịch sử, giữ ma trận trạng thái, guards và tác vụ DB hiện có.
+ * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
+ */
+/**
  * PATH       : backend/src/modules/mfo/definitions/mfoPlanProcess.definition.js
  * DATETIME   : 2026-10-09T23:55:00+07:00
  * VERSION    : 2.5.0-AMENDMENT-20261009-SIDEEFFECTS-STATE-TRANSITION-FIXED
@@ -14,6 +21,8 @@ const { expiresAtFor } = require('../mfo.ttl.js');
 const { SRPF_STATES } = require('../../../shared/frameworks/srpf/constants/states');
 const { SRPF_ACTIONS } = require('../../../shared/frameworks/srpf/constants/actions');
 const { srpfError, SRPF_ERROR_CODES } = require('../../../shared/frameworks/srpf/errors/srpfCreateError');
+
+const { recordSubmission, recordReview } = require('../mfo.history.js');
 
 const PROCESS_TYPE = 'MFO_PLAN';
 
@@ -121,7 +130,12 @@ const mfoPlanProcessDefinition = Object.freeze({
         submitted_at: new Date().toISOString(),
       };
 
-      await tx.proposals.update({
+      /**
+ * <2026-10-13T15:24:00+07:00>
+ * Mục đích: Ghi snapshot bất biến của lần trình trước persist, cùng transaction SRPF.
+ */
+    updatedPayload.submission_history = recordSubmission({ ...updatedPayload, submission_history: currentPayload.submission_history }, 'PLAN', actorWithPayload);
+    await tx.proposals.update({
         where: { id: instance.id },
         data: {
           status: 'PENDING',
@@ -148,7 +162,12 @@ const mfoPlanProcessDefinition = Object.freeze({
         admin_note: incomingPayload.revision_request || incomingPayload.reason || currentPayload.admin_note || null,
       };
 
-      await tx.proposals.update({
+      /**
+ * <2026-10-13T15:24:00+07:00>
+ * Mục đích: Ghi ý kiến cho lần trình tương ứng trước persist, cùng transaction SRPF.
+ */
+    updatedPayload.submission_history = recordReview({ ...updatedPayload, submission_history: currentPayload.submission_history }, 'PLAN', 'NEEDS_REVISION', actorWithPayload, actorWithPayload._payload || {});
+    await tx.proposals.update({
         where: { id: instance.id },
         data: {
           status: 'NEEDS_REVISION',
@@ -177,7 +196,12 @@ const mfoPlanProcessDefinition = Object.freeze({
         granted_at: new Date().toISOString(),
       };
 
-      await tx.proposals.update({
+      /**
+ * <2026-10-13T15:24:00+07:00>
+ * Mục đích: Ghi ý kiến cho lần trình tương ứng trước persist, cùng transaction SRPF.
+ */
+    updatedPayload.submission_history = recordReview({ ...updatedPayload, submission_history: currentPayload.submission_history }, 'PLAN', 'APPROVED', actorWithPayload, actorWithPayload._payload || {});
+    await tx.proposals.update({
         where: { id: instance.id },
         data: {
           status: 'APPROVED',
@@ -204,7 +228,12 @@ const mfoPlanProcessDefinition = Object.freeze({
         reject_reason: incomingPayload.reason || incomingPayload.admin_note || null,
       };
 
-      await tx.proposals.update({
+      /**
+ * <2026-10-13T15:24:00+07:00>
+ * Mục đích: Ghi ý kiến cho lần trình tương ứng trước persist, cùng transaction SRPF.
+ */
+    updatedPayload.submission_history = recordReview({ ...updatedPayload, submission_history: currentPayload.submission_history }, 'PLAN', 'REJECTED', actorWithPayload, actorWithPayload._payload || {});
+    await tx.proposals.update({
         where: { id: instance.id },
         data: {
           status: 'REJECTED',

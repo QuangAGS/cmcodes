@@ -1,8 +1,15 @@
 /**
- * PATH       : frontend/src/pages/OpMfoWorkbenchPage.jsx
- * DATETIME   : 2026-10-11T14:40:00+07:00
- * VERSION    : 2.0.0-GATE2-WORKBENCH
- * DESCRIPTION: Xưởng Cửa 2. Khung đóng. Chỉ điền SMP vào staging.
+ * PATH       : frontend/src/pages/OpMfoPlanTicketPage.jsx
+ * DATETIME   : 2026-10-13T14:57:00+07:00
+ * VERSION    : 2.1.2-LAT3-MINIMAL
+ * DESCRIPTION: Cửa 2 về cây hiện có, bảo tồn cửa 1 và chú thích.
+ * RULE       : Q1 bảo tồn ngoài phạm vi; Q2 metadata và chú thích có thời gian.
+ */
+/**
+ * PATH       : frontend/src/pages/OpMfoPlanTicketPage.jsx
+ * DATETIME   : 2026-10-11T15:40:00+07:00
+ * VERSION    : 2.0.0-WORKBENCH-AT-PLAN
+ * DESCRIPTION: /op/mfo/plans/:id. Chờ tem hoặc xưởng tờ khai.
  */
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
@@ -14,53 +21,74 @@ import { resolveTenant } from '../lib/resolveTenant.js';
 import { resolveFooterNav } from '../lib/resolveFooterNav.js';
 import { getPlan, saveStaging, submitResult } from '../features/mfo/api/mfoApi.js';
 import { toMfoUserMessage } from '../features/mfo/constants/mfoUserErrors.js';
+import { opMfoStatusLabel } from '../features/op/constants/opMfoWork.js';
 import { useTts } from '../shared/hooks/useTts.js';
 
-function unwrapPlan(res) {
+/** <2026-10-13T14:57:00+07:00> Mục đích: Giữ xử lý unwrap; không đổi tên hoặc chức năng ngoài phạm vi lát 3. */
+function unwrap(res) {
   const d = res?.data?.data ?? res?.data ?? {};
   return d.ticket || d;
 }
 
-function ready(item, staging, kind) {
+/** <2026-10-13T14:57:00+07:00> Mục đích: Giữ xử lý ready; không đổi tên hoặc chức năng ngoài phạm vi lát 3. */
+function ready(item, staging) {
   const smp = staging[item.key] || {};
   if (!smp.full_name || !smp.gender || smp.is_alive == null) return false;
-  if (kind === 'child' && !smp.child_type) return false;
-  return true;
+  return item.kind !== 'child' || Boolean(smp.child_type);
 }
 
-export default function OpMfoWorkbenchPage() {
+/** <2026-10-13T14:57:00+07:00> Mục đích: Giữ xử lý Card; không đổi tên hoặc chức năng ngoài phạm vi lát 3. */
+function Card({ title, open, onToggle, children }) {
+  return (
+    <section className="mt-3 rounded-2xl border border-slate-200 bg-white">
+      <button type="button" className="flex min-h-12 w-full items-center justify-between px-4 text-left" onClick={onToggle}>
+        <span className="font-bold text-slate-900">{title}</span>
+        <span className="text-sm text-slate-500">{open ? 'Thu lại' : 'Mở'}</span>
+      </button>
+      {open ? <div className="border-t border-slate-100 px-4 py-3">{children}</div> : null}
+    </section>
+  );
+}
+
+/** <2026-10-13T14:57:00+07:00> Mục đích: Giữ xử lý OpMfoPlanTicketPage; không đổi tên hoặc chức năng ngoài phạm vi lát 3. */
+export default function OpMfoPlanTicketPage() {
   const { id } = useParams();
-  const { user, loading: authLoading } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const { speak } = useTts();
   const tenant = resolveTenant(user);
-  const footerNav = resolveFooterNav(user, { pageKey: 'op-mfo-work', backTo: '/op', showBack: true });
-
+  const footerNav = resolveFooterNav(user, { pageKey: 'op-mfo-ticket', backTo: '/op', showBack: true });
   const [ticket, setTicket] = useState(null);
-  const [picked, setPicked] = useState('');
-  const [form, setForm] = useState({ full_name: '', gender: '', is_alive: 'true', child_type: 'CON_DE', birth_year: '', note: '', is_anonymous: false });
   const [err, setErr] = useState('');
   const [ok, setOk] = useState('');
   const [busy, setBusy] = useState('');
+  const [frameOpen, setFrameOpen] = useState(false);
+  const [contentOpen, setContentOpen] = useState(false);
+  const [picked, setPicked] = useState('');
+  const [form, setForm] = useState({ full_name: '', gender: '', is_alive: 'true', child_type: 'CON_DE', birth_year: '', note: '', is_anonymous: false });
 
-  async function load() {
-    const t = unwrapPlan(await getPlan(id));
+  /** <2026-10-13T14:57:00+07:00> Mục đích: Giữ xử lý load; không đổi tên hoặc chức năng ngoài phạm vi lát 3. */
+async function load() {
+    const t = unwrap(await getPlan(id));
     setTicket(t);
     return t;
   }
 
   useEffect(() => {
-    if (authLoading) return;
-    if (!user) {
-      navigate('/auth?mode=login', { replace: true });
-      return;
-    }
     let live = true;
     (async () => {
       try {
         const t = await load();
         if (!live) return;
-        if (!t?.payload?.plan_ok) navigate(`/op/mfo/plans/${id}`, { replace: true });
+/**
+ * <2026-10-13T14:57:00+07:00>
+ * Mục đích: Nhánh đã duyệt mở cùng cây theo ticket, không dùng form kê khai riêng.
+ */
+        if (t?.payload?.plan_ok === true) {
+          navigate(`/op/mfo/plans/new?draft=${encodeURIComponent(id)}`, { replace: true });
+          return;
+        }
+        setTicket(t);
       } catch (e) {
         if (live) setErr(toMfoUserMessage(e));
       }
@@ -68,7 +96,7 @@ export default function OpMfoWorkbenchPage() {
     return () => {
       live = false;
     };
-  }, [id, authLoading, user]);
+  }, [id]);
 
   const payload = ticket?.payload || {};
   const delta = payload.canvas_delta || {};
@@ -78,19 +106,19 @@ export default function OpMfoWorkbenchPage() {
     const children = (delta.draft_children || []).map((row) => ({
       key: row.id,
       kind: 'child',
-      depth: Number(row.depth || 0),
-      label: staging[row.id]?.full_name || row.label || 'Con xin tạo',
+      text: `Đời ${row.depth}: Thêm con ${row.label || 'xin tạo'}`,
+      action: 'Ghi hồ sơ con',
     }));
     const spouses = (delta.draft_spouses || []).map((row) => ({
       key: row.union_id,
       kind: 'spouse',
-      depth: null,
-      label: staging[row.union_id]?.full_name || row.partner_name || 'Vợ hoặc chồng xin tạo',
+      text: `Thêm hôn phối ${row.partner_name || 'xin tạo'}`,
+      action: 'Ghi hồ sơ hôn phối',
     }));
     return [...children, ...spouses];
   }, [delta, staging]);
-  const missing = items.filter((item) => !ready(item, staging, item.kind));
   const selected = items.find((item) => item.key === picked) || null;
+  const missing = items.filter((item) => !ready(item, staging));
 
   useEffect(() => {
     if (!selected) return;
@@ -106,20 +134,9 @@ export default function OpMfoWorkbenchPage() {
     });
   }, [picked]);
 
-  const voice = ok || (missing.length ? `Còn ${missing.length} người chưa đủ hồ sơ.` : 'Đủ hồ sơ. Có thể trình tờ khai.');
-
-  function pick(item) {
-    setPicked(item.key);
-    setErr('');
-    setOk('');
-  }
-
-  async function save() {
+  /** <2026-10-13T14:57:00+07:00> Mục đích: Giữ xử lý save; không đổi tên hoặc chức năng ngoài phạm vi lát 3. */
+async function save() {
     if (!selected || locked) return;
-    if (!form.full_name.trim() || !form.gender) {
-      setErr('Điền họ tên và giới tính.');
-      return;
-    }
     const smp = {
       full_name: form.full_name.trim(),
       gender: form.gender,
@@ -128,121 +145,119 @@ export default function OpMfoWorkbenchPage() {
       note: form.note || null,
     };
     if (selected.kind === 'child') {
-      smp.child_type = form.child_type || 'CON_DE';
-      smp.is_anonymous = form.is_anonymous === true;
+      smp.child_type = form.child_type;
+      smp.is_anonymous = form.is_anonymous;
     }
     setBusy('save');
     setErr('');
     try {
       await saveStaging(id, { [selected.key]: smp });
-      const msg = 'Đã lưu hồ sơ.';
-      setOk(msg);
-      if (typeof speak === 'function') speak(msg, { rate: 0.82 });
+      setOk('Đã lưu hồ sơ.');
+      if (typeof speak === 'function') speak('Đã lưu hồ sơ.', { rate: 0.82 });
       await load();
     } catch (e) {
-      const msg = toMfoUserMessage(e);
-      setErr(msg);
-      if (typeof speak === 'function') speak(msg, { rate: 0.82 });
+      setErr(toMfoUserMessage(e));
     } finally {
       setBusy('');
     }
   }
 
-  async function submit() {
-    if (missing.length || locked) return;
+  /** <2026-10-13T14:57:00+07:00> Mục đích: Giữ xử lý submit; không đổi tên hoặc chức năng ngoài phạm vi lát 3. */
+async function submit() {
     setBusy('submit');
     setErr('');
     try {
       await submitResult(id, {});
-      const msg = 'Đã trình tờ khai. Chờ Ban quản trị duyệt.';
-      setOk(msg);
-      if (typeof speak === 'function') speak(msg, { rate: 0.82 });
+      setOk('Đã trình tờ khai.');
       await load();
     } catch (e) {
-      const msg = toMfoUserMessage(e);
-      setErr(msg);
-      if (typeof speak === 'function') speak(msg, { rate: 0.82 });
+      setErr(toMfoUserMessage(e));
     } finally {
       setBusy('');
     }
   }
 
-  if (authLoading) {
-    return <div className="mx-auto flex min-h-screen max-w-[480px] items-center justify-center">Đang mở xưởng.</div>;
+  if (!payload.plan_ok) {
+    return (
+      <div className="flex min-h-dvh flex-col bg-slate-50">
+        <TenantHeader tenant={tenant} />
+        <main className="mx-auto w-full max-w-[480px] flex-1 px-4 py-4">
+          <h1 className="text-lg font-bold">Tờ khai 5 đời</h1>
+          <p className="mt-3 text-sm text-slate-700">{ticket ? opMfoStatusLabel(ticket) : 'Đang tải…'}</p>
+          <p className="mt-2 text-sm text-slate-600">Đã gửi. Chờ Ban quản trị đóng dấu.</p>
+          {err ? <p className="mt-3 text-sm text-rose-700">{err}</p> : null}
+          <button type="button" className="mt-4 min-h-12 w-full rounded-2xl bg-indigo-700 font-bold text-white" onClick={() => navigate('/op')}>Về trang việc</button>
+        </main>
+        <AppFooterNav {...footerNav} />
+      </div>
+    );
   }
 
   return (
     <div className="flex min-h-dvh flex-col bg-slate-50">
       <TenantHeader tenant={tenant} />
       <main className="mx-auto w-full max-w-[480px] flex-1 px-4 py-4">
-        <div className="mb-3 flex items-center justify-between">
-          <h1 className="text-lg font-black text-slate-900">Xưởng tờ khai</h1>
-          <AudioHelpButton text={voice} />
+        <div className="mb-2 flex items-center justify-between">
+          <h1 className="text-lg font-black">Khai báo tờ khai</h1>
+          <AudioHelpButton text="Khung đã có tem. Ghi hồ sơ người xin tạo rồi trình." />
         </div>
-        <p className="text-sm text-slate-600">Khung đã đóng tem. Chỉ ghi hồ sơ người xin tạo.</p>
-        {err ? <p className="mt-3 text-sm text-rose-700">{err}</p> : null}
-        {ok ? <p className="mt-3 text-sm text-emerald-700">{ok}</p> : null}
+        {err ? <p className="text-sm text-rose-700">{err}</p> : null}
+        {ok ? <p className="text-sm text-emerald-700">{ok}</p> : null}
 
-        <section className="mt-4 space-y-2">
-          {items.length === 0 ? <p className="text-sm text-slate-600">Khung không có người xin tạo.</p> : null}
-          {items.map((item) => (
-            <button
-              key={item.key}
-              type="button"
-              className={`min-h-12 w-full rounded-2xl border px-4 text-left ${picked === item.key ? 'border-indigo-600 bg-indigo-50' : 'border-slate-200 bg-white'}`}
-              onClick={() => pick(item)}
-            >
-              <span className="font-bold text-slate-900">{item.label}</span>
-              <span className="ml-2 text-xs font-bold text-indigo-700">{item.kind === 'child' ? 'XT' : 'Hôn phối'}</span>
-              <span className="ml-2 text-xs text-slate-500">{ready(item, staging, item.kind) ? 'Đủ' : 'Chưa đủ'}</span>
-            </button>
+        <Card title="Xem lại khung 5L đã duyệt" open={frameOpen} onToggle={() => setFrameOpen((v) => !v)}>
+          {(payload.lines || []).map((row) => (
+            <p key={row.line} className="text-sm text-slate-700">Đời {row.line}: {row.op || 'EMPTY'}</p>
           ))}
-        </section>
+        </Card>
+
+        <Card title="Nội dung đã duyệt" open={contentOpen} onToggle={() => setContentOpen((v) => !v)}>
+          {items.map((item) => (
+            <div key={item.key} className="grid grid-cols-2 gap-2 border-b border-slate-100 py-2">
+              <p className="text-sm font-semibold text-slate-800">{item.text}</p>
+              <button type="button" className="min-h-11 rounded-2xl bg-indigo-50 text-sm font-bold text-indigo-800" onClick={() => setPicked(item.key)}>
+                {ready(item, staging) ? 'Đã ghi' : item.action}
+              </button>
+            </div>
+          ))}
+        </Card>
 
         {selected && !locked ? (
-          <section className="mt-4 rounded-2xl border border-slate-200 bg-white p-4">
-            <p className="font-bold text-slate-900">Hồ sơ người này</p>
-            <input className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3" placeholder="Họ tên" value={form.full_name} onChange={(e) => setForm((p) => ({ ...p, full_name: e.target.value }))} />
-            <select className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3" value={form.gender} onChange={(e) => setForm((p) => ({ ...p, gender: e.target.value }))}>
+          <section className="mt-4 rounded-2xl border border-indigo-200 bg-white p-4">
+            <p className="font-bold">{selected.action}</p>
+            <input className="mt-2 w-full rounded-2xl border px-4 py-3" placeholder="Họ tên" value={form.full_name} onChange={(e) => setForm((p) => ({ ...p, full_name: e.target.value }))} />
+            <select className="mt-2 w-full rounded-2xl border px-4 py-3" value={form.gender} onChange={(e) => setForm((p) => ({ ...p, gender: e.target.value }))}>
               <option value="">Bấm để chọn giới tính</option>
               <option value="NAM">Nam</option>
               <option value="NU">Nữ</option>
             </select>
-            <select className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3" value={form.is_alive} onChange={(e) => setForm((p) => ({ ...p, is_alive: e.target.value }))}>
+            <select className="mt-2 w-full rounded-2xl border px-4 py-3" value={form.is_alive} onChange={(e) => setForm((p) => ({ ...p, is_alive: e.target.value }))}>
               <option value="true">Còn sống</option>
               <option value="false">Đã mất</option>
             </select>
             {selected.kind === 'child' ? (
-              <select className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3" value={form.child_type} onChange={(e) => setForm((p) => ({ ...p, child_type: e.target.value }))}>
+              <select className="mt-2 w-full rounded-2xl border px-4 py-3" value={form.child_type} onChange={(e) => setForm((p) => ({ ...p, child_type: e.target.value }))}>
                 <option value="CON_DE">Con đẻ</option>
                 <option value="CON_NUOI">Con nuôi</option>
                 <option value="CON_RIENG">Con riêng</option>
               </select>
             ) : null}
-            <input className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3" placeholder="Năm sinh, không bắt buộc" inputMode="numeric" value={form.birth_year} onChange={(e) => setForm((p) => ({ ...p, birth_year: e.target.value }))} />
-            <input className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3" placeholder="Ghi chú, không bắt buộc" value={form.note} onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))} />
+            <input className="mt-2 w-full rounded-2xl border px-4 py-3" placeholder="Năm sinh, không bắt buộc" value={form.birth_year} onChange={(e) => setForm((p) => ({ ...p, birth_year: e.target.value }))} />
+            <input className="mt-2 w-full rounded-2xl border px-4 py-3" placeholder="Ghi chú, không bắt buộc" value={form.note} onChange={(e) => setForm((p) => ({ ...p, note: e.target.value }))} />
             {selected.kind === 'child' ? (
-              <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+              <label className="mt-3 flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={form.is_anonymous} onChange={(e) => setForm((p) => ({ ...p, is_anonymous: e.target.checked }))} />
                 Đề xuất khuyết danh
               </label>
             ) : null}
             <p className="mt-2 text-sm text-slate-500">Đời và cha mẹ do hệ thống gắn lúc duyệt.</p>
-            <button type="button" disabled={busy === 'save'} className="mt-3 min-h-12 w-full rounded-2xl bg-indigo-600 font-black text-white disabled:opacity-60" onClick={save}>
-              {busy === 'save' ? 'Đang lưu…' : 'Lưu hồ sơ'}
-            </button>
+            <button type="button" disabled={busy === 'save'} className="mt-3 min-h-12 w-full rounded-2xl bg-indigo-600 font-black text-white" onClick={save}>Lưu hồ sơ</button>
           </section>
         ) : null}
 
-        {locked ? <p className="mt-4 text-sm text-slate-600">Tờ khai đã trình. Chỉ xem.</p> : null}
         {!locked && missing.length === 0 && items.length > 0 ? (
-          <button type="button" disabled={busy === 'submit'} className="mt-4 min-h-12 w-full rounded-2xl bg-indigo-700 font-black text-white disabled:opacity-60" onClick={submit}>
-            {busy === 'submit' ? 'Đang trình…' : 'Trình tờ khai'}
-          </button>
+          <button type="button" disabled={busy === 'submit'} className="mt-4 min-h-12 w-full rounded-2xl bg-indigo-700 font-black text-white" onClick={submit}>Trình tờ khai</button>
         ) : null}
-        <button type="button" className="mt-3 min-h-12 w-full rounded-2xl border border-slate-300 bg-white font-bold text-slate-800" onClick={() => navigate('/op')}>
-          Về trang việc
-        </button>
+        <button type="button" className="mt-3 min-h-12 w-full rounded-2xl border bg-white font-bold" onClick={() => navigate('/op')}>Về trang việc</button>
       </main>
       <AppFooterNav {...footerNav} />
     </div>

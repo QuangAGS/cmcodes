@@ -1,5 +1,12 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanTicketPage.jsx
+ * DATETIME   : 2026-10-13T11:32:00+07:00
+ * VERSION    : 2.1.1-LAT3-Q1Q2
+ * DESCRIPTION: Bảo tồn phần ngoài cửa 2 và chú thích; mở cửa 2 tại màn cây.
+ * RULE       : Q1 bảo tồn ngoài phạm vi; Q2 metadata và chú thích theo thời gian.
+ */
+/**
+ * PATH       : frontend/src/pages/OpMfoPlanTicketPage.jsx
  * DATETIME   : 2026-10-11T15:40:00+07:00
  * VERSION    : 2.0.0-WORKBENCH-AT-PLAN
  * DESCRIPTION: /op/mfo/plans/:id. Chờ tem hoặc xưởng tờ khai.
@@ -17,17 +24,20 @@ import { toMfoUserMessage } from '../features/mfo/constants/mfoUserErrors.js';
 import { opMfoStatusLabel } from '../features/op/constants/opMfoWork.js';
 import { useTts } from '../shared/hooks/useTts.js';
 
+/** <2026-10-13T11:32:00+07:00> Mục đích: Khối unwrap: bảo tồn hành vi hiện có; phần thay đổi giới hạn lát 3. */
 function unwrap(res) {
   const d = res?.data?.data ?? res?.data ?? {};
   return d.ticket || d;
 }
 
+/** <2026-10-13T11:32:00+07:00> Mục đích: Khối ready: bảo tồn hành vi hiện có; phần thay đổi giới hạn lát 3. */
 function ready(item, staging) {
   const smp = staging[item.key] || {};
   if (!smp.full_name || !smp.gender || smp.is_alive == null) return false;
   return item.kind !== 'child' || Boolean(smp.child_type);
 }
 
+/** <2026-10-13T11:32:00+07:00> Mục đích: Khối Card: bảo tồn hành vi hiện có; phần thay đổi giới hạn lát 3. */
 function Card({ title, open, onToggle, children }) {
   return (
     <section className="mt-3 rounded-2xl border border-slate-200 bg-white">
@@ -40,7 +50,8 @@ function Card({ title, open, onToggle, children }) {
   );
 }
 
-export default function OpMfoPlanTicketPage() {
+export default /** <2026-10-13T11:32:00+07:00> Mục đích: Khối OpMfoPlanTicketPage: bảo tồn hành vi hiện có; phần thay đổi giới hạn lát 3. */
+function OpMfoPlanTicketPage() {
   const { id } = useParams();
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -56,7 +67,8 @@ export default function OpMfoPlanTicketPage() {
   const [picked, setPicked] = useState('');
   const [form, setForm] = useState({ full_name: '', gender: '', is_alive: 'true', child_type: 'CON_DE', birth_year: '', note: '', is_anonymous: false });
 
-  async function load() {
+  /** <2026-10-13T11:32:00+07:00> Mục đích: Khối load: bảo tồn hành vi hiện có; phần thay đổi giới hạn lát 3. */
+async function load() {
     const t = unwrap(await getPlan(id));
     setTicket(t);
     return t;
@@ -68,6 +80,11 @@ export default function OpMfoPlanTicketPage() {
       try {
         const t = await load();
         if (!live) return;
+/** <2026-10-13T11:32:00+07:00> Mục đích: Tờ đã duyệt nhánh quay về cây; không mở form kê khai riêng. */
+        if ((t?.payload?.plan_ok ?? t?.payload?.business_layer?.plan_ok) === true) {
+          navigate(`/op/mfo/plans/new?draft=${encodeURIComponent(id)}`, { replace: true });
+          return;
+        }
         setTicket(t);
       } catch (e) {
         if (live) setErr(toMfoUserMessage(e));
@@ -114,7 +131,8 @@ export default function OpMfoPlanTicketPage() {
     });
   }, [picked]);
 
-  async function save() {
+  /** <2026-10-13T11:32:00+07:00> Mục đích: Khối save: bảo tồn hành vi hiện có; phần thay đổi giới hạn lát 3. */
+async function save() {
     if (!selected || locked) return;
     const smp = {
       full_name: form.full_name.trim(),
@@ -141,7 +159,8 @@ export default function OpMfoPlanTicketPage() {
     }
   }
 
-  async function submit() {
+  /** <2026-10-13T11:32:00+07:00> Mục đích: Khối submit: bảo tồn hành vi hiện có; phần thay đổi giới hạn lát 3. */
+async function submit() {
     setBusy('submit');
     setErr('');
     try {

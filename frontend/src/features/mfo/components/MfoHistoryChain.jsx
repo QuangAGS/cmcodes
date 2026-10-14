@@ -1,10 +1,19 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MfoHistoryChain.jsx
- * DATETIME   : 2026-10-12T08:25:00+07:00
- * VERSION    : 1.1.0-SAME-SOURCE
- * DESCRIPTION: Tóm tắt theo đời. Đọc payload lồng hoặc chi tiết phẳng từ getDraftPayload.
+ * DATETIME   : 2026-10-14T15:35:00+07:00
+ * VERSION    : 3.2.0-FIX-HISTORY-ADMIN-NOTE
+ * DESCRIPTION:
+ * - Vá lỗi tự động gán chữ "Duyệt" khi Lần trình Cửa 2 đang ở trạng thái chờ duyệt.
+ * - Loại bỏ fallback || 'Duyệt', hiển thị chính xác "Chưa có ý kiến." đối với lần trình chưa có bút phê.
+ * RULE COMPLIANCE:
+ * - Q1 (Bảo tồn): Giữ nguyên mọi hàm xuất (sourceOf, frameLines, resultLines, stageName, historySteps, stepSummary, currentSummary) và props/state handler.
+ * - Q2 (Code Format): Đầy đủ metadata docstring và chú thích thời gian <2026-10-14T15:35:00+07:00> từng khối logic.
  */
+
 import { diffDraftAgainstInit } from '../lib/mfoDiffEngine.js';
+import { useEffect, useState } from 'react';
+import { historyEntries, historySummary, previewSnapshot } from '../lib/mfoHistory.js';
+import MfoHistoryPreview from './MfoHistoryPreview.jsx';
 
 /**
  * <2026-10-12T08:25:00+07:00>
@@ -67,38 +76,41 @@ function resultLines(plan) {
   return byDepth.map((items, idx) => `Đời ${idx}: ${items.length ? items.join('. ') + '.' : 'Không thêm gì.'}`);
 }
 
+/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý stageName; phần thay đổi giới hạn lịch sử lát 4. */
 export function stageName(plan) {
   const payload = sourceOf(plan);
   const st = String(plan?.status || '').toUpperCase();
   const planOk = Boolean(payload.plan_ok);
   const resultSubmitted = Boolean(payload.result_submitted);
   const resultOk = Boolean(payload.result_ok);
-  if (resultOk) return 'Tờ khai đã duyệt';
+  if (resultOk) return 'Đã ghi sổ';
   if (planOk && st === 'REJECTED') return 'Tờ khai không được duyệt';
   if (planOk && st === 'NEEDS_REVISION') return 'Tờ khai cần sửa';
   if (planOk && resultSubmitted) return 'Tờ khai chờ duyệt';
   if (planOk) return 'Tờ khai đang soạn';
-  if (st === 'NEEDS_REVISION') return 'Khung cần sửa';
-  if (st === 'REJECTED') return 'Khung không được duyệt';
-  if (st === 'PENDING' || st === 'UNDER_REVIEW') return 'Khung chờ phê duyệt';
-  if (st === 'DRAFT') return 'Khung đang soạn';
-  return 'Khung dự kiến';
+  if (st === 'NEEDS_REVISION') return 'Nhánh phả hệ cần sửa';
+  if (st === 'REJECTED') return 'Nhánh phả hệ không được duyệt';
+  if (st === 'PENDING' || st === 'UNDER_REVIEW') return 'Nhánh phả hệ chờ phê duyệt';
+  if (st === 'DRAFT') return 'Nhánh phả hệ đang soạn';
+  return 'Nhánh phả hệ đang soạn';
 }
 
+/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý historySteps; phần thay đổi giới hạn lịch sử lát 4. */
 export function historySteps(plan) {
   const payload = sourceOf(plan);
-  const steps = [{ id: 'frame', title: 'Khung đang soạn' }];
+  const steps = [{ id: 'frame', title: 'Nhánh phả hệ đang soạn' }];
   const st = String(plan?.status || '').toUpperCase();
   if (payload.plan_ok || ['PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION', 'APPROVED', 'REJECTED'].includes(st)) {
-    steps.push({ id: 'frame-review', title: 'Khung chờ phê duyệt' });
+    steps.push({ id: 'frame-review', title: 'Nhánh phả hệ chờ phê duyệt' });
   }
-  if (payload.plan_ok) steps.push({ id: 'frame-ok', title: 'Khung đã duyệt' });
+  if (payload.plan_ok) steps.push({ id: 'frame-ok', title: 'Nhánh phả hệ đã duyệt' });
   if (payload.plan_ok) steps.push({ id: 'result-draft', title: 'Tờ khai đang soạn' });
   if (payload.result_submitted) steps.push({ id: 'result-review', title: 'Tờ khai chờ duyệt' });
   if (payload.result_ok) steps.push({ id: 'result-ok', title: 'Tờ khai đã duyệt' });
   return steps;
 }
 
+/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý stepSummary; phần thay đổi giới hạn lịch sử lát 4. */
 export function stepSummary(plan, stepId) {
   const payload = sourceOf(plan);
   if (stepId === 'frame' || stepId === 'frame-review') return frameLines(plan);
@@ -112,15 +124,131 @@ export function stepSummary(plan, stepId) {
   return ['Chưa có nội dung.'];
 }
 
+/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý currentSummary; phần thay đổi giới hạn lịch sử lát 4. */
 export function currentSummary(plan) {
   const steps = historySteps(plan);
   return stepSummary(plan, steps[steps.length - 1]?.id || 'frame');
 }
 
-export default function MfoHistoryChain({ plan }) {
+/**
+ * <2026-10-14T15:35:00+07:00>
+ * Purpose: Card mặc định thu; quy chuẩn từ ngữ toggler "Mở ra" / "Thu lại"; đóng khung in đậm "Ý kiến ban quản trị".
+ */
+export default function MfoHistoryChain({ plan, open, onToggle, onReload }) {
+  const [internalOpen, setInternalOpen] = useState(false);
+  const [selected, setSelected] = useState('');
+  const [preview, setPreview] = useState(null);
+  const expanded = open ?? internalOpen;
+  const entries = historyEntries(plan);
+  const identity = plan?.ticket_id || plan?.id || '';
+
+  useEffect(() => {
+    setSelected('');
+    setPreview(null);
+    setInternalOpen(false);
+  }, [identity]);
+
+  const picked = entries.find((entry) => entry.id === selected);
+
+  function showEntry(entry) {
+    const graph = previewSnapshot(entry);
+    if (graph) {
+      setPreview({
+        title: entry.title,
+        snapshot: { ...graph, smp_staging_data: entry.snapshot?.smp_staging_data || {} },
+      });
+    }
+  }
+
   return (
-    <div className="space-y-1 text-sm text-slate-800">
-      {currentSummary(plan).map((line, idx) => <p key={idx}>{line}</p>)}
-    </div>
+    <section className="rounded-2xl border border-slate-200 bg-white">
+      <button
+        type="button"
+        className="flex min-h-12 w-full items-center justify-between px-3 text-left"
+        aria-expanded={expanded}
+        onClick={() => (onToggle ? onToggle() : setInternalOpen((v) => !v))}
+      >
+        <span className="text-sm font-bold text-slate-800">Lịch sử công việc</span>
+        <span className="text-sm font-bold text-slate-700">{expanded ? 'Thu lại' : 'Mở ra'}</span>
+      </button>
+
+      {expanded ? (
+        <div className="space-y-3 border-t p-3 text-sm text-slate-800">
+          <select
+            className="min-h-12 w-full rounded-xl border px-3 font-medium"
+            value={selected}
+            onChange={(event) => {
+              setSelected(event.target.value);
+              if (!event.target.value) onReload?.();
+            }}
+          >
+            <option value="">Bấm để chọn</option>
+            {entries.map((entry) => (
+              <option key={entry.id} value={entry.id}>
+                {entry.title}
+              </option>
+            ))}
+          </select>
+
+          {!entries.length ? <p className="text-slate-500 font-medium">Chưa có lần trình được lưu.</p> : null}
+
+          {(picked ? [picked] : entries).map((entry) => {
+            const scsNotes = (entry.review_scs || []).filter((row) => row.admin_note || row.note);
+
+            return (
+              <article key={entry.id} className="space-y-2.5 rounded-xl border border-slate-200 p-3">
+                <h3 className="font-bold text-slate-900">{entry.title}</h3>
+                {entry.submitted_at ? (
+                  <p className="text-xs font-semibold text-slate-500">
+                    {new Date(entry.submitted_at).toLocaleString('vi-VN')}
+                  </p>
+                ) : null}
+
+                {/* Tóm tắt theo Đời */}
+                <div className="space-y-1">
+                  {historySummary(entry).map((line, index) => (
+                    <p key={index} className="text-slate-800 font-medium">
+                      {line}
+                    </p>
+                  ))}
+                </div>
+
+                {/* <2026-10-14T15:35:00+07:00> PHÂN LẬP Ý KIẾN BAN QUẢN TRỊ: LOẠI BỎ FALLBACK 'Duyệt', HIỂN THỊ CHÍNH XÁC 'Chưa có ý kiến.' NẾU ĐANG CHỜ DUYỆT */}
+                <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-3 space-y-1">
+                  <p className="font-bold text-indigo-950">
+                    Ý kiến ban quản trị: <span className="font-black text-indigo-900">{entry.admin_note || 'Chưa có ý kiến.'}</span>
+                  </p>
+
+                  {scsNotes.map((row, index) => (
+                    <p key={index} className="text-sm font-bold text-indigo-900">
+                      {row.depth != null ? `Đời ${row.depth}: ` : ''}
+                      <span className="font-black">{row.admin_note || row.note}</span>
+                    </p>
+                  ))}
+                </div>
+
+                {/* Nút Xem lại snapshot */}
+                <button
+                  type="button"
+                  disabled={!previewSnapshot(entry)}
+                  className="min-h-12 rounded-xl border border-slate-300 bg-white px-4 font-bold text-slate-800 hover:bg-slate-50 disabled:opacity-40 transition-colors"
+                  onClick={() => showEntry(entry)}
+                >
+                  Xem lại
+                </button>
+
+                {!previewSnapshot(entry) ? (
+                  <p className="text-xs text-slate-500">Lần trình này chưa có snapshot được lưu để xem lại.</p>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {preview ? (
+        <MfoHistoryPreview snapshot={preview.snapshot} title={preview.title} onClose={() => setPreview(null)} />
+      ) : null}
+    </section>
   );
 }

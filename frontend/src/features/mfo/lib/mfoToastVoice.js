@@ -1,11 +1,19 @@
 /**
  * PATH       : frontend/src/features/mfo/lib/mfoToastVoice.js
+ * DATETIME   : 2026-10-13T19:41:00+07:00
+ * VERSION    : 3.2.0-REUSE-REACT-ALARM
+ * DESCRIPTION: Giữ exports legacy; chỉ enqueue, renderer/TTS ở MfoAlarmOverlay.
+ * RULE       : Q1 giữ UI/API ngoài alarm; Q2 metadata và chú thích thời gian.
+ */
+/**
+ * PATH       : frontend/src/features/mfo/lib/mfoToastVoice.js
  * DATETIME   : 2026-10-10T07:40:00+07:00
  * VERSION    : 1.0.0-ELDER-TOAST-VOICE
  * DESCRIPTION: Toast kèm đọc tiếng Việt. Không tự đọc lúc render.
  */
-import { toast } from 'sonner';
+import { enqueueMfoAlarm } from './mfoAlarmStore.js';
 
+/** <2026-10-13T19:41:00+07:00> Mục đích: Bảo tồn tên hàm legacy; không gọi ở đường say để tránh TTS kép. */
 function speak(text) {
   if (typeof window === 'undefined' || !window.speechSynthesis || !text) return;
   const synth = window.speechSynthesis;
@@ -18,9 +26,9 @@ function speak(text) {
   synth.speak(utterance);
 }
 
+/** <2026-10-13T19:41:00+07:00> Mục đích: Giữ API và giá trị trả về undefined; bỏ Sonner, chỉ gửi dữ liệu tới host React. */
 function say(kind, text) {
-  toast[kind](text);
-  speak(text);
+  enqueueMfoAlarm(text, { kind });
 }
 
 export const mfoToast = {
