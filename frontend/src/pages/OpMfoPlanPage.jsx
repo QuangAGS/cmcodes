@@ -1199,7 +1199,7 @@ export function OpMfoPlanPage() {
             className="min-h-12 flex-1 rounded-2xl bg-indigo-600 px-3 text-sm font-black text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
             onClick={handleSubmitPlan}
           >
-            {busy ? 'Đang gửi...' : isGate2 ? 'Trình tờ khai' : isReadOnly ? 'Đã trình' : 'Trình Khung 5L'}
+            {busy ? 'Đang gửi...' : isGate2 ? 'Trình tờ khai' : isReadOnly ? 'Đã trình' : 'Trình'}
           </button>
         </div>
       </main>

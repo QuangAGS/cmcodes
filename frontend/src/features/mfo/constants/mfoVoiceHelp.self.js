@@ -26,7 +26,7 @@ export const MFO_VOICE_SELF = {
     'Bạn cách người gốc mấy đời theo trực hệ? Không tính vợ chồng, con nuôi, con dâu, con rể, con đỡ đầu. Quá bốn đời thì đổi người làm gốc gần hơn. Không nhồi đời thứ năm vào tờ khai này.',
 
   whyFive:
-    'Một tờ chỉ năm dòng để khỏi khai nhầm, khỏi tạo hai lần một người. Muốn sâu thêm thì làm tờ mới, lấy người dòng cuối làm gốc.',
+    'Năm ô tượng trưng cho năm đời mà bác có thể bổ sung thông tin còn thiếu bằng cách bấm vào một trong năm ô để thực hiện theo chỉ dẫn. Nhánh phả hệ sẽ hiện ra để bác có thể xem và thực hiện đúng ý định của mình.',
 
   line0: 'Hãy chọn một người đã có trong sổ Họ làm gốc.',
 

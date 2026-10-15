@@ -232,11 +232,11 @@ export function returnResultForRevision(id, body = {}) {
 }
 
 /**
- * <2026-10-13T17:07:00+07:00>
- * Mục đích: Không duyệt cửa 2 gọi /result/reject; giữ tên hàm public hiện có.
+ * <2026-10-15T06:55:00+07:00>
+ * Mục đích: Không duyệt cửa 2 gọi /result/terminate. Giữ tên hàm để admin không đổi chỗ gọi.
  */
 export function rejectResult(id, body = {}) {
-  return apiClient.post(`/mfo/plans/${id}/result/reject`, body);
+  return apiClient.post(`/mfo/plans/${id}/result/terminate`, body);
 }
 
 /**

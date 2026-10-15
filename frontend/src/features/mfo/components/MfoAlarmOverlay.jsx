@@ -186,8 +186,15 @@ export default function MfoAlarmOverlay({
           </p>
         </div>
 
-        {/* FOOTER: NÚT ĐÓNG CHUẨN ELDER (MIN-HEIGHT 52PX) */}
-        <button
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => speakTextForEU(message)}
+            className="min-h-[52px] flex-1 rounded-2xl border border-slate-300 bg-white font-black text-base text-slate-800"
+          >
+            Nghe lại
+          </button>
+          <button
           ref={closeButtonRef}
           type="button"
           onClick={() => {
@@ -196,10 +203,11 @@ export default function MfoAlarmOverlay({
             }
             onClose?.();
           }}
-          className={`min-h-[52px] shrink-0 w-full rounded-2xl font-black text-base uppercase tracking-wider transition-all active:scale-[0.98] outline-none focus:ring-4 ${config.ringColor} ${config.btnBg}`}
+          className={`min-h-[52px] flex-1 rounded-2xl font-black text-base uppercase tracking-wider transition-all active:scale-[0.98] outline-none focus:ring-4 ${config.ringColor} ${config.btnBg}`}
         >
           Đóng
         </button>
+        </div>
       </div>
     </div>,
     document.body

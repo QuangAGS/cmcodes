@@ -100,12 +100,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
       }
 
       setPlans(list);
-
-      if (list.length > 0) {
-        setSelectedTicketId((prev) => prev || list[0].id || list[0].ticket_id);
-      } else {
-        setSelectedTicketId('');
-      }
+      setSelectedTicketId('');
     } catch (error) {
       console.error('[MY_MFO_PLANS_LOAD_ERROR]', error);
       setAlarm(toMfoUserMessage(error));
