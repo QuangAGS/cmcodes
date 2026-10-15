@@ -593,9 +593,21 @@ export function OpMfoPlanPage() {
     }
     if (relationPicked.length) {
       setNodes((prev) => prev.map((node) => relationPicked.includes(node.id) ? { ...node, data: { ...node.data, parentUnionKey: newUnionId } } : node));
-      requestAnimationFrame(() => requestAnimationFrame(() => {
-        setEdges((prev) => prev.map((edge) => relationPicked.includes(edge.target) && edge.source === targetNodeId ? { ...edge, sourceHandle: `union:${newUnionId}:children`, style: { stroke: '#6366f1', strokeWidth: 2 } } : edge));
-      }));
+      setActiveUnionByTreeId((old) => ({ ...old, [targetTreeId || targetNodeId]: newUnionId }));
+      window.setTimeout(() => {
+        setEdges((prev) => {
+          const kept = prev.filter((edge) => !(relationPicked.includes(edge.target) && edge.source === targetNodeId));
+          const moved = relationPicked.map((childId) => ({
+            id: `edge-${targetNodeId}-${childId}-${newUnionId}`,
+            type: 'smoothstep',
+            source: targetNodeId,
+            target: childId,
+            sourceHandle: `union:${newUnionId}:children`,
+            style: { stroke: '#6366f1', strokeWidth: 2 },
+          }));
+          return [...kept, ...moved];
+        });
+      }, 120);
     }
     mfoToast.success(`Đã bổ sung cụm hôn phối lần thứ ${chosenOrder}.`);
     setShowSpouseOrderModal(false);

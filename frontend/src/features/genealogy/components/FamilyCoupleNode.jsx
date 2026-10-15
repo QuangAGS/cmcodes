@@ -199,14 +199,15 @@ export default function FamilyCoupleNode({ id, data }) {
       />
 
       {/* Handle Đáy 78% (Tím chàm - Con thuộc Tab Hôn phối active) */}
-      {activeTab?.unionId ? (
+      {tabs.map((tab) => tab?.unionId ? (
         <Handle
-          id={'union:' + activeTab.unionId + ':children'}
+          key={tab.unionId}
+          id={'union:' + tab.unionId + ':children'}
           type="source"
           position={Position.Bottom}
-          className="!left-[78%] !h-2.5 !w-2.5 !border-0 !bg-indigo-500"
+          className={tab.unionId === (activeTab && activeTab.unionId) ? '!left-[78%] !h-2.5 !w-2.5 !border-0 !bg-indigo-500' : '!left-[78%] !h-2.5 !w-2.5 !border-0 !opacity-0'}
         />
-      ) : null}
+      ) : null)}
 
       {}
       <div className="flex items-start gap-2">
