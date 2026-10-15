@@ -9,6 +9,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext.jsx';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
+import AudioHelpButton from '../features/elder-doctrine/components/AudioHelpButton.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
 import { resolveFooterNav } from '../lib/resolveFooterNav.js';
 import MemberSearchSheet from '../features/member/components/MemberSearchSheet.jsx';
@@ -56,6 +57,9 @@ export default function OpMemberSearchPage() {
   return (
     <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-slate-50">
       <TenantHeader tenant={tenant} subtitle="Tìm người trên sổ" />
+      <div className="px-4 pt-3">
+        <AudioHelpButton text="Tìm đúng người trên sổ rồi chọn." label="Nghe" />
+      </div>
       <main className="flex flex-1 flex-col gap-4 px-4 py-4 pb-28">
         <p className="text-base font-black text-slate-800">{spec.title}</p>
 

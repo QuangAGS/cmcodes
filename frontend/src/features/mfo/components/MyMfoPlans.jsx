@@ -40,6 +40,7 @@ import {
 import { diffDraftAgainstInit } from '../lib/mfoDiffEngine.js';
 import MfoHistoryChain, { stageName, historySteps, stepSummary, currentSummary } from './MfoHistoryChain.jsx';
 import { toMfoUserMessage } from '../constants/mfoUserErrors.js';
+import AudioHelpButton from '../../elder-doctrine/components/AudioHelpButton.jsx';
 
 function getSingleThreadOptionLabel(plan) {
   if (!plan) return '';
@@ -292,23 +293,10 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
 
   return (
     <div className="flex flex-col gap-3 font-sans">
-      <h2 className="text-base font-black text-slate-800 -mb-1">
-        Nhánh phả hệ của tôi
-      </h2>
-
-      {isPending && (
-        <div className="flex items-start gap-2.5 rounded-3xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold text-amber-950 shadow-sm">
-          <AlertTriangle className="h-5 w-5 shrink-0 text-amber-600 mt-0.5" />
-          <div className="leading-relaxed space-y-1">
-            <p className="font-extrabold text-amber-950">
-              Thông báo: Tờ khai đang chờ thẩm định.
-            </p>
-            <p className="font-medium text-amber-900">
-              Trong thời gian chờ, bác chỉ có thể xem lại lịch sử công việc.
-            </p>
-          </div>
-        </div>
-      )}
+      <div className="flex items-center justify-between gap-2">
+        <h2 className="text-base font-black text-slate-800">Hồ sơ của tôi</h2>
+        <AudioHelpButton text="Đây là Hồ sơ của bác cần giải quyết theo 2 lần trình. Lần trình 1 thể hiện ý định như: thêm con, quan hệ vợ chồng, khai khuyết danh vào sơ đồ Nhánh phả hệ 5 đời hiện có. Lần trình thứ hai đòi hỏi điền thông tin cụ thể vào Tờ khai theo ý định đã được duyệt. Bác không thể mở hồ sơ mới khi còn hồ sơ chưa hoàn tất." label="Nghe" />
+      </div>
 
       {isRejected && (
         <div className="flex items-start gap-3 rounded-3xl border-2 border-rose-300 bg-rose-50/90 p-4 text-xs text-rose-950 shadow-md">
@@ -338,7 +326,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
       <div className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm space-y-3">
         <div className="flex items-center justify-between border-b border-slate-100 pb-2">
           <label className="block text-xs font-black text-slate-800">
-            Nhánh phả hệ và Tờ khai:
+            Hồ sơ của tôi
           </label>
           <button
             type="button"
@@ -390,14 +378,13 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
             {currentPlan && (
               <div className="mt-3 flex flex-col gap-3 text-xs">
                 <section className="rounded-2xl border border-slate-200 bg-white overflow-hidden">
-                  <button
-                    type="button"
-                    className="flex min-h-11 w-full items-center justify-between px-3.5 text-left bg-slate-50 hover:bg-slate-100 transition-colors"
-                    onClick={() => setOpenNow((v) => !v)}
-                  >
-                    <span className="font-black uppercase text-[10px] text-slate-700">Nội dung hiện tại</span>
-                    <span className="text-xs font-bold text-slate-700">{openNow ? 'Thu lại' : 'Mở ra'}</span>
-                  </button>
+                  <div className="flex min-h-11 items-center justify-between gap-2 bg-slate-50 px-3.5">
+                    <button type="button" className="font-black uppercase text-[10px] text-slate-700" onClick={() => setOpenNow((v) => !v)}>Nội dung hiện tại</button>
+                    <div className="flex items-center gap-2">
+                      <AudioHelpButton text={[`Trạng thái: ${stageName(viewPlan)}`, ...currentSummary(viewPlan)].join('. ')} label="Nghe" />
+                      <button type="button" className="text-xs font-bold text-slate-700" onClick={() => setOpenNow((v) => !v)}>{openNow ? 'Thu lại' : 'Mở ra'}</button>
+                    </div>
+                  </div>
 
                   {openNow ? (
                     <div className="space-y-2 border-t border-slate-100 px-3.5 py-3 bg-white">

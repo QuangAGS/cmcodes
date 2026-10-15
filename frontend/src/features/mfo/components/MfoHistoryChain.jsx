@@ -14,6 +14,7 @@ import { diffDraftAgainstInit } from '../lib/mfoDiffEngine.js';
 import { useEffect, useState } from 'react';
 import { historyEntries, historySummary, previewSnapshot } from '../lib/mfoHistory.js';
 import MfoHistoryPreview from './MfoHistoryPreview.jsx';
+import AudioHelpButton from '../../elder-doctrine/components/AudioHelpButton.jsx';
 
 /**
  * <2026-10-12T08:25:00+07:00>
@@ -206,6 +207,7 @@ export default function MfoHistoryChain({ plan, open, onToggle, onReload }) {
 
                 {/* Tóm tắt theo Đời */}
                 <div className="space-y-1">
+                  <AudioHelpButton text={historySummary(entry).join('. ')} label="Nghe" />
                   {historySummary(entry).map((line, index) => (
                     <p key={index} className="text-slate-800 font-medium">
                       {line}

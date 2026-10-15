@@ -191,6 +191,11 @@ export function OpMfoPlanPage() {
   }, [proposalStatus, profileFlags.result_ok]);
 
   const [showSpouseOrderModal, setShowSpouseOrderModal] = useState(false);
+  const [relationMode, setRelationMode] = useState('spouse');
+  const [relationCouple, setRelationCouple] = useState('unknown');
+  const [relationSibling, setRelationSibling] = useState(1);
+  const [relationPicked, setRelationPicked] = useState([]);
+  const [relationNewCount, setRelationNewCount] = useState(0);
   const [pendingSpouseNodeInfo, setPendingSpouseNodeInfo] = useState(null);
   const [selectedSpouseOrder, setSelectedSpouseOrder] = useState(1);
 
@@ -510,8 +515,32 @@ export function OpMfoPlanPage() {
     }
 
     setSelectedSpouseOrder(suggestedOrder);
+    setRelationMode('spouse');
+    setRelationPicked([]);
+    setRelationNewCount(0);
     setPendingSpouseNodeInfo(payloadInfo);
     setShowSpouseOrderModal(true);
+  };
+
+
+  const executeAddChildWithRelation = () => {
+    if (!pendingSpouseNodeInfo) return;
+    const targetDepth = Number(pendingSpouseNodeInfo.depth);
+    const targetNodeId = pendingSpouseNodeInfo.nodeId;
+    const childDepth = targetDepth + 1;
+    if (childDepth > 4) { mfoToast.error('Khung chỉ có năm đời.'); return; }
+    const parentNode = nodes.find((n) => n.id === targetNodeId);
+    const newChildId = `draft-child-${Date.now()}`;
+    const known = relationCouple && relationCouple !== 'unknown';
+    const newChildNode = {
+      id: newChildId, type: 'familyCouple', position: { x: (parentNode?.position?.x ?? 40) + 30, y: childDepth * 310 }, style: { width: 240 },
+      data: { id: newChildId, treeId: newChildId, depth: childDepth, clanName: `Con đời ${childDepth} (Xin tạo)`, partnerName: null, unassignedCount: 0, tabs: [], isAnonymous: false, originSource: 'from_draft_child', parentUnionKey: relationCouple || 'unknown', siblingSeq: relationSibling || 1, onOpenActionForm: handleOpenActionForm },
+    };
+    const sourceHandle = known ? `union:${relationCouple}:children` : 'owner:unassigned';
+    setNodes((prev) => [...prev, newChildNode]);
+    if (targetNodeId) requestAnimationFrame(() => setEdges((prev) => [...prev, { id: `edge-${targetNodeId}-${newChildId}`, type: 'smoothstep', source: targetNodeId, target: newChildId, sourceHandle, style: known ? { stroke: '#6366f1', strokeWidth: 2 } : { stroke: '#f59e0b', strokeWidth: 2, strokeDasharray: '4 4' } }]));
+    setShowSpouseOrderModal(false);
+    setPendingSpouseNodeInfo(null);
   };
 
   const executeAddSpouseWithOrder = () => {
@@ -542,7 +571,7 @@ export function OpMfoPlanPage() {
             ...n,
             data: {
               ...n.data,
-              activeUnionId: n.data?.activeUnionId || newUnionId,
+              activeUnionId: newUnionId,
               tabs: updatedTabs,
               hasPartner: true,
             },
@@ -552,7 +581,23 @@ export function OpMfoPlanPage() {
       })
     );
 
-    mfoToast.success(`Đã bổ sung Cụm Hôn phối (Lần thứ ${chosenOrder}) thành công.`);
+    const parent = nodes.find((n) => n.id === targetNodeId);
+    const childDepth = Number(parent?.data?.depth || 0) + 1;
+    if (childDepth <= 4 && relationNewCount > 0) {
+      const made = Array.from({ length: relationNewCount }, (_, index) => {
+        const id = `draft-child-${Date.now()}-${index}`;
+        return { id, type: 'familyCouple', position: { x: (parent?.position?.x ?? 40) + 30 + index * 40, y: childDepth * 310 }, style: { width: 240 }, data: { id, treeId: id, depth: childDepth, clanName: `Con đời ${childDepth} (Xin tạo)`, partnerName: null, unassignedCount: 0, tabs: [], isAnonymous: false, originSource: 'from_draft_child', parentUnionKey: newUnionId, siblingSeq: index + 1, onOpenActionForm: handleOpenActionForm } };
+      });
+      setNodes((prev) => [...prev, ...made]);
+      requestAnimationFrame(() => requestAnimationFrame(() => setEdges((prev) => [...prev, ...made.map((child) => ({ id: `edge-${targetNodeId}-${child.id}`, type: 'smoothstep', source: targetNodeId, target: child.id, sourceHandle: `union:${newUnionId}:children`, style: { stroke: '#6366f1', strokeWidth: 2 } }))])));
+    }
+    if (relationPicked.length) {
+      setNodes((prev) => prev.map((node) => relationPicked.includes(node.id) ? { ...node, data: { ...node.data, parentUnionKey: newUnionId } } : node));
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        setEdges((prev) => prev.map((edge) => relationPicked.includes(edge.target) && edge.source === targetNodeId ? { ...edge, sourceHandle: `union:${newUnionId}:children`, style: { stroke: '#6366f1', strokeWidth: 2 } } : edge));
+      }));
+    }
+    mfoToast.success(`Đã bổ sung cụm hôn phối lần thứ ${chosenOrder}.`);
     setShowSpouseOrderModal(false);
     setPendingSpouseNodeInfo(null);
   };
@@ -583,6 +628,14 @@ export function OpMfoPlanPage() {
           break;
 
         case 'ADD_CHILD': {
+          const parentForChild = nodes.find((n) => n.id === targetNodeId);
+          const childTabs = Array.isArray(parentForChild?.data?.tabs) ? parentForChild.data.tabs : [];
+          setRelationMode('child');
+          setRelationCouple(parentForChild?.data?.activeUnionId || childTabs[0]?.unionId || 'unknown');
+          setRelationSibling(1);
+          setPendingSpouseNodeInfo(payloadInfo);
+          setShowSpouseOrderModal(true);
+          return;
           const childDepth = targetDepth + 1;
           if (childDepth > 4) {
             mfoToast.error('Khung Tờ trình MFO giới hạn tối đa 5 đời (từ Đời 0 đến Đời 4).');
@@ -790,6 +843,8 @@ export function OpMfoPlanPage() {
           depth: Number(n.data?.depth ?? 0),
           label: n.data?.clanName || 'Con nháp',
           link: parentEdge ? parentEdge.sourceHandle : 'owner:unassigned',
+          parent_union_key: n.data?.parentUnionKey || null,
+          sibling_seq: n.data?.siblingSeq || null,
         };
       });
 
@@ -1137,7 +1192,7 @@ export function OpMfoPlanPage() {
         <section className="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm">
           <p className="text-sm font-medium text-slate-800">{MFO_VOICE_SELF.whyFive}</p>
           <div className="mt-2">
-            <AudioHelpButton text={MFO_VOICE_SELF.whyFive} label="Nghe hướng dẫn" />
+            <AudioHelpButton text={MFO_VOICE_SELF.whyFive} label="Nghe" />
           </div>
         </section>
 
@@ -1210,29 +1265,33 @@ export function OpMfoPlanPage() {
             <div className="w-full max-w-[320px] rounded-3xl border border-slate-200 bg-white p-5 shadow-2xl animate-in fade-in zoom-in duration-150">
               <div className="flex items-center gap-2 text-indigo-900 border-b border-slate-100 pb-2 mb-3">
                 <Heart className="h-5 w-5 text-rose-500" />
-                <h3 className="text-sm font-black uppercase tracking-wider">Thứ tự kết hôn Nội tộc</h3>
-              </div>
-
-              <p className="text-xs text-slate-600 leading-relaxed mb-3">
-                Vui lòng chọn <strong>Lần kết hôn thứ mấy</strong> của người thuộc nội tộc trên Node này:
-              </p>
-
-              <label className="block text-xs font-black uppercase text-indigo-900 mb-1">
-                Lần kết hôn thứ:
-              </label>
-              <select
-                className="w-full rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-3 text-sm font-black text-indigo-950 outline-none focus:border-indigo-600 mb-4"
-                value={selectedSpouseOrder}
-                onChange={(e) => setSelectedSpouseOrder(Number(e.target.value))}
-              >
-                {[1, 2, 3, 4, 5].map((ord) => (
-                  <option key={ord} value={ord}>
-                    Lần thứ {ord} {ord === 1 ? '(Lần đầu)' : ''}
-                  </option>
+                <h3 className="text-sm font-black uppercase tracking-wider">{relationMode === 'child' ? 'Thêm con' : 'Thêm vợ hoặc chồng'}</h3>
+            </div>
+            {relationMode === 'spouse' ? (
+              <>
+                <label className="mb-1 block text-xs font-black uppercase text-indigo-900">Lần kết hôn thứ</label>
+                <select className="mb-3 w-full rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-3 text-sm font-black text-indigo-950 outline-none" value={selectedSpouseOrder} onChange={(e) => setSelectedSpouseOrder(Number(e.target.value))}>
+                  {[1, 2, 3, 4, 5].map((ord) => <option key={ord} value={ord}>Lần thứ {ord}</option>)}
+                </select>
+                <p className="mb-1 text-xs font-bold text-slate-700">Sinh ra những ai?</p>
+                {edges.filter((e) => e.source === pendingSpouseNodeInfo?.nodeId).map((e) => nodes.find((n) => n.id === e.target)).filter(Boolean).map((child) => (
+                  <label key={child.id} className="mb-1 flex items-center gap-2 text-sm"><input type="checkbox" checked={relationPicked.includes(child.id)} onChange={(e) => setRelationPicked((old) => e.target.checked ? [...old, child.id] : old.filter((id) => id !== child.id))} />{child.data?.clanName || 'Con trên cây'}</label>
                 ))}
-              </select>
-
-              <div className="flex gap-2">
+                <label className="mt-2 block text-xs font-bold text-slate-700">Thêm con mới
+                  <select className="mt-1 w-full rounded-xl border p-2" value={relationNewCount} onChange={(e) => setRelationNewCount(Number(e.target.value))}><option value={0}>Không thêm</option><option value={1}>Thêm 1 con</option><option value={2}>Thêm 2 con</option></select>
+                </label>
+              </>
+            ) : (
+              <>
+                <label className="mb-1 block text-xs font-black uppercase text-indigo-900">Con của cặp nào</label>
+                <select className="mb-3 w-full rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-3 text-sm font-black text-indigo-950 outline-none" value={relationCouple} onChange={(e) => setRelationCouple(e.target.value)}>
+                  <option value="unknown">Không xác định</option>
+                  {(nodes.find((n) => n.id === pendingSpouseNodeInfo?.nodeId)?.data?.tabs || []).map((tab, index) => <option key={tab.unionId} value={tab.unionId}>Lần {tab.order || index + 1}: {tab.partnerName || 'Chưa rõ'}</option>)}
+                </select>
+                <label className="block text-xs font-bold text-slate-700">Thứ tự anh em<input type="number" min="1" className="mt-1 w-full rounded-xl border p-2" value={relationSibling} onChange={(e) => setRelationSibling(Number(e.target.value || 1))} /></label>
+              </>
+            )}
+            <div className="mt-4 flex gap-2">
                 <button
                   type="button"
                   className="flex-1 rounded-2xl border border-slate-300 py-3 text-xs font-bold text-slate-700 active:bg-slate-100"
@@ -1243,7 +1302,7 @@ export function OpMfoPlanPage() {
                 <button
                   type="button"
                   className="flex-1 rounded-2xl bg-indigo-600 py-3 text-xs font-black text-white shadow-sm active:scale-[0.98]"
-                  onClick={executeAddSpouseWithOrder}
+                  onClick={relationMode === "child" ? executeAddChildWithRelation : executeAddSpouseWithOrder}
                 >
                   Xác nhận
                 </button>

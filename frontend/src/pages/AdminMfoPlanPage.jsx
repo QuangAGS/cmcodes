@@ -48,6 +48,7 @@ import { toMfoUserMessage, MFO_USER_SUCCESS } from '../features/mfo/constants/mf
 import MfoAlarmOverlay from '../features/mfo/components/MfoAlarmOverlay.jsx';
 import { adminGate, canAdminReview } from '../features/mfo/lib/mfoAdminActions.js';
 import MfoHistoryChain, { stepSummary } from '../features/mfo/components/MfoHistoryChain.jsx';
+import MfoReviewForm from '../features/mfo/components/MfoReviewForm.jsx';
 
 function EmptyCoupleNodeReadonly({ data }) {
   const depth = Number.isInteger(Number(data?.depth)) ? Number(data.depth) : 0;
@@ -74,6 +75,31 @@ const nodeTypes = {
   emptyNode: EmptyCoupleNodeReadonly,
 };
 
+function dossierLabel(plan) {
+  const payload = plan?.payload || {};
+  const planOk = Boolean(plan.plan_ok ?? payload.plan_ok);
+  const resultSubmitted = Boolean(plan.result_submitted ?? payload.result_submitted);
+  const resultOk = Boolean(plan.result_ok ?? payload.result_ok);
+  const st = String(plan.status || '').toUpperCase();
+  if (resultOk) return 'Đã ghi sổ';
+  if (planOk) {
+    if (st === 'REJECTED') return 'Tờ khai không được duyệt';
+    if (st === 'NEEDS_REVISION') return 'Tờ khai cần sửa';
+    if (resultSubmitted) return 'Tờ khai chờ phê duyệt';
+    return 'Tờ khai đang soạn';
+  }
+  if (st === 'REJECTED') return 'Nhánh phả hệ không được duyệt';
+  if (st === 'NEEDS_REVISION') return 'Nhánh phả hệ cần sửa';
+  if (st === 'PENDING' || st === 'UNDER_REVIEW') return 'Nhánh phả hệ chờ phê duyệt';
+  if (st === 'APPROVED') return 'Nhánh phả hệ đã duyệt';
+  return 'Nhánh phả hệ đang soạn';
+}
+
+function dossierKind(plan) {
+  const label = dossierLabel(plan);
+  return label.startsWith('Tờ khai') || label === 'Đã ghi sổ' ? 'Tờ khai' : 'Nhánh phả hệ';
+}
+
 export function AdminMfoPlanPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -84,7 +110,8 @@ export function AdminMfoPlanPage() {
     showBack: true,
   });
 
-  const [queueTab, setQueueTab] = useState('PLAN');
+  const [kind, setKind] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
   const [plans, setPlans] = useState([]);
   const [selectedTicketId, setSelectedTicketId] = useState('');
   const [detail, setDetail] = useState(null);
@@ -134,19 +161,13 @@ export function AdminMfoPlanPage() {
 
   const filteredQueue = useMemo(() => {
     return plans.filter((plan) => {
-      const payload = plan?.payload || {};
-      const planOk = Boolean(plan.plan_ok ?? payload.plan_ok);
-      const resultSubmitted = Boolean(plan.result_submitted ?? payload.result_submitted);
-      const resultOk = Boolean(plan.result_ok ?? payload.result_ok);
-      const st = String(plan.status || '').toUpperCase();
-
-      if (queueTab === 'PLAN') {
-        return !planOk && ['PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION'].includes(st);
-      } else {
-        return planOk && resultSubmitted && !resultOk && ['UNDER_REVIEW', 'PENDING', 'NEEDS_REVISION'].includes(st);
-      }
+      const statusName = dossierLabel(plan);
+      const kindOf = dossierKind(plan);
+      if (kind && kind !== 'Tất cả' && kind !== kindOf) return false;
+      if (statusFilter && statusFilter !== statusName) return false;
+      return String(plan.status || '').toUpperCase() !== 'DRAFT';
     });
-  }, [plans, queueTab]);
+  }, [plans, kind, statusFilter]);
 
   const handleSelectTicketChange = (e) => {
     const val = e.target.value;
@@ -203,7 +224,7 @@ export function AdminMfoPlanPage() {
 
         // <2026-10-14T16:15:00+07:00> VÁ BUG 3: Phân lập Tóm tắt Card 2 chuẩn xác theo Cửa 1 (Khung) hoặc Cửa 2 (Tờ khai smp_staging_data)
         let items = [];
-        if (queueTab === 'RESULT') {
+        if (Boolean(draftData.plan_ok) && Boolean(draftData.result_submitted)) {
           const resultSummaryLines = stepSummary(draftData, 'result-review');
           items = [0, 1, 2, 3, 4].map((depth) => {
             const rawLine = resultSummaryLines[depth] || `Đời ${depth}: Không thêm gì.`;
@@ -230,7 +251,7 @@ export function AdminMfoPlanPage() {
         const initialDecisions = {};
         const initialNotes = {};
         items.forEach((it) => {
-          initialDecisions[it.item_id] = 'ACCEPT';
+          initialDecisions[it.item_id] = 'REJECT';
           initialNotes[it.item_id] = '';
         });
 
@@ -248,9 +269,9 @@ export function AdminMfoPlanPage() {
     }
 
     void hydrateAdminReview();
-  }, [selectedTicketId, queueTab]);
+  }, [selectedTicketId, kind]);
 
-  const selectedGate = queueTab;
+  const selectedGate = Boolean(detail?.plan_ok) && Boolean(detail?.result_submitted) ? 'RESULT' : 'PLAN';
   const selectedReviewable = Boolean(detail?.ticket_id === selectedTicketId);
 
   function beginReviewAction(gate, action, requiresReason = false) {
@@ -274,9 +295,8 @@ export function AdminMfoPlanPage() {
   }, [scsItems, itemDecisions]);
 
   const canApprovePlan = useMemo(() => {
-    const gen = Number(grantedGeneration);
-    return isAllAccepted && Number.isInteger(gen) && gen >= 1;
-  }, [isAllAccepted, grantedGeneration]);
+    return isAllAccepted && String(globalAdminNote || '').trim().length > 0;
+  }, [isAllAccepted, globalAdminNote]);
 
   const handleDecisionToggle = (itemId, decision) => {
     setItemDecisions((prev) => ({ ...prev, [itemId]: decision }));
@@ -390,23 +410,7 @@ export function AdminMfoPlanPage() {
     const resultOk = Boolean(t.result_ok ?? payload.result_ok);
     const st = String(t.status || '').toUpperCase();
 
-    let statusLabel = 'đang soạn';
-    if (resultOk) {
-      statusLabel = 'Đã ghi sổ';
-    } else if (planOk) {
-      if (st === 'REJECTED') statusLabel = 'Tờ khai không được duyệt';
-      else if (st === 'NEEDS_REVISION') statusLabel = 'Tờ khai cần sửa';
-      else if (resultSubmitted) statusLabel = 'Tờ khai chờ duyệt';
-      else statusLabel = 'Tờ khai đang soạn';
-    } else {
-      if (st === 'REJECTED') statusLabel = 'Nhánh phả hệ không được duyệt';
-      else if (st === 'NEEDS_REVISION') statusLabel = 'Nhánh phả hệ cần sửa';
-      else if (st === 'PENDING' || st === 'UNDER_REVIEW') statusLabel = 'Nhánh phả hệ chờ phê duyệt';
-      else statusLabel = 'Nhánh phả hệ đang soạn';
-    }
-
-    const objectPrefix = planOk ? 'Tờ khai' : 'Nhánh phả hệ';
-    return `${dateStr} - ${objectPrefix} [${statusLabel}]`;
+    return `${dateStr} - ${dossierLabel(t)}`;
   };
 
   return (
@@ -424,34 +428,29 @@ export function AdminMfoPlanPage() {
 
         {/* TAB LOẠI HÀNG ĐỢI */}
         <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            className={`min-h-12 rounded-2xl text-xs font-black uppercase tracking-wider transition-all ${
-              queueTab === 'PLAN'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'border border-slate-200 bg-white text-slate-600'
-            }`}
-            onClick={() => {
-              setQueueTab('PLAN');
-              setSelectedTicketId('');
-            }}
-          >
-            Khung đề xuất (PLAN - Gate 1)
-          </button>
-          <button
-            type="button"
-            className={`min-h-12 rounded-2xl text-xs font-black uppercase tracking-wider transition-all ${
-              queueTab === 'RESULT'
-                ? 'bg-indigo-600 text-white shadow-md'
-                : 'border border-slate-200 bg-white text-slate-600'
-            }`}
-            onClick={() => {
-              setQueueTab('RESULT');
-              setSelectedTicketId('');
-            }}
-          >
-            Nghiệm thu (RESULT - Gate 2)
-          </button>
+          <label className="text-sm font-bold text-slate-700">Loại hồ sơ
+            <select className="mt-1 min-h-12 w-full rounded-2xl border px-3" value={kind} onChange={(e) => { setKind(e.target.value); setSelectedTicketId(''); }}>
+              <option value="">Bấm để chọn</option>
+              <option>Tất cả</option>
+              <option>Nhánh phả hệ</option>
+              <option>Tờ khai</option>
+            </select>
+          </label>
+          <label className="text-sm font-bold text-slate-700">Trạng thái
+            <select className="mt-1 min-h-12 w-full rounded-2xl border px-3" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setSelectedTicketId(''); }}>
+              <option value="">Bấm để chọn</option>
+              <option>Nhánh phả hệ đang soạn</option>
+              <option>Nhánh phả hệ chờ phê duyệt</option>
+              <option>Nhánh phả hệ cần sửa</option>
+              <option>Nhánh phả hệ đã duyệt</option>
+              <option>Nhánh phả hệ không được duyệt</option>
+              <option>Tờ khai đang soạn</option>
+              <option>Tờ khai chờ phê duyệt</option>
+              <option>Tờ khai cần sửa</option>
+              <option>Tờ khai không được duyệt</option>
+              <option>Đã ghi sổ</option>
+            </select>
+          </label>
         </div>
 
         {/* DROPDOWN DANH SÁCH CHỜ DUYỆT */}
@@ -465,7 +464,7 @@ export function AdminMfoPlanPage() {
             value={selectedTicketId}
             onChange={handleSelectTicketChange}
           >
-            <option value="">-- Bấm để chọn hồ sơ --</option>
+            <option value="">Bấm để chọn</option>
             {filteredQueue.map((t) => (
               <option key={t.id || t.ticket_id} value={t.id || t.ticket_id}>
                 {formatTicketLabel(t)}
@@ -480,17 +479,6 @@ export function AdminMfoPlanPage() {
           )}
         </section>
 
-        {selectedTicketId ? (
-          <MfoHistoryChain
-            key={selectedTicketId}
-            plan={
-              detail?.ticket_id === selectedTicketId
-                ? detail
-                : plans.find((p) => (p.id || p.ticket_id) === selectedTicketId)
-            }
-            onReload={loadQueue}
-          />
-        ) : null}
 
         {loading && (
           <div className="flex items-center justify-center gap-2 p-6 text-xs font-bold text-indigo-600">
@@ -512,14 +500,10 @@ export function AdminMfoPlanPage() {
                 <div className="flex items-center gap-2 text-indigo-900">
                   <Eye className="h-4 w-4 text-indigo-600" />
                   <span className="text-xs font-black uppercase tracking-wider">
-                    Card 1: Sơ đồ Đồ họa Canvas 5L
+                    Sơ đồ nhánh phả hệ
                   </span>
                 </div>
-                {openCard1Canvas ? (
-                  <ChevronUp className="h-4 w-4 text-slate-500" />
-                ) : (
-                  <ChevronDown className="h-4 w-4 text-slate-500" />
-                )}
+                <span className="text-xs font-bold text-slate-700">{openCard1Canvas ? 'Thu lại' : 'Mở ra'}</span>
               </button>
 
               {openCard1Canvas && (
@@ -555,97 +539,43 @@ export function AdminMfoPlanPage() {
               )}
             </section>
 
-            {/* CARD 2: BẢNG TÓM TẮT & BÚT PHÊ TỪNG ĐỜI (SỬ DỤNG TÓM TẮT CHÍNH XÁC THEO CỬA) */}
-            <section className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-              <button
-                type="button"
-                className="flex w-full items-center justify-between p-3.5 bg-slate-50 border-b border-slate-200 hover:bg-slate-100/80 transition-all"
-                onClick={() => setOpenCard2Summary((prev) => !prev)}
-              >
-                <div className="flex items-center gap-2 text-indigo-900">
-                  <FileText className="h-4 w-4 text-indigo-600" />
-                  <span className="text-xs font-black uppercase tracking-wider">
-                    Card 2: Tóm tắt &amp; Bút phê từng Đời ({scsItems.length} Đời)
-                  </span>
-                </div>
-                {openCard2Summary ? (
-                  <ChevronUp className="h-4 w-4 text-slate-500" />
-                ) : (
-                  <ChevronDown className="h-4 w-4 text-slate-500" />
-                )}
-              </button>
+            <MfoReviewForm
+              items={scsItems}
+              delta={detail?.canvas_delta || detail?.payload?.canvas_delta || {}}
+              nodes={nodes}
+              staging={detail?.smp_staging_data || detail?.payload?.smp_staging_data || {}}
+              decisions={itemDecisions}
+              notes={itemNotes}
+              overall={globalAdminNote}
+              onDecision={handleDecisionToggle}
+              onNote={handleNoteChange}
+              onOverall={setGlobalAdminNote}
+              canApprove={canApprovePlan}
+              busy={busyAction !== null}
+              onApprove={selectedGate === 'RESULT' ? handleApproveResultGate2 : handleApprovePlanGate1}
+              onReturn={selectedGate === 'RESULT' ? handleReturnResultGate2 : handleReturnPlanGate1}
+              onReject={handleRejectResultGate2}
+              showReject={selectedGate === 'RESULT'}
+            />
 
-              {openCard2Summary && (
-                <div className="p-3.5 flex flex-col gap-3">
-                  {scsItems.map((it, idx) => {
-                    const decision = itemDecisions[it.item_id] || 'ACCEPT';
-                    return (
-                      <div
-                        key={it.item_id || idx}
-                        className={`rounded-2xl border p-3 text-xs transition-all ${
-                          decision === 'ACCEPT'
-                            ? 'border-emerald-200 bg-emerald-50/40'
-                            : 'border-rose-200 bg-rose-50/40'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between gap-2 mb-2">
-                          <div className="flex-1">
-                            <span className="inline-block rounded-md bg-slate-900 px-2 py-0.5 text-[10px] font-black text-white mr-1.5">
-                              {it.title || `Đời ${it.depth ?? idx}`}
-                            </span>
-                            <span className="font-extrabold text-slate-900 leading-relaxed">
-                              {it.summary_text}
-                            </span>
-                          </div>
-
-                          <div className="flex items-center gap-1 shrink-0">
-                            <button
-                              type="button"
-                              className={`flex items-center gap-1 rounded-xl px-2.5 py-1 text-[10px] font-black transition-all ${
-                                decision === 'ACCEPT'
-                                  ? 'bg-emerald-600 text-white shadow-sm'
-                                  : 'bg-white text-slate-500 border border-slate-200'
-                              }`}
-                              onClick={() => handleDecisionToggle(it.item_id, 'ACCEPT')}
-                            >
-                              <CheckCircle className="h-3 w-3" />
-                              Duyệt
-                            </button>
-                            <button
-                              type="button"
-                              className={`flex items-center gap-1 rounded-xl px-2.5 py-1 text-[10px] font-black transition-all ${
-                                decision === 'REJECT'
-                                  ? 'bg-rose-600 text-white shadow-sm'
-                                  : 'bg-white text-slate-500 border border-slate-200'
-                              }`}
-                              onClick={() => handleDecisionToggle(it.item_id, 'REJECT')}
-                            >
-                              <XCircle className="h-3 w-3" />
-                              Không
-                            </button>
-                          </div>
-                        </div>
-
-                        <input
-                          type="text"
-                          placeholder="Bút phê riêng cho đời này (nếu có yêu cầu chỉnh sửa)..."
-                          className="w-full rounded-xl border border-slate-200 bg-white p-2 text-xs font-medium outline-none focus:border-indigo-500"
-                          value={itemNotes[it.item_id] || ''}
-                          onChange={(e) => handleNoteChange(it.item_id, e.target.value)}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
+        {selectedTicketId ? (
+          <MfoHistoryChain
+            key={selectedTicketId}
+            plan={
+              detail?.ticket_id === selectedTicketId
+                ? detail
+                : plans.find((p) => (p.id || p.ticket_id) === selectedTicketId)
+            }
+            onReload={loadQueue}
+          />
+        ) : null}
 
             {/* CẤU HÌNH ĐỜI TUYỆT ĐỐI (CHỈ BẮT BUỘC Ở GATE 1) */}
             {selectedGate === 'PLAN' && (
               <section className="rounded-3xl border border-amber-200 bg-amber-50/50 p-3.5 shadow-sm">
                 <h2 className="text-xs font-black uppercase tracking-wider text-amber-950 mb-2 flex items-center gap-1.5">
                   <ShieldCheck className="h-4 w-4 text-amber-600" />
-                  <span>Đời tuyệt đối gia tộc (bắt buộc để tem plan_ok)</span>
+                  <span>Đời gốc trên sổ</span>
                 </h2>
                 <input
                   type="number"
@@ -658,74 +588,6 @@ export function AdminMfoPlanPage() {
               </section>
             )}
 
-            {/* BÚT PHÊ CHUNG & CÁC NÚT THAO TÁC PHÂN LẬP THEO CỬA */}
-            <section className="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm space-y-3">
-              <h2 className="text-xs font-black uppercase tracking-wider text-slate-800">
-                Bút phê tổng thể Admin
-              </h2>
-              <textarea
-                rows={2}
-                placeholder="Bút phê tổng thể gửi tới Founder..."
-                className="w-full rounded-2xl border border-slate-200 p-3 text-xs font-medium outline-none focus:border-indigo-500"
-                value={globalAdminNote}
-                onChange={(e) => setGlobalAdminNote(e.target.value)}
-              />
-
-              <div className="flex flex-col gap-2 pt-1">
-                {selectedGate === 'PLAN' ? (
-                  <>
-                    <button
-                      type="button"
-                      disabled={!selectedReviewable || !canApprovePlan || busyAction !== null}
-                      className="min-h-12 w-full rounded-2xl bg-indigo-600 px-4 text-xs font-black uppercase tracking-wider text-white shadow-md disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
-                      onClick={handleApprovePlanGate1}
-                    >
-                      {busyAction === 'APPROVE_PLAN' ? 'Đang xử lý...' : 'Duyệt nhánh phả hệ'}
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={!selectedReviewable || busyAction !== null}
-                      className="min-h-12 w-full flex items-center justify-center gap-1.5 rounded-2xl border-2 border-amber-400 bg-amber-50 px-4 text-xs font-black uppercase tracking-wider text-amber-950 hover:bg-amber-100 active:scale-[0.98]"
-                      onClick={handleReturnPlanGate1}
-                    >
-                      <RotateCcw className="h-4 w-4 text-amber-600" />
-                      <span>{busyAction === 'RETURN_PLAN' ? 'Đang xử lý...' : 'Trả sửa'}</span>
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      disabled={!selectedReviewable || busyAction !== null}
-                      className="min-h-12 w-full rounded-2xl bg-indigo-600 px-4 text-xs font-black uppercase tracking-wider text-white shadow-md disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
-                      onClick={handleApproveResultGate2}
-                    >
-                      {busyAction === 'APPROVE_RESULT' ? 'Đang ghi Sổ...' : 'Duyệt và ghi sổ'}
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={!selectedReviewable || busyAction !== null}
-                      className="min-h-12 w-full flex items-center justify-center gap-1.5 rounded-2xl border-2 border-amber-400 bg-amber-50 px-4 text-xs font-black uppercase tracking-wider text-amber-950 hover:bg-amber-100 active:scale-[0.98]"
-                      onClick={handleReturnResultGate2}
-                    >
-                      <RotateCcw className="h-4 w-4 text-amber-600" />
-                      <span>{busyAction === 'RETURN_RESULT' ? 'Đang xử lý...' : 'Trả sửa'}</span>
-                    </button>
-
-                    <button
-                      type="button"
-                      disabled={!selectedReviewable || busyAction !== null}
-                      className="min-h-10 w-full rounded-2xl border border-rose-200 bg-rose-50 text-xs font-bold text-rose-700 hover:bg-rose-100 active:scale-[0.98]"
-                      onClick={handleRejectResultGate2}
-                    >
-                      {busyAction === 'REJECT_RESULT' ? 'Đang xử lý...' : 'Không duyệt'}
-                    </button>
-                  </>
-                )}
-              </div>
-            </section>
           </div>
         )}
 

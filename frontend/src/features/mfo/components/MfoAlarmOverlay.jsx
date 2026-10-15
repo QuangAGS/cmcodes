@@ -15,6 +15,7 @@ import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { XCircle, AlertTriangle, CheckCircle2, Info } from 'lucide-react';
 import { enqueueMfoAlarm, claimMfoAlarmSpeech } from '../lib/mfoAlarmStore.js';
+import { MFO_ICON, MFO_ICON_CLASS } from '../constants/mfoIcons.js';
 
 // <2026-10-14T21:55:00+07:00> Hàm trợ lý phát giọng đọc an toàn cho Web Speech API
 function speakTextForEU(textToSpeak) {
@@ -190,9 +191,10 @@ export default function MfoAlarmOverlay({
           <button
             type="button"
             onClick={() => speakTextForEU(message)}
-            className="min-h-[52px] flex-1 rounded-2xl border border-slate-300 bg-white font-black text-base text-slate-800"
+            className="min-h-[52px] flex-1 inline-flex items-center justify-center gap-2 rounded-2xl border border-slate-300 bg-white font-black text-base text-slate-800"
           >
-            Nghe lại
+            <MFO_ICON.hear.Icon className={MFO_ICON_CLASS} />
+            {MFO_ICON.hear.label}
           </button>
           <button
           ref={closeButtonRef}

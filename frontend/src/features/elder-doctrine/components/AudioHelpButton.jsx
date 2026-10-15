@@ -1,5 +1,5 @@
 /**
- * PATH       : src/features/a11y/tts/AudioHelpButton.jsx
+ * PATH       : src/features/elder-doctrine/components/AudioHelpButton.jsx
  * DATETIME   : 2026-05-11T00:00:00+07:00
  * VERSION    : 1.0.0
  * DESCRIPTION:
@@ -22,7 +22,7 @@ import { useTts } from  '../../../shared/hooks/useTts';
  */
 export default function AudioHelpButton({
   text,
-  label = 'Nghe hướng dẫn',
+  label = 'Nghe',
   stopLabel = 'Dừng đọc',
   className = '',
   variant = 'soft',
