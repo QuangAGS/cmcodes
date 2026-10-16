@@ -1,10 +1,16 @@
 /**
  * PATH       : frontend/src/pages/AdminMfoPlanPage.jsx
- * DATETIME   : 2026-10-14T16:15:00+07:00
- * VERSION    : 3.1.0-FIX-BUG3-CARD2-STAGING-SUMMARY
+ * DATETIME   : 2026-10-16T09:52:00+07:00
+ * VERSION    : 3.1.2-REVIEW-ONLY-SUBMITTED
  * DESCRIPTION:
  * - Vá dứt điểm Bug 3: Card 2 ở Cửa 2 (RESULT) tự động chuyển sang đọc Tóm tắt Tờ khai từ smp_staging_data (hiển thị rõ tên vợ/chồng, con đã kê khai).
  * - Xác nhận Event nút "Duyệt và ghi sổ" thực thi chính xác API Cửa 2 approveResult() qua SRPF Engine mfoResultProcess.
+ * - Bộ lọc chỉ còn trạng thái, có Tất cả.
+ *
+ * CHANGE LOG:
+ * - 2026-10-14T16:15:00+07:00 | 3.1.0 | Card 2 cửa 2 đọc tóm tắt từ staging.
+ * - 2026-10-16T09:31:00+07:00 | 3.1.1 | Bỏ Loại hồ sơ. Trạng thái có Tất cả.
+ * - 2026-10-16T09:52:00+07:00 | 3.1.2 | Nhãn có giờ. Chỉ thẩm định tờ đã trình.
  * RULE COMPLIANCE:
  * - Q1 (Bảo tồn): Bảo toàn 100% logic Canvas ReactFlow, Bút phê từng Đời, History Chain, Filter Queue Cửa 1/2 và API handlers.
  * - Q2 (Code Format): Đầy đủ docstring header và chú thích thời gian <2026-10-14T16:15:00+07:00> từng khối logic.
@@ -159,15 +165,15 @@ export function AdminMfoPlanPage() {
     void loadQueue();
   }, []);
 
+  // <2026-10-16T09:30:00+07:00> Mục đích: Lọc theo một trạng thái. Lý do: loại hồ sơ đã nằm trong tên trạng thái, lọc chéo bị rỗng.
   const filteredQueue = useMemo(() => {
+    if (!statusFilter) return [];
     return plans.filter((plan) => {
       const statusName = dossierLabel(plan);
-      const kindOf = dossierKind(plan);
-      if (kind && kind !== 'Tất cả' && kind !== kindOf) return false;
-      if (statusFilter && statusFilter !== statusName) return false;
+      if (statusFilter !== 'Tất cả' && statusFilter !== statusName) return false;
       return String(plan.status || '').toUpperCase() !== 'DRAFT';
     });
-  }, [plans, kind, statusFilter]);
+  }, [plans, statusFilter]);
 
   const handleSelectTicketChange = (e) => {
     const val = e.target.value;
@@ -401,16 +407,14 @@ export function AdminMfoPlanPage() {
     }
   };
 
+  // <2026-10-16T09:52:00+07:00> Mục đích: Nhãn có giờ và ngày. Lý do: bản cũ chỉ có ngày, thành 16/10/2026.
   const formatTicketLabel = (t) => {
     const rawDate = t.created_at || t.updated_at;
-    const dateStr = rawDate ? new Date(rawDate).toLocaleDateString('vi-VN') : 'Mới';
-    const payload = t.payload || {};
-    const planOk = Boolean(t.plan_ok ?? payload.plan_ok);
-    const resultSubmitted = Boolean(t.result_submitted ?? payload.result_submitted);
-    const resultOk = Boolean(t.result_ok ?? payload.result_ok);
-    const st = String(t.status || '').toUpperCase();
-
-    return `${dateStr} - ${dossierLabel(t)}`;
+    const when = rawDate ? new Date(rawDate) : null;
+    const timeStr = when ? when.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '';
+    const dateStr = when ? when.toLocaleDateString('vi-VN') : 'Mới';
+    const prefix = timeStr ? `${timeStr} ${dateStr} - ` : '';
+    return `${prefix}${dossierLabel(t)}`;
   };
 
   return (
@@ -427,31 +431,23 @@ export function AdminMfoPlanPage() {
         </section>
 
         {/* TAB LOẠI HÀNG ĐỢI */}
-        <div className="grid grid-cols-2 gap-2">
-          <label className="text-sm font-bold text-slate-700">Loại hồ sơ
-            <select className="mt-1 min-h-12 w-full rounded-2xl border px-3" value={kind} onChange={(e) => { setKind(e.target.value); setSelectedTicketId(''); }}>
-              <option value="">Bấm để chọn</option>
-              <option>Tất cả</option>
-              <option>Nhánh phả hệ</option>
-              <option>Tờ khai</option>
-            </select>
-          </label>
-          <label className="text-sm font-bold text-slate-700">Trạng thái
-            <select className="mt-1 min-h-12 w-full rounded-2xl border px-3" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setSelectedTicketId(''); }}>
-              <option value="">Bấm để chọn</option>
-              <option>Nhánh phả hệ đang soạn</option>
-              <option>Nhánh phả hệ chờ phê duyệt</option>
-              <option>Nhánh phả hệ cần sửa</option>
-              <option>Nhánh phả hệ đã duyệt</option>
-              <option>Nhánh phả hệ không được duyệt</option>
-              <option>Tờ khai đang soạn</option>
-              <option>Tờ khai chờ phê duyệt</option>
-              <option>Tờ khai cần sửa</option>
-              <option>Tờ khai không được duyệt</option>
-              <option>Đã ghi sổ</option>
-            </select>
-          </label>
-        </div>
+        {/* <2026-10-16T09:30:00+07:00> Mục đích: Chỉ một danh sách trạng thái. Lý do: loại hồ sơ trùng với tên trạng thái. */}
+        <label className="text-sm font-bold text-slate-700">Trạng thái
+          <select className="mt-1 min-h-12 w-full rounded-2xl border px-3" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setSelectedTicketId(''); }}>
+            <option value="">Bấm để chọn</option>
+            <option>Tất cả</option>
+            <option>Nhánh phả hệ đang soạn</option>
+            <option>Nhánh phả hệ chờ phê duyệt</option>
+            <option>Nhánh phả hệ cần sửa</option>
+            <option>Nhánh phả hệ đã duyệt</option>
+            <option>Nhánh phả hệ không được duyệt</option>
+            <option>Tờ khai đang soạn</option>
+            <option>Tờ khai chờ phê duyệt</option>
+            <option>Tờ khai cần sửa</option>
+            <option>Tờ khai không được duyệt</option>
+            <option>Đã ghi sổ</option>
+          </select>
+        </label>
 
         {/* DROPDOWN DANH SÁCH CHỜ DUYỆT */}
         <section className="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm">
@@ -474,7 +470,7 @@ export function AdminMfoPlanPage() {
 
           {filteredQueue.length === 0 && (
             <p className="mt-2 text-center text-xs font-semibold text-slate-400">
-              Không có hồ sơ nào đang chờ duyệt trong hàng đợi này.
+              Không có hồ sơ nào ở trạng thái này.
             </p>
           )}
         </section>
@@ -539,6 +535,8 @@ export function AdminMfoPlanPage() {
               )}
             </section>
 
+            {/* <2026-10-16T09:52:00+07:00> Mục đích: Chỉ thẩm định tờ đã trình. Lý do: tờ đang soạn chưa được trình, không được duyệt. */}
+            {['Nhánh phả hệ chờ phê duyệt', 'Tờ khai chờ phê duyệt'].includes(dossierLabel(detail)) && (
             <MfoReviewForm
               items={scsItems}
               delta={detail?.canvas_delta || detail?.payload?.canvas_delta || {}}
@@ -557,6 +555,7 @@ export function AdminMfoPlanPage() {
               onReject={handleRejectResultGate2}
               showReject={selectedGate === 'RESULT'}
             />
+            )}
 
         {selectedTicketId ? (
           <MfoHistoryChain
@@ -571,7 +570,7 @@ export function AdminMfoPlanPage() {
         ) : null}
 
             {/* CẤU HÌNH ĐỜI TUYỆT ĐỐI (CHỈ BẮT BUỘC Ở GATE 1) */}
-            {selectedGate === 'PLAN' && (
+            {selectedGate === 'PLAN' && dossierLabel(detail) === 'Nhánh phả hệ chờ phê duyệt' && (
               <section className="rounded-3xl border border-amber-200 bg-amber-50/50 p-3.5 shadow-sm">
                 <h2 className="text-xs font-black uppercase tracking-wider text-amber-950 mb-2 flex items-center gap-1.5">
                   <ShieldCheck className="h-4 w-4 text-amber-600" />

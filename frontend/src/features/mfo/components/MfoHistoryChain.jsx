@@ -1,10 +1,15 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MfoHistoryChain.jsx
- * DATETIME   : 2026-10-14T15:35:00+07:00
- * VERSION    : 3.2.0-FIX-HISTORY-ADMIN-NOTE
+ * DATETIME   : 2026-10-16T07:08:00+07:00
+ * VERSION    : 3.2.1-DRAFT-IS-FRAME
  * DESCRIPTION:
  * - Vá lỗi tự động gán chữ "Duyệt" khi Lần trình Cửa 2 đang ở trạng thái chờ duyệt.
  * - Loại bỏ fallback || 'Duyệt', hiển thị chính xác "Chưa có ý kiến." đối với lần trình chưa có bút phê.
+ * - DRAFT không còn bị gọi là tờ khai.
+ *
+ * CHANGE LOG:
+ * - 2026-10-14T15:35:00+07:00 | 3.2.0 | Không gán chữ Duyệt khi tờ khai chưa có bút phê.
+ * - 2026-10-16T07:08:00+07:00 | 3.2.1 | stageName và historySteps chỉ mở tờ khai khi nhánh đã duyệt.
  * RULE COMPLIANCE:
  * - Q1 (Bảo tồn): Giữ nguyên mọi hàm xuất (sourceOf, frameLines, resultLines, stageName, historySteps, stepSummary, currentSummary) và props/state handler.
  * - Q2 (Code Format): Đầy đủ metadata docstring và chú thích thời gian <2026-10-14T15:35:00+07:00> từng khối logic.
@@ -78,17 +83,19 @@ function resultLines(plan) {
 }
 
 /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý stageName; phần thay đổi giới hạn lịch sử lát 4. */
+/** <2026-10-16T07:08:00+07:00> Mục đích: DRAFT vẫn là nhánh đang soạn. Lý do: plan_ok đúng không được biến nhánh chưa duyệt thành tờ khai. */
 export function stageName(plan) {
   const payload = sourceOf(plan);
   const st = String(plan?.status || '').toUpperCase();
   const planOk = Boolean(payload.plan_ok);
   const resultSubmitted = Boolean(payload.result_submitted);
   const resultOk = Boolean(payload.result_ok);
+  const gate2Open = planOk && st === 'APPROVED';
   if (resultOk) return 'Đã ghi sổ';
-  if (planOk && st === 'REJECTED') return 'Tờ khai không được duyệt';
-  if (planOk && st === 'NEEDS_REVISION') return 'Tờ khai cần sửa';
+  if (gate2Open && st === 'REJECTED') return 'Tờ khai không được duyệt';
+  if (planOk && resultSubmitted && st === 'NEEDS_REVISION') return 'Tờ khai cần sửa';
   if (planOk && resultSubmitted) return 'Tờ khai chờ duyệt';
-  if (planOk) return 'Tờ khai đang soạn';
+  if (gate2Open) return 'Tờ khai đang soạn';
   if (st === 'NEEDS_REVISION') return 'Nhánh phả hệ cần sửa';
   if (st === 'REJECTED') return 'Nhánh phả hệ không được duyệt';
   if (st === 'PENDING' || st === 'UNDER_REVIEW') return 'Nhánh phả hệ chờ phê duyệt';
@@ -104,8 +111,9 @@ export function historySteps(plan) {
   if (payload.plan_ok || ['PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION', 'APPROVED', 'REJECTED'].includes(st)) {
     steps.push({ id: 'frame-review', title: 'Nhánh phả hệ chờ phê duyệt' });
   }
-  if (payload.plan_ok) steps.push({ id: 'frame-ok', title: 'Nhánh phả hệ đã duyệt' });
-  if (payload.plan_ok) steps.push({ id: 'result-draft', title: 'Tờ khai đang soạn' });
+  // <2026-10-16T07:08:00+07:00> Mục đích: Chỉ thêm bước tờ khai khi nhánh đã duyệt. Lý do: DRAFT có plan_ok vẫn là cửa 1.
+  if (payload.plan_ok && st === 'APPROVED') steps.push({ id: 'frame-ok', title: 'Nhánh phả hệ đã duyệt' });
+  if (payload.plan_ok && st === 'APPROVED') steps.push({ id: 'result-draft', title: 'Tờ khai đang soạn' });
   if (payload.result_submitted) steps.push({ id: 'result-review', title: 'Tờ khai chờ duyệt' });
   if (payload.result_ok) steps.push({ id: 'result-ok', title: 'Tờ khai đã duyệt' });
   return steps;

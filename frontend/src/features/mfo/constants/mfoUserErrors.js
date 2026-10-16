@@ -1,8 +1,12 @@
 /**
  * PATH       : frontend/src/features/mfo/constants/mfoUserErrors.js
- * DATETIME   : 2026-10-13T17:07:00+07:00
- * VERSION    : 5.1.0-LAT5
+ * DATETIME   : 2026-10-16T09:02:00+07:00
+ * VERSION    : 5.1.2-CONFLICT-DEADLINE
  * DESCRIPTION: Giữ bảng lỗi; bổ sung câu thành công duy nhất theo doctrine mục 9.
+ *
+ * CHANGE LOG:
+ * - 2026-10-13T17:07:00+07:00 | 5.1.0 | Bảng câu lỗi và câu thành công theo doctrine.
+ * - 2026-10-16T09:02:00+07:00 | 5.1.1 | Câu xung đột 409 đúng doctrine mục 8.
  * RULE       : Q1 bảo tồn ngoài phạm vi; Q2 metadata và chú thích thời gian.
  */
 /**
@@ -86,10 +90,11 @@ export const MFO_USER_ERRORS = {
   HTTP_401: 'Phiên làm việc hết hạn. Hãy đăng nhập lại.',
   HTTP_403: 'Bạn không được làm việc này.',
   HTTP_404: 'Không thấy tờ khai hoặc người này.',
-  HTTP_409: 'Tờ khai đang ở trạng thái khác. Tải lại trang.',
+  HTTP_409: 'Không thể tiếp tục. Có thể ý định của bác đang được người khác thực hiện. Xin chờ sau thời gian hết hạn tờ kia.', // <2026-10-16T09:02:00+07:00> Mục đích: Câu 409 đúng doctrine mục 8. Lý do: câu cũ không có trong doctrine.
   MFO_HOLD_CONFLICT:
-    'Không thể tiếp tục. Có thể ý định của bác đang được người khác thực hiện. Xin chờ sau thời gian {thời điểm}.',
+    'Không thể tiếp tục. Có thể ý định của bác đang được người khác thực hiện. Xin chờ sau thời gian {thời điểm}.', // <2026-10-16T09:04:00+07:00> Mục đích: Không dùng chữ tờ kia.
   MFO_HOLD_EXPIRED: 'Đã hết thời gian giữ chỗ. Hãy làm lại từ đầu.',
+  OPTIMISTIC_LOCK_CONFLICT: 'Công việc đã được cập nhật từ thiết bị khác. Trang sẽ tải lại.', // <2026-10-16T09:02:00+07:00> Mục đích: Có câu khóa lạc quan. Lý do: doctrine mục 8 đã quy định mà bảng chưa có.
   MFO_SET_CONFLICT: 'Nhánh này giao với nhánh khác đang làm. Hãy chọn người khác hoặc chờ.',
   MFO_CLAN_UNCONFIRMED: 'Hệ thống không tự xác định nội tộc. Bác hãy chọn người này có phải nội tộc không.',
   MFO_TARGET_NOT_CLAN_MEMBER: 'Không chọn người ngoại tộc làm mốc của nhánh phả hệ.',
@@ -129,9 +134,11 @@ export function toMfoUserMessage(err, fallback = MFO_USER_FALLBACK) {
     err?.response?.data?.errorCode ||
     '';
 
-  if (code === 'MFO_HOLD_CONFLICT') {
-    const when = err?.response?.data?.expires_at || err?.expires_at || null;
-    const whenText = when ? new Date(when).toLocaleString('vi-VN') : 'hết hạn tờ kia';
+  // <2026-10-16T09:03:00+07:00> Mục đích: Ghép thời hạn chót của tờ kia. Lý do: doctrine yêu cầu nói rõ đến lúc nào.
+  const when = err?.response?.data?.expires_at || err?.expires_at || err?.response?.data?.data?.expires_at || null;
+  const whenText = when ? new Date(when).toLocaleString('vi-VN') : 'một lúc rồi thử lại'; // <2026-10-16T09:04:00+07:00> Mục đích: Bỏ chữ tờ kia. Lý do: không ai nói vậy, doctrine cũng không có.
+  if (code === 'MFO_HOLD_CONFLICT' || Number(err?.response?.status || err?.status || 0) === 409) {
+    if (code === 'OPTIMISTIC_LOCK_CONFLICT') return MFO_USER_ERRORS.OPTIMISTIC_LOCK_CONFLICT;
     return MFO_USER_ERRORS.MFO_HOLD_CONFLICT.replace('{thời điểm}', whenText);
   }
 

@@ -1,7 +1,7 @@
 /**
  * PATH       : backend/src/shared/frameworks/srpf/ledger/BusinessLedgerWriter.js
- * DATETIME   : 2026-08-13T11:15:00+07:00
- * VERSION    : 0.4.2-phase3.2
+ * DATETIME   : 2026-10-16T10:19:00+07:00
+ * VERSION    : 0.4.3-AUDIT-TABLE
  * DESCRIPTION: Writes Business Process Log (BPL) AND audit_logs for SRPF actions.
  *
  * Reuses:
@@ -16,6 +16,10 @@
  *   even if the error is caught — so invalid FK must be avoided, not merely caught.
  *
  * SAVE_DRAFT / null correlationId → no-op.
+ *
+ * CHANGE LOG:
+ * - 2026-08-13T11:15:00+07:00 | 0.4.2 | Ghi BPL và audit. changed_by phải là users.id.
+ * - 2026-10-16T10:19:00+07:00 | 0.4.3 | Audit lấy bảng từ _storage. MFO ghi proposals. RP và OP vẫn onboarding_cases.
  */
 
 'use strict';
@@ -164,8 +168,10 @@ async function write({
 
   if (tenantId && instance?.id) {
     try {
+      // <2026-10-16T10:19:00+07:00> Mục đích: Ghi đúng bảng của tờ. Lý do: MFO nằm ở proposals. Không có _storage thì giữ onboarding_cases, RP và OP không đổi.
+      const auditTable = instance._storage || 'onboarding_cases';
       audit = await prisma.audit.create(client, {
-        tableName: 'onboarding_cases',
+        tableName: auditTable,
         recordId: instance.id,
         action: toAuditAction(action),
         tenantId: tenantId,

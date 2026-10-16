@@ -1,8 +1,12 @@
 /**
  * PATH       : frontend/src/features/op/constants/opMfoWork.js
- * DATETIME   : 2026-09-26T14:50:00+07:00
- * VERSION    : 1.0.1-HUY
+ * DATETIME   : 2026-10-16T08:30:00+07:00
+ * VERSION    : 1.0.2-FRAME-STATUS
  * DESCRIPTION: Tầng 2 — mục việc /op cho MFO SELF.
+ *
+ * CHANGE LOG:
+ * - 2026-09-26T14:50:00+07:00 | 1.0.1 | Nhãn trạng thái cửa 1.
+ * - 2026-10-16T08:30:00+07:00 | 1.0.2 | Chờ duyệt cửa 1 là Nhánh phả hệ chờ phê duyệt.
  */
 
 export const OP_MFO_WORK = {
@@ -16,8 +20,8 @@ export const OP_MFO_WORK = {
 
 export const OP_MFO_STATUS = {
   DRAFT: 'Đang tạo khung dự kiến',
-  PENDING: 'Chờ duyệt khung',
-  UNDER_REVIEW: 'Chờ duyệt khung',
+  PENDING: 'Nhánh phả hệ chờ phê duyệt', // <2026-10-16T08:30:00+07:00> Mục đích: Bỏ chữ khung. Lý do: doctrine gọi là nhánh phả hệ chờ phê duyệt.
+  UNDER_REVIEW: 'Nhánh phả hệ chờ phê duyệt',
   PLAN_OK: 'Khung đã duyệt',
   RESULT_WAIT: 'Chờ duyệt tờ khai',
   NEEDS_REVISION: 'Cần sửa kết quả khai báo',

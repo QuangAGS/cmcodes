@@ -1,5 +1,14 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanTicketPage.jsx
+ * DATETIME   : 2026-10-16T08:30:00+07:00
+ * VERSION    : 1.1.0-FRAME-TERMS
+ * DESCRIPTION: Màn chờ duyệt cửa 1 dùng chữ nhánh phả hệ, không dùng khung.
+ *
+ * CHANGE LOG:
+ * - 2026-10-16T08:30:00+07:00 | 1.1.0 | Tiêu đề và câu chờ duyệt đúng doctrine mục 9.
+ */
+/**
+ * PATH       : frontend/src/pages/OpMfoPlanTicketPage.jsx
  * DATETIME   : 2026-10-13T11:32:00+07:00
  * VERSION    : 2.1.1-LAT3-Q1Q2
  * DESCRIPTION: Bảo tồn phần ngoài cửa 2 và chú thích; mở cửa 2 tại màn cây.
@@ -179,9 +188,10 @@ async function submit() {
       <div className="flex min-h-dvh flex-col bg-slate-50">
         <TenantHeader tenant={tenant} />
         <main className="mx-auto w-full max-w-[480px] flex-1 px-4 py-4">
-          <h1 className="text-lg font-bold">Tờ khai 5 đời</h1>
+          {/* <2026-10-16T08:30:00+07:00> Mục đích: Cửa 1 chờ duyệt nói nhánh phả hệ. Lý do: màn còn chữ khung và tờ khai. */}
+          <h1 className="text-lg font-bold">Nhánh phả hệ</h1>
           <p className="mt-3 text-sm text-slate-700">{ticket ? opMfoStatusLabel(ticket) : 'Đang tải…'}</p>
-          <p className="mt-2 text-sm text-slate-600">Đã gửi. Chờ Ban quản trị đóng dấu.</p>
+          <p className="mt-2 text-sm text-slate-600">Đã gửi nhánh phả hệ tới ban quản trị.</p>
           {err ? <p className="mt-3 text-sm text-rose-700">{err}</p> : null}
           <button type="button" className="mt-4 min-h-12 w-full rounded-2xl bg-indigo-700 font-bold text-white" onClick={() => navigate('/op')}>Về trang việc</button>
         </main>

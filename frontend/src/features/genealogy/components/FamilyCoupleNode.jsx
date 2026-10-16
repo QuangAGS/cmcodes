@@ -1,16 +1,22 @@
 /**
  * PATH       : frontend/src/features/genealogy/components/FamilyCoupleNode.jsx
- * DATETIME   : 2026-10-03T22:50:00+07:00
- * VERSION    : 3.1.0-COMPLETE-5L-CANVAS-KD
+ * DATETIME   : 2026-10-15T22:03:00+07:00
+ * VERSION    : 3.1.3-UPDATE-NODE-INTERNALS
  * DESCRIPTION:
  * - Bảo tồn 100% v3.0.0-COMPLETE-5L-CANVAS: Handles đa điểm, Drag/Drop, Tabs, Avatar "XT".
  * - Bổ sung nhận diện thành viên khuyết danh (isAnonymous === true hoặc avatarType === 'KD'):
  *   Render Avatar "KD" chữ đậm (bold), viền và nền xám trung tính (border-slate-500 bg-slate-100 text-slate-800).
+ *
+ * CHANGE LOG:
+ * - 2026-10-03T22:50:00+07:00 | 3.1.0 | Giữ canvas 5L, thêm nhận diện khuyết danh.
+ * - 2026-10-15T22:03:00+07:00 | 3.1.1 | Mỗi lần hôn nhân có một tay nắm. Tab đóng thì giấu, không xoá.
+ * - 2026-10-15T22:24:00+07:00 | 3.1.2 | Tay nắm tab đóng vẫn được gắn, không dùng opacity 0 để khỏi rơi cạnh.
+ * - 2026-10-16T06:19:00+07:00 | 3.1.3 | Đo lại tay nắm từ trong ô sau khi đổi tab hoặc số lần hôn nhân.
  * - Bổ sung truyền cờ isAnonymous, originSource, tabs vào payload onOpenActionForm phục vụ ma trận bật/tắt Action Form.
  */
 
 import React from 'react';
-import { Handle, Position } from 'reactflow';
+import { Handle, Position, useUpdateNodeInternals } from 'reactflow';
 
 /**
  * <2026-10-03T22:50:00+07:00>
@@ -123,8 +129,14 @@ function statusText(status) {
  */
 export default function FamilyCoupleNode({ id, data }) {
   const nodeRef = React.useRef(null);
+  const updateNodeInternals = useUpdateNodeInternals();
   const tabs = Array.isArray(data?.tabs) ? data.tabs : [];
   const activeUnionId = data?.activeUnionId || null;
+  // <2026-10-16T06:19:00+07:00> Mục đích: Đo lại tay nắm sau khi ô đã vẽ, để cạnh hiện mà không cần zoom trình duyệt.
+  React.useLayoutEffect(() => {
+    const frame = requestAnimationFrame(() => updateNodeInternals(id));
+    return () => cancelAnimationFrame(frame);
+  }, [id, activeUnionId, tabs.length, data?.unassignedCount, updateNodeInternals]);
   const activeTab = tabs.find((tab) => tab.unionId === activeUnionId) || tabs[0] || null;
 
   const isClanAnonymous = Boolean(data?.isAnonymous);
@@ -198,14 +210,14 @@ export default function FamilyCoupleNode({ id, data }) {
         className="!left-[22%] !h-2.5 !w-2.5 !border-0 !bg-amber-500"
       />
 
-      {/* Handle Đáy 78% (Tím chàm - Con thuộc Tab Hôn phối active) */}
+      {/* <2026-10-15T22:03:00+07:00> Mục đích: Tay nắm cho mọi lần hôn nhân. Tab không mở thì giấu, để cạnh không nhảy. */}
       {tabs.map((tab) => tab?.unionId ? (
         <Handle
           key={tab.unionId}
           id={'union:' + tab.unionId + ':children'}
           type="source"
           position={Position.Bottom}
-          className={tab.unionId === (activeTab && activeTab.unionId) ? '!left-[78%] !h-2.5 !w-2.5 !border-0 !bg-indigo-500' : '!left-[78%] !h-2.5 !w-2.5 !border-0 !opacity-0'}
+          className={tab.unionId === (activeTab && activeTab.unionId) ? '!left-[78%] !h-2.5 !w-2.5 !border-0 !bg-indigo-500' : '!left-[78%] !h-2.5 !w-2.5 !border-0 !bg-indigo-500 !opacity-0'}
         />
       ) : null)}
 

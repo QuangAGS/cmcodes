@@ -1,10 +1,16 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MyMfoPlans.jsx
- * DATETIME   : 2026-10-14T15:35:00+07:00
- * VERSION    : 5.7.3-FIX-GATE2-NOTE-FALLBACK
+ * DATETIME   : 2026-10-16T08:24:00+07:00
+ * VERSION    : 5.7.5-PAGE-TITLE-BRANCH
  * DESCRIPTION:
  * - Vá dứt điểm lỗi hiển thị nhầm "Bút phê tờ khai: Duyệt" khi Tờ khai Cửa 2 đang ở trạng thái chờ duyệt.
  * - Loại bỏ fallback || currentPlan.admin_note của Cửa 1, phân lập chính xác bút phê theo trạng thái Tờ khai Cửa 2.
+ * - Nhánh đang soạn luôn có nút Sửa nhánh để vào lại cây.
+ *
+ * CHANGE LOG:
+ * - 2026-10-14T15:35:00+07:00 | 5.7.3 | Phân lập bút phê cửa 2, không lấy nhầm bút phê cửa 1.
+ * - 2026-10-16T07:08:00+07:00 | 5.7.4 | DRAFT và cần sửa hiện Sửa nhánh, không phụ thuộc cờ plan_ok.
+ * - 2026-10-16T08:24:00+07:00 | 5.7.5 | Tiêu đề trang đổi thành Hồ sơ nhánh phả hệ. Card giữ Hồ sơ của tôi.
  * RULE COMPLIANCE:
  * - Q1 (Bảo tồn): Bảo toàn 100% logic Single Thread Pipeline, hydration draft, CRUD handlers và MfoHistoryChain integration.
  * - Q2 (Code Format): Đầy đủ docstring header và chú thích thời gian <2026-10-14T15:35:00+07:00> từng khối logic.
@@ -294,7 +300,8 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
   return (
     <div className="flex flex-col gap-3 font-sans">
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-base font-black text-slate-800">Hồ sơ của tôi</h2>
+        {/* <2026-10-16T08:24:00+07:00> Mục đích: Tránh hai tiêu đề giống nhau. Lý do: tiêu đề trang và tiêu đề card đều là Hồ sơ của tôi. */}
+        <h2 className="text-base font-black text-slate-800">Hồ sơ nhánh phả hệ</h2>
         <AudioHelpButton text="Đây là Hồ sơ của bác cần giải quyết theo 2 lần trình. Lần trình 1 thể hiện ý định như: thêm con, quan hệ vợ chồng, khai khuyết danh vào sơ đồ Nhánh phả hệ 5 đời hiện có. Lần trình thứ hai đòi hỏi điền thông tin cụ thể vào Tờ khai theo ý định đã được duyệt. Bác không thể mở hồ sơ mới khi còn hồ sơ chưa hoàn tất." label="Nghe" />
       </div>
 
@@ -439,7 +446,8 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                     </button>
                   ) : null}
 
-                  {!isRejected && !payloadData?.plan_ok && (
+                  {/* <2026-10-16T07:08:00+07:00> Mục đích: Nhánh còn soạn hoặc cần sửa phải vào lại được cây. Lý do: điều kiện cũ ẩn nút khi plan_ok đúng, dù trạng thái vẫn là DRAFT. */}
+                  {!isRejected && !isApproved && !payloadData?.result_ok && (
                     <button
                       type="button"
                       disabled={isPending || busy}
