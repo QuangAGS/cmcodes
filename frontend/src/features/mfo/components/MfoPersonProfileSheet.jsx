@@ -1,9 +1,13 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MfoPersonProfileSheet.jsx
- * DATETIME   : 2026-10-13T14:57:00+07:00
- * VERSION    : 3.0.2-LAT3-MINIMAL
+ * DATETIME   : 2026-10-17T07:46:00+07:00
+ * VERSION    : 3.0.3-READ-RELATION
  * DESCRIPTION: Hồ sơ dạng lớp nổi trên cây; controlled, không suy nội tộc, không nhập phả hệ.
  * RULE       : Q1 bảo tồn ngoài phạm vi; Q2 metadata và chú thích có thời gian.
+ *
+ * CHANGE LOG:
+ * - 2026-10-13T14:57:00+07:00 | 3.0.2 | Hồ sơ chỉ nhập SMP, không nhập phả hệ.
+ * - 2026-10-17T07:46:00+07:00 | 3.0.3 | Hiện dòng chỉ đọc về người sinh và thứ tự con.
  */
 import { createPortal } from 'react-dom';
 /**
@@ -19,7 +23,8 @@ export default function MfoPersonProfileSheet({
   onSave,
   onClose,
   busy,
-  readOnly
+  readOnly,
+  relationNote
 }) {
   if (!item && !choices.length) return null;
   const field = 'mt-1 min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3 py-2';
@@ -52,6 +57,7 @@ export default function MfoPersonProfileSheet({
         <label className="block text-sm font-semibold">Giới tính<select className={field} disabled={busy || readOnly} value={value.gender || ''} onChange={e => set('gender', e.target.value)}><option value="">Bấm để chọn</option><option value="NAM">Nam</option><option value="NU">Nữ</option></select></label>
         {boolSelect('is_alive', 'Còn sống hay đã mất?', 'Còn sống', 'Đã mất')}
         {boolSelect('is_clan', 'Người này có phải nội tộc không?', 'Có', 'Không')}
+        {relationNote ? <p className="rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700">{relationNote}</p> : null}
         {item.kind === 'child' ? <label className="block text-sm font-semibold">Loại con<select className={field} disabled={busy || readOnly} value={value.child_type || ''} onChange={e => set('child_type', e.target.value)}><option value="">Bấm để chọn</option><option value="CON_DE">Con đẻ</option><option value="CON_NUOI">Con nuôi</option><option value="CON_RE">Con rể</option><option value="CON_DAU">Con dâu</option></select></label> : null}
         {['birth', ...(value.is_alive === false ? ['death'] : [])].map(prefix => <fieldset key={prefix} className="rounded-xl border border-slate-200 p-2"><legend className="text-sm font-semibold">{prefix === 'birth' ? 'Ngày sinh' : 'Ngày mất'} (không bắt buộc)</legend><div className="grid grid-cols-3 gap-2">{[['day', 'Ngày', 31], ['month', 'Tháng', 12], ['year', 'Năm', 3000]].map(([part, label, max]) => <label key={part} className="text-xs">{label}<input type="number" min="1" max={max} className={field} disabled={busy || readOnly} value={value[`${prefix}_${part}`] ?? ''} onChange={e => set(`${prefix}_${part}`, e.target.value === '' ? null : Number(e.target.value))} /></label>)}</div><label className="mt-2 flex items-center gap-2 text-sm"><input type="checkbox" disabled={busy || readOnly} checked={value[`is_${prefix}_lunar`] === true} onChange={e => set(`is_${prefix}_lunar`, e.target.checked)} />Âm lịch</label></fieldset>)}
         {value.is_alive === false ? <label className="block text-sm font-semibold">Ghi chú mất<textarea className={field} disabled={busy || readOnly} value={value.death_note || ''} onChange={e => set('death_note', e.target.value)} /></label> : null}

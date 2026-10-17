@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-16T09:13:00+07:00
- * VERSION    : 4.9.21-ONE-FULLSET-ALARM
+ * DATETIME   : 2026-10-17T07:46:00+07:00
+ * VERSION    : 4.9.25-LAT3-READ-ONLY
  * DESCRIPTION:
  * - Vá dứt điểm Bug 1: Lỗi SRPF_INVALID_TRANSITION khi Trình Tờ Khai ở Cửa 2.
  * - Khóa chặt State Machine: Khi plan_ok === true, bắt buộc gọi handleSubmitProfiles() (API submitResult Cửa 2), triệt tiêu hoàn toàn việc gọi nhầm createPlan (Cửa 1).
@@ -13,6 +13,10 @@
  * - 2026-10-16T07:35:00+07:00 | 4.9.19 | Nạp nháp không hiện Alarm. Cùng một tờ chỉ nạp một lần.
  * - 2026-10-16T08:05:00+07:00 | 4.9.20 | Lần đang mở vẽ nét liền. Con của lần khác vẫn hiện, bằng nét đứt. Không giấu.
  * - 2026-10-16T09:13:00+07:00 | 4.9.21 | Sau khi gán người, không gọi lại full-set. Cùng một câu chỉ một Alarm.
+ * - 2026-10-16T10:49:00+07:00 | 4.9.22 | Nút Trình tờ khai chỉ bật khi có người xin thêm và hồ sơ đủ.
+ * - 2026-10-17T07:39:00+07:00 | 4.9.23 | Thêm vợ chỉ tạo lần và chọn con có sẵn. Thêm con chỉ tạo con mới, hỏi người sinh và thứ tự.
+ * - 2026-10-17T07:43:00+07:00 | 4.9.24 | Payload giữ sibling_seq và assigned_children.
+ * - 2026-10-17T07:46:00+07:00 | 4.9.25 | Cửa 2 chỉ đọc người sinh và thứ tự, không hỏi lại.
  * RULE COMPLIANCE:
  * - Q1 (Bảo tồn): Bảo toàn 100% logic Canvas ReactFlow, Active Form catalog, Staging profile sheet và AppFooterNav.
  * - Q2 (Code Format): Đầy đủ docstring header và chú thích thời gian <2026-10-14T11:10:00+07:00> từng khối logic.
@@ -607,16 +611,7 @@ export function OpMfoPlanPage() {
       })
     );
 
-    const parent = nodes.find((n) => n.id === targetNodeId);
-    const childDepth = Number(parent?.data?.depth || 0) + 1;
-    if (childDepth <= 4 && relationNewCount > 0) {
-      const made = Array.from({ length: relationNewCount }, (_, index) => {
-        const id = `draft-child-${Date.now()}-${index}`;
-        return { id, type: 'familyCouple', position: { x: (parent?.position?.x ?? 40) + 30 + index * 40, y: childDepth * 310 }, style: { width: 240 }, data: { id, treeId: id, depth: childDepth, clanName: `Con đời ${childDepth} (Xin tạo)`, partnerName: null, unassignedCount: 0, tabs: [], isAnonymous: false, originSource: 'from_draft_child', parentUnionKey: newUnionId, siblingSeq: index + 1, onOpenActionForm: handleOpenActionForm } };
-      });
-      setNodes((prev) => [...prev, ...made]);
-      requestAnimationFrame(() => requestAnimationFrame(() => { setEdges((prev) => [...prev, ...made.map((child) => ({ id: `edge-${targetNodeId}-${child.id}`, type: 'smoothstep', source: targetNodeId, target: child.id, sourceHandle: `union:${newUnionId}:children`, style: { stroke: '#6366f1', strokeWidth: 2 } }))]); remeasure(targetNodeId); }));
-    }
+    // <2026-10-17T07:39:00+07:00> Mục đích: Thêm vợ không tạo con mới. Lý do: con mới đi đường Thêm con, để hỏi người sinh và thứ tự.
     // <2026-10-15T22:24:00+07:00>
     // Mục đích: Lặp tác vụ không xoá cạnh cũ. Thêm cạnh của lần mới sau khi tab đã mở.
     if (relationPicked.length) {
@@ -957,6 +952,19 @@ export function OpMfoPlanPage() {
       canvas_delta: {
         draft_children: draftChildren,
         draft_spouses: draftSpouses,
+        // <2026-10-17T07:43:00+07:00> Mục đích: Giữ con có sẵn được gắn vào lần mới. Lý do: con này không nằm trong draft_children.
+        assigned_children: edges
+          .filter((edge) => String(edge.sourceHandle || '').startsWith('union:union-draft-'))
+          .map((edge) => {
+            const child = nodes.find((node) => node.id === edge.target);
+            if (!child || String(child.id).startsWith('draft-child-')) return null;
+            return {
+              member_id: child.data?.clan?.id || child.id,
+              union_id: String(edge.sourceHandle).split(':')[1],
+              sibling_seq: child.data?.siblingSeq || null,
+            };
+          })
+          .filter(Boolean),
         node_positions_x: nodePositionsX,
       },
     };
@@ -1334,9 +1342,10 @@ export function OpMfoPlanPage() {
             <span>{isGate2 ? 'Lưu tờ khai' : isReadOnly ? 'Đã đóng băng' : 'Lưu nhánh phả hệ'}</span>
           </button>
 
+          {/* 2026-10-16T10:49:00+07:00 Muc dich: Chi bat khi co nguoi xin them va ho so du. Ly do: hoi noi toc thoi chua du. */}
           <button
             type="button"
-            disabled={busy || (isGate2 ? profileLocked : isReadOnly || !hasCanvasChanges)}
+            disabled={busy || (isGate2 ? profileLocked || profileItems.length === 0 || Boolean(submissionError(profileItems, profileStaging, nodes)) : isReadOnly || !hasCanvasChanges)}
             className="min-h-12 flex-1 rounded-2xl bg-indigo-600 px-3 text-sm font-black text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
             onClick={handleSubmitPlan}
           >
@@ -1364,18 +1373,17 @@ export function OpMfoPlanPage() {
                 {[...new Set(edges.filter((e) => e.source === pendingSpouseNodeInfo?.nodeId).map((e) => e.target))].map((id) => nodes.find((n) => n.id === id)).filter(Boolean).map((child) => (
                   <label key={child.id} className="mb-1 flex items-center gap-2 text-sm"><input type="checkbox" checked={relationPicked.includes(child.id)} onChange={(e) => setRelationPicked((old) => e.target.checked ? [...old, child.id] : old.filter((id) => id !== child.id))} />{child.data?.clanName || 'Con trên cây'}</label>
                 ))}
-                <label className="mt-2 block text-xs font-bold text-slate-700">Thêm con mới
-                  <select className="mt-1 w-full rounded-xl border p-2" value={relationNewCount} onChange={(e) => setRelationNewCount(Number(e.target.value))}><option value={0}>Không thêm</option><option value={1}>Thêm 1 con</option><option value={2}>Thêm 2 con</option></select>
-                </label>
               </>
             ) : (
               <>
-                <label className="mb-1 block text-xs font-black uppercase text-indigo-900">Con của cặp nào</label>
+                {/* <2026-10-17T07:39:00+07:00> Mục đích: Hỏi người sinh và thứ tự. Lý do: vợ hoặc chồng có thể chưa khai. */}
+                <p className="mb-2 text-xs font-bold text-slate-700">Người sinh ra là ô đang chọn. Vợ hoặc chồng có thể để trống.</p>
+                <label className="mb-1 block text-xs font-black uppercase text-indigo-900">Vợ hoặc chồng của người sinh</label>
                 <select className="mb-3 w-full rounded-2xl border-2 border-indigo-200 bg-indigo-50 p-3 text-sm font-black text-indigo-950 outline-none" value={relationCouple} onChange={(e) => setRelationCouple(e.target.value)}>
-                  <option value="unknown">Không xác định</option>
+                  <option value="unknown">Chưa khai hoặc không khai</option>
                   {(nodes.find((n) => n.id === pendingSpouseNodeInfo?.nodeId)?.data?.tabs || []).map((tab, index) => <option key={tab.unionId} value={tab.unionId}>Lần {tab.order || index + 1}: {tab.partnerName || 'Chưa rõ'}</option>)}
                 </select>
-                <label className="block text-xs font-bold text-slate-700">Thứ tự anh em<input type="number" min="1" className="mt-1 w-full rounded-xl border p-2" value={relationSibling} onChange={(e) => setRelationSibling(Number(e.target.value || 1))} /></label>
+                <label className="block text-xs font-bold text-slate-700">Con thứ mấy trong gia đình<input type="number" min="1" className="mt-1 w-full rounded-xl border p-2" value={relationSibling} onChange={(e) => setRelationSibling(Number(e.target.value || 1))} /></label>
               </>
             )}
             <div className="mt-4 flex gap-2">
@@ -1502,6 +1510,15 @@ export function OpMfoPlanPage() {
 
       <MfoPersonProfileSheet item={isGate2 ? selectedProfile : null} choices={isGate2 ? profileChoices : []}
         value={selectedProfile ? profileStaging[selectedProfile.key] || {} : {}} busy={busy} readOnly={profileLocked}
+        relationNote={(() => {
+          // <2026-10-17T07:46:00+07:00> Mục đích: Đọc lại câu cửa 1. Lý do: cửa 2 không hỏi lại cặp hay thứ tự.
+          if (!selectedProfile || selectedProfile.kind !== 'child') return '';
+          const child = (profileDelta.draft_children || []).find((row) => row.id === selectedProfile.key);
+          const order = child?.sibling_seq ? `Con thứ ${child.sibling_seq} trong gia đình.` : '';
+          const link = String(child?.link || '');
+          const couple = link.startsWith('union:') ? 'Đã gắn một lần hôn nhân.' : 'Chưa gắn vợ hoặc chồng.';
+          return `${couple} ${order}`.trim();
+        })()}
         onPick={(item) => { setSelectedProfile(item); setProfileChoices([]); }}
         onChange={(value) => setProfileStaging((old) => ({ ...old, [selectedProfile.key]: value }))}
         onSave={handleSaveProfile} onClose={closeProfile} />

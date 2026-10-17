@@ -1,9 +1,13 @@
 /**
  * PATH       : src/modules/mfo/mfo.payload.js
- * DATETIME   : 2026-10-04T20:04:00+07:00
- * VERSION    : 1.3.1-LAT2-SNAPSHOT-PATCHED
+ * DATETIME   : 2026-10-17T07:43:00+07:00
+ * VERSION    : 1.3.2-KEEP-RELATIONS
  * DESCRIPTION: Lát 2. Sanitize Payload & Cắt lọc tinh gọn graph_snapshot / canvas_delta.
  *              Đã vá bảo tồn isAnonymous, originSource, fallback stroke, và viewport null.
+ *
+ * CHANGE LOG:
+ * - 2026-10-04T20:04:00+07:00 | 1.3.1 | Giữ cờ khuyết danh và viewport.
+ * - 2026-10-17T07:43:00+07:00 | 1.3.2 | Giữ sibling_seq của con nháp và assigned_children.
  */
 
 const OPS = new Set(['ASSIGN', 'CREATE', 'EMPTY']);
@@ -162,6 +166,8 @@ function sanitizeCanvasDelta(raw) {
         depth: depthOf(row && row.depth, 'Đời con nháp'),
         label: String((row && row.label) || ''),
         link: linkOf(row && row.link),
+        // <2026-10-17T07:43:00+07:00> Mục đích: Giữ thứ tự con. Lý do: bản cũ bỏ sibling_seq nên cửa 2 không có.
+        sibling_seq: Number.isInteger(Number(row && row.sibling_seq)) && Number(row.sibling_seq) >= 1 ? Number(row.sibling_seq) : null,
       }))
       .filter((row) => row.id && row.parent_node_id),
     draft_spouses: spouses
@@ -178,6 +184,14 @@ function sanitizeCanvasDelta(raw) {
         };
       })
       .filter((row) => row.union_id && row.owner_node_id),
+    // <2026-10-17T07:43:00+07:00> Mục đích: Giữ con có sẵn gắn vào lần mới. Lý do: cửa 2 cần mã người và mã lần để ghi parent_union_id.
+    assigned_children: (Array.isArray(src.assigned_children) ? src.assigned_children : [])
+      .map((row) => ({
+        member_id: String((row && row.member_id) || ''),
+        union_id: String((row && row.union_id) || ''),
+        sibling_seq: Number.isInteger(Number(row && row.sibling_seq)) && Number(row.sibling_seq) >= 1 ? Number(row.sibling_seq) : null,
+      }))
+      .filter((row) => row.member_id && row.union_id),
     node_positions_x: Object.fromEntries(
       Object.entries(positions)
         .filter(([id, x]) => id && Number.isFinite(Number(x)))

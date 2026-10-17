@@ -1,8 +1,12 @@
 /**
  * PATH       : backend/src/modules/mfo/mfo.gate2.js
- * DATETIME   : 2026-10-12T17:30:00+07:00
- * VERSION    : 1.2.0-AMENDMENT5-CLAN-STATUS
+ * DATETIME   : 2026-10-17T07:48:00+07:00
+ * VERSION    : 1.2.1-LAT4-WRITE-RELATIONS
  * DESCRIPTION: Ghi sổ lúc duyệt Cửa 2. Đời lấy từ sổ. is_clan lấy từ khẳng định. status = CHINH_THUC.
+ *
+ * CHANGE LOG:
+ * - 2026-10-12T17:30:00+07:00 | 1.2.0 | Đời lấy từ sổ. Nội tộc lấy từ khẳng định. status = CHINH_THUC.
+ * - 2026-10-17T07:48:00+07:00 | 1.2.1 | Đọc sibling_seq. Cập nhật con có sẵn, không tạo người mới.
  */
 'use strict';
 
@@ -109,7 +113,8 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
         birth_day: smp.birth_day || null,
         birth_month: smp.birth_month || null,
         birth_year: smp.birth_year || null,
-        sibling_seq: child.child_order != null ? Number(child.child_order) : null,
+        // <2026-10-17T07:48:00+07:00> Mục đích: Đọc đúng trường cửa 1. Lý do: payload gửi sibling_seq, không gửi child_order.
+        sibling_seq: child.sibling_seq != null ? Number(child.sibling_seq) : null,
         note: smp.is_anonymous ? '[UM] Khuyết danh tạo bởi MFO 5L' : (smp.note || null),
         changed_by: actorId,
       },
@@ -183,6 +188,21 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
         parent_union_id: unionId,
         father_id: fatherId,
         mother_id: motherId,
+        changed_by: actorId,
+      },
+    });
+  }
+
+  // <2026-10-17T07:48:00+07:00> Mục đích: Gắn con đã có trên sổ vào lần mới. Lý do: con này không nằm trong draft_children, không được tạo lại.
+  const assigned = Array.isArray(delta.assigned_children) ? delta.assigned_children : [];
+  for (const row of assigned) {
+    const unionId = marriageMap.get(row.union_id) || null;
+    if (!row.member_id || !unionId) continue;
+    await tx.members.update({
+      where: { id: row.member_id },
+      data: {
+        parent_union_id: unionId,
+        sibling_seq: row.sibling_seq != null ? Number(row.sibling_seq) : null,
         changed_by: actorId,
       },
     });
