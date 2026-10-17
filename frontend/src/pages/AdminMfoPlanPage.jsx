@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/pages/AdminMfoPlanPage.jsx
- * DATETIME   : 2026-10-16T09:52:00+07:00
- * VERSION    : 3.1.2-REVIEW-ONLY-SUBMITTED
+ * DATETIME   : 2026-10-17T09:38:00+07:00
+ * VERSION    : 3.1.3-GEN-ABOVE-BUTTONS
  * DESCRIPTION:
  * - Vá dứt điểm Bug 3: Card 2 ở Cửa 2 (RESULT) tự động chuyển sang đọc Tóm tắt Tờ khai từ smp_staging_data (hiển thị rõ tên vợ/chồng, con đã kê khai).
  * - Xác nhận Event nút "Duyệt và ghi sổ" thực thi chính xác API Cửa 2 approveResult() qua SRPF Engine mfoResultProcess.
@@ -554,6 +554,8 @@ export function AdminMfoPlanPage() {
               onReturn={selectedGate === 'RESULT' ? handleReturnResultGate2 : handleReturnPlanGate1}
               onReject={handleRejectResultGate2}
               showReject={selectedGate === 'RESULT'}
+              generation={selectedGate === 'PLAN' ? grantedGeneration : ''}
+              onGeneration={selectedGate === 'PLAN' ? setGrantedGeneration : null}
             />
             )}
 
@@ -569,23 +571,6 @@ export function AdminMfoPlanPage() {
           />
         ) : null}
 
-            {/* CẤU HÌNH ĐỜI TUYỆT ĐỐI (CHỈ BẮT BUỘC Ở GATE 1) */}
-            {selectedGate === 'PLAN' && dossierLabel(detail) === 'Nhánh phả hệ chờ phê duyệt' && (
-              <section className="rounded-3xl border border-amber-200 bg-amber-50/50 p-3.5 shadow-sm">
-                <h2 className="text-xs font-black uppercase tracking-wider text-amber-950 mb-2 flex items-center gap-1.5">
-                  <ShieldCheck className="h-4 w-4 text-amber-600" />
-                  <span>Đời gốc trên sổ</span>
-                </h2>
-                <input
-                  type="number"
-                  min="1"
-                  placeholder="Nhập đời tuyệt đối cho Origin (ví dụ: 12)..."
-                  className="w-full rounded-2xl border border-amber-300 bg-white p-3 text-sm font-black text-amber-950 outline-none focus:ring-4 focus:ring-amber-200"
-                  value={grantedGeneration}
-                  onChange={(e) => setGrantedGeneration(e.target.value)}
-                />
-              </section>
-            )}
 
           </div>
         )}

@@ -1,12 +1,16 @@
 /**
  * PATH       : backend/src/modules/mfo/mfo.routes.js
- * DATETIME   : 2026-10-09T12:25:00+07:00
- * VERSION    : 3.0.0-SRPF-ROUTES-FINAL
+ * DATETIME   : 2026-10-17T10:56:00+07:00
+ * VERSION    : 3.0.1-RESULT-RETURN
  * DESCRIPTION:
  * - Khai báo danh mục Endpoint REST API cho Phân hệ MFO 5L.
  * - Phân định rõ nhóm API Canvas, Nháp DRAFT, Gate 1 (MFO_PLAN), Workbench và Gate 2 (MFO_RESULT).
  * - Middleware Auth & CheckRole đảm bảo an toàn truy cập chặt chẽ.
  * REFERENCE  : MFO Core Lifecycle 2.0 Architectural Specification
+ *
+ * CHANGE LOG:
+ * - 2026-10-09T12:25:00+07:00 | 3.0.0 | Đường canvas, nháp, cửa 1 và cửa 2.
+ * - 2026-10-17T10:56:00+07:00 | 3.0.1 | Thêm /result/return cho nút Trả sửa cửa 2.
  */
 
 const express = require('express');
@@ -124,6 +128,14 @@ router.post(
 // Admin Trả về Tờ khai Nghiệm thu yêu cầu sửa lại (NEEDS_REVISION)
 router.post(
   '/plans/:id/result/reject',
+  verifyToken,
+  checkRole(ADMIN),
+  mfoController.rejectResult
+);
+
+// <2026-10-17T10:56:00+07:00> Mục đích: Đón nút Trả sửa cửa 2. Lý do: trang gọi /result/return, file đang dùng chưa có đường này.
+router.post(
+  '/plans/:id/result/return',
   verifyToken,
   checkRole(ADMIN),
   mfoController.rejectResult

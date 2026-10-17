@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-17T07:46:00+07:00
- * VERSION    : 4.9.25-LAT3-READ-ONLY
+ * DATETIME   : 2026-10-17T13:24:00+07:00
+ * VERSION    : 4.9.29-CONFIRM-DEPTH
  * DESCRIPTION:
  * - Vá dứt điểm Bug 1: Lỗi SRPF_INVALID_TRANSITION khi Trình Tờ Khai ở Cửa 2.
  * - Khóa chặt State Machine: Khi plan_ok === true, bắt buộc gọi handleSubmitProfiles() (API submitResult Cửa 2), triệt tiêu hoàn toàn việc gọi nhầm createPlan (Cửa 1).
@@ -17,6 +17,10 @@
  * - 2026-10-17T07:39:00+07:00 | 4.9.23 | Thêm vợ chỉ tạo lần và chọn con có sẵn. Thêm con chỉ tạo con mới, hỏi người sinh và thứ tự.
  * - 2026-10-17T07:43:00+07:00 | 4.9.24 | Payload giữ sibling_seq và assigned_children.
  * - 2026-10-17T07:46:00+07:00 | 4.9.25 | Cửa 2 chỉ đọc người sinh và thứ tự, không hỏi lại.
+ * - 2026-10-17T09:38:00+07:00 | 4.9.26 | Lưu xong đóng form. Chỉ avatar xin tạo mở form. Trình thì hỏi lại.
+ * - 2026-10-17T10:48:00+07:00 | 4.9.27 | Câu xác nhận lấy từ hồ sơ đã nhập, không lấy nhãn nháp.
+ * - 2026-10-17T11:19:00+07:00 | 4.9.28 | Tờ trả sửa được soạn. Form có thứ tự con và nút Lưu khi có thay đổi.
+ * - 2026-10-17T13:24:00+07:00 | 4.9.29 | Câu trình cửa 1 dùng tiêu đề đời, không còn undefined.
  * RULE COMPLIANCE:
  * - Q1 (Bảo tồn): Bảo toàn 100% logic Canvas ReactFlow, Active Form catalog, Staging profile sheet và AppFooterNav.
  * - Q2 (Code Format): Đầy đủ docstring header và chú thích thời gian <2026-10-14T11:10:00+07:00> từng khối logic.
@@ -195,7 +199,8 @@ export function OpMfoPlanPage() {
   
   const profileModeRef = useRef(false);
   profileModeRef.current = isGate2;
-  const profileLocked = profileFlags.result_ok === true || ['PENDING','UNDER_REVIEW','REJECTED'].includes(proposalStatus) || (profileFlags.result_submitted === true && proposalStatus !== 'NEEDS_REVISION');
+  // <2026-10-17T11:19:00+07:00> Mục đích: Tờ trả sửa luôn soạn được. Lý do: NEEDS_REVISION bị khoá nếu còn cờ đã trình.
+  const profileLocked = proposalStatus === 'NEEDS_REVISION' ? false : profileFlags.result_ok === true || ['PENDING','UNDER_REVIEW','REJECTED'].includes(proposalStatus) || profileFlags.result_submitted === true;
 
   const isReadOnly = useMemo(() => {
     const st = String(proposalStatus || 'DRAFT').toUpperCase();
@@ -1056,6 +1061,10 @@ export function OpMfoPlanPage() {
       mfoToast.warning('Khung ban đầu chưa có biến động mới để trình duyệt!');
       return;
     }
+    // <2026-10-17T10:48:00+07:00> Mục đích: Hỏi lại bằng tóm tắt từng đời. Lý do: câu chung không cho biết bác đang trình gì.
+    // <2026-10-17T13:24:00+07:00> Mục đích: Hiện đúng đời. Lý do: tóm tắt trả title, không có depth.
+    const planSummary = diffDraftAgainstInit(extractCurrentPayload()).map((row) => `${row.title}: ${row.text}`).join('\n');
+    if (!window.confirm(`Trình nhánh phả hệ:\n${planSummary}\nBác xác nhận?`)) return;
 
     const effectiveOriginId =
       getOriginMemberIdForSubmission(viewFocusResult) ||
@@ -1113,6 +1122,8 @@ export function OpMfoPlanPage() {
   const profileItems = useMemo(() => getProfileItems(profileDelta), [profileDelta]);
 
   profileOpenRef.current = (payload) => {
+    // <2026-10-17T09:38:00+07:00> Mục đích: Chỉ mở form khi bấm người xin tạo. Lý do: bấm chỗ khác không được mở hồ sơ.
+    if (!String(payload.nodeId || '').startsWith('draft-child-') && !String(payload.activeUnionId || '').startsWith('union-draft-')) return;
     const choices = profileItems.filter((item) => String(item.nodeId) === String(payload.nodeId));
     if (choices.length === 1) setSelectedProfile(choices[0]);
     else if (choices.length > 1) setProfileChoices(choices.map((item) => ({ ...item, label: profileStaging[item.key]?.full_name || item.label })));
@@ -1183,6 +1194,8 @@ export function OpMfoPlanPage() {
     try {
       setBusy(true);
       await persistProfiles(items);
+      // <2026-10-17T09:38:00+07:00> Mục đích: Đóng form sau khi lưu. Lý do: đóng Alarm phải về trang soạn, không ở lại form.
+      setSelectedProfile(null); setProfileChoices([]);
       setProfileAlarm('Đã lưu tờ khai.');
     } catch (error) { setProfileAlarm(toMfoUserMessage(error)); }
     finally { setBusy(false); }
@@ -1190,6 +1203,15 @@ export function OpMfoPlanPage() {
 
   async function handleSubmitProfiles() {
     if (!isGate2 || profileLocked || busy || !currentDraftTicketId) return;
+    // <2026-10-17T10:48:00+07:00> Mục đích: Hỏi lại bằng hồ sơ đã nhập. Lý do: nhãn nháp không phản ánh staging.
+    const summary = profileItems.map((item) => {
+      const smp = profileStaging[item.key] || {};
+      const who = item.kind === 'spouse' ? 'Vợ hoặc chồng' : 'Con';
+      const clan = smp.is_clan === true ? 'nội tộc' : smp.is_clan === false ? 'ngoại tộc' : 'chưa rõ nội tộc';
+      const alive = smp.is_alive === false ? 'đã mất' : 'còn sống';
+      return `${who}: ${smp.full_name || 'chưa có tên'}, ${smp.gender === 'NU' ? 'nữ' : smp.gender === 'NAM' ? 'nam' : 'chưa rõ giới'}, ${clan}, ${alive}`;
+    }).join('\n') || 'Không có người xin thêm';
+    if (!window.confirm(`Trình tờ khai:\n${summary}\nBác xác nhận?`)) return;
     const error = submissionError(profileItems, profileStaging, nodes);
     if (error) { setProfileAlarm(toMfoUserMessage({ code: error })); return; }
     try {
@@ -1510,6 +1532,8 @@ export function OpMfoPlanPage() {
 
       <MfoPersonProfileSheet item={isGate2 ? selectedProfile : null} choices={isGate2 ? profileChoices : []}
         value={selectedProfile ? profileStaging[selectedProfile.key] || {} : {}} busy={busy} readOnly={profileLocked}
+        dirty={selectedProfile ? JSON.stringify(cleanProfile(profileStaging[selectedProfile.key] || {}, selectedProfile.kind)) !== JSON.stringify(cleanProfile(savedProfileStaging[selectedProfile.key] || {}, selectedProfile.kind)) : false}
+        siblingSeq={(profileDelta.draft_children || []).find((row) => row.id === selectedProfile?.key)?.sibling_seq || ''}
         relationNote={(() => {
           // <2026-10-17T07:46:00+07:00> Mục đích: Đọc lại câu cửa 1. Lý do: cửa 2 không hỏi lại cặp hay thứ tự.
           if (!selectedProfile || selectedProfile.kind !== 'child') return '';
