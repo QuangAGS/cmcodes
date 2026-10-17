@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MfoPersonProfileSheet.jsx
- * DATETIME   : 2026-10-17T11:19:00+07:00
- * VERSION    : 3.0.5-ORDER-AND-SAVE
+ * DATETIME   : 2026-10-17T14:31:00+07:00
+ * VERSION    : 3.0.6-SAVE-ENABLED
  * DESCRIPTION: Hồ sơ dạng lớp nổi trên cây; controlled, không suy nội tộc, không nhập phả hệ.
  * RULE       : Q1 bảo tồn ngoài phạm vi; Q2 metadata và chú thích có thời gian.
  *
@@ -10,6 +10,7 @@
  * - 2026-10-17T07:46:00+07:00 | 3.0.3 | Hiện dòng chỉ đọc về người sinh và thứ tự con.
  * - 2026-10-17T09:38:00+07:00 | 3.0.4 | Trường bắt buộc có chữ Bắt buộc.
  * - 2026-10-17T11:19:00+07:00 | 3.0.5 | Thêm thứ tự con. Nội tộc hiện Nội tộc hoặc Ngoại tộc. Lưu chỉ bật khi có thay đổi.
+ * - 2026-10-17T14:31:00+07:00 | 3.0.6 | Không truyền dirty thì không khoá nút Lưu.
  */
 import { createPortal } from 'react-dom';
 /**
@@ -69,7 +70,7 @@ export default function MfoPersonProfileSheet({
         {value.is_alive === false ? <label className="block text-sm font-semibold">Ghi chú mất<textarea className={field} disabled={busy || readOnly} value={value.death_note || ''} onChange={e => set('death_note', e.target.value)} /></label> : null}
         <label className="block text-sm font-semibold">Ghi chú<textarea className={field} disabled={busy || readOnly} value={value.note || ''} onChange={e => set('note', e.target.value)} /></label>
       </div>}
-      {item && !readOnly ? <button type="button" disabled={busy || !dirty} onClick={onSave} className="mt-4 min-h-12 w-full rounded-xl bg-indigo-700 font-bold text-white disabled:opacity-50">{busy ? 'Đang lưu…' : 'Lưu'}</button> : null}
+      {item && !readOnly ? <button type="button" disabled={busy || dirty === false} onClick={onSave} className="mt-4 min-h-12 w-full rounded-xl bg-indigo-700 font-bold text-white disabled:opacity-50">{busy ? 'Đang lưu…' : 'Lưu'}</button> : null}
       <button type="button" disabled={busy} onClick={onClose} className="mt-2 min-h-12 w-full rounded-xl border font-semibold">Đóng</button>
     </section></div>, document.body);
 }
