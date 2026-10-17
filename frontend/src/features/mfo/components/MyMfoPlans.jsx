@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MyMfoPlans.jsx
- * DATETIME   : 2026-10-17T13:50:00+07:00
- * VERSION    : 5.7.6-REVIEW-BOOK-TREE
+ * DATETIME   : 2026-10-17T18:05:00+07:00
+ * VERSION    : 5.7.6-LIST-REFRESH
  * DESCRIPTION:
  * - Vá dứt điểm lỗi hiển thị nhầm "Bút phê tờ khai: Duyệt" khi Tờ khai Cửa 2 đang ở trạng thái chờ duyệt.
  * - Loại bỏ fallback || currentPlan.admin_note của Cửa 1, phân lập chính xác bút phê theo trạng thái Tờ khai Cửa 2.
@@ -11,7 +11,7 @@
  * - 2026-10-14T15:35:00+07:00 | 5.7.3 | Phân lập bút phê cửa 2, không lấy nhầm bút phê cửa 1.
  * - 2026-10-16T07:08:00+07:00 | 5.7.4 | DRAFT và cần sửa hiện Sửa nhánh, không phụ thuộc cờ plan_ok.
  * - 2026-10-16T08:24:00+07:00 | 5.7.5 | Tiêu đề trang đổi thành Hồ sơ nhánh phả hệ. Card giữ Hồ sơ của tôi.
- * - 2026-10-17T13:50:00+07:00 | 5.7.6 | Đã ghi sổ thì Xem lại mở cây từ sổ, không mở cây lúc trình.
+ * - 2026-10-17T18:05:00+07:00 | 5.7.6 | Nút Làm mới cạnh danh sách hồ sơ.
  * RULE COMPLIANCE:
  * - Q1 (Bảo tồn): Bảo toàn 100% logic Single Thread Pipeline, hydration draft, CRUD handlers và MfoHistoryChain integration.
  * - Q2 (Code Format): Đầy đủ docstring header và chú thích thời gian <2026-10-14T15:35:00+07:00> từng khối logic.
@@ -39,9 +39,7 @@ import {
   getMember,
   getDraftPayload,
   savePlanDraft,
-  getFullMfoSet,
 } from '../api/mfoApi.js';
-import { buildMfoGraph } from '../lib/mfoGraphAdapter.js';
 import {
   unwrapPlanList,
   opMfoStatusBadgeClass,
@@ -349,8 +347,10 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
 
         {openMainCard && (
           <div className="space-y-3 pt-1">
+            {/* 2026-10-17T18:05:00+07:00 Muc dich: Lam moi chi danh sach. Ly do: F5 tai lai ca trang. */}
+            <div className="flex items-center gap-2">
             <select
-              className="w-full rounded-2xl border-2 border-indigo-200 bg-indigo-50/50 p-3.5 text-sm font-black text-indigo-950 outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 cursor-pointer"
+              className="min-w-0 flex-1 rounded-2xl border-2 border-indigo-200 bg-indigo-50/50 p-3.5 text-sm font-black text-indigo-950 outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100 cursor-pointer"
               value={selectedTicketId}
               onChange={handleSelectChange}
             >
@@ -368,6 +368,8 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                 </option>
               ))}
             </select>
+            <button type="button" className="min-h-12 shrink-0 rounded-2xl border border-slate-300 bg-white px-3 text-sm font-bold" onClick={() => void loadPlansList()}>Làm mới</button>
+            </div>
 
             {plans.length === 0 && !loading && (
               <div className="flex flex-col items-center gap-2 py-3 text-center">
@@ -418,16 +420,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                     type="button"
                     className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-black text-indigo-900 hover:bg-indigo-100 active:scale-[0.98]"
                     disabled={draftDetail?.ticket_id !== selectedTicketId || !draftDetail?.graph_snapshot}
-                    onClick={async () => {
-                      // <2026-10-17T13:50:00+07:00> Mục đích: Đã ghi sổ thì xem cây từ sổ. Lý do: snapshot chỉ là cây lúc trình.
-                      if (payloadData?.result_ok && (viewPlan?.payload?.target_member_id || viewPlan?.target_id)) {
-                        const targetId = viewPlan.payload.target_member_id || viewPlan.target_id;
-                        const k = viewPlan.payload.selected_canvas_depth || viewPlan.payload.k || 0;
-                        const fullSet = await getFullMfoSet(targetId, k);
-                        const graph = buildMfoGraph(fullSet?.data || fullSet || {});
-                        setHistoryPreview({ nodes: graph.nodes, edges: graph.edges });
-                        return;
-                      }
+                    onClick={() => {
                       const snapshot = draftDetail?.ticket_id === selectedTicketId ? viewPlan?.payload?.graph_snapshot : null;
                       if (snapshot) setHistoryPreview({ ...JSON.parse(JSON.stringify(snapshot)), smp_staging_data: viewPlan?.payload?.smp_staging_data || {} });
                     }}

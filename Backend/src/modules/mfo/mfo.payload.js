@@ -1,13 +1,14 @@
 /**
  * PATH       : src/modules/mfo/mfo.payload.js
- * DATETIME   : 2026-10-17T14:18:00+07:00
- * VERSION    : 1.3.2-KEEP-RELATIONS
+ * DATETIME   : 2026-10-17T15:04:00+07:00
+ * VERSION    : 1.3.3-COUPLE-BY-IDS
  * DESCRIPTION: Lát 2. Sanitize Payload & Cắt lọc tinh gọn graph_snapshot / canvas_delta.
  *              Đã vá bảo tồn isAnonymous, originSource, fallback stroke, và viewport null.
  *
  * CHANGE LOG:
  * - 2026-10-04T20:04:00+07:00 | 1.3.1 | Giữ cờ khuyết danh và viewport.
  * - 2026-10-17T14:18:00+07:00 | 1.3.2 | Giữ sibling_seq của con nháp và assigned_children.
+ * - 2026-10-17T15:04:00+07:00 | 1.3.3 | Giữ mã hai người của cặp trên con nháp.
  */
 
 const OPS = new Set(['ASSIGN', 'CREATE', 'EMPTY']);
@@ -166,6 +167,9 @@ function sanitizeCanvasDelta(raw) {
         depth: depthOf(row && row.depth, 'Đời con nháp'),
         label: String((row && row.label) || ''),
         link: linkOf(row && row.link),
+        // <2026-10-17T15:04:00+07:00> Mục đích: Giữ mã hai người của cặp. Lý do: duyệt tìm hôn nhân bằng mã người, không bằng thứ tự lần.
+        parent_member_id: row && row.parent_member_id ? String(row.parent_member_id) : null,
+        spouse_member_id: row && row.spouse_member_id ? String(row.spouse_member_id) : null,
         // <2026-10-17T14:18:00+07:00> Mục đích: Giữ thứ tự con. Lý do: bản cũ bỏ sibling_seq nên sổ ghi null.
         sibling_seq: Number.isInteger(Number(row && row.sibling_seq)) && Number(row.sibling_seq) >= 1 ? Number(row.sibling_seq) : null,
       }))

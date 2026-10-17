@@ -1,13 +1,14 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-17T14:31:00+07:00
- * VERSION    : 4.9.31-SAVE-WHEN-CHANGED
+ * DATETIME   : 2026-10-17T15:04:00+07:00
+ * VERSION    : 4.9.32-COUPLE-BY-IDS
  * DESCRIPTION:
  * - Vá dứt điểm Bug 1: Lỗi SRPF_INVALID_TRANSITION khi Trình Tờ Khai ở Cửa 2.
  * - Khóa chặt State Machine: Khi plan_ok === true, bắt buộc gọi handleSubmitProfiles() (API submitResult Cửa 2), triệt tiêu hoàn toàn việc gọi nhầm createPlan (Cửa 1).
  * - Mở nhánh đang soạn không hiện Alarm.
  *
  * CHANGE LOG:
+ * - 2026-10-17T15:04:00+07:00 | 4.9.32 | Con mới mang mã hai người của cặp, không mang thứ tự lần.
  * - 2026-10-17T14:31:00+07:00 | 4.9.31 | Nút Lưu bật khi hồ sơ đang sửa khác hồ sơ đã lưu.
  * - 2026-10-17T14:18:00+07:00 | 4.9.30 | Payload giữ sibling_seq và assigned_children.
  * - 2026-10-15T15:05:00+07:00 | 4.9.5 | Giữ cạnh cũ rồi mới chuyển, không xoá trước.
@@ -560,9 +561,11 @@ export function OpMfoPlanPage() {
     const parentNode = nodes.find((n) => n.id === targetNodeId);
     const newChildId = `draft-child-${Date.now()}`;
     const known = relationCouple && relationCouple !== 'unknown';
+    // <2026-10-17T15:04:00+07:00> Mục đích: Gắn con bằng mã hai người. Lý do: thứ tự lần và mã lần nháp không đủ để tìm hôn nhân đã có trên sổ.
+    const coupleTab = (parentNode?.data?.tabs || []).find((tab) => tab.unionId === relationCouple);
     const newChildNode = {
       id: newChildId, type: 'familyCouple', position: { x: (parentNode?.position?.x ?? 40) + 30, y: childDepth * 310 }, style: { width: 240 },
-      data: { id: newChildId, treeId: newChildId, depth: childDepth, clanName: `Con đời ${childDepth} (Xin tạo)`, partnerName: null, unassignedCount: 0, tabs: [], isAnonymous: false, originSource: 'from_draft_child', parentUnionKey: relationCouple || 'unknown', siblingSeq: relationSibling || 1, onOpenActionForm: handleOpenActionForm },
+      data: { id: newChildId, treeId: newChildId, depth: childDepth, clanName: `Con đời ${childDepth} (Xin tạo)`, partnerName: null, unassignedCount: 0, tabs: [], isAnonymous: false, originSource: 'from_draft_child', parentUnionKey: relationCouple || 'unknown', parentMemberId: parentNode?.data?.clan?.id || null, spouseMemberId: coupleTab?.partner?.id || null, siblingSeq: relationSibling || 1, onOpenActionForm: handleOpenActionForm },
     };
     const sourceHandle = known ? `union:${relationCouple}:children` : 'owner:unassigned';
     setNodes((prev) => [...prev, newChildNode]);
@@ -896,6 +899,8 @@ export function OpMfoPlanPage() {
           label: n.data?.clanName || 'Con nháp',
           link: parentEdge ? parentEdge.sourceHandle : 'owner:unassigned',
           parent_union_key: n.data?.parentUnionKey || null,
+          parent_member_id: n.data?.parentMemberId || null,
+          spouse_member_id: n.data?.spouseMemberId || null,
           sibling_seq: n.data?.siblingSeq || null,
         };
       });

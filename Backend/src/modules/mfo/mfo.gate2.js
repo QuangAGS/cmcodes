@@ -1,12 +1,13 @@
 /**
  * PATH       : backend/src/modules/mfo/mfo.gate2.js
- * DATETIME   : 2026-10-17T14:18:00+07:00
- * VERSION    : 1.2.1-WRITE-RELATIONS
+ * DATETIME   : 2026-10-17T15:04:00+07:00
+ * VERSION    : 1.2.2-COUPLE-BY-IDS
  * DESCRIPTION: Ghi sổ lúc duyệt Cửa 2. Đời lấy từ sổ. is_clan lấy từ khẳng định. status = CHINH_THUC.
  *
  * CHANGE LOG:
  * - 2026-10-12T17:30:00+07:00 | 1.2.0 | Đời lấy từ sổ. Nội tộc lấy từ khẳng định.
  * - 2026-10-17T14:18:00+07:00 | 1.2.1 | Đọc sibling_seq. Cập nhật con có sẵn, không tạo người mới.
+ * - 2026-10-17T15:04:00+07:00 | 1.2.2 | Con mới tìm hôn nhân bằng mã hai người.
  */
 'use strict';
 
@@ -164,17 +165,32 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
     if (!childId) continue;
     const link = String(child.link || '');
     const unionKey = link.startsWith('union:') ? link.split(':')[1] : null;
-    const unionId = unionKey ? marriageMap.get(unionKey) || null : null;
-    let fatherId = null;
-    let motherId = null;
-    if (unionId) {
-      const marriage = await tx.marriages.findUnique({
-        where: { id: unionId },
-        select: { husband_id: true, wife_id: true },
+    // <2026-10-17T15:04:00+07:00> Mục đích: Tìm hôn nhân bằng mã hai người. Lý do: mã lần nháp và thứ tự lần không nhận ra hôn nhân đã có trên sổ.
+    const ownerId = child.parent_member_id || ownerIdOf(child.parent_node_id, memberMap);
+    const spouseId = child.spouse_member_id || (unionKey ? memberMap.get('spouse:' + unionKey) : null);
+    let marriage = null;
+    if (ownerId && spouseId) {
+      marriage = await tx.marriages.findFirst({
+        where: {
+          deleted_at: null,
+          OR: [
+            { husband_id: ownerId, wife_id: spouseId },
+            { husband_id: spouseId, wife_id: ownerId },
+          ],
+        },
+        select: { id: true, husband_id: true, wife_id: true },
       });
-      fatherId = marriage && marriage.husband_id;
-      motherId = marriage && marriage.wife_id;
-    } else if (child.parent_node_id) {
+    }
+    if (!marriage && unionKey && marriageMap.get(unionKey)) {
+      marriage = await tx.marriages.findUnique({ where: { id: marriageMap.get(unionKey) }, select: { id: true, husband_id: true, wife_id: true } });
+    }
+    if (!marriage && unionKey && !String(unionKey).startsWith('union-draft-')) {
+      marriage = await tx.marriages.findUnique({ where: { id: unionKey }, select: { id: true, husband_id: true, wife_id: true } });
+    }
+    const unionId = marriage ? marriage.id : null;
+    let fatherId = marriage ? marriage.husband_id : null;
+    let motherId = marriage ? marriage.wife_id : null;
+    if (!marriage && child.parent_node_id) {
       const parentId = ownerIdOf(child.parent_node_id, memberMap);
       if (parentId) {
         const parent = await tx.members.findUnique({ where: { id: parentId }, select: { gender: true } });
@@ -188,6 +204,7 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
         parent_union_id: unionId,
         father_id: fatherId,
         mother_id: motherId,
+        sibling_seq: child.sibling_seq != null ? Number(child.sibling_seq) : null,
         changed_by: actorId,
       },
     });

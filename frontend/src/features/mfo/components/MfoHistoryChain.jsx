@@ -1,13 +1,14 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MfoHistoryChain.jsx
- * DATETIME   : 2026-10-16T07:08:00+07:00
- * VERSION    : 3.2.1-DRAFT-IS-FRAME
+ * DATETIME   : 2026-10-17T18:05:00+07:00
+ * VERSION    : 1.4.1-LIST-REFRESH
  * DESCRIPTION:
  * - Vá lỗi tự động gán chữ "Duyệt" khi Lần trình Cửa 2 đang ở trạng thái chờ duyệt.
  * - Loại bỏ fallback || 'Duyệt', hiển thị chính xác "Chưa có ý kiến." đối với lần trình chưa có bút phê.
  * - DRAFT không còn bị gọi là tờ khai.
  *
  * CHANGE LOG:
+ * - 2026-10-17T18:05:00+07:00 | 1.4.1 | Nút Làm mới cạnh danh sách bước.
  * - 2026-10-14T15:35:00+07:00 | 3.2.0 | Không gán chữ Duyệt khi tờ khai chưa có bút phê.
  * - 2026-10-16T07:08:00+07:00 | 3.2.1 | stageName và historySteps chỉ mở tờ khai khi nhánh đã duyệt.
  * RULE COMPLIANCE:
@@ -183,8 +184,10 @@ export default function MfoHistoryChain({ plan, open, onToggle, onReload }) {
 
       {expanded ? (
         <div className="space-y-3 border-t p-3 text-sm text-slate-800">
+          {/* 2026-10-17T18:09:00+07:00 Muc dich: Nut Lam moi canh danh sach. Ly do: ban truoc dong nham khung ngoai. */}
+          <div className="flex items-center gap-2">
           <select
-            className="min-h-12 w-full rounded-xl border px-3 font-medium"
+            className="min-h-12 min-w-0 flex-1 rounded-xl border px-3 font-medium"
             value={selected}
             onChange={(event) => {
               setSelected(event.target.value);
@@ -198,6 +201,8 @@ export default function MfoHistoryChain({ plan, open, onToggle, onReload }) {
               </option>
             ))}
           </select>
+          <button type="button" className="min-h-12 shrink-0 rounded-2xl border border-slate-300 bg-white px-3 text-sm font-bold" onClick={() => onReload?.()}>Làm mới</button>
+          </div>
 
           {!entries.length ? <p className="text-slate-500 font-medium">Chưa có lần trình được lưu.</p> : null}
 

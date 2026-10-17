@@ -1,13 +1,14 @@
 /**
  * PATH       : frontend/src/pages/AdminMfoPlanPage.jsx
- * DATETIME   : 2026-10-17T09:38:00+07:00
- * VERSION    : 3.1.3-GEN-ABOVE-BUTTONS
+ * DATETIME   : 2026-10-17T18:05:00+07:00
+ * VERSION    : 2.4.1-LIST-REFRESH
  * DESCRIPTION:
  * - Vá dứt điểm Bug 3: Card 2 ở Cửa 2 (RESULT) tự động chuyển sang đọc Tóm tắt Tờ khai từ smp_staging_data (hiển thị rõ tên vợ/chồng, con đã kê khai).
  * - Xác nhận Event nút "Duyệt và ghi sổ" thực thi chính xác API Cửa 2 approveResult() qua SRPF Engine mfoResultProcess.
  * - Bộ lọc chỉ còn trạng thái, có Tất cả.
  *
  * CHANGE LOG:
+ * - 2026-10-17T18:05:00+07:00 | 2.4.1 | Nút Làm mới cạnh hàng đợi.
  * - 2026-10-14T16:15:00+07:00 | 3.1.0 | Card 2 cửa 2 đọc tóm tắt từ staging.
  * - 2026-10-16T09:31:00+07:00 | 3.1.1 | Bỏ Loại hồ sơ. Trạng thái có Tất cả.
  * - 2026-10-16T09:52:00+07:00 | 3.1.2 | Nhãn có giờ. Chỉ thẩm định tờ đã trình.
@@ -454,8 +455,10 @@ export function AdminMfoPlanPage() {
           <label className="block text-xs font-extrabold uppercase text-slate-700 mb-2">
             Chọn tờ trình trong hàng đợi:
           </label>
+          {/* 2026-10-17T18:05:00+07:00 Muc dich: Lam moi chi hang doi. Ly do: F5 tai lai ca trang. */}
+          <div className="flex items-center gap-2">
           <select
-            className="w-full rounded-2xl border-2 border-indigo-200 bg-indigo-50/50 p-3 text-sm font-bold text-indigo-950 outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
+            className="min-w-0 flex-1 rounded-2xl border-2 border-indigo-200 bg-indigo-50/50 p-3 text-sm font-bold text-indigo-950 outline-none focus:border-indigo-600 focus:ring-4 focus:ring-indigo-100"
             disabled={busyAction !== null}
             value={selectedTicketId}
             onChange={handleSelectTicketChange}
@@ -467,6 +470,8 @@ export function AdminMfoPlanPage() {
               </option>
             ))}
           </select>
+          <button type="button" className="min-h-12 shrink-0 rounded-2xl border border-slate-300 bg-white px-3 text-sm font-bold" onClick={() => void loadQueue()}>Làm mới</button>
+          </div>
 
           {filteredQueue.length === 0 && (
             <p className="mt-2 text-center text-xs font-semibold text-slate-400">
