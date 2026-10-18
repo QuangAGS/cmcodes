@@ -1,13 +1,17 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-17T15:04:00+07:00
- * VERSION    : 4.9.32-COUPLE-BY-IDS
+ * DATETIME   : 2026-10-18T14:52:00+07:00
+ * VERSION    : 4.9.36-FIT-ONCE
  * DESCRIPTION:
  * - Vá dứt điểm Bug 1: Lỗi SRPF_INVALID_TRANSITION khi Trình Tờ Khai ở Cửa 2.
  * - Khóa chặt State Machine: Khi plan_ok === true, bắt buộc gọi handleSubmitProfiles() (API submitResult Cửa 2), triệt tiêu hoàn toàn việc gọi nhầm createPlan (Cửa 1).
  * - Mở nhánh đang soạn không hiện Alarm.
  *
  * CHANGE LOG:
+ * - 2026-10-18T14:52:00+07:00 | 4.9.36 | Vừa khung một lần lúc mở. Bấm chấm không vừa khung.
+ * - 2026-10-18T14:48:00+07:00 | 4.9.35 | Bấm chấm không vừa khung.
+ * - 2026-10-18T07:37:00+07:00 | 4.9.34 | Nhóm nút canvas nằm ngang, ngoài khung.
+ * - 2026-10-18T07:31:00+07:00 | 4.9.33 | Nhóm nút canvas lên giữa phía trên.
  * - 2026-10-17T15:04:00+07:00 | 4.9.32 | Con mới mang mã hai người của cặp, không mang thứ tự lần.
  * - 2026-10-17T14:31:00+07:00 | 4.9.31 | Nút Lưu bật khi hồ sơ đang sửa khác hồ sơ đã lưu.
  * - 2026-10-17T14:18:00+07:00 | 4.9.30 | Payload giữ sibling_seq và assigned_children.
@@ -25,7 +29,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom';
 import { useLocation, useNavigate, useSearchParams, useParams } from 'react-router-dom';
 import { mfoToast } from '../features/mfo/lib/mfoToastVoice.js';
-import ReactFlow, { Background, Controls, useEdgesState, useNodesState } from 'reactflow';
+import ReactFlow, { Background, useEdgesState, useNodesState } from 'reactflow';
 import 'reactflow/dist/style.css';
 import {
   UserCheck,
@@ -879,8 +883,11 @@ export function OpMfoPlanPage() {
     }
   };
 
+  // <2026-10-18T14:52:00+07:00> Mục đích: Chỉ vừa khung một lần. Lý do: bấm chấm làm nodes đổi và hiệu ứng cũ vừa khung lại.
+  const fittedOnceRef = useRef(false);
   useEffect(() => {
-    if (profileModeRef.current || !nodes.length || !flowRef.current) return;
+    if (fittedOnceRef.current || profileModeRef.current || !nodes.length || !flowRef.current) return;
+    fittedOnceRef.current = true;
     const timer = setTimeout(() => {
       flowRef.current?.fitView({ padding: 0.08, duration: 300, includeHiddenNodes: true });
     }, 120);
@@ -1302,7 +1309,16 @@ export function OpMfoPlanPage() {
 
         {err ? <p className="rounded-2xl border border-rose-200 bg-rose-50 px-3 py-3 text-sm text-rose-800">{err}</p> : null}
 
+{/* 2026-10-18T07:37:00+07:00 Muc dich: Nhom nut nam ngang, ngoai khung canvas. Ly do: nam trong khung va dung doc. */}
+        <div className="mb-2 flex justify-center">
+          <div className="flex items-center gap-1 rounded-xl border border-slate-300 bg-white p-1 shadow-sm">
+            <button type="button" className="min-h-10 min-w-10 rounded-lg text-lg font-bold" onClick={() => flowRef.current?.zoomIn?.()}>+</button>
+            <button type="button" className="min-h-10 min-w-10 rounded-lg text-sm font-bold" onClick={() => flowRef.current?.fitView?.({ padding: 0.08 })}>[ ]</button>
+            <button type="button" className="min-h-10 min-w-10 rounded-lg text-lg font-bold" onClick={() => flowRef.current?.zoomOut?.()}>−</button>
+          </div>
+        </div>
         <div className="relative h-[calc(100vh-210px)] min-h-[520px] max-h-[680px] w-full overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-inner">
+          {/* 2026-10-18T14:48:00+07:00 Muc dich: Khong vua khung khi bam cham. Ly do: fitView bat lam mat do phong. */}
           <ReactFlow
             nodes={isGate2 ? profileDisplayNodes : canvasNodes}
             edges={isGate2 ? edges : canvasEdges}
@@ -1315,7 +1331,7 @@ export function OpMfoPlanPage() {
               // <2026-10-16T06:18:00+07:00> Mục đích: Đo lại sau khi khung đã có kích thước thật.
               window.setTimeout(() => instance.fitView({ padding: 0.08, includeHiddenNodes: true, duration: 0 }), 180);
             }}
-            fitView={!isGate2}
+            fitView={false}
             fitViewOptions={{ padding: 0.08, includeHiddenNodes: true }}
             minZoom={0.1}
             maxZoom={2.5}
@@ -1331,7 +1347,6 @@ export function OpMfoPlanPage() {
             preventScrolling={false}
           >
             <Background color="#cbd5e1" gap={20} size={1} />
-            <Controls showInteractive={false} position="bottom-left" />
           </ReactFlow>
         </div>
 

@@ -1,13 +1,15 @@
 /**
  * PATH       : frontend/src/pages/AdminMfoPlanPage.jsx
- * DATETIME   : 2026-10-17T18:05:00+07:00
- * VERSION    : 2.4.1-LIST-REFRESH
+ * DATETIME   : 2026-10-18T07:37:00+07:00
+ * VERSION    : 2.4.3-CONTROLS-OUTSIDE
  * DESCRIPTION:
  * - Vá dứt điểm Bug 3: Card 2 ở Cửa 2 (RESULT) tự động chuyển sang đọc Tóm tắt Tờ khai từ smp_staging_data (hiển thị rõ tên vợ/chồng, con đã kê khai).
  * - Xác nhận Event nút "Duyệt và ghi sổ" thực thi chính xác API Cửa 2 approveResult() qua SRPF Engine mfoResultProcess.
  * - Bộ lọc chỉ còn trạng thái, có Tất cả.
  *
  * CHANGE LOG:
+ * - 2026-10-18T07:37:00+07:00 | 2.4.3 | Nhóm nút canvas nằm ngang, ngoài khung.
+ * - 2026-10-18T07:31:00+07:00 | 2.4.2 | Nhóm nút canvas lên giữa phía trên.
  * - 2026-10-17T18:05:00+07:00 | 2.4.1 | Nút Làm mới cạnh hàng đợi.
  * - 2026-10-14T16:15:00+07:00 | 3.1.0 | Card 2 cửa 2 đọc tóm tắt từ staging.
  * - 2026-10-16T09:31:00+07:00 | 3.1.1 | Bỏ Loại hồ sơ. Trạng thái có Tất cả.
@@ -19,7 +21,7 @@
 
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import ReactFlow, { Background, Controls } from 'reactflow';
+import ReactFlow, { Background } from 'reactflow';
 import 'reactflow/dist/style.css';
 import {
   ChevronDown,
@@ -508,6 +510,15 @@ export function AdminMfoPlanPage() {
               </button>
 
               {openCard1Canvas && (
+              <div>
+              {/* 2026-10-18T07:37:00+07:00 Muc dich: Nhom nut nam ngang, ngoai khung canvas. Ly do: nam trong khung va dung doc. */}
+              <div className="mb-2 flex justify-center">
+          <div className="flex items-center gap-1 rounded-xl border border-slate-300 bg-white p-1 shadow-sm">
+            <button type="button" className="min-h-10 min-w-10 rounded-lg text-lg font-bold" onClick={() => flowRef.current?.zoomIn?.()}>+</button>
+            <button type="button" className="min-h-10 min-w-10 rounded-lg text-sm font-bold" onClick={() => flowRef.current?.fitView?.({ padding: 0.08 })}>[ ]</button>
+            <button type="button" className="min-h-10 min-w-10 rounded-lg text-lg font-bold" onClick={() => flowRef.current?.zoomOut?.()}>−</button>
+          </div>
+        </div>
                 <div className="relative h-[380px] w-full border-b border-slate-100 bg-white">
                   {nodes.length > 0 ? (
                     <ReactFlow
@@ -529,7 +540,6 @@ export function AdminMfoPlanPage() {
                       zoomOnScroll={true}
                     >
                       <Background color="#cbd5e1" gap={20} size={1} />
-                      <Controls showInteractive={false} position="bottom-left" />
                     </ReactFlow>
                   ) : (
                     <div className="flex h-full items-center justify-center p-6 text-center text-xs font-bold text-slate-400">
@@ -537,6 +547,7 @@ export function AdminMfoPlanPage() {
                     </div>
                   )}
                 </div>
+              </div>
               )}
             </section>
 
