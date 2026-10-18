@@ -1,13 +1,15 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-18T14:52:00+07:00
- * VERSION    : 4.9.36-FIT-ONCE
+ * DATETIME   : 2026-10-18T15:49:00+07:00
+ * VERSION    : 4.9.38-KEEP-TICKET
  * DESCRIPTION:
  * - Vá dứt điểm Bug 1: Lỗi SRPF_INVALID_TRANSITION khi Trình Tờ Khai ở Cửa 2.
  * - Khóa chặt State Machine: Khi plan_ok === true, bắt buộc gọi handleSubmitProfiles() (API submitResult Cửa 2), triệt tiêu hoàn toàn việc gọi nhầm createPlan (Cửa 1).
  * - Mở nhánh đang soạn không hiện Alarm.
  *
  * CHANGE LOG:
+ * - 2026-10-18T15:49:00+07:00 | 4.9.38 | Sửa tờ cần sửa không sinh tờ đang soạn mới.
+ * - 2026-10-18T14:57:00+07:00 | 4.9.37 | Thu hoặc hiện con trực tiếp của từng ô.
  * - 2026-10-18T14:52:00+07:00 | 4.9.36 | Vừa khung một lần lúc mở. Bấm chấm không vừa khung.
  * - 2026-10-18T14:48:00+07:00 | 4.9.35 | Bấm chấm không vừa khung.
  * - 2026-10-18T07:37:00+07:00 | 4.9.34 | Nhóm nút canvas nằm ngang, ngoài khung.
@@ -218,6 +220,7 @@ export function OpMfoPlanPage() {
   const [fullSet, setFullSet] = useState(null);
   const [draftSet, setDraftSet] = useState(null);
   const [activeUnionByTreeId, setActiveUnionByTreeId] = useState({});
+  const [collapsedIds, setCollapsedIds] = useState({});
 
   const isUserMutatedRef = useRef(false);
 
@@ -374,6 +377,9 @@ export function OpMfoPlanPage() {
       if (fulfilledPickRef.current !== key) {
         fulfilledPickRef.current = key;
         clearPickCache();
+        // <2026-10-18T15:49:00+07:00> Mục đích: Gán người trên tờ đang mở. Lý do: không giữ mã thì lưu thành tờ mới.
+        const openTicket = searchParams.get('draft') || searchParams.get('ticket_id') || routeTicketId;
+        if (openTicket) setCurrentDraftTicketId(openTicket);
         void fulfill(pick.id, line);
         return;
       }
@@ -670,10 +676,11 @@ export function OpMfoPlanPage() {
           try {
             sessionStorage.setItem('mfo.assignLine', String(targetDepth));
           } catch {}
+          // <2026-10-18T15:49:00+07:00> Mục đích: Giữ mã tờ khi chọn người. Lý do: bỏ mã tờ sinh tờ đang soạn mới.
+          const openTicket = currentDraftTicketId || searchParams.get('draft') || searchParams.get('ticket_id') || routeTicketId;
+          const back = '/op/mfo/plans/new?line=' + targetDepth + (openTicket ? '&draft=' + openTicket : '');
           navigate(
-            `/op/members/search?preset=origin&line=${targetDepth}&returnTo=${encodeURIComponent(
-              '/op/mfo/plans/new?line=' + targetDepth
-            )}`
+            `/op/members/search?preset=origin&line=${targetDepth}&returnTo=${encodeURIComponent(back)}`
           );
           break;
 
@@ -1037,7 +1044,8 @@ export function OpMfoPlanPage() {
     try {
       setBusy(true);
       const payload = extractCurrentPayload();
-      const res = await savePlanDraft(payload);
+      // <2026-10-18T15:49:00+07:00> Mục đích: Lưu vào tờ đang mở. Lý do: thiếu mã tờ thì máy tạo tờ đang soạn mới.
+      const res = await savePlanDraft({ ...payload, ticket_id: currentDraftTicketId || searchParams.get('draft') || null });
 
       const returnedTicket = res?.data?.ticket || res?.ticket;
       const returnedUpdatedAt = res?.data?.updated_at || res?.updated_at;
@@ -1095,7 +1103,7 @@ export function OpMfoPlanPage() {
       const fullPayload = extractCurrentPayload();
 
       const response = await createPlan({
-        ticket_id: currentDraftTicketId || null,
+        ticket_id: currentDraftTicketId || searchParams.get('draft') || null,
         target_member_id: targetMemberId,
         requester_user_id: user?.id || null,
         origin_member_id: effectiveOriginId,
@@ -1146,8 +1154,24 @@ export function OpMfoPlanPage() {
       ...node.data,
       activeUnionId: activeUnionByTreeId[node.data?.treeId] || node.data?.activeUnionId,
       onTabChange: (treeId, unionId) => { setActiveUnionByTreeId((old) => old[treeId] === unionId ? old : { ...old, [treeId]: unionId }); remeasure(treeId); },
+      // <2026-10-18T14:57:00+07:00> Mục đích: Thu hoặc hiện con trực tiếp. Lý do: cây nhiều đời khó xem.
+      hasChildren: edges.some((edge) => edge.source === node.id),
+      collapsed: Boolean(collapsedIds[node.id]),
+      onToggleChildren: (nodeId) => setCollapsedIds((old) => ({ ...old, [nodeId]: !old[nodeId] })),
     },
-  })), [nodes, activeUnionByTreeId]);
+  })), [nodes, edges, activeUnionByTreeId, collapsedIds]);
+  const hiddenChildIds = useMemo(() => {
+    const hidden = new Set();
+    const walk = (id) => {
+      edges.filter((edge) => edge.source === id).forEach((edge) => {
+        if (hidden.has(edge.target)) return;
+        hidden.add(edge.target);
+        walk(edge.target);
+      });
+    };
+    Object.keys(collapsedIds).filter((id) => collapsedIds[id]).forEach(walk);
+    return hidden;
+  }, [edges, collapsedIds]);
 
   // <2026-10-15T22:24:00+07:00> Mục đích: Lọc theo chấm. Nếu cạnh gốc chưa bám, vẽ cạnh theo cặp đã chọn.
   // <2026-10-16T08:05:00+07:00> Mục đích: Lần đang mở nét liền. Con của lần khác vẫn hiện bằng nét đứt. Lý do: bộ lọc cũ giấu mất con của lần 2 khi đang xem lần 1.
@@ -1320,8 +1344,8 @@ export function OpMfoPlanPage() {
         <div className="relative h-[calc(100vh-210px)] min-h-[520px] max-h-[680px] w-full overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-inner">
           {/* 2026-10-18T14:48:00+07:00 Muc dich: Khong vua khung khi bam cham. Ly do: fitView bat lam mat do phong. */}
           <ReactFlow
-            nodes={isGate2 ? profileDisplayNodes : canvasNodes}
-            edges={isGate2 ? edges : canvasEdges}
+            nodes={(isGate2 ? profileDisplayNodes : canvasNodes).filter((node) => !hiddenChildIds.has(node.id))}
+            edges={(isGate2 ? edges : canvasEdges).filter((edge) => !hiddenChildIds.has(edge.source) && !hiddenChildIds.has(edge.target))}
             nodeTypes={nodeTypes}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}

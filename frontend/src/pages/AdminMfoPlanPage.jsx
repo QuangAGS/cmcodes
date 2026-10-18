@@ -1,13 +1,15 @@
 /**
  * PATH       : frontend/src/pages/AdminMfoPlanPage.jsx
- * DATETIME   : 2026-10-18T07:37:00+07:00
- * VERSION    : 2.4.3-CONTROLS-OUTSIDE
+ * DATETIME   : 2026-10-18T15:24:00+07:00
+ * VERSION    : 2.4.5-BUSY-PER-BUTTON
  * DESCRIPTION:
  * - Vá dứt điểm Bug 3: Card 2 ở Cửa 2 (RESULT) tự động chuyển sang đọc Tóm tắt Tờ khai từ smp_staging_data (hiển thị rõ tên vợ/chồng, con đã kê khai).
  * - Xác nhận Event nút "Duyệt và ghi sổ" thực thi chính xác API Cửa 2 approveResult() qua SRPF Engine mfoResultProcess.
  * - Bộ lọc chỉ còn trạng thái, có Tất cả.
  *
  * CHANGE LOG:
+ * - 2026-10-18T15:24:00+07:00 | 2.4.5 | Trả sửa không làm nút Duyệt hiện Đang duyệt.
+ * - 2026-10-18T14:57:00+07:00 | 2.4.4 | Thu hoặc hiện con trực tiếp.
  * - 2026-10-18T07:37:00+07:00 | 2.4.3 | Nhóm nút canvas nằm ngang, ngoài khung.
  * - 2026-10-18T07:31:00+07:00 | 2.4.2 | Nhóm nút canvas lên giữa phía trên.
  * - 2026-10-17T18:05:00+07:00 | 2.4.1 | Nút Làm mới cạnh hàng đợi.
@@ -133,6 +135,7 @@ export function AdminMfoPlanPage() {
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
   const flowRef = useRef(null);
+  const [collapsedIds, setCollapsedIds] = useState({});
 
   const actionLockRef = useRef(null);
   const [alarm, setAlarm] = useState('');
@@ -522,8 +525,13 @@ export function AdminMfoPlanPage() {
                 <div className="relative h-[380px] w-full border-b border-slate-100 bg-white">
                   {nodes.length > 0 ? (
                     <ReactFlow
-                      nodes={nodes}
-                      edges={edges}
+                      nodes={nodes.filter((node) => {
+                        const hidden = new Set();
+                        const walk = (id) => edges.filter((edge) => edge.source === id).forEach((edge) => { if (!hidden.has(edge.target)) { hidden.add(edge.target); walk(edge.target); } });
+                        Object.keys(collapsedIds).filter((id) => collapsedIds[id]).forEach(walk);
+                        return !hidden.has(node.id);
+                      }).map((node) => ({ ...node, data: { ...node.data, hasChildren: edges.some((edge) => edge.source === node.id), collapsed: Boolean(collapsedIds[node.id]), onToggleChildren: (nodeId) => setCollapsedIds((old) => ({ ...old, [nodeId]: !old[nodeId] })) } }))}
+                      edges={edges.filter((edge) => { const hidden = new Set(); const walk = (id) => edges.filter((item) => item.source === id).forEach((item) => { if (!hidden.has(item.target)) { hidden.add(item.target); walk(item.target); } }); Object.keys(collapsedIds).filter((id) => collapsedIds[id]).forEach(walk); return !hidden.has(edge.source) && !hidden.has(edge.target); })}
                       nodeTypes={nodeTypes}
                       onInit={(instance) => {
                         flowRef.current = instance;
@@ -566,6 +574,7 @@ export function AdminMfoPlanPage() {
               onOverall={setGlobalAdminNote}
               canApprove={canApprovePlan}
               busy={busyAction !== null}
+              busyAction={busyAction}
               onApprove={selectedGate === 'RESULT' ? handleApproveResultGate2 : handleApprovePlanGate1}
               onReturn={selectedGate === 'RESULT' ? handleReturnResultGate2 : handleReturnPlanGate1}
               onReject={handleRejectResultGate2}

@@ -1,13 +1,14 @@
 /**
  * PATH       : frontend/src/features/genealogy/components/FamilyCoupleNode.jsx
- * DATETIME   : 2026-10-15T22:03:00+07:00
- * VERSION    : 3.1.3-UPDATE-NODE-INTERNALS
+ * DATETIME   : 2026-10-18T14:57:00+07:00
+ * VERSION    : 3.1.4-COLLAPSE-CHILDREN
  * DESCRIPTION:
  * - Bảo tồn 100% v3.0.0-COMPLETE-5L-CANVAS: Handles đa điểm, Drag/Drop, Tabs, Avatar "XT".
  * - Bổ sung nhận diện thành viên khuyết danh (isAnonymous === true hoặc avatarType === 'KD'):
  *   Render Avatar "KD" chữ đậm (bold), viền và nền xám trung tính (border-slate-500 bg-slate-100 text-slate-800).
  *
  * CHANGE LOG:
+ * - 2026-10-18T14:57:00+07:00 | 3.1.4 | Nút hiện hoặc thu con trực tiếp.
  * - 2026-10-03T22:50:00+07:00 | 3.1.0 | Giữ canvas 5L, thêm nhận diện khuyết danh.
  * - 2026-10-15T22:03:00+07:00 | 3.1.1 | Mỗi lần hôn nhân có một tay nắm. Tab đóng thì giấu, không xoá.
  * - 2026-10-15T22:24:00+07:00 | 3.1.2 | Tay nắm tab đóng vẫn được gắn, không dùng opacity 0 để khỏi rơi cạnh.
@@ -276,8 +277,10 @@ export default function FamilyCoupleNode({ id, data }) {
         <span className="text-[10px] font-bold text-slate-500">
           {statusText(activeTab?.status || data?.unionStatus)}
         </span>
-        <span className="text-[10px] font-bold text-slate-500">
+        <span className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
           {Number(activeTab?.childCount ?? data?.childCount ?? 0)} con
+          {/* 2026-10-18T14:57:00+07:00 Muc dich: Hien hoac thu con truc tiep. Ly do: cay nhieu doi kho xem. */}
+          {data?.hasChildren ? <button type="button" className="nodrag nopan min-h-6 min-w-6 rounded border border-slate-300 bg-white text-sm font-black" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.preventDefault(); event.stopPropagation(); data.onToggleChildren?.(id); }}>{data.collapsed ? '+' : '−'}</button> : null}
         </span>
       </div>
 

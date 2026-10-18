@@ -1,10 +1,11 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MfoReviewForm.jsx
- * DATETIME   : 2026-10-17T09:40:00+07:00
- * VERSION    : 1.1.1-GEN-ROW
+ * DATETIME   : 2026-10-18T15:24:00+07:00
+ * VERSION    : 1.1.2-BUSY-PER-BUTTON
  * DESCRIPTION: Mỗi đời có thay đổi thì mở chi tiết từ staging.
  *
  * CHANGE LOG:
+ * - 2026-10-18T15:24:00+07:00 | 1.1.2 | Mỗi nút chỉ hiện trạng thái của chính nó.
  * - 2026-10-15T11:35:00+07:00 | 1.1.0 | Mỗi đời mở chi tiết từ staging.
  * - 2026-10-17T09:40:00+07:00 | 1.1.1 | Đời gốc sau bút phê, rộng bốn số. Nút Duyệt hiện Đang duyệt.
  */
@@ -43,6 +44,7 @@ export default function MfoReviewForm({
   onOverall,
   canApprove,
   busy,
+  busyAction,
   onApprove,
   onReturn,
   onReject,
@@ -104,9 +106,10 @@ export default function MfoReviewForm({
       {/* 2026-10-17T09:40:00+07:00 Muc dich: Doi goc cung hang, rong bon so. Ly do: de ngay tren nut duyet. */}
       {onGeneration ? <label className="mt-3 flex items-center justify-between gap-3 text-sm font-bold text-amber-950">Đời gốc trên sổ<input type="number" min="1" max="9999" inputMode="numeric" className="w-20 rounded-xl border border-amber-300 bg-white p-2 text-center font-black" value={generation || ''} onChange={(event) => onGeneration(event.target.value)} /></label> : null}
       <div className="mt-3 flex gap-2">
-        <button type="button" disabled={!canApprove || busy} className="min-h-12 flex-1 rounded-2xl bg-indigo-600 font-black text-white disabled:bg-slate-400" onClick={onApprove}>{busy ? 'Đang duyệt…' : 'Duyệt'}</button>
-        <button type="button" disabled={busy} className="min-h-12 flex-1 rounded-2xl border font-bold" onClick={onReturn}>Trả sửa</button>
-        {showReject ? <button type="button" disabled={busy} className="min-h-12 flex-1 rounded-2xl border border-rose-200 font-bold text-rose-700" onClick={onReject}>Không duyệt</button> : null}
+        {/* 2026-10-18T15:24:00+07:00 Muc dich: Moi nut hien dung viec cua no. Ly do: Tra sua lam nut Duyet hien Dang duyet. */}
+        <button type="button" disabled={!canApprove || busy} className="min-h-12 flex-1 rounded-2xl bg-indigo-600 font-black text-white disabled:bg-slate-400" onClick={onApprove}>{String(busyAction || '').startsWith('APPROVE') ? 'Đang duyệt…' : 'Duyệt'}</button>
+        <button type="button" disabled={busy} className="min-h-12 flex-1 rounded-2xl border font-bold" onClick={onReturn}>{String(busyAction || '').startsWith('RETURN') ? 'Đang trả sửa…' : 'Trả sửa'}</button>
+        {showReject ? <button type="button" disabled={busy} className="min-h-12 flex-1 rounded-2xl border border-rose-200 font-bold text-rose-700" onClick={onReject}>{String(busyAction || '').startsWith('REJECT') ? 'Đang xử lý…' : 'Không duyệt'}</button> : null}
       </div>
     </section>
   );

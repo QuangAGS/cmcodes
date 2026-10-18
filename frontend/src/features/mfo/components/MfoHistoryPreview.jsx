@@ -1,11 +1,12 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MfoHistoryPreview.jsx
- * DATETIME   : 2026-10-18T14:35:00+07:00
- * VERSION    : 1.0.3-PREVIEW-TABS
+ * DATETIME   : 2026-10-18T14:57:00+07:00
+ * VERSION    : 1.0.4-COLLAPSE-CHILDREN
  * DESCRIPTION: Lớp xem snapshot readonly, state riêng, không điều hướng hoặc đè cây đang soạn.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
  * CHANGE LOG:
+ * - 2026-10-18T14:57:00+07:00 | 1.0.4 | Thu hoặc hiện con trực tiếp.
  * - 2026-10-18T14:35:00+07:00 | 1.0.3 | Xem lại cho chuyển lần hôn nhân. Lần mở nét liền, lần khác nét đứt.
  * - 2026-10-18T07:37:00+07:00 | 1.0.2 | Nhóm nút canvas nằm ngang, ngoài khung.
  * - 2026-10-18T07:31:00+07:00 | 1.0.1 | Nhóm nút canvas lên giữa phía trên.
@@ -48,6 +49,7 @@ export default function MfoHistoryPreview({
   onClose
 }) {
   const [tabs, setTabs] = useState({});
+  const [collapsedIds, setCollapsedIds] = useState({});
   const flowRef = useRef(null);
   useEffect(() => {
     setTabs({});
@@ -77,6 +79,9 @@ export default function MfoHistoryPreview({
           } : {})
         })),
         activeUnionId: tabs[node.data?.treeId] || node.data?.activeUnionId,
+        hasChildren: (snapshot?.edges || []).some((edge) => edge.source === node.id),
+        collapsed: Boolean(collapsedIds[node.id]),
+        onToggleChildren: (nodeId) => setCollapsedIds((old) => ({ ...old, [nodeId]: !old[nodeId] })),
         onOpenActionForm: () => {},
         onTabChange: (id, union) => setTabs(old => ({
           ...old,
@@ -84,7 +89,7 @@ export default function MfoHistoryPreview({
         }))
       }
     }));
-  }, [snapshot, tabs]);
+  }, [snapshot, tabs, collapsedIds]);
   // <2026-10-18T14:35:00+07:00> Mục đích: Lần đang mở nét liền. Lý do: xem lại trước không đổi nét khi bấm chấm.
   const previewEdges = useMemo(() => {
     const list = snapshot?.edges || [];
@@ -113,7 +118,7 @@ export default function MfoHistoryPreview({
           <button type="button" className="min-h-10 min-w-10 rounded-lg text-lg font-bold" onClick={() => flowRef.current?.zoomOut?.()}>−</button>
         </div>
       </div>
-      <div className="min-h-0 flex-1"><ReactFlow onInit={(instance) => { flowRef.current = instance; }} nodes={nodes} edges={previewEdges} nodeTypes={nodeTypes} nodesDraggable={false} nodesConnectable={false} elementsSelectable={true} panOnDrag={true} fitView={!snapshot.viewport} defaultViewport={snapshot.viewport || {
+      <div className="min-h-0 flex-1"><ReactFlow onInit={(instance) => { flowRef.current = instance; }} nodes={nodes.filter((node) => { const hidden = new Set(); const walk = (id) => (snapshot?.edges || []).filter((item) => item.source === id).forEach((item) => { if (!hidden.has(item.target)) { hidden.add(item.target); walk(item.target); } }); Object.keys(collapsedIds).filter((id) => collapsedIds[id]).forEach(walk); return !hidden.has(node.id); })} edges={previewEdges.filter((edge) => { const hidden = new Set(); const walk = (id) => (snapshot?.edges || []).filter((item) => item.source === id).forEach((item) => { if (!hidden.has(item.target)) { hidden.add(item.target); walk(item.target); } }); Object.keys(collapsedIds).filter((id) => collapsedIds[id]).forEach(walk); return !hidden.has(edge.source) && !hidden.has(edge.target); })} nodeTypes={nodeTypes} nodesDraggable={false} nodesConnectable={false} elementsSelectable={true} panOnDrag={true} fitView={!snapshot.viewport} defaultViewport={snapshot.viewport || {
           x: 0,
           y: 0,
           zoom: 0.82
