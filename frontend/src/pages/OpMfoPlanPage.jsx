@@ -1,13 +1,14 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-22T11:12:00+07:00
- * VERSION    : 4.9.61-RESTORE-GATE2-GUIDE
+ * DATETIME   : 2026-10-22T14:28:00+07:00
+ * VERSION    : 4.9.64-GATE2-AFTER-RETURN
  * DESCRIPTION:
  * - Đồng bộ 100% cơ chế quản lý Tab hôn phối theo MfoHistoryPreview (dùng key data.treeId).
  * - Hoàn trả mượt mà khả năng bấm nút Tab chọn lần kết hôn và nút +/- ở góc Node Box.
  * - Duy trì Canvas Pan di chuyển tự do 100%.
  *
  * CHANGE LOG:
+ * - 2026-10-22T14:28:00+07:00 | 4.9.64 | Thêm: cửa 2 theo plan_ok. Bỏ: cửa 2 chỉ khi APPROVED. Giữ: AF chỉ cửa 1. Lý do: trả sửa là NEEDS_REVISION nên lấy nhầm cửa 1.
  * - 2026-10-22T11:12:00+07:00 | 4.9.61 | Gắn lại bút phê đậm và chỉ dẫn cửa 2.
  * - 2026-10-22T10:40:00+07:00 | 4.9.60 | Cửa 2 đang soạn thì nút Lưu bật.
  * - 2026-10-18T15:49:00+07:00 | 4.9.38 | Sửa tờ cần sửa không sinh tờ đang soạn mới.
@@ -209,7 +210,8 @@ export function OpMfoPlanPage() {
   const profileOpenRef = useRef(null);
   
   const urlGate = searchParams.get('gate');
-  const isGate2 = urlGate === '2' || (proposalStatus === 'APPROVED' && profileFlags.plan_ok === true);
+  // <2026-10-22T14:28:00+07:00> Mục đích: Cửa 2 theo cờ plan_ok. Lý do: trả sửa là NEEDS_REVISION, không còn APPROVED.
+  const isGate2 = profileFlags.plan_ok === true && profileFlags.result_ok !== true;
   
   const profileModeRef = useRef(false);
   profileModeRef.current = isGate2;
@@ -408,7 +410,8 @@ export function OpMfoPlanPage() {
 
           if (!draftData) { hydratedDraftRef.current = null; return; }
           
-          const isPlanApproved = draftData.plan_ok === true && String(draftData.status || '').toUpperCase() === 'APPROVED';
+          // <2026-10-22T14:28:00+07:00> Mục đích: Giữ plan_ok khi trả sửa. Lý do: bản cũ chỉ nhận cờ khi status APPROVED.
+          const isPlanApproved = draftData.plan_ok === true;
           setProfileFlags({
             plan_ok: isPlanApproved,
             result_submitted: draftData.result_submitted === true,
