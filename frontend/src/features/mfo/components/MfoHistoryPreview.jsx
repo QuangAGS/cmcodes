@@ -1,11 +1,12 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MfoHistoryPreview.jsx
- * DATETIME   : 2026-10-18T14:57:00+07:00
- * VERSION    : 1.0.4-COLLAPSE-CHILDREN
+ * DATETIME   : 2026-10-22T09:25:00+07:00
+ * VERSION    : 1.0.4-DOT-BY-NODE
  * DESCRIPTION: Lớp xem snapshot readonly, state riêng, không điều hướng hoặc đè cây đang soạn.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
  * CHANGE LOG:
+ * - 2026-10-22T09:25:00+07:00 | 1.0.4 | Chấm đổi lần theo mã ô. Ảnh không có mã cây.
  * - 2026-10-18T14:57:00+07:00 | 1.0.4 | Thu hoặc hiện con trực tiếp.
  * - 2026-10-18T14:35:00+07:00 | 1.0.3 | Xem lại cho chuyển lần hôn nhân. Lần mở nét liền, lần khác nét đứt.
  * - 2026-10-18T07:37:00+07:00 | 1.0.2 | Nhóm nút canvas nằm ngang, ngoài khung.
@@ -78,15 +79,13 @@ export default function MfoHistoryPreview({
             partnerName: staging[tab.unionId].full_name
           } : {})
         })),
-        activeUnionId: tabs[node.data?.treeId] || node.data?.activeUnionId,
+        // <2026-10-22T09:25:00+07:00> Mục đích: Đọc lần theo mã ô. Lý do: ảnh không lưu mã cây, chấm không đổi.
+        activeUnionId: tabs[node.id] || tabs[node.data?.treeId] || node.data?.activeUnionId,
         hasChildren: (snapshot?.edges || []).some((edge) => edge.source === node.id),
         collapsed: Boolean(collapsedIds[node.id]),
         onToggleChildren: (nodeId) => setCollapsedIds((old) => ({ ...old, [nodeId]: !old[nodeId] })),
         onOpenActionForm: () => {},
-        onTabChange: (id, union) => setTabs(old => ({
-          ...old,
-          [id]: union
-        }))
+        onTabChange: (key, union) => setTabs(old => ({ ...old, [key]: union, [node.id]: union }))
       }
     }));
   }, [snapshot, tabs, collapsedIds]);

@@ -1,12 +1,13 @@
 /**
  * PATH       : src/modules/mfo/mfo.draft.js
- * DATETIME   : 2026-10-08T08:25:00+07:00
- * VERSION    : 2.3.0-PREVENT-SAVING-NON-DRAFT
+ * DATETIME   : 2026-10-22T08:06:00+07:00
+ * VERSION    : 2.4.0-UPDATE-OPEN-TICKET
  * DESCRIPTION:
  * - Tuân thủ Q1 (Bảo tồn nghiệp vụ cũ) & Q2 (Code Format & Chú thích đầy đủ).
  * - Bổ sung Guardrail khóa cứng API saveDraft: Chặn không cho sửa bản nháp nếu ticket_id
  *   đang ở trạng thái khác DRAFT (như PENDING, UNDER_REVIEW).
  * CHANGELOG  :
+ * - 2026-10-22T08:06:00+07:00 | 2.4.0 | Lưu cập nhật tờ đang mở, kể cả cần sửa. Không tạo tờ DRAFT mới.
  * - 2026-10-08: Thêm kiểm tra proposal.status !== 'DRAFT' thì ném lỗi 409 MFO_PROPOSAL_LOCKED.
  */
 
@@ -72,7 +73,8 @@ async function saveDraft({ user, body, correlationId }) {
       select: { id: true, status: true, updated_at: true },
     });
 
-    if (currentProposal && currentProposal.status !== 'DRAFT') {
+    // <2026-10-22T08:06:00+07:00> Mục đích: Tờ cần sửa vẫn được lưu vào chính nó. Lý do: chặn khác DRAFT làm máy tạo tờ mới.
+    if (currentProposal && !['DRAFT', 'NEEDS_REVISION'].includes(currentProposal.status)) {
       fail(
         `Tờ trình đang ở trạng thái [${currentProposal.status}], không thể lưu sửa nháp!`,
         409,
@@ -108,18 +110,22 @@ async function saveDraft({ user, body, correlationId }) {
     async (tx) => {
       let ticket;
 
-      if (existingDraft) {
+      const ticketId = body.ticket_id || body.ticketId;
+      const openTicket = ticketId
+        ? await tx.proposals.findFirst({ where: { id: ticketId, tenant_id: tenantId, deleted_at: null } })
+        : existingDraft;
+      if (openTicket) {
         // KIỂM TRA OPTIMISTIC LOCK (Khóa lạc quan)
         if (body.updated_at) {
           const clientTime = new Date(body.updated_at).getTime();
-          const serverTime = new Date(existingDraft.updated_at).getTime();
+          const serverTime = new Date(openTicket.updated_at).getTime();
           if (Math.abs(clientTime - serverTime) > 2000) {
             fail('Bản nháp đã được cập nhật từ thiết bị khác. Vui lòng nạp lại trang!', 409, 'OPTIMISTIC_LOCK_CONFLICT');
           }
         }
 
         ticket = await tx.proposals.update({
-          where: { id: existingDraft.id },
+          where: { id: openTicket.id },
           data: {
             target_id: targetMemberId,
             payload: payloadToSave,

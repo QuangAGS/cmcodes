@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-19T17:20:00+07:00
- * VERSION    : 4.9.53-PREVIEW-ALIGNED-COMPLETE
+ * DATETIME   : 2026-10-22T08:06:00+07:00
+ * VERSION    : 4.9.54-KEEP-OPEN-TICKET
  * DESCRIPTION:
  * - Đồng bộ 100% cơ chế quản lý Tab hôn phối theo MfoHistoryPreview (dùng key data.treeId).
  * - Hoàn trả mượt mà khả năng bấm nút Tab chọn lần kết hôn và nút +/- ở góc Node Box.
@@ -372,7 +372,9 @@ export function OpMfoPlanPage() {
       }
     }
 
-    if (pick?.id) {
+    // <2026-10-22T08:06:00+07:00> Mục đích: Tờ đang mở thì nạp ảnh đã trình. Lý do: fulfill dựng lại cây từ sổ.
+    const openOnLoad = searchParams.get('draft') || searchParams.get('ticket_id') || routeTicketId;
+    if (pick?.id && !openOnLoad) {
       const raw =
         sessionStorage.getItem('mfo.assignLine') ??
         searchParams.get('line') ??
@@ -385,8 +387,6 @@ export function OpMfoPlanPage() {
       if (fulfilledPickRef.current !== key) {
         fulfilledPickRef.current = key;
         clearPickCache();
-        const openTicket = searchParams.get('draft') || searchParams.get('ticket_id') || routeTicketId;
-        if (openTicket) setCurrentDraftTicketId(openTicket);
         void fulfill(pick.id, line);
         return;
       }
@@ -481,6 +481,18 @@ export function OpMfoPlanPage() {
             mfoToast.warning(`Tờ trình đang ở trạng thái [${st}]. Giao diện đóng băng Read-Only!`);
           } else if (st === 'NEEDS_REVISION') {
             mfoToast.info('Tờ trình bị trả về sửa. Hãy chỉnh sửa theo Bút phê rồi Trình lại!');
+          }
+          // <2026-10-22T08:06:00+07:00> Mục đích: Gán người vào ô của tờ đang mở. Lý do: không dựng lại cây từ sổ.
+          if (pick?.id) {
+            const raw = sessionStorage.getItem('mfo.assignLine') ?? searchParams.get('line') ?? '0';
+            const line = Number(raw);
+            const depth = Number.isInteger(line) && line >= 0 && line <= 4 ? line : 0;
+            setNodes((prev) => prev.map((node) => {
+              if (Number(node.data?.depth) !== depth) return node;
+              return { ...node, id: pick.id, type: 'familyCouple', style: { width: 240 }, data: { ...node.data, id: pick.id, treeId: pick.id, clan: { id: pick.id }, clanName: pick.name || node.data?.clanName, onOpenActionForm: handleOpenActionForm } };
+            }));
+            setTargetMemberId(pick.id);
+            clearPickCache();
           }
         } catch (error) {
           console.error('[FE_HYDRATE_DRAFT_ERROR]', error);

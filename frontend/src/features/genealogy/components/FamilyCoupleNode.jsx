@@ -1,12 +1,13 @@
 /**
  * PATH       : frontend/src/features/genealogy/components/FamilyCoupleNode.jsx
- * DATETIME   : 2026-10-19T17:20:00+07:00
- * VERSION    : 3.2.1-PREVIEW-ALIGNED-FIX
+ * DATETIME   : 2026-10-22T09:20:00+07:00
+ * VERSION    : 3.1.10-OLD-TAB-PATH
  * DESCRIPTION:
  * - Bảo tồn 100% v3.0.0-COMPLETE-5L-CANVAS: Handles đa điểm, Drag/Drop, Tabs, Avatar "XT", Khuyết danh "KD".
  * - Đồng bộ cơ chế bấm Tab nguyên bản theo MfoHistoryPreview: OnClick ngắt stopPropagation.
  *
  * CHANGE LOG:
+ * - 2026-10-22T09:20:00+07:00 | 3.1.10 | Đổi lần theo đường bấm của bản đã chạy.
  * - 2026-10-03T22:50:00+07:00 | 3.1.0 | Giữ canvas 5L, thêm nhận diện khuyết danh.
  * - 2026-10-15T22:03:00+07:00 | 3.1.1 | Mỗi lần hôn nhân có một tay nắm. Tab đóng thì giấu, không xoá.
  * - 2026-10-15T22:24:00+07:00 | 3.1.2 | Tay nắm tab đóng vẫn được gắn, không dùng opacity 0 để khỏi rơi cạnh.
