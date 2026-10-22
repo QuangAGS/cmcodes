@@ -1,9 +1,12 @@
 /**
  * PATH       : Backend/src/modules/mfo/definitions/mfoResultProcess.definition.js
- * DATETIME   : 2026-10-13T15:24:00+07:00
- * VERSION    : 3.0.0-LAT4-HISTORY
+ * DATETIME   : 2026-10-22T10:59:00+07:00
+ * VERSION    : 3.0.1-RETURN-STATUS
  * DESCRIPTION: Bổ sung lịch sử, giữ ma trận trạng thái, guards và tác vụ DB hiện có.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
+ *
+ * CHANGE LOG:
+ * - 2026-10-22T10:59:00+07:00 | 3.0.1 | Trả sửa cửa 2 ghi NEEDS_REVISION.
  */
 /**
  * PATH       : backend/src/modules/mfo/definitions/mfoResultProcess.definition.js
@@ -157,9 +160,25 @@ const mfoResultProcessDefinition = Object.freeze({
     [SRPF_STATES.NEEDS_REVISION]: async (instance, tx, actorWithPayload) => {
       const incoming = actorWithPayload._payload || {};
       const currentPayload = instance.payload || {};
-      const updatedPayload = { ...currentPayload, ...incoming };
+      const note = incoming.revision_request || incoming.reason || incoming.admin_note || null;
+      const updatedPayload = {
+        ...currentPayload,
+        ...incoming,
+        // <2026-10-22T10:59:00+07:00> Mục đích: Trả sửa thì mở lại tờ khai. Lý do: còn result_submitted thì vẫn hiện chờ duyệt.
+        plan_ok: true,
+        result_submitted: false,
+        result_ok: false,
+      };
       updatedPayload.submission_history = recordReview({ ...updatedPayload, submission_history: currentPayload.submission_history }, 'RESULT', 'NEEDS_REVISION', actorWithPayload, incoming);
-      await tx.proposals.update({ where: { id: instance.id }, data: { payload: updatedPayload } });
+      await tx.proposals.update({
+        where: { id: instance.id },
+        data: {
+          status: 'NEEDS_REVISION',
+          payload: updatedPayload,
+          admin_note: note,
+          updated_at: new Date(),
+        },
+      });
     },
     [SRPF_STATES.REJECTED]: async (instance, tx, actorWithPayload) => {
       const incoming = actorWithPayload._payload || {};

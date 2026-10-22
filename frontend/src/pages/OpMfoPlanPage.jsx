@@ -1,13 +1,14 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-22T10:40:00+07:00
- * VERSION    : 4.9.60-SAVE-WHILE-EDIT
+ * DATETIME   : 2026-10-22T11:12:00+07:00
+ * VERSION    : 4.9.61-RESTORE-GATE2-GUIDE
  * DESCRIPTION:
  * - Đồng bộ 100% cơ chế quản lý Tab hôn phối theo MfoHistoryPreview (dùng key data.treeId).
  * - Hoàn trả mượt mà khả năng bấm nút Tab chọn lần kết hôn và nút +/- ở góc Node Box.
  * - Duy trì Canvas Pan di chuyển tự do 100%.
  *
  * CHANGE LOG:
+ * - 2026-10-22T11:12:00+07:00 | 4.9.61 | Gắn lại bút phê đậm và chỉ dẫn cửa 2.
  * - 2026-10-22T10:40:00+07:00 | 4.9.60 | Cửa 2 đang soạn thì nút Lưu bật.
  * - 2026-10-18T15:49:00+07:00 | 4.9.38 | Sửa tờ cần sửa không sinh tờ đang soạn mới.
  * - 2026-10-18T17:55:00+07:00 | 4.9.39 | Import updatePlanDraft và gọi PUT khi đã có activeTicketId (BUG10 FIX).
@@ -1287,12 +1288,14 @@ export function OpMfoPlanPage() {
       )}
 
       </>)}
-      {isGate2 && adminNote ? <p className="mx-3 mt-3 rounded-2xl border bg-white p-3 text-sm text-slate-700">{adminNote}</p> : null}
+      {/* <2026-10-22T11:12:00+07:00> Mục đích: Bút phê chữ đậm. Lý do: khung bút phê đang chữ thường. */}
+      {isGate2 && adminNote ? <p className="mx-3 mt-3 rounded-2xl border bg-white p-3 text-sm font-bold text-slate-900">{adminNote}</p> : null}
       <main className="flex flex-1 flex-col gap-3 px-3 py-3 pb-28">
         <section className="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm">
-          <p className="text-sm font-medium text-slate-800">{MFO_VOICE_SELF.whyFive}</p>
+          {/* <2026-10-22T11:12:00+07:00> Mục đích: Gắn lại chỉ dẫn cửa 2. Lý do: bản vá sau đã đè mất. */}
+          <p className="text-sm font-medium text-slate-800">{isGate2 ? MFO_VOICE_SELF.gate2Xt : MFO_VOICE_SELF.whyFive}</p>
           <div className="mt-2">
-            <AudioHelpButton text={MFO_VOICE_SELF.whyFive} label="Nghe" />
+            <AudioHelpButton text={isGate2 ? MFO_VOICE_SELF.gate2Xt : MFO_VOICE_SELF.whyFive} label="Nghe" />
           </div>
         </section>
 
