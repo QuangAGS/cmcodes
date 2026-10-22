@@ -1,9 +1,10 @@
 /**
  * PATH       : backend/src/modules/mfo/mfo.controller.js
- * DATETIME   : 2026-10-09T16:30:00+07:00
- * VERSION    : 3.2.0-LAT3-PREPARED-PAYLOAD
+ * DATETIME   : 2026-10-18T17:35:00+07:00
+ * VERSION    : 3.2.1-BUG10-L1-CONTROLLER
  * DESCRIPTION:
  * - Lát 3. Đưa payload service đã dựng sang SRPF, không chỉ vài trường lẻ.
+ * - Bổ sung updatePlan phục vụ ghi đè trực tiếp Tờ trình/Nháp theo ticketId.
  */
 
 'use strict';
@@ -53,6 +54,29 @@ const mfoController = {
         body: req.body || {},
         correlationId: req.correlationId,
       });
+      res.status(200).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
+  /**
+   * 1b. Cập nhật đè trực tiếp Tờ trình/Nháp theo ticketId (PUT /api/mfo/plans/:id)
+   */
+  updatePlan: async (req, res) => {
+    try {
+      const ticketId = req.params.id;
+      if (!ticketId) {
+        return res.status(400).json({ status: 'error', message: 'Thiếu ticketId' });
+      }
+
+      const data = await mfoService.updatePlan({
+        user: req.user,
+        ticketId,
+        body: req.body || {},
+        correlationId: req.correlationId,
+      });
+
       res.status(200).json({ status: 'success', data });
     } catch (error) {
       sendError(res, error);

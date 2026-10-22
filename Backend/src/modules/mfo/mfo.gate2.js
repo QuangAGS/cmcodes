@@ -1,13 +1,16 @@
 /**
  * PATH       : backend/src/modules/mfo/mfo.gate2.js
- * DATETIME   : 2026-10-17T15:04:00+07:00
- * VERSION    : 1.2.2-COUPLE-BY-IDS
- * DESCRIPTION: Ghi sổ lúc duyệt Cửa 2. Đời lấy từ sổ. is_clan lấy từ khẳng định. status = CHINH_THUC.
+ * DATETIME   : 2026-10-19T11:45:00+07:00
+ * VERSION    : 1.2.5-E4-ALIAS
+ * DESCRIPTION: Ghi sổ lúc duyệt Cửa 2. Đời lấy từ sổ. is_clan lấy từ khẳng định. status = CHINH_THUC. Tối ưu hoá Transaction chống timeout P2028 & Ghi nhận branch_id + alias.
  *
  * CHANGE LOG:
  * - 2026-10-12T17:30:00+07:00 | 1.2.0 | Đời lấy từ sổ. Nội tộc lấy từ khẳng định.
  * - 2026-10-17T14:18:00+07:00 | 1.2.1 | Đọc sibling_seq. Cập nhật con có sẵn, không tạo người mới.
  * - 2026-10-17T15:04:00+07:00 | 1.2.2 | Con mới tìm hôn nhân bằng mã hai người.
+ * - 2026-10-18T22:35:00+07:00 | 1.2.3 | Tối ưu hóa Interactive Transaction Cửa 2 bằng Map caching, triệt tiêu lỗi Timeout P2028 tại tx.members.update.
+ * - 2026-10-19T07:25:00+07:00 | 1.2.4 | Ghi nhận trường branch_id từ staging vào bảng members.
+ * - 2026-10-19T11:45:00+07:00 | 1.2.5 | Ghi nhận trường alias (Tên khác) từ staging vào bảng members (E4 FIX).
  */
 'use strict';
 
@@ -38,36 +41,11 @@ function ownerIdOf(ownerNodeId, memberMap) {
   return ownerNodeId;
 }
 
-async function generationAfter(tx, parentId) {
-  if (!parentId) fail('Thiếu người đời trên để tính đời.', 422, 'MFO_GENERATION_REQUIRED');
-  const parent = await tx.members.findUnique({
-    where: { id: parentId },
-    select: { generation: true },
-  });
-  if (!parent || parent.generation == null) {
-    fail('Người đời trên chưa có đời trên sổ.', 422, 'MFO_GENERATION_REQUIRED');
-  }
-  return Number(parent.generation) + 1;
-}
-
 function requireClan(smp, who) {
   if (smp.is_clan !== true && smp.is_clan !== false) {
     fail(`Chưa khẳng định nội tộc cho ${who}.`, 422, 'MFO_CLAN_UNCONFIRMED');
   }
   return smp.is_clan === true;
-}
-
-async function refuseIfOnBook(tx, tenantId, { fullName, fatherId, motherId }) {
-  if (!fullName || (!fatherId && !motherId)) return;
-  const where = {
-    tenant_id: tenantId,
-    deleted_at: null,
-    full_name: fullName,
-  };
-  if (fatherId) where.father_id = fatherId;
-  if (motherId) where.mother_id = motherId;
-  const existing = await tx.members.findFirst({ where, select: { id: true } });
-  if (existing) fail('Người này đã có trên sổ với cùng cha mẹ.', 409, 'MFO_ALREADY_ON_BOOK');
 }
 
 async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
@@ -88,49 +66,78 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
     }
   }
 
+  const existingMembers = await tx.members.findMany({
+    where: { tenant_id: tenantId, deleted_at: null },
+    select: { id: true, full_name: true, gender: true, generation: true, father_id: true, mother_id: true }
+  });
+  const existingMarriages = await tx.marriages.findMany({
+    where: { tenant_id: tenantId, deleted_at: null },
+    select: { id: true, husband_id: true, wife_id: true }
+  });
+
+  const memberCache = new Map(existingMembers.map((m) => [m.id, m]));
+  const marriageCache = new Map(existingMarriages.map((m) => [m.id, m]));
+
   const memberMap = new Map();
   const marriageMap = new Map();
 
+  // 1. Tạo các Thành viên con mới
   for (const child of children) {
     const smp = staging[child.id] || {};
     const parentId = ownerIdOf(child.parent_node_id, memberMap);
-    const generation = await generationAfter(tx, parentId);
-    const parent = parentId
-      ? await tx.members.findUnique({ where: { id: parentId }, select: { gender: true } })
-      : null;
-    const fatherId = parent && parent.gender !== 'NU' ? parentId : null;
-    const motherId = parent && parent.gender === 'NU' ? parentId : null;
-    await refuseIfOnBook(tx, tenantId, { fullName: smp.full_name, fatherId, motherId });
+    
+    if (!parentId) fail('Thiếu người đời trên để tính đời.', 422, 'MFO_GENERATION_REQUIRED');
+    const parent = memberCache.get(parentId);
+    if (!parent || parent.generation == null) {
+      fail('Người đời trên chưa có đời trên sổ.', 422, 'MFO_GENERATION_REQUIRED');
+    }
+    const generation = Number(parent.generation) + 1;
+
+    const fatherId = parent.gender !== 'NU' ? parentId : null;
+    const motherId = parent.gender === 'NU' ? parentId : null;
+
+    if (smp.full_name && (fatherId || motherId)) {
+      const isDuplicate = existingMembers.some(
+        (m) => m.full_name === smp.full_name && ((fatherId && m.father_id === fatherId) || (motherId && m.mother_id === motherId))
+      );
+      if (isDuplicate) fail('Người này đã có trên sổ với cùng cha mẹ.', 409, 'MFO_ALREADY_ON_BOOK');
+    }
+
     const created = await tx.members.create({
       data: {
         tenant_id: tenantId,
         full_name: smp.full_name,
+        alias: smp.alias || null, // <2026-10-19T11:45:00+07:00> E4: Ghi nhận Tên khác
         gender: smp.gender,
         generation,
         is_clan: requireClan(smp, 'người con'),
+        branch_id: smp.branch_id || null,
         status: 'CHINH_THUC',
         is_alive: smp.is_alive !== false,
         child_type: smp.child_type || 'CON_DE',
         birth_day: smp.birth_day || null,
         birth_month: smp.birth_month || null,
         birth_year: smp.birth_year || null,
-        // <2026-10-17T14:18:00+07:00> Mục đích: Đọc đúng trường cửa 1. Lý do: payload gửi sibling_seq, không gửi child_order.
         sibling_seq: child.sibling_seq != null ? Number(child.sibling_seq) : null,
         note: smp.is_anonymous ? '[UM] Khuyết danh tạo bởi MFO 5L' : (smp.note || null),
         changed_by: actorId,
       },
     });
     memberMap.set(child.id, created.id);
+    memberCache.set(created.id, created);
   }
 
+  // 2. Tạo các Thành viên hôn phối mới
   for (const spouse of spouses) {
     const smp = staging[spouse.union_id] || {};
     const created = await tx.members.create({
       data: {
         tenant_id: tenantId,
         full_name: smp.full_name || smp.partner_full_name,
+        alias: smp.alias || null, // <2026-10-19T11:45:00+07:00> E4: Ghi nhận Tên khác
         gender: smp.gender || smp.partner_gender || 'NU',
         is_clan: requireClan(smp, 'người hôn phối'),
+        branch_id: smp.branch_id || null,
         status: 'CHINH_THUC',
         is_alive: smp.is_alive !== false,
         birth_year: smp.birth_year || smp.partner_birth_year || null,
@@ -138,13 +145,15 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
       },
     });
     memberMap.set('spouse:' + spouse.union_id, created.id);
+    memberCache.set(created.id, created);
   }
 
+  // 3. Tạo quan hệ Hôn nhân (Marriages)
   for (const spouse of spouses) {
     const ownerId = ownerIdOf(spouse.owner_node_id, memberMap);
     const spouseId = memberMap.get('spouse:' + spouse.union_id);
     if (!ownerId || !spouseId) continue;
-    const owner = await tx.members.findUnique({ where: { id: ownerId }, select: { gender: true } });
+    const owner = memberCache.get(ownerId);
     const ownerMale = (owner && owner.gender) !== 'NU';
     const marriage = await tx.marriages.create({
       data: {
@@ -158,46 +167,46 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
       },
     });
     marriageMap.set(spouse.union_id, marriage.id);
+    marriageCache.set(marriage.id, marriage);
   }
 
+  // 4. Cập nhật quan hệ Cha/Mẹ & Parent Union cho Con mới
   for (const child of children) {
     const childId = memberMap.get(child.id);
     if (!childId) continue;
     const link = String(child.link || '');
     const unionKey = link.startsWith('union:') ? link.split(':')[1] : null;
-    // <2026-10-17T15:04:00+07:00> Mục đích: Tìm hôn nhân bằng mã hai người. Lý do: mã lần nháp và thứ tự lần không nhận ra hôn nhân đã có trên sổ.
+
     const ownerId = child.parent_member_id || ownerIdOf(child.parent_node_id, memberMap);
     const spouseId = child.spouse_member_id || (unionKey ? memberMap.get('spouse:' + unionKey) : null);
+    
     let marriage = null;
+
     if (ownerId && spouseId) {
-      marriage = await tx.marriages.findFirst({
-        where: {
-          deleted_at: null,
-          OR: [
-            { husband_id: ownerId, wife_id: spouseId },
-            { husband_id: spouseId, wife_id: ownerId },
-          ],
-        },
-        select: { id: true, husband_id: true, wife_id: true },
-      });
+      marriage = Array.from(marriageCache.values()).find(
+        (m) => (m.husband_id === ownerId && m.wife_id === spouseId) || (m.husband_id === spouseId && m.wife_id === ownerId)
+      );
     }
     if (!marriage && unionKey && marriageMap.get(unionKey)) {
-      marriage = await tx.marriages.findUnique({ where: { id: marriageMap.get(unionKey) }, select: { id: true, husband_id: true, wife_id: true } });
+      marriage = marriageCache.get(marriageMap.get(unionKey));
     }
     if (!marriage && unionKey && !String(unionKey).startsWith('union-draft-')) {
-      marriage = await tx.marriages.findUnique({ where: { id: unionKey }, select: { id: true, husband_id: true, wife_id: true } });
+      marriage = marriageCache.get(unionKey);
     }
+
     const unionId = marriage ? marriage.id : null;
     let fatherId = marriage ? marriage.husband_id : null;
     let motherId = marriage ? marriage.wife_id : null;
+
     if (!marriage && child.parent_node_id) {
       const parentId = ownerIdOf(child.parent_node_id, memberMap);
       if (parentId) {
-        const parent = await tx.members.findUnique({ where: { id: parentId }, select: { gender: true } });
+        const parent = memberCache.get(parentId);
         if (parent && parent.gender === 'NU') motherId = parentId;
         else fatherId = parentId;
       }
     }
+
     await tx.members.update({
       where: { id: childId },
       data: {
@@ -210,12 +219,12 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
     });
   }
 
-  // <2026-10-17T14:18:00+07:00> Mục đích: Gắn con đã có trên sổ vào lần mới. Lý do: con này không nằm trong draft_children.
+  // 5. Cập nhật con đã có trên sổ vào lần mới
   const assigned = Array.isArray(delta.assigned_children) ? delta.assigned_children : [];
   for (const row of assigned) {
     const unionId = marriageMap.get(row.union_id) || null;
     if (!row.member_id || !unionId) continue;
-    const marriage = await tx.marriages.findUnique({ where: { id: unionId }, select: { husband_id: true, wife_id: true } });
+    const marriage = marriageCache.get(unionId);
     await tx.members.update({
       where: { id: row.member_id },
       data: {

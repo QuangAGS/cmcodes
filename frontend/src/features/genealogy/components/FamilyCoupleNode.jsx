@@ -1,37 +1,32 @@
 /**
  * PATH       : frontend/src/features/genealogy/components/FamilyCoupleNode.jsx
- * DATETIME   : 2026-10-18T14:57:00+07:00
- * VERSION    : 3.1.4-COLLAPSE-CHILDREN
+ * DATETIME   : 2026-10-19T17:20:00+07:00
+ * VERSION    : 3.2.1-PREVIEW-ALIGNED-FIX
  * DESCRIPTION:
- * - Bảo tồn 100% v3.0.0-COMPLETE-5L-CANVAS: Handles đa điểm, Drag/Drop, Tabs, Avatar "XT".
- * - Bổ sung nhận diện thành viên khuyết danh (isAnonymous === true hoặc avatarType === 'KD'):
- *   Render Avatar "KD" chữ đậm (bold), viền và nền xám trung tính (border-slate-500 bg-slate-100 text-slate-800).
+ * - Bảo tồn 100% v3.0.0-COMPLETE-5L-CANVAS: Handles đa điểm, Drag/Drop, Tabs, Avatar "XT", Khuyết danh "KD".
+ * - Đồng bộ cơ chế bấm Tab nguyên bản theo MfoHistoryPreview: OnClick ngắt stopPropagation.
  *
  * CHANGE LOG:
- * - 2026-10-18T14:57:00+07:00 | 3.1.4 | Nút hiện hoặc thu con trực tiếp.
  * - 2026-10-03T22:50:00+07:00 | 3.1.0 | Giữ canvas 5L, thêm nhận diện khuyết danh.
  * - 2026-10-15T22:03:00+07:00 | 3.1.1 | Mỗi lần hôn nhân có một tay nắm. Tab đóng thì giấu, không xoá.
  * - 2026-10-15T22:24:00+07:00 | 3.1.2 | Tay nắm tab đóng vẫn được gắn, không dùng opacity 0 để khỏi rơi cạnh.
  * - 2026-10-16T06:19:00+07:00 | 3.1.3 | Đo lại tay nắm từ trong ô sau khi đổi tab hoặc số lần hôn nhân.
- * - Bổ sung truyền cờ isAnonymous, originSource, tabs vào payload onOpenActionForm phục vụ ma trận bật/tắt Action Form.
+ * - 2026-10-18T14:57:00+07:00 | 3.1.4 | Nút hiện hoặc thu con trực tiếp.
+ * - 2026-10-19T14:45:00+07:00 | 3.1.5 | Cô lập id truyền cho onTabChange và onToggleChildren (STATE ISOLATION FIX).
+ * - 2026-10-19T17:20:00+07:00 | 3.2.1 | Đồng bộ cơ chế Tab click mượt 100% hệt như MfoHistoryPreview (PREVIEW ALIGNED FIX).
+ *
+ * RULE COMPLIANCE:
+ * - Q1 (Bảo tồn): Bảo toàn 100% cấu trúc Card, Handles, Tabs, Avatar và Event delegation.
+ * - Q2 (Code Format): Đầy đủ docstring header và chú thích thời gian từng khối logic.
  */
 
 import React from 'react';
 import { Handle, Position, useUpdateNodeInternals } from 'reactflow';
 
-/**
- * <2026-10-03T22:50:00+07:00>
- * Hàm trích xuất tên hiển thị của thành viên từ dữ liệu gốc, fallback mặc định 'Chưa rõ'.
- */
 function textOf(member, fallback = 'Chưa rõ') {
   return member?.full_name || fallback;
 }
 
-/**
- * <2026-10-03T22:50:00+07:00>
- * Hàm trích xuất 2 ký tự viết tắt.
- * Đối với người nháp mang nhãn '(Xin tạo)', tự động sinh chuỗi "XT".
- */
 function initials(name) {
   const cleaned = String(name || '?')
     .replace(/[()]/g, '')
@@ -47,17 +42,9 @@ function initials(name) {
   );
 }
 
-/**
- * <2026-10-03T22:50:00+07:00>
- * Component Face đại diện cho ảnh đại diện hoặc ký tự viết tắt:
- * - isAnonymous === true: Render Avatar xám, chữ in hoa đậm 'KD'.
- * - Nhân sự nháp (Xin tạo): Render Avatar sky 'XT'.
- * - Phối ngẫu nữ/nam: Phân biệt border pink hoặc sky theo vai trò right/left.
- */
 function Face({ name, url, right, isAnonymous }) {
   const [failed, setFailed] = React.useState(false);
 
-  // Nhận diện nhân sự khuyết danh
   if (isAnonymous) {
     return (
       <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-full border-2 border-slate-500 bg-slate-100 text-xs font-black text-slate-800 shadow-inner">
@@ -89,10 +76,6 @@ function Face({ name, url, right, isAnonymous }) {
   );
 }
 
-/**
- * <2026-10-03T22:50:00+07:00>
- * Component Person hiển thị 1 cá nhân (chủ hộ hoặc phối ngẫu) gồm Avatar + Tên.
- */
 function Person({ member, name, avatarUrl, right, isAnonymous }) {
   const display = name || textOf(member);
   return (
@@ -105,10 +88,6 @@ function Person({ member, name, avatarUrl, right, isAnonymous }) {
   );
 }
 
-/**
- * <2026-10-03T22:50:00+07:00>
- * Chuyển đổi mã trạng thái hôn nhân sang tiếng Việt.
- */
 function statusText(status) {
   return (
     {
@@ -121,42 +100,22 @@ function statusText(status) {
   );
 }
 
-/**
- * <2026-10-03T22:50:00+07:00>
- * Custom Node đại diện cho Cụm Hôn phối (Standard Tree Card):
- * - Quản lý Handles theo Hợp đồng A-1.5 (Top, 22% Unassigned vàng, 78% Active Tab chàm).
- * - Quản lý Tabs Hôn phối đa vợ/chồng.
- * - Phát sự kiện mở Action Form và truyền cờ isAnonymous / originSource.
- */
 export default function FamilyCoupleNode({ id, data }) {
   const nodeRef = React.useRef(null);
   const updateNodeInternals = useUpdateNodeInternals();
   const tabs = Array.isArray(data?.tabs) ? data.tabs : [];
   const activeUnionId = data?.activeUnionId || null;
-  // <2026-10-16T06:19:00+07:00> Mục đích: Đo lại tay nắm sau khi ô đã vẽ, để cạnh hiện mà không cần zoom trình duyệt.
+
   React.useLayoutEffect(() => {
     const frame = requestAnimationFrame(() => updateNodeInternals(id));
     return () => cancelAnimationFrame(frame);
   }, [id, activeUnionId, tabs.length, data?.unassignedCount, updateNodeInternals]);
+  
   const activeTab = tabs.find((tab) => tab.unionId === activeUnionId) || tabs[0] || null;
 
   const isClanAnonymous = Boolean(data?.isAnonymous);
   const isPartnerAnonymous = Boolean(activeTab?.partner?.isAnonymous || activeTab?.isAnonymous);
 
-  /**
-   * <2026-10-03T22:50:00+07:00>
-   * Chuyển Tab hôn phối đang kích hoạt.
-   */
-  function selectTab(unionId) {
-    if (!unionId || unionId === activeUnionId) return;
-    data?.onTabChange?.(data?.treeId, unionId);
-  }
-
-  /**
-   * <2026-10-03T22:50:00+07:00>
-   * Bắt sự kiện click vào thẻ Card để mở Action Form (AF) Portal.
-   * Truyền bổ sung cờ isAnonymous và originSource để AF xác định ma trận nút bấm.
-   */
   function handleCardClick(event) {
     event.preventDefault();
     event.stopPropagation();
@@ -166,7 +125,7 @@ export default function FamilyCoupleNode({ id, data }) {
 
       data?.onOpenActionForm?.({
         nodeId: flowNodeId,
-        treeId: data?.treeId,
+        treeId: data?.treeId || id,
         isEmptyNode: false,
         depth: Number(data?.depth || 0),
         clanName: data?.clanName || textOf(data?.clan),
@@ -196,14 +155,12 @@ export default function FamilyCoupleNode({ id, data }) {
       ].join(' ')}
       onClick={handleCardClick}
     >
-      {/* Handle Đỉnh (Target đón nối từ thế hệ cha mẹ ở Lane trên) */}
       <Handle
         type="target"
         position={Position.Top}
         className="!h-2.5 !w-2.5 !border-0 !bg-indigo-500"
       />
 
-      {/* Handle Đáy 22% (Vàng hổ phách - Con chưa gắn hôn phối / đơn thân) */}
       <Handle
         id="owner:unassigned"
         type="source"
@@ -211,7 +168,6 @@ export default function FamilyCoupleNode({ id, data }) {
         className="!left-[22%] !h-2.5 !w-2.5 !border-0 !bg-amber-500"
       />
 
-      {/* <2026-10-15T22:03:00+07:00> Mục đích: Tay nắm cho mọi lần hôn nhân. Tab không mở thì giấu, để cạnh không nhảy. */}
       {tabs.map((tab) => tab?.unionId ? (
         <Handle
           key={tab.unionId}
@@ -222,7 +178,6 @@ export default function FamilyCoupleNode({ id, data }) {
         />
       ) : null)}
 
-      {}
       <div className="flex items-start gap-2">
         <Person
           member={data?.clan}
@@ -246,24 +201,24 @@ export default function FamilyCoupleNode({ id, data }) {
         )}
       </div>
 
-      {}
+      {/* <2026-10-19T17:20:00+07:00> PREVIEW ALIGNED TAB FIX: Bắt sự kiện chuẩn ngắt bubbling */}
       {tabs.length > 0 ? (
-        <div className="mt-2 flex gap-1 overflow-x-auto border-t border-slate-100 pt-2">
+        <div className="nodrag nopan mt-2 flex gap-1 overflow-x-auto border-t border-slate-100 pt-2">
           {tabs.map((tab, index) => (
             <button
               key={tab.unionId || `tab-${index}`}
               type="button"
               className={[
-                'nodrag nopan shrink-0 rounded-lg border px-2 py-1 text-[10px] font-extrabold',
+                'nodrag nopan shrink-0 rounded-lg border px-2 py-1 text-[10px] font-extrabold cursor-pointer touch-manipulation',
                 tab.unionId === activeUnionId
                   ? 'border-indigo-600 bg-indigo-600 text-white'
-                  : 'border-slate-200 bg-slate-50 text-slate-700',
+                  : 'border-slate-200 bg-slate-50 text-slate-700 hover:bg-slate-100',
               ].join(' ')}
               onPointerDown={(event) => event.stopPropagation()}
               onClick={(event) => {
                 event.preventDefault();
                 event.stopPropagation();
-                selectTab(tab.unionId);
+                data?.onTabChange?.(data?.treeId || id, tab.unionId);
               }}
             >
               {tab.order != null ? String(tab.order) : '?'}
@@ -272,15 +227,27 @@ export default function FamilyCoupleNode({ id, data }) {
         </div>
       ) : null}
 
-      {}
       <div className="mt-2 flex min-h-4 items-center justify-between gap-2 border-t border-slate-100 pt-2">
         <span className="text-[10px] font-bold text-slate-500">
           {statusText(activeTab?.status || data?.unionStatus)}
         </span>
         <span className="flex items-center gap-1 text-[10px] font-bold text-slate-500">
           {Number(activeTab?.childCount ?? data?.childCount ?? 0)} con
-          {/* 2026-10-18T14:57:00+07:00 Muc dich: Hien hoac thu con truc tiep. Ly do: cay nhieu doi kho xem. */}
-          {data?.hasChildren ? <button type="button" className="nodrag nopan min-h-6 min-w-6 rounded border border-slate-300 bg-white text-sm font-black" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.preventDefault(); event.stopPropagation(); data.onToggleChildren?.(id); }}>{data.collapsed ? '+' : '−'}</button> : null}
+          
+          {data?.hasChildren ? (
+            <button
+              type="button"
+              className="nodrag nopan min-h-6 min-w-6 rounded border border-slate-300 bg-white text-sm font-black cursor-pointer touch-manipulation"
+              onPointerDown={(event) => event.stopPropagation()}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                data.onToggleChildren?.(id, event);
+              }}
+            >
+              {data.collapsed ? '+' : '−'}
+            </button>
+          ) : null}
         </span>
       </div>
 

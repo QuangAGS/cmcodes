@@ -1,18 +1,9 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-13T15:24:00+07:00
- * VERSION    : 4.7.1-LAT4-HISTORY-READ
- * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ.
+ * DATETIME   : 2026-10-18T17:35:00+07:00
+ * VERSION    : 4.7.2-BUG10-L1-UPDATE-SERVICE
+ * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
- */
-/**
- * PATH       : backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-09T23:55:00+07:00
- * VERSION    : 4.7.0-LAT2-NO-PRE-MUTATION
- * DESCRIPTION:
- * - Tuân thủ Q1 (Bảo tồn 100% UI/UX & hàm critical) & Q2 (Code Format & DateTime Annotation).
- * - Sửa returnPlanForRevision & approvePlan: Chỉ đóng gói Payload Bút phê, không tự ý gán status mới trước khi qua SRPF Engine.
- * - Khôi phục 100% hàm getFullMfoSet, getOriginTree, abortPlan...
  */
 
 const crypto = require('crypto');
@@ -62,8 +53,7 @@ function assertFullSetInvariants({
   rootCanvasDepth,
   resolvedAncestorSteps,
 }) {
-  /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý broken; phần thay đổi giới hạn lịch sử lát 4. */
-const broken = (code) => {
+  const broken = (code) => {
     const correlationId = crypto.randomUUID();
     console.error('MFO_FULL_SET_INVARIANT_BROKEN', {
       correlation_id: correlationId,
@@ -513,15 +503,13 @@ const mfoService = {
     }
     const unionById = new Map(unions.map((union) => [union.id, union]));
 
-    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý isClanMember; phần thay đổi giới hạn lịch sử lát 4. */
-const isClanMember = (member) => !member || member.is_clan !== false;
+    const isClanMember = (member) => !member || member.is_clan !== false;
 
     const byId = new Map(all.map((member) => [member.id, member]));
 
     const childrenOfMap = new Map();
 
-    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý addChild; phần thay đổi giới hạn lịch sử lát 4. */
-const addChild = (parentId, childId) => {
+    const addChild = (parentId, childId) => {
       if (!parentId || !childId) return;
 
       if (!childrenOfMap.has(parentId)) {
@@ -540,8 +528,7 @@ const addChild = (parentId, childId) => {
 
     const partnersOf = new Map();
 
-    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý pushPartner; phần thay đổi giới hạn lịch sử lát 4. */
-const pushPartner = (ownerId, partner, meta = {}) => {
+    const pushPartner = (ownerId, partner, meta = {}) => {
       if (!ownerId || !partner) return;
       if (partner.id && String(partner.id) === String(ownerId)) return;
 
@@ -645,8 +632,7 @@ const pushPartner = (ownerId, partner, meta = {}) => {
       }
     }
 
-    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý isUnknownMember; phần thay đổi giới hạn lịch sử lát 4. */
-const isUnknownMember = (member) => {
+    const isUnknownMember = (member) => {
       const note = String(member?.note || '');
       const name = String(member?.full_name || '');
 
@@ -656,8 +642,7 @@ const isUnknownMember = (member) => {
       );
     };
 
-    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý packMember; phần thay đổi giới hạn lịch sử lát 4. */
-const packMember = (member, extra = {}) => ({
+    const packMember = (member, extra = {}) => ({
       id: member?.id || null,
       full_name: member?.full_name || null,
       is_unknown: isUnknownMember(member),
@@ -687,8 +672,7 @@ const packMember = (member, extra = {}) => ({
       ...extra,
     });
 
-    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý compareSiblings; phần thay đổi giới hạn lịch sử lát 4. */
-const compareSiblings = (aId, bId) => {
+    const compareSiblings = (aId, bId) => {
       const a = byId.get(aId);
       const b = byId.get(bId);
 
@@ -712,15 +696,13 @@ const compareSiblings = (aId, bId) => {
       );
     };
 
-    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý getSortedChildrenIds; phần thay đổi giới hạn lịch sử lát 4. */
-const getSortedChildrenIds = (parentId) => {
+    const getSortedChildrenIds = (parentId) => {
       return [...(childrenOfMap.get(parentId) || new Set())]
         .filter((id) => byId.has(id))
         .sort(compareSiblings);
     };
 
-    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý getSortedPartners; phần thay đổi giới hạn lịch sử lát 4. */
-const getSortedPartners = (memberId, depth) => {
+    const getSortedPartners = (memberId, depth) => {
       return [...(partnersOf.get(memberId) || [])]
         .sort((a, b) => {
           if (a._ord !== b._ord) {
@@ -847,8 +829,7 @@ const getSortedPartners = (memberId, depth) => {
       }
     }
 
-    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý makeStandardTree; phần thay đổi giới hạn lịch sử lát 4. */
-const makeStandardTree = (ownerNode) => {
+    const makeStandardTree = (ownerNode) => {
       const ownerId = ownerNode.id;
       const ownerDepth = ownerNode.depth;
 
@@ -1354,6 +1335,111 @@ const makeStandardTree = (ownerNode) => {
     );
   },
 
+  /**
+   * <2026-10-18T17:35:00+07:00> - BUG10 FIX
+   * Cập nhật đè trực tiếp Tờ trình / Bản nháp theo đúng ticketId chỉ định
+   */
+  updatePlan: async ({ user, ticketId, body, correlationId }) => {
+    const actor = actorIdOf(user);
+    if (!actor) fail('Thiếu người thực hiện.', 401, 'UNAUTHENTICATED');
+    const tenantId = tenantIdOf(user);
+    if (!tenantId) fail('Thiếu tenant.', 400, 'TENANT_REQUIRED');
+
+    if (!ticketId) {
+      fail('Thiếu ticketId cần cập nhật.', 400, 'MFO_TICKET_REQUIRED');
+    }
+
+    const proposal = await prisma.proposals.findFirst({
+      where: {
+        id: ticketId,
+        tenant_id: tenantId,
+        deleted_at: null,
+      },
+    });
+
+    if (!proposal) {
+      fail('Không tìm thấy Tờ trình/Bản nháp cần cập nhật.', 404, 'MFO_LOT_NOT_FOUND');
+    }
+
+    if (!isClanOrSys(user) && String(proposal.requester_user_id) !== String(actor)) {
+      fail('Bạn không có quyền chỉnh sửa tờ trình này.', 403, 'FORBIDDEN');
+    }
+
+    const status = String(proposal.status).toUpperCase();
+    const EDITABLE_STATES = ['DRAFT', 'NEEDS_REVISION'];
+    if (!EDITABLE_STATES.includes(status)) {
+      fail(
+        `Tờ trình đang ở trạng thái [${status}]. Không thể chỉnh sửa!`,
+        409,
+        'MFO_NOT_EDITABLE_STATE'
+      );
+    }
+
+    const targetMemberId = body.target_member_id || body.origin_member_id || proposal.target_id;
+    const selectedCanvasDepth = Number(body.selected_canvas_depth ?? body.k ?? proposal.payload?.selected_canvas_depth ?? 0);
+    const now = new Date();
+
+    const existingPayload = proposal.payload || {};
+    const updatedPayload = {
+      ...existingPayload,
+      kind: 'PLAN',
+      target_member_id: targetMemberId,
+      origin_member_id: targetMemberId,
+      selected_canvas_depth: selectedCanvasDepth,
+      k: selectedCanvasDepth,
+      lines: Array.isArray(body.lines) ? body.lines : (existingPayload.lines || []),
+      canvas_delta: body.canvas_delta || existingPayload.canvas_delta || {
+        draft_children: [],
+        draft_spouses: [],
+        node_positions_x: {},
+      },
+      smp_staging_data: body.smp_staging_data || existingPayload.smp_staging_data || {},
+      graph_snapshot: body.graph_snapshot || existingPayload.graph_snapshot || null,
+      init_scs: body.init_scs || body.diff_summary || existingPayload.init_scs || [],
+      diff_summary: body.diff_summary || body.init_scs || existingPayload.diff_summary || [],
+    };
+
+    const holdMemberIds = collectHoldMemberIds({
+      ...updatedPayload,
+      hold_member_ids: body.hold_member_ids || existingPayload.hold_member_ids,
+    });
+
+    const corr = correlationId || proposal.correlation_id || crypto.randomUUID();
+
+    return await withTransaction(
+      { tenantId, actorId: actor, correlationId: corr },
+      async (tx) => {
+        const updatedProposal = await tx.proposals.update({
+          where: { id: ticketId },
+          data: {
+            target_id: targetMemberId,
+            payload: updatedPayload,
+            hold_member_ids: holdMemberIds,
+            updated_at: now,
+            changed_by: actor,
+          },
+        });
+
+        await mfoWriteBpl(tx, {
+          processType: 'MFO_PLAN_SUBMIT',
+          user,
+          ticket: updatedProposal,
+          payload: {
+            action: 'MFO_DRAFT_UPDATED',
+            ticket_id: updatedProposal.id,
+            target_member_id: targetMemberId,
+            updated_at: now.toISOString(),
+          },
+        });
+
+        return {
+          ticket: updatedProposal,
+          updated_at: updatedProposal.updated_at.toISOString(),
+        };
+      }
+    );
+  },
+
   getDraftPayload: async ({ user, ticketId }) => {
     const tenantId = tenantIdOf(user);
     if (!ticketId) fail('Thiếu Ticket ID.', 400, 'MFO_TICKET_REQUIRED');
@@ -1398,10 +1484,6 @@ const makeStandardTree = (ownerNode) => {
       init_scs: payload.init_scs || payload.diff_summary || null,
       diff_summary: payload.diff_summary || payload.init_scs || null,
       review_scs: payload.review_scs || null,
-/**
- * <2026-10-13T15:24:00+07:00>
- * Mục đích: Expose history đã lưu để FE xem lại, không thay các field cũ.
- */
       submission_history: payload.submission_history || [],
       review_rounds: payload.review_rounds || [],
       current_attempt: payload.current_attempt || 1,
@@ -1504,10 +1586,6 @@ const makeStandardTree = (ownerNode) => {
     );
   },
 
-  /**
-   * <2026-10-09T23:55:00+07:00> - CHUẨN BỊ PAYLOAD TRÌNH KHUNG MFO 5L
-   * (ỦY QUYỀN CHUYỂN DỊCH STATUS SANG PENDING CHO SRPF ACTION EXECUTOR)
-   */
   createPlan: async ({ user, body, correlationId }) => {
     const actor = actorIdOf(user);
     if (!actor) fail('Thiếu người thực hiện.', 401, 'UNAUTHENTICATED');
@@ -1611,8 +1689,6 @@ const makeStandardTree = (ownerNode) => {
 
         let row;
         if (ticketIdFromBody) {
-          // GIỮ NGUYÊN STATUS HIỆN TẠI (DRAFT/NEEDS_REVISION) LÚC CHUẨN BỊ PAYLOAD
-          // SRPF ACTION EXECUTOR SẼ CẬP NHẬT STATUS = PENDING NGUYÊN TỬ TRONG TẬP CHUYỂN DỊCH
           row = await tx.proposals.update({
             where: { id: ticketIdFromBody },
             data: {
@@ -1746,10 +1822,6 @@ const makeStandardTree = (ownerNode) => {
     return row;
   },
 
-  /**
-   * <2026-10-09T23:55:00+07:00> - CHUẨN BỊ PAYLOAD PHÊ DUYỆT KHUNG 5L GATE 1
-   * (ỦY QUYỀN SANG SRPF EXECUTOR CHUYỂN DỊCH STATUS SANG APPROVED)
-   */
   approvePlan: async ({ user, ticketId, body }) => {
     if (!isClanOrSys(user)) {
       fail('Chỉ CLAN_ADMIN / SYSTEM_ADMIN phê PLAN.', 403, 'FORBIDDEN');
@@ -1786,9 +1858,6 @@ const makeStandardTree = (ownerNode) => {
     return { ticket: { ...row, payload: nextPayload }, plan_ok: true };
   },
 
-  /**
-   * <2026-10-09T23:55:00+07:00> - CHUẨN BỊ PAYLOAD REJECT PLAN
-   */
   rejectPlan: async ({ user, ticketId, body }) => {
     if (!isClanOrSys(user)) {
       fail('Chỉ CLAN_ADMIN / SYSTEM_ADMIN từ chối PLAN.', 403, 'FORBIDDEN');
@@ -1807,10 +1876,6 @@ const makeStandardTree = (ownerNode) => {
     return { ticket: row, reason: String(reason).trim() };
   },
 
-  /**
-   * <2026-10-09T23:55:00+07:00> - CHUẨN BỊ PAYLOAD KHÔNG DUYỆT / TRẢ VỀ KHUNG 5L
-   * (ỦY QUYỀN SANG SRPF EXECUTOR CHUYỂN DỊCH STATUS SANG NEEDS_REVISION)
-   */
   returnPlanForRevision: async ({ user, ticketId, body }) => {
     if (!isClanOrSys(user)) {
       fail('Chỉ CLAN_ADMIN / SYSTEM_ADMIN có quyền yêu cầu sửa đổi.', 403, 'FORBIDDEN');
@@ -1924,8 +1989,7 @@ const makeStandardTree = (ownerNode) => {
       },
     });
 
-    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý isNoi; phần thay đổi giới hạn lịch sử lát 4. */
-const isNoi = (m) => !m || m.is_clan !== false;
+    const isNoi = (m) => !m || m.is_clan !== false;
 
     const byId = new Map(all.map((m) => [m.id, m]));
     const noiOf = new Map();
@@ -1939,8 +2003,7 @@ const isNoi = (m) => !m || m.is_clan !== false;
     }
 
     const partnersOf = new Map();
-    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý pushPartner; phần thay đổi giới hạn lịch sử lát 4. */
-const pushPartner = (ownerId, partner, meta) => {
+    const pushPartner = (ownerId, partner, meta) => {
       if (!ownerId || !partner) return;
       if (partner.id && partner.id === ownerId) return;
       if (!partnersOf.has(ownerId)) partnersOf.set(ownerId, []);
@@ -1976,8 +2039,7 @@ const pushPartner = (ownerId, partner, meta) => {
       }
     }
 
-    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý pack; phần thay đổi giới hạn lịch sử lát 4. */
-const pack = (m, extra) => ({
+    const pack = (m, extra) => ({
       id: m.id || null,
       full_name: m.full_name,
       is_unknown: !!(
@@ -1995,8 +2057,7 @@ const pack = (m, extra) => ({
       ...extra,
     });
 
-    /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý sibSort; phần thay đổi giới hạn lịch sử lát 4. */
-const sibSort = (ids) =>
+    const sibSort = (ids) =>
       ids
         .map((id) => byId.get(id))
         .filter(Boolean)
@@ -2216,10 +2277,6 @@ const sibSort = (ids) =>
     return { ticket: row, reason: String(reason).trim() };
   },
 
-  /**
-   * <2026-10-12T17:30:00+07:00>
-   * Purpose: Bác bỏ tờ khai cửa 2. Giữ plan_ok. Không ghi sổ. Không gọi từ chối khung.
-   */
   terminateResult: async ({ user, ticketId, body }) => {
     if (!isClanOrSys(user)) {
       fail('Chỉ ADMIN bác bỏ tờ khai.', 403, 'FORBIDDEN');
@@ -2294,7 +2351,6 @@ const sibSort = (ids) =>
   },
 };
 
-/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý assertClanConfirmed; phần thay đổi giới hạn lịch sử lát 4. */
 function assertClanConfirmed(payload) {
   const root = payload || {};
   const layer = root.business_layer && typeof root.business_layer === 'object' ? root.business_layer : root;

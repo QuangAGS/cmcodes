@@ -1,9 +1,11 @@
 /**
  * ============================================================================
  * PATH       : src/lib/prisma.js
- * DATETIME   : 2026-07-19T15:30:00+07:00
- * VERSION    : 23.1.0-S0-ISOLATION
+ * DATETIME   : 2026-10-18T22:45:00+07:00
+ * VERSION    : 23.1.1-BUG11-TX-TIMEOUT-FIX
  * DESCRIPTION:
+ * - [23.1.1-BUG11] Cấu hình maxWait (10s) và timeout (30s) trực tiếp trên basePrisma.$transaction
+ *   cho withTransaction, triệt tiêu triệt để lỗi P2028 Transaction expired khi duyệt Cửa 2.
  * - [23.1.0-S0] Đợt 1 S0.1–S0.5: fail-closed tenant guardrail + ALS bind
  *   trong withTransaction; không patch findUnique; SYS unscoped explicit.
  * - Merge EGAL-25.2.0 + 3.2.2 (giữ).
@@ -296,7 +298,6 @@ const PRISMA_SELECTS = {
     temp_relationship: true, 
     temp_note: true, 
     temp_social_profiles: true,
-    //registration_reason: true, 
     created_at: true, 
     updated_at: true,
   },
@@ -314,37 +315,10 @@ const PRISMA_SELECTS = {
  * ============================================================================
  */
 
-/**
- * Tạo UUID correlation_id chuẩn.
- *
- * UUID này được dùng xuyên:
- *
- * - onboarding_cases
- * - business_process_logs
- * - audit_logs
- * - notifications
- * - notification_deliveries
- *
- * @returns {string}
- */
 function createCorrelationId() {
   return crypto.randomUUID();
 }
 
-/**
- * Kiểm tra correlation ID.
- *
- * Không ép buộc UUID regex tuyệt đối vì trong tương lai hệ thống có thể dùng:
- *
- * - IMPORT-2026-001
- * - JOB-DAILY-2026-06-25
- * - BATCH-APPROVAL-001
- *
- * Tuy nhiên không chấp nhận empty string.
- *
- * @param {string} correlationId
- * @returns {boolean}
- */
 function isValidCorrelationId(correlationId) {
   return typeof correlationId === 'string' && correlationId.trim().length > 0;
 }
@@ -353,54 +327,8 @@ function isValidCorrelationId(correlationId) {
  * ============================================================================
  * EXECUTION CONTEXT
  * ============================================================================
- *
- * Context được truyền xuyên suốt một request hoặc một business process.
- *
- * Ví dụ:
- *
- * const context = prisma.createExecutionContext({
- *   correlationId: req.correlationId,
- *   actorId: req.user.id,
- *   actorType: 'USER',
- *   tenantId: req.user.tenant_id,
- *   requestId: req.id,
- *   ipAddress: req.ip,
- *   userAgent: req.headers['user-agent']
- * });
- *
- * Không lưu toàn bộ context vào DB một cách mù quáng.
- *
- * Chỉ các service ledger mới chọn field nào cần snapshot.
  */
 
-/**
- * @typedef {Object} ExecutionContext
- *
- * @property {string} correlationId
- * @property {string|null} actorId
- * @property {'USER'|'SYSTEM'|'CRON'|'JOB_RUNNER'|'IMPORT_TOOL'} actorType
- * @property {string|null} tenantId
- * @property {string|null} requestId
- * @property {string|null} ipAddress
- * @property {string|null} userAgent
- * @property {Object} extra
- */
-
-/**
- * Chuẩn hóa execution context.
- *
- * @param {Object} input
- * @param {string} [input.correlationId]
- * @param {string|null} [input.actorId]
- * @param {string} [input.actorType]
- * @param {string|null} [input.tenantId]
- * @param {string|null} [input.requestId]
- * @param {string|null} [input.ipAddress]
- * @param {string|null} [input.userAgent]
- * @param {Object} [input.extra]
- *
- * @returns {ExecutionContext}
- */
 function createExecutionContext(input = {}) {
   const correlationId =
     input.correlationId && isValidCorrelationId(input.correlationId)
@@ -423,23 +351,8 @@ function createExecutionContext(input = {}) {
  * ============================================================================
  * TENANT SCOPE
  * ============================================================================
- *
- * S0.1: tenantScope() là cơ chế chính (explicit).
- * Extension chỉ fail-closed + AND tenant_id khi ALS có tenantId.
- * SYS: allowUnscoped trên ALS hoặc sysAccess + basePrisma — không coi
- * tên biến basePrisma là quyền.
  */
 
-/**
- * Ghép tenant_id vào where condition.
- *
- * @param {ExecutionContext} context
- * @param {Object} [where]
- * @param {Object} [options]
- * @param {boolean} [options.required=true]
- *
- * @returns {Object}
- */
 function tenantScope(context, where = {}, options = {}) {
   const required =
     typeof options.required === 'boolean' ? options.required : true;
@@ -466,12 +379,6 @@ function tenantScope(context, where = {}, options = {}) {
  * ============================================================================
  */
 
-/**
- * Bảo đảm metadata luôn là object.
- *
- * @param {unknown} value
- * @returns {Object}
- */
 function normalizeJsonObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return {};
@@ -480,23 +387,6 @@ function normalizeJsonObject(value) {
   return value;
 }
 
-/**
- * Tạo metadata context snapshot dùng chung.
- *
- * Không lưu secret.
- *
- * Không lưu:
- *
- * - password
- * - access token
- * - refresh token
- * - OTP
- * - raw authorization header
- *
- * @param {ExecutionContext} context
- * @param {Object} [extra]
- * @returns {Object}
- */
 function buildMetadataContext(context, extra = {}) {
   return {
     correlation_id: context?.correlationId || null,
@@ -513,37 +403,8 @@ function buildMetadataContext(context, extra = {}) {
  * ============================================================================
  * BUSINESS PROCESS LEDGER
  * ============================================================================
- *
- * Table:
- *
- * business_process_logs
- *
- * Doctrine:
- *
- * - Một correlation_id có thể có nhiều business process.
- * - Một business process có thể retry nhiều lần.
- * - attempt_no unique trong phạm vi correlation_id.
- *
- * Constraint:
- *
- * @@unique([correlation_id, attempt_no])
  */
 
-/**
- * Tìm attempt kế tiếp của correlation_id.
- *
- * Lưu ý:
- *
- * Hàm này chỉ an toàn tuyệt đối khi gọi bên trong transaction
- * và transaction đó bảo đảm serial workflow ownership.
- *
- * Với các process có retry cạnh tranh, nên truyền attemptNo rõ ràng
- * từ retry coordinator / job queue.
- *
- * @param {PrismaClient|Object} client
- * @param {string} correlationId
- * @returns {Promise<number>}
- */
 async function getNextBusinessAttemptNo(client, correlationId) {
   const latest = await client.business_process_logs.findFirst({
     where: {
@@ -560,23 +421,6 @@ async function getNextBusinessAttemptNo(client, correlationId) {
   return latest ? latest.attempt_no + 1 : 1;
 }
 
-/**
- * Ghi Business Process Log.
- *
- * @param {PrismaClient|Object} client
- * @param {Object} input
- *
- * @param {string} input.correlationId
- * @param {number} [input.attemptNo]
- * @param {string} input.processType
- * @param {string} [input.processStatus='SUCCESS']
- * @param {string|null} [input.actorId]
- * @param {string} [input.actorType='USER']
- * @param {string|null} [input.tenantId]
- * @param {Object} [input.metadata]
- *
- * @returns {Promise<Object>}
- */
 async function createBusinessProcessLog(client, input = {}) {
   if (!input.correlationId) {
     throw new Error(
@@ -618,32 +462,8 @@ async function createBusinessProcessLog(client, input = {}) {
  * ============================================================================
  * AUDIT LEDGER
  * ============================================================================
- *
- * audit_logs lưu thay đổi cấp record.
- *
- * business_process_logs lưu intent / workflow cấp business process.
- *
- * Không thay thế lẫn nhau.
  */
 
-/**
- * Ghi audit log.
- *
- * @param {PrismaClient|Object} client
- * @param {Object} input
- *
- * @param {string} input.tableName
- * @param {string} input.recordId
- * @param {string} input.action
- * @param {string} input.tenantId
- * @param {string|null} [input.changedBy]
- * @param {string|null} [input.correlationId]
- * @param {Object|null} [input.oldData]
- * @param {Object|null} [input.newData]
- * @param {string|null} [input.changeReason]
- *
- * @returns {Promise<Object>}
- */
 async function createAuditLog(client, input = {}) {
   if (!input.tableName) {
     throw new Error('createAuditLog requires tableName.');
@@ -680,49 +500,8 @@ async function createAuditLog(client, input = {}) {
  * ============================================================================
  * COMMUNICATION LEDGER
  * ============================================================================
- *
- * notifications:
- *   Communication Intent Ledger
- *
- * notification_recipients:
- *   Audience Ledger
- *
- * notification_deliveries:
- *   Delivery Ledger
  */
 
-/**
- * Tạo notification intent.
- *
- * Lưu ý:
- *
- * notifications.user_id hiện là required trong schema.
- *
- * Vì vậy notification intent luôn cần một user owner.
- *
- * Nếu notification gửi nhiều người:
- *
- * - user_id có thể là user khởi tạo / owner
- * - danh sách người nhận thực nằm ở notification_recipients
- *
- * @param {PrismaClient|Object} client
- * @param {Object} input
- *
- * @param {string} input.userId
- * @param {string|null} [input.tenantId]
- * @param {string} input.correlationId
- * @param {string} [input.eventType]
- * @param {string} [input.type='HE_THONG']
- * @param {string} [input.title]
- * @param {string} [input.content]
- * @param {string} [input.level='INFO']
- * @param {string} [input.status='PENDING']
- * @param {string} [input.reliability='LOW']
- * @param {Object} [input.metadata]
- * @param {string|null} [input.changedBy]
- *
- * @returns {Promise<Object>}
- */
 async function createNotification(client, input = {}) {
   if (!input.userId) {
     throw new Error('createNotification requires userId.');
@@ -750,17 +529,6 @@ async function createNotification(client, input = {}) {
   });
 }
 
-/**
- * Thêm recipient vào notification.
- *
- * @param {PrismaClient|Object} client
- * @param {Object} input
- * @param {string} input.notificationId
- * @param {string} input.userId
- * @param {string|null} [input.changedBy]
- *
- * @returns {Promise<Object>}
- */
 async function createNotificationRecipient(client, input = {}) {
   if (!input.notificationId) {
     throw new Error(
@@ -783,22 +551,6 @@ async function createNotificationRecipient(client, input = {}) {
   });
 }
 
-/**
- * Tạo delivery intent cho một channel.
- *
- * @param {PrismaClient|Object} client
- * @param {Object} input
- *
- * @param {string} input.notificationId
- * @param {string} input.channel
- * @param {string|null} [input.provider]
- * @param {string|null} [input.recipient]
- * @param {string|null} [input.notificationRecipientId]
- * @param {string|null} [input.handledBy]
- * @param {Object} [input.rawResponse]
- *
- * @returns {Promise<Object>}
- */
 async function createNotificationDelivery(client, input = {}) {
   if (!input.notificationId) {
     throw new Error(
@@ -826,23 +578,6 @@ async function createNotificationDelivery(client, input = {}) {
   });
 }
 
-/**
- * Cập nhật delivery result.
- *
- * @param {PrismaClient|Object} client
- * @param {Object} input
- *
- * @param {string} input.deliveryId
- * @param {string} input.status
- * @param {string|null} [input.externalId]
- * @param {Object} [input.rawResponse]
- * @param {string|null} [input.error]
- * @param {Date|null} [input.sentAt]
- * @param {Date|null} [input.deliveredAt]
- * @param {Date|null} [input.failedAt]
- *
- * @returns {Promise<Object>}
- */
 async function updateNotificationDeliveryResult(client, input = {}) {
   if (!input.deliveryId) {
     throw new Error(
@@ -881,27 +616,6 @@ async function updateNotificationDeliveryResult(client, input = {}) {
  * ============================================================================
  */
 
-/**
- * Tạo onboarding case.
- *
- * correlation_id phải được tạo trước khi tạo case.
- *
- * Một onboarding case có một root correlation_id duy nhất.
- *
- * @param {PrismaClient|Object} client
- * @param {Object} input
- *
- * @param {string} input.correlationId
- * @param {string} input.caseType
- * @param {string} input.userId
- * @param {string|null} [input.tenantId]
- * @param {string|null} [input.primaryMemberId]
- * @param {string|null} [input.primaryBranchId]
- * @param {Object} [input.metadata]
- * @param {string|null} [input.changedBy]
- *
- * @returns {Promise<Object>}
- */
 async function createOnboardingCase(client, input = {}) {
   if (!input.correlationId) {
     throw new Error(
@@ -935,36 +649,6 @@ async function createOnboardingCase(client, input = {}) {
   });
 }
 
-/**
- * Cập nhật workflow state onboarding.
- *
- * Không dùng helper này để thực hiện merge nghiệp vụ.
- *
- * Merge phải dùng service chuyên biệt và transaction riêng,
- * vì merge có thể update:
- *
- * - onboarding_cases
- * - branches
- * - members
- * - users
- * - audit_logs
- * - business_process_logs
- * - notifications
- *
- * @param {PrismaClient|Object} client
- * @param {Object} input
- *
- * @param {string} input.caseId
- * @param {string} input.status
- * @param {string|null} [input.reviewedBy]
- * @param {string|null} [input.reviewNote]
- * @param {string|null} [input.rejectionReason]
- * @param {string|null} [input.revisionRequest]
- * @param {Object|null} [input.metadata]
- * @param {string|null} [input.changedBy]
- *
- * @returns {Promise<Object>}
- */
 async function updateOnboardingCaseStatus(client, input = {}) {
   if (!input.caseId) {
     throw new Error(
@@ -1005,11 +689,6 @@ async function updateOnboardingCaseStatus(client, input = {}) {
     data.metadata = normalizeJsonObject(input.metadata);
   }
 
-  /**
-   * Timestamp workflow được set rõ ràng.
-   *
-   * Không dựa vào trigger ẩn.
-   */
   switch (input.status) {
     case 'SUBMITTED':
       data.submitted_at = now;
@@ -1057,17 +736,6 @@ async function updateOnboardingCaseStatus(client, input = {}) {
  * ============================================================================
  */
 
-/**
- * Cập nhật trạng thái branch.
- *
- * @param {PrismaClient|Object} client
- * @param {Object} input
- * @param {string} input.branchId
- * @param {string} input.status
- * @param {string|null} [input.changedBy]
- *
- * @returns {Promise<Object>}
- */
 async function updateBranchStatus(client, input = {}) {
   if (!input.branchId) {
     throw new Error('updateBranchStatus requires branchId.');
@@ -1092,50 +760,17 @@ async function updateBranchStatus(client, input = {}) {
  * ============================================================================
  * TRANSACTION WRAPPER
  * ============================================================================
- *
- * Đây là helper transaction chuẩn của EGAL.
- *
- * Ví dụ:
- *
- * const context = prisma.createExecutionContext({
- *   actorId: req.user.id,
- *   actorType: 'USER',
- *   tenantId: req.user.tenant_id
- * });
- *
- * const result = await prisma.withTransaction(
- *   context,
- *   async (tx, ctx) => {
- *
- *     const onboardingCase =
- *       await prisma.onboarding.createCase(tx, {...});
- *
- *     await prisma.businessProcess.create(tx, {...});
- *
- *     await prisma.audit.create(tx, {...});
- *
- *     return onboardingCase;
- *   }
- * );
  */
 
 /**
  * @param {ExecutionContext|Object} contextInput
  * @param {(tx: Object, context: ExecutionContext) => Promise<any>} callback
  * @param {Object} [options]
- * @param {number} [options.maxWait=5000]
- * @param {number} [options.timeout=20000]
+ * @param {number} [options.maxWait=10000]
+ * @param {number} [options.timeout=30000]
  *
  * @returns {Promise<any>}
  */
-/* CHÚ Ý:
- * 1) withTransaction() tạo ExecutionContext một lần.
- * 2) Callback luôn nhận (tx, context).
- * 3) Mọi write liên quan BP phải dùng tx.
- * 4) Không service nào tự dùng prisma global khi đang nằm trong BP transaction.
- * 5) Không gửi Email/Zalo/Telegram trực tiếp trong transaction; chỉ tạo notification/delivery record trong transaction,
- *  còn gửi thực tế do worker xử lý sau commit.
-*/
 async function withTransaction(contextInput, callback, options = {}) {
   if (typeof callback !== 'function') {
     throw new TypeError('withTransaction requires callback(tx, context)');
@@ -1151,12 +786,15 @@ async function withTransaction(contextInput, callback, options = {}) {
     allowUnscoped: contextInput?.allowUnscoped === true,
   };
 
+  const maxWait = options.maxWait ?? 10000;
+  const timeout = options.timeout ?? 30000;
+
   return tenantContext.run(store, () =>
-    prisma.$transaction(
+    basePrisma.$transaction(
       async (tx) => callback(tx, context),
       {
-        maxWait: options.maxWait ?? 5000,
-        timeout: options.timeout ?? 20000,
+        maxWait,
+        timeout,
       }
     )
   );
@@ -1218,57 +856,27 @@ async function unlinkUserFromMember(client, userId) {
  * ============================================================================
  * DOMAIN API
  * ============================================================================
- *
- * Các namespace này không thay Prisma model delegate.
- *
- * Chúng là helper service cấp infrastructure.
- *
- * Prisma model gốc vẫn có thể dùng:
- *
- * prisma.users.findUnique(...)
- * prisma.members.update(...)
- * prisma.branches.findMany(...)
- *
- * Các namespace bên dưới dùng cho logic ledger/workflow chuẩn hóa.
  */
 
 const egalPrisma = Object.assign(prisma, {
-  /**
-   * Prisma singleton gốc.
-   */
   client: prisma,
 
-  /**
-   * Correlation helpers.
-   */
   correlation: {
     create: createCorrelationId,
     isValid: isValidCorrelationId
   },
 
-  /**
-   * Execution context helpers.
-   */
   context: {
     create: createExecutionContext,
     buildMetadata: buildMetadataContext
   },
 
-  /**
-   * Tenant query helpers.
-   */
   tenant: {
     scope: tenantScope
   },
 
-  /**
-   * Transaction helper.
-   */
   withTransaction,
 
-  /**
-   * Business Process Ledger helper.
-   */
   businessProcess: {
     getNextAttemptNo: getNextBusinessAttemptNo,
     create: createBusinessProcessLog,
@@ -1290,9 +898,6 @@ const egalPrisma = Object.assign(prisma, {
     }
   },
 
-  /**
-   * Audit Ledger helper.
-   */
   audit: {
     create: createAuditLog,
 
@@ -1320,9 +925,6 @@ const egalPrisma = Object.assign(prisma, {
     }
   },
 
-  /**
-   * Communication Ledger helper.
-   */
   notification: {
     create: createNotification,
     createRecipient: createNotificationRecipient,
@@ -1345,9 +947,6 @@ const egalPrisma = Object.assign(prisma, {
     }
   },
 
-  /**
-   * Onboarding Aggregate helper.
-   */
   onboarding: {
     createCase: createOnboardingCase,
     updateCaseStatus: updateOnboardingCaseStatus,
@@ -1380,9 +979,6 @@ const egalPrisma = Object.assign(prisma, {
     }
   },
 
-  /**
-   * Branch workflow helper.
-   */
   branch: {
     updateStatus: updateBranchStatus,
 
@@ -1399,21 +995,6 @@ const egalPrisma = Object.assign(prisma, {
     }
   }
 });
-// export cả hai để tương thích với codes cũ
-
-/** Phân tích chi tiết:
- * ...egalPrisma (spread operator)
- * Copy toàn bộ thuộc tính và method của egalPrisma ra object mới.
- * Ví dụ: client, withTransaction, audit, notification, onboarding, v.v... đều được copy ra.
-
- * 1) basePrisma: egalPrisma
- * Tạo thêm một key tên basePrisma, trỏ đến cùng object egalPrisma.
- * Mục đích: Những file cũ đang import { basePrisma } vẫn hoạt động bình thường.
-
- * 2) egalPrisma
- * Tạo key egalPrisma trỏ đến object chính.
- * Cho phép import kiểu const egalPrisma = require('./prisma') hoặc const { egalPrisma } = require...
- *************** */
 
 module.exports = {
   prisma,
@@ -1430,4 +1011,3 @@ module.exports = {
   ...egalPrisma,
   egalPrisma,
 };
-   

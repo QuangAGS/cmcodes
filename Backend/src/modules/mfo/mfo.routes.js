@@ -1,7 +1,7 @@
 /**
  * PATH       : backend/src/modules/mfo/mfo.routes.js
- * DATETIME   : 2026-10-17T10:56:00+07:00
- * VERSION    : 3.0.1-RESULT-RETURN
+ * DATETIME   : 2026-10-18T17:35:00+07:00
+ * VERSION    : 3.0.2-BUG10-L1-UPDATE-ROUTE
  * DESCRIPTION:
  * - Khai báo danh mục Endpoint REST API cho Phân hệ MFO 5L.
  * - Phân định rõ nhóm API Canvas, Nháp DRAFT, Gate 1 (MFO_PLAN), Workbench và Gate 2 (MFO_RESULT).
@@ -11,6 +11,7 @@
  * CHANGE LOG:
  * - 2026-10-09T12:25:00+07:00 | 3.0.0 | Đường canvas, nháp, cửa 1 và cửa 2.
  * - 2026-10-17T10:56:00+07:00 | 3.0.1 | Thêm /result/return cho nút Trả sửa cửa 2.
+ * - 2026-10-18T17:35:00+07:00 | 3.0.2 | Bổ sung PUT /plans/:id ghi đè trực tiếp ticketId (BUG10 FIX).
  */
 
 const express = require('express');
@@ -46,6 +47,14 @@ router.get('/plans', verifyToken, checkRole(READ), mfoController.listPlans);
 
 // Lưu nháp Khung 5L
 router.post('/plans/draft', verifyToken, checkRole(WRITE), mfoController.saveDraft);
+
+// Cập nhật đè trực tiếp Tờ trình/Nháp theo ticketId (MFO_PLAN / DRAFT / NEEDS_REVISION)
+router.put(
+  '/plans/:id',
+  verifyToken,
+  checkRole(WRITE),
+  mfoController.updatePlan
+);
 
 // Xóa mềm nháp / Tờ trình ở trạng thái DRAFT, NEEDS_REVISION, REJECTED
 router.delete('/plans/:id/draft', verifyToken, checkRole(WRITE), mfoController.deleteDraft);
