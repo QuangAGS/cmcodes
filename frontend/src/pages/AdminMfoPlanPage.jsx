@@ -1,13 +1,14 @@
 /**
  * PATH       : frontend/src/pages/AdminMfoPlanPage.jsx
- * DATETIME   : 2026-10-18T15:24:00+07:00
- * VERSION    : 2.4.5-BUSY-PER-BUTTON
+ * DATETIME   : 2026-10-22T14:52:00+07:00
+ * VERSION    : 2.4.6-GATE2-NAME-LAYER
  * DESCRIPTION:
  * - Vá dứt điểm Bug 3: Card 2 ở Cửa 2 (RESULT) tự động chuyển sang đọc Tóm tắt Tờ khai từ smp_staging_data (hiển thị rõ tên vợ/chồng, con đã kê khai).
  * - Xác nhận Event nút "Duyệt và ghi sổ" thực thi chính xác API Cửa 2 approveResult() qua SRPF Engine mfoResultProcess.
  * - Bộ lọc chỉ còn trạng thái, có Tất cả.
  *
  * CHANGE LOG:
+ * - 2026-10-22T14:52:00+07:00 | 2.4.6 | Thêm: chiếu tên cửa 2 lên cây lúc duyệt. Bỏ: đọc thẳng ảnh XT. Giữ: ảnh lưu không đổi. Lý do: EU thấy tên đã khai, Admin lại thấy XT.
  * - 2026-10-18T15:24:00+07:00 | 2.4.5 | Trả sửa không làm nút Duyệt hiện Đang duyệt.
  * - 2026-10-18T14:57:00+07:00 | 2.4.4 | Thu hoặc hiện con trực tiếp.
  * - 2026-10-18T07:37:00+07:00 | 2.4.3 | Nhóm nút canvas nằm ngang, ngoài khung.
@@ -55,6 +56,7 @@ import {
   returnResultForRevision,
 } from '../features/mfo/api/mfoApi.js';
 import { diffDraftAgainstInit } from '../features/mfo/lib/mfoDiffEngine.js';
+import { projectProfiles } from '../features/mfo/lib/mfoProfile.js';
 import { toMfoUserMessage, MFO_USER_SUCCESS } from '../features/mfo/constants/mfoUserErrors.js';
 import MfoAlarmOverlay from '../features/mfo/components/MfoAlarmOverlay.jsx';
 import { adminGate, canAdminReview } from '../features/mfo/lib/mfoAdminActions.js';
@@ -219,13 +221,14 @@ export function AdminMfoPlanPage() {
           draftData.payload?.graph_snapshot ||
           draftData.payload?.ui_render_snapshot_layer?.graph_snapshot;
         if (snapshot && Array.isArray(snapshot.nodes) && snapshot.nodes.length > 0) {
-          setNodes(
-            snapshot.nodes.map((n) => ({
-              ...n,
-              style: { width: 240 },
-              data: { ...n.data, onOpenActionForm: () => {} },
-            }))
-          );
+          // <2026-10-22T14:52:00+07:00> Mục đích: Chiếu tên đã khai lên ô. Lý do: ảnh lưu vẫn XT, EU đã thấy tên thật.
+          const base = snapshot.nodes.map((n) => ({
+            ...n,
+            style: { width: 240 },
+            data: { ...n.data, onOpenActionForm: () => {} },
+          }));
+          const staging = draftData.smp_staging_data || draftData.payload?.smp_staging_data || {};
+          setNodes(draftData.plan_ok === true ? projectProfiles(base, staging) : base);
           if (Array.isArray(snapshot.edges)) {
             setEdges(snapshot.edges);
           }
