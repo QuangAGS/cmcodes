@@ -1,13 +1,14 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-22T08:06:00+07:00
- * VERSION    : 4.9.54-KEEP-OPEN-TICKET
+ * DATETIME   : 2026-10-22T10:40:00+07:00
+ * VERSION    : 4.9.60-SAVE-WHILE-EDIT
  * DESCRIPTION:
  * - Đồng bộ 100% cơ chế quản lý Tab hôn phối theo MfoHistoryPreview (dùng key data.treeId).
  * - Hoàn trả mượt mà khả năng bấm nút Tab chọn lần kết hôn và nút +/- ở góc Node Box.
  * - Duy trì Canvas Pan di chuyển tự do 100%.
  *
  * CHANGE LOG:
+ * - 2026-10-22T10:40:00+07:00 | 4.9.60 | Cửa 2 đang soạn thì nút Lưu bật.
  * - 2026-10-18T15:49:00+07:00 | 4.9.38 | Sửa tờ cần sửa không sinh tờ đang soạn mới.
  * - 2026-10-18T17:55:00+07:00 | 4.9.39 | Import updatePlanDraft và gọi PUT khi đã có activeTicketId (BUG10 FIX).
  * - 2026-10-19T07:25:00+07:00 | 4.9.40 | Nạp branches từ apiClient và truyền prop branches vào MfoPersonProfileSheet (E3 FIX).
@@ -1184,7 +1185,7 @@ export function OpMfoPlanPage() {
   async function handleSaveProfile() {
     if (!isGate2 || profileLocked || busy || !currentDraftTicketId) return;
     const items = selectedProfile ? [selectedProfile] : profileItems.filter((item) => JSON.stringify(cleanProfile(profileStaging[item.key], item.kind)) !== JSON.stringify(cleanProfile(savedProfileStaging[item.key], item.kind)));
-    if (!items.length) return;
+    if (!items.length) { mfoToast.info('Chưa có gì mới để lưu.'); return; }
     const error = items.map((item) => profileError(profileStaging[item.key], item.kind)).find(Boolean);
     if (error) { setProfileAlarm(toMfoUserMessage({ code: error })); return; }
     try {
@@ -1213,7 +1214,7 @@ export function OpMfoPlanPage() {
   }
 
   function closeProfile() {
-    if (selectedProfile) setProfileStaging((old) => ({ ...old, [selectedProfile.key]: savedProfileStaging[selectedProfile.key] || {} }));
+    // <2026-10-22T10:40:00+07:00> Mục đích: Giữ chữ đã nhập khi đóng form. Lý do: xoá thì nút Lưu không thấy thay đổi.
     setSelectedProfile(null); setProfileChoices([]);
   }
 
@@ -1346,7 +1347,8 @@ export function OpMfoPlanPage() {
           
           <button
             type="button"
-            disabled={busy || (isGate2 ? profileLocked || !profileHasChanges : isReadOnly || !hasCanvasChanges)}
+            // <2026-10-22T10:40:00+07:00> Mục đích: Cửa 2 đang soạn thì Lưu bật. Lý do: chờ lệch bản lưu làm nút khoá.
+            disabled={busy || (isGate2 ? profileLocked : isReadOnly || !hasCanvasChanges)}
             className="min-h-12 flex-1 flex items-center justify-center gap-1.5 rounded-2xl border border-indigo-200 bg-indigo-50 px-3 text-sm font-extrabold text-indigo-800 hover:bg-indigo-100 active:scale-[0.98] disabled:opacity-40 disabled:cursor-not-allowed"
             onClick={handleSaveDraft}
           >
