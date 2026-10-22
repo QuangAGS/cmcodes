@@ -6,13 +6,11 @@
  * - Giữ toàn bộ exports; bổ sung updatePlanDraft gọi PUT /mfo/plans/:id phục vụ cập nhật đè proposal.
  * - Tuân thủ Q1 (Bảo tồn mọi hàm/UI/UX cũ) & Q2 (Code Format & Chú thích đầy đủ).
  *
- * CHANGELOG  :
- * - 2026-10-08: Thêm deleteDraft, deletePlanDraft, listPlans alias. 保 toàn 100% legacy exports.
- * - 2026-10-13: Giữ toàn bộ exports; tách API trả sửa và không duyệt cửa 2.
- * - 2026-10-18: Bổ sung updatePlanDraft (PUT /mfo/plans/:id) giải quyết triệt để BUG10.
- *
  * CHANGE LOG:
- * - 2026-10-22T11:41:00+07:00 | 1.1.0 | Không duyệt cửa 2 gọi /result/reject. Bỏ gọi /result/terminate.
+ * - 2026-10-08: Thêm deleteDraft, deletePlanDraft, listPlans alias. Giữ export cũ.
+ * - 2026-10-13: Giữ export. Tách trả sửa và không duyệt cửa 2.
+ * - 2026-10-18: Thêm updatePlanDraft. Lý do: sửa BUG10.
+ * - 2026-10-22T11:41:00+07:00 | 1.1.0 | Thêm: không duyệt gọi /result/reject. Bỏ: gọi /result/terminate. Giữ tên hàm. Lý do: doctrine không có đường terminate riêng.
  */
 
 import apiClient from '../../../lib/apiClient.js';

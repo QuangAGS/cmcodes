@@ -11,7 +11,7 @@
  * - 2026-10-18T22:35:00+07:00 | 1.2.3 | Tối ưu hóa Interactive Transaction Cửa 2 bằng Map caching, triệt tiêu lỗi Timeout P2028 tại tx.members.update.
  * - 2026-10-19T07:25:00+07:00 | 1.2.4 | Ghi nhận trường branch_id từ staging vào bảng members.
  * - 2026-10-19T11:45:00+07:00 | 1.2.5 | Ghi nhận trường alias (Tên khác) từ staging vào bảng members (E4 FIX).
- * - 2026-10-22T12:18:00+07:00 | 1.2.6 | Gắn lại chặn trùng theo cùng cha và cùng mẹ. Giữ đời từ sổ, CHINH_THUC, is_clan, branch_id, alias.
+ * - 2026-10-22T12:18:00+07:00 | 1.2.6 | Thêm: chặn trùng cùng cha và cùng mẹ. Bỏ: chặn OR chỉ cần một cha hoặc một mẹ. Giữ: đời từ sổ, CHINH_THUC, is_clan, branch_id, alias. Lý do: OR chặn nhầm người cùng tên.
  */
 'use strict';
 

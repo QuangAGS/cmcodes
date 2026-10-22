@@ -1,18 +1,19 @@
 /**
  * PATH       : backend/src/modules/mfo/mfo.routes.js
- * DATETIME   : 2026-10-22T11:41:00+07:00
- * VERSION    : 3.0.3-GATE2-REJECT-PATH
+ * DATETIME   : 2026-10-22T15:23:00+07:00
+ * VERSION    : 3.0.4-DOCTRINE-3
  * DESCRIPTION:
  * - Khai báo danh mục Endpoint REST API cho Phân hệ MFO 5L.
  * - Phân định rõ nhóm API Canvas, Nháp DRAFT, Gate 1 (MFO_PLAN), Workbench và Gate 2 (MFO_RESULT).
  * - Middleware Auth & CheckRole đảm bảo an toàn truy cập chặt chẽ.
- * REFERENCE  : MFO Core Lifecycle 2.0 Architectural Specification
+ * REFERENCE  : MFO-DOCTRINE-3.0-20261013
  *
  * CHANGE LOG:
  * - 2026-10-09T12:25:00+07:00 | 3.0.0 | Đường canvas, nháp, cửa 1 và cửa 2.
  * - 2026-10-17T10:56:00+07:00 | 3.0.1 | Thêm /result/return cho nút Trả sửa cửa 2.
  * - 2026-10-18T17:35:00+07:00 | 3.0.2 | Bổ sung PUT /plans/:id ghi đè trực tiếp ticketId (BUG10 FIX).
- * - 2026-10-22T11:41:00+07:00 | 3.0.3 | /result/reject gọi REJECT. Bỏ /result/terminate. /result/return giữ trả sửa.
+ * - 2026-10-22T11:41:00+07:00 | 3.0.3 | Thêm: /result/reject gọi REJECT. Bỏ: /result/terminate. Giữ: /result/return là trả sửa. Lý do: doctrine không có đường terminate riêng.
+ * - 2026-10-22T15:23:00+07:00 | 3.0.4 | Bỏ: tham chiếu Lifecycle 2.0. Giữ: đường đã vá. Lý do: Doctrine 3.0 đã thay.
  */
 
 const express = require('express');

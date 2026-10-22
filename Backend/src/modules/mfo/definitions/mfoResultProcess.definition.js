@@ -6,18 +6,8 @@
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
  * CHANGE LOG:
- * - 2026-10-22T10:59:00+07:00 | 3.0.1 | Trả sửa cửa 2 ghi NEEDS_REVISION.
+ * - 2026-10-22T10:59:00+07:00 | 3.0.1 | Thêm: trả sửa ghi NEEDS_REVISION và hạ result_submitted. Bỏ: header thứ hai. Giữ: ghi sổ chỉ lúc APPROVED. Lý do: hai header làm mất dấu vết.
  */
-/**
- * PATH       : backend/src/modules/mfo/definitions/mfoResultProcess.definition.js
- * DATETIME   : 2026-10-12T09:25:00+07:00
- * VERSION    : 2.4.1-TICKET-TYPE-ENUM
- * DESCRIPTION:
- * - Lát 2. Ghi sổ nằm trong side effect APPROVED, cùng transaction SRPF.
- * - Đọc business_layer. Không ghi trước khi chuyển trạng thái.
- * - <2026-10-12T09:25:00+07:00> ticket_type chỉ MFO_REVIEW / BRANCH_REVIEW. MFO_RESULT là process type, không có trong enum.
- */
-
 'use strict';
 
 const { SRPF_STATES } = require('../../../shared/frameworks/srpf/constants/states');

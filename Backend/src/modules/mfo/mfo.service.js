@@ -6,7 +6,8 @@
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
  * CHANGE LOG:
- * - 2026-10-22T11:52:00+07:00 | 4.7.3 | Lưu nháp giữ plan_ok của đúng tờ. Bỏ ép plan_ok false lên cửa 2.
+ * - 2026-10-18T17:35:00+07:00 | 4.7.2 | Thêm updatePlan. Không bỏ getFullMfoSet.
+ * - 2026-10-22T11:52:00+07:00 | 4.7.3 | Thêm: lấy cờ từ đúng tờ. Bỏ: ép plan_ok false khi lưu cửa 2. Giữ getFullMfoSet. Lý do: hạ cờ làm cửa 2 thành cửa 1.
  */
 
 const crypto = require('crypto');

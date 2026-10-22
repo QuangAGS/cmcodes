@@ -1,13 +1,14 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-22T14:28:00+07:00
- * VERSION    : 4.9.64-GATE2-AFTER-RETURN
+ * DATETIME   : 2026-10-22T15:23:00+07:00
+ * VERSION    : 4.9.65-DRAG-AND-EMPTY
  * DESCRIPTION:
  * - Đồng bộ 100% cơ chế quản lý Tab hôn phối theo MfoHistoryPreview (dùng key data.treeId).
  * - Hoàn trả mượt mà khả năng bấm nút Tab chọn lần kết hôn và nút +/- ở góc Node Box.
  * - Duy trì Canvas Pan di chuyển tự do 100%.
  *
  * CHANGE LOG:
+ * - 2026-10-22T15:23:00+07:00 | 4.9.65 | Thêm: kéo ô cửa 1, ẩn ô rỗng khi đời đã có người. Bỏ: nodesDraggable luôn false, lọc ô rỗng chỉ lúc dựng cây. Giữ: kéo khung, khoá Y. Lý do: BUG13 ô chồng, BUG14 ô rỗng còn.
  * - 2026-10-22T14:28:00+07:00 | 4.9.64 | Thêm: cửa 2 theo plan_ok. Bỏ: cửa 2 chỉ khi APPROVED. Giữ: AF chỉ cửa 1. Lý do: trả sửa là NEEDS_REVISION nên lấy nhầm cửa 1.
  * - 2026-10-22T11:12:00+07:00 | 4.9.61 | Gắn lại bút phê đậm và chỉ dẫn cửa 2.
  * - 2026-10-22T10:40:00+07:00 | 4.9.60 | Cửa 2 đang soạn thì nút Lưu bật.
@@ -1108,7 +1109,9 @@ export function OpMfoPlanPage() {
   };
 
   // <2026-10-19T17:20:00+07:00> PREVIEW ALIGNED TAB FIX: Đọc activeUnionByTreeId nhất quan theo treeId hệt như MfoHistoryPreview
-  const canvasNodes = useMemo(() => nodes.map((node) => {
+  // <2026-10-22T15:23:00+07:00> Mục đích: Ẩn ô rỗng khi đời đã có người. Lý do: lọc lúc dựng cây không chạy sau khi thêm con.
+  const occupiedDepths = useMemo(() => new Set(nodes.filter((node) => node.type !== 'emptyNode').map((node) => Number(node.data?.depth))), [nodes]);
+  const canvasNodes = useMemo(() => nodes.filter((node) => node.type !== 'emptyNode' || !occupiedDepths.has(Number(node.data?.depth))).map((node) => {
     const activeUnion = activeUnionByTreeId[node.data?.treeId] || activeUnionByTreeId[node.id] || node.data?.activeUnionId;
     return {
       ...node,
@@ -1128,7 +1131,7 @@ export function OpMfoPlanPage() {
         },
       },
     };
-  }), [nodes, edges, activeUnionByTreeId, collapsedIds]);
+  }), [nodes, edges, activeUnionByTreeId, collapsedIds, occupiedDepths]);
 
   const hiddenChildIds = useMemo(() => {
     const hidden = new Set();
@@ -1313,6 +1316,7 @@ export function OpMfoPlanPage() {
         </div>
 
         <div className="relative h-[calc(100vh-210px)] min-h-[520px] max-h-[680px] w-full overflow-hidden rounded-3xl border border-slate-200 bg-white shadow-inner">
+          {/* <2026-10-22T15:23:00+07:00> Mục đích: Kéo từng ô ở cửa 1. Lý do: false làm các ô con chồng nhau. */}
           <ReactFlow
             nodes={(isGate2 ? profileDisplayNodes : canvasNodes).filter((node) => !hiddenChildIds.has(node.id))}
             edges={(isGate2 ? edges : canvasEdges).filter((edge) => !hiddenChildIds.has(edge.source) && !hiddenChildIds.has(edge.target))}
@@ -1328,7 +1332,7 @@ export function OpMfoPlanPage() {
             fitViewOptions={{ padding: 0.08, includeHiddenNodes: true }}
             minZoom={0.1}
             maxZoom={2.5}
-            nodesDraggable={false}
+            nodesDraggable={!isReadOnly && !isGate2}
             nodesConnectable={false}
             elementsSelectable={true}
             panOnDrag={true}
