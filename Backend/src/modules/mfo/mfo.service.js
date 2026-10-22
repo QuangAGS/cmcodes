@@ -1,9 +1,12 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-18T17:35:00+07:00
- * VERSION    : 4.7.2-BUG10-L1-UPDATE-SERVICE
+ * DATETIME   : 2026-10-22T11:52:00+07:00
+ * VERSION    : 4.7.3-KEEP-GATE-FLAG
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
+ *
+ * CHANGE LOG:
+ * - 2026-10-22T11:52:00+07:00 | 4.7.3 | Lưu nháp giữ plan_ok của đúng tờ. Bỏ ép plan_ok false lên cửa 2.
  */
 
 const crypto = require('crypto');
@@ -1226,6 +1229,11 @@ const mfoService = {
       }
     }
 
+    // <2026-10-22T11:52:00+07:00> Mục đích: Lấy cờ từ đúng tờ đang lưu. Lý do: ép plan_ok false làm cửa 2 thành cửa 1.
+    const flagged = (body.ticket_id || body.ticketId)
+      ? await prisma.proposals.findUnique({ where: { id: body.ticket_id || body.ticketId }, select: { payload: true } })
+      : existingDraft;
+    const kept = (flagged && flagged.payload) || {};
     const payloadToSave = {
       kind: 'PLAN',
       target_member_id: targetMemberId,
@@ -1238,13 +1246,13 @@ const mfoService = {
         draft_spouses: [],
         node_positions_x: {},
       },
-      smp_staging_data: body.smp_staging_data || {},
+      smp_staging_data: body.smp_staging_data || kept.smp_staging_data || {},
       graph_snapshot: body.graph_snapshot || null,
       init_scs: body.init_scs || body.diff_summary || [],
       diff_summary: body.diff_summary || body.init_scs || [],
-      plan_ok: existingDraft?.payload?.plan_ok || false,
-      result_submitted: false,
-      result_ok: false,
+      plan_ok: kept.plan_ok === true,
+      result_submitted: kept.result_submitted === true,
+      result_ok: kept.result_ok === true,
     };
     const holdMemberIds = collectHoldMemberIds({
       ...payloadToSave,
@@ -1277,17 +1285,22 @@ const mfoService = {
       async (tx) => {
         let ticket;
 
-        if (existingDraft && existingDraft.status === 'DRAFT') {
+        const targetId = body.ticket_id || body.ticketId;
+        const targetRow = targetId
+          ? await tx.proposals.findFirst({ where: { id: targetId, tenant_id: tenantId, deleted_at: null } })
+          : null;
+        const rowToUpdate = targetRow || (existingDraft && existingDraft.status === 'DRAFT' ? existingDraft : null);
+        if (rowToUpdate) {
           if (body.updated_at) {
             const clientTime = new Date(body.updated_at).getTime();
-            const serverTime = new Date(existingDraft.updated_at).getTime();
+            const serverTime = new Date(rowToUpdate.updated_at).getTime();
             if (Math.abs(clientTime - serverTime) > 2000) {
               fail('Bản nháp đã được cập nhật từ thiết bị khác. Vui lòng nạp lại trang!', 409, 'OPTIMISTIC_LOCK_CONFLICT');
             }
           }
 
           ticket = await tx.proposals.update({
-            where: { id: existingDraft.id },
+            where: { id: rowToUpdate.id },
             data: {
               target_id: targetMemberId,
               payload: payloadToSave,
@@ -1366,20 +1379,17 @@ const mfoService = {
     }
 
     const status = String(proposal.status).toUpperCase();
-    const EDITABLE_STATES = ['DRAFT', 'NEEDS_REVISION'];
-    if (!EDITABLE_STATES.includes(status)) {
-      fail(
-        `Tờ trình đang ở trạng thái [${status}]. Không thể chỉnh sửa!`,
-        409,
-        'MFO_NOT_EDITABLE_STATE'
-      );
-    }
 
     const targetMemberId = body.target_member_id || body.origin_member_id || proposal.target_id;
     const selectedCanvasDepth = Number(body.selected_canvas_depth ?? body.k ?? proposal.payload?.selected_canvas_depth ?? 0);
     const now = new Date();
 
     const existingPayload = proposal.payload || {};
+    // <2026-10-22T11:52:00+07:00> Mục đích: Cửa 2 đang soạn cũng được lưu. Lý do: doctrine cho sửa khi plan_ok true và chưa trình.
+    const gate2Open = status === 'APPROVED' && existingPayload.plan_ok === true && !existingPayload.result_submitted && !existingPayload.result_ok;
+    if (status !== 'DRAFT' && status !== 'NEEDS_REVISION' && !gate2Open) {
+      fail(`Tờ trình đang ở trạng thái [${status}]. Không thể chỉnh sửa!`, 409, 'MFO_NOT_EDITABLE_STATE');
+    }
     const updatedPayload = {
       ...existingPayload,
       kind: 'PLAN',
@@ -1397,6 +1407,10 @@ const mfoService = {
       graph_snapshot: body.graph_snapshot || existingPayload.graph_snapshot || null,
       init_scs: body.init_scs || body.diff_summary || existingPayload.init_scs || [],
       diff_summary: body.diff_summary || body.init_scs || existingPayload.diff_summary || [],
+      // <2026-10-22T11:52:00+07:00> Mục đích: Giữ cờ cửa. Lý do: spread có thể bị body đè nếu sau này thêm cờ vào body.
+      plan_ok: existingPayload.plan_ok === true,
+      result_submitted: existingPayload.result_submitted === true,
+      result_ok: existingPayload.result_ok === true,
     };
 
     const holdMemberIds = collectHoldMemberIds({

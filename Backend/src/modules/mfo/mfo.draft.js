@@ -1,13 +1,14 @@
 /**
  * PATH       : src/modules/mfo/mfo.draft.js
- * DATETIME   : 2026-10-22T08:06:00+07:00
- * VERSION    : 2.4.0-UPDATE-OPEN-TICKET
+ * DATETIME   : 2026-10-22T11:52:00+07:00
+ * VERSION    : 2.4.1-KEEP-GATE-FLAG
  * DESCRIPTION:
  * - Tuân thủ Q1 (Bảo tồn nghiệp vụ cũ) & Q2 (Code Format & Chú thích đầy đủ).
  * - Bổ sung Guardrail khóa cứng API saveDraft: Chặn không cho sửa bản nháp nếu ticket_id
  *   đang ở trạng thái khác DRAFT (như PENDING, UNDER_REVIEW).
  * CHANGELOG  :
  * - 2026-10-22T08:06:00+07:00 | 2.4.0 | Lưu cập nhật tờ đang mở, kể cả cần sửa. Không tạo tờ DRAFT mới.
+ * - 2026-10-22T11:52:00+07:00 | 2.4.1 | Bỏ ép plan_ok false. Tờ cửa 2 giữ cờ.
  * - 2026-10-08: Thêm kiểm tra proposal.status !== 'DRAFT' thì ném lỗi 409 MFO_PROPOSAL_LOCKED.
  */
 
@@ -98,10 +99,20 @@ async function saveDraft({ user, body, correlationId }) {
     graph_snapshot: body.graph_snapshot || null,
     init_scs: body.init_scs || body.diff_summary || [],
     diff_summary: body.diff_summary || body.init_scs || [],
+    // <2026-10-22T11:52:00+07:00> Mục đích: Không hạ cờ cửa 2. Lý do: bản trước ép plan_ok false cho mọi lần lưu.
     plan_ok: false,
     result_submitted: false,
     result_ok: false,
   };
+  // <2026-10-22T11:52:00+07:00> Mục đích: Giữ cờ của tờ đang mở. Lý do: ép false làm cửa 2 thành cửa 1.
+  const keepId = body.ticket_id || body.ticketId;
+  if (keepId) {
+    const keep = await prisma.proposals.findUnique({ where: { id: keepId }, select: { payload: true } });
+    const kept = (keep && keep.payload) || {};
+    payloadToSave.plan_ok = kept.plan_ok === true;
+    payloadToSave.result_submitted = kept.result_submitted === true;
+    payloadToSave.result_ok = kept.result_ok === true;
+  }
 
   const corr = correlationId || existingDraft?.correlation_id || require('crypto').randomUUID();
 

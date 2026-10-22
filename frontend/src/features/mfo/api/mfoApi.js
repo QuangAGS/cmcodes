@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/mfo/api/mfoApi.js
- * DATETIME   : 2026-10-18T17:55:00+07:00
- * VERSION    : 5.1.1-BUG10-L2-API
+ * DATETIME   : 2026-10-22T11:41:00+07:00
+ * VERSION    : 1.1.0-GATE2-REJECT-PATH
  * DESCRIPTION:
  * - Giữ toàn bộ exports; bổ sung updatePlanDraft gọi PUT /mfo/plans/:id phục vụ cập nhật đè proposal.
  * - Tuân thủ Q1 (Bảo tồn mọi hàm/UI/UX cũ) & Q2 (Code Format & Chú thích đầy đủ).
@@ -10,6 +10,9 @@
  * - 2026-10-08: Thêm deleteDraft, deletePlanDraft, listPlans alias. 保 toàn 100% legacy exports.
  * - 2026-10-13: Giữ toàn bộ exports; tách API trả sửa và không duyệt cửa 2.
  * - 2026-10-18: Bổ sung updatePlanDraft (PUT /mfo/plans/:id) giải quyết triệt để BUG10.
+ *
+ * CHANGE LOG:
+ * - 2026-10-22T11:41:00+07:00 | 1.1.0 | Không duyệt cửa 2 gọi /result/reject. Bỏ gọi /result/terminate.
  */
 
 import apiClient from '../../../lib/apiClient.js';
@@ -205,9 +208,9 @@ export function returnResultForRevision(id, body = {}) {
   return apiClient.post(`/mfo/plans/${id}/result/return`, body);
 }
 
-/** Không duyệt cửa 2 gọi /result/terminate. Giữ tên hàm để admin không đổi chỗ gọi. */
+// <2026-10-22T11:41:00+07:00> Mục đích: Nút không duyệt gọi REJECT. Lý do: bỏ đường terminate. Giữ tên hàm.
 export function rejectResult(id, body = {}) {
-  return apiClient.post(`/mfo/plans/${id}/result/terminate`, body);
+  return apiClient.post(`/mfo/plans/${id}/result/reject`, body);
 }
 
 /** ADMIN: Trả Tờ trình MFO 5L về cho User sửa theo từng mục bút phê */

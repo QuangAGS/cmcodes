@@ -1,7 +1,7 @@
 /**
  * PATH       : backend/src/modules/mfo/mfo.gate2.js
- * DATETIME   : 2026-10-19T11:45:00+07:00
- * VERSION    : 1.2.5-E4-ALIAS
+ * DATETIME   : 2026-10-22T12:18:00+07:00
+ * VERSION    : 1.2.6-BOOK-RULES
  * DESCRIPTION: Ghi sổ lúc duyệt Cửa 2. Đời lấy từ sổ. is_clan lấy từ khẳng định. status = CHINH_THUC. Tối ưu hoá Transaction chống timeout P2028 & Ghi nhận branch_id + alias.
  *
  * CHANGE LOG:
@@ -11,6 +11,7 @@
  * - 2026-10-18T22:35:00+07:00 | 1.2.3 | Tối ưu hóa Interactive Transaction Cửa 2 bằng Map caching, triệt tiêu lỗi Timeout P2028 tại tx.members.update.
  * - 2026-10-19T07:25:00+07:00 | 1.2.4 | Ghi nhận trường branch_id từ staging vào bảng members.
  * - 2026-10-19T11:45:00+07:00 | 1.2.5 | Ghi nhận trường alias (Tên khác) từ staging vào bảng members (E4 FIX).
+ * - 2026-10-22T12:18:00+07:00 | 1.2.6 | Gắn lại chặn trùng theo cùng cha và cùng mẹ. Giữ đời từ sổ, CHINH_THUC, is_clan, branch_id, alias.
  */
 'use strict';
 
@@ -46,6 +47,27 @@ function requireClan(smp, who) {
     fail(`Chưa khẳng định nội tộc cho ${who}.`, 422, 'MFO_CLAN_UNCONFIRMED');
   }
   return smp.is_clan === true;
+}
+
+
+// <2026-10-22T12:18:00+07:00> Mục đích: Đời lấy từ sổ đời trên. Lý do: bản cache đã bỏ hàm riêng, dễ lệch doctrine.
+function generationAfter(parent) {
+  if (!parent || parent.generation == null) {
+    fail('Người đời trên chưa có đời trên sổ.', 422, 'MFO_GENERATION_REQUIRED');
+  }
+  return Number(parent.generation) + 1;
+}
+
+// <2026-10-22T12:18:00+07:00> Mục đích: Chặn người đã có trên sổ. Lý do: bản cache dùng OR, cùng tên một cha đã bị chặn nhầm.
+function refuseIfOnBook(members, { fullName, fatherId, motherId }) {
+  if (!fullName || (!fatherId && !motherId)) return;
+  const hit = members.some((m) => {
+    if (m.full_name !== fullName) return false;
+    if (fatherId && m.father_id !== fatherId) return false;
+    if (motherId && m.mother_id !== motherId) return false;
+    return true;
+  });
+  if (hit) fail('Người này đã có trên sổ với cùng cha mẹ.', 409, 'MFO_ALREADY_ON_BOOK');
 }
 
 async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
@@ -88,20 +110,11 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
     
     if (!parentId) fail('Thiếu người đời trên để tính đời.', 422, 'MFO_GENERATION_REQUIRED');
     const parent = memberCache.get(parentId);
-    if (!parent || parent.generation == null) {
-      fail('Người đời trên chưa có đời trên sổ.', 422, 'MFO_GENERATION_REQUIRED');
-    }
-    const generation = Number(parent.generation) + 1;
+    const generation = generationAfter(parent);
 
     const fatherId = parent.gender !== 'NU' ? parentId : null;
     const motherId = parent.gender === 'NU' ? parentId : null;
-
-    if (smp.full_name && (fatherId || motherId)) {
-      const isDuplicate = existingMembers.some(
-        (m) => m.full_name === smp.full_name && ((fatherId && m.father_id === fatherId) || (motherId && m.mother_id === motherId))
-      );
-      if (isDuplicate) fail('Người này đã có trên sổ với cùng cha mẹ.', 409, 'MFO_ALREADY_ON_BOOK');
-    }
+    refuseIfOnBook(existingMembers, { fullName: smp.full_name, fatherId, motherId });
 
     const created = await tx.members.create({
       data: {

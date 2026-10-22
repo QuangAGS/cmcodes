@@ -1,7 +1,7 @@
 /**
  * PATH       : backend/src/modules/mfo/mfo.routes.js
- * DATETIME   : 2026-10-18T17:35:00+07:00
- * VERSION    : 3.0.2-BUG10-L1-UPDATE-ROUTE
+ * DATETIME   : 2026-10-22T11:41:00+07:00
+ * VERSION    : 3.0.3-GATE2-REJECT-PATH
  * DESCRIPTION:
  * - Khai báo danh mục Endpoint REST API cho Phân hệ MFO 5L.
  * - Phân định rõ nhóm API Canvas, Nháp DRAFT, Gate 1 (MFO_PLAN), Workbench và Gate 2 (MFO_RESULT).
@@ -12,6 +12,7 @@
  * - 2026-10-09T12:25:00+07:00 | 3.0.0 | Đường canvas, nháp, cửa 1 và cửa 2.
  * - 2026-10-17T10:56:00+07:00 | 3.0.1 | Thêm /result/return cho nút Trả sửa cửa 2.
  * - 2026-10-18T17:35:00+07:00 | 3.0.2 | Bổ sung PUT /plans/:id ghi đè trực tiếp ticketId (BUG10 FIX).
+ * - 2026-10-22T11:41:00+07:00 | 3.0.3 | /result/reject gọi REJECT. Bỏ /result/terminate. /result/return giữ trả sửa.
  */
 
 const express = require('express');
@@ -134,28 +135,20 @@ router.post(
   mfoController.approveResult
 );
 
-// Admin Trả về Tờ khai Nghiệm thu yêu cầu sửa lại (NEEDS_REVISION)
+// <2026-10-22T11:41:00+07:00> Mục đích: Không duyệt cửa 2 là REJECT. Lý do: doctrine không có đường terminate riêng. Bỏ /result/terminate.
 router.post(
   '/plans/:id/result/reject',
   verifyToken,
   checkRole(ADMIN),
-  mfoController.rejectResult
+  mfoController.terminateResult
 );
 
-// <2026-10-17T10:56:00+07:00> Mục đích: Đón nút Trả sửa cửa 2. Lý do: trang gọi /result/return, file đang dùng chưa có đường này.
+// <2026-10-22T11:41:00+07:00> Mục đích: Trả sửa cửa 2 giữ NEEDS_REVISION. Lý do: không trộn với không duyệt.
 router.post(
   '/plans/:id/result/return',
   verifyToken,
   checkRole(ADMIN),
   mfoController.rejectResult
-);
-
-// <2026-10-12T17:30:00+07:00> Bác bỏ tờ khai cửa 2. Không gọi từ chối khung.
-router.post(
-  '/plans/:id/result/terminate',
-  verifyToken,
-  checkRole(ADMIN),
-  mfoController.terminateResult
 );
 
 module.exports = router;
