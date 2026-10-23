@@ -1,6 +1,6 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MfoHistoryChain.jsx
- * DATETIME   : 2026-10-17T18:05:00+07:00
+ * DATETIME   : 2026-10-23T09:58:00+07:00
  * VERSION    : 1.4.1-LIST-REFRESH
  * DESCRIPTION:
  * - Vá lỗi tự động gán chữ "Duyệt" khi Lần trình Cửa 2 đang ở trạng thái chờ duyệt.
@@ -8,6 +8,7 @@
  * - DRAFT không còn bị gọi là tờ khai.
  *
  * CHANGE LOG:
+ * - 2026-10-23T09:58:00+07:00 | Thêm: DRAFT luôn là nhánh đang soạn. Bỏ: result_ok một mình thành đã ghi sổ. Lý do: chờ duyệt và đang soạn bị lẫn.
  * - 2026-10-23T09:31:00+07:00 | Đã ghi sổ chỉ khi APPROVED và result_ok. Bỏ: result_ok một mình. Lý do: DRAFT bị hiện Đã ghi sổ.
  * - 2026-10-17T18:05:00+07:00 | 1.4.1 | Nút Làm mới cạnh danh sách bước.
  * - 2026-10-14T15:35:00+07:00 | 3.2.0 | Không gán chữ Duyệt khi tờ khai chưa có bút phê.
@@ -94,6 +95,7 @@ export function stageName(plan) {
   const resultOk = Boolean(payload.result_ok);
   const gate2Open = planOk && st === 'APPROVED';
   // <2026-10-23T09:31:00+07:00> Mục đích: DRAFT không thành đã ghi sổ. Lý do: result_ok sót.
+  if (st === 'DRAFT') return 'Nhánh phả hệ đang soạn';
   if (resultOk && st === 'APPROVED') return 'Đã ghi sổ';
   if (gate2Open && st === 'REJECTED') return 'Tờ khai không được duyệt';
   if (planOk && resultSubmitted && st === 'NEEDS_REVISION') return 'Tờ khai cần sửa';
@@ -117,8 +119,9 @@ export function historySteps(plan) {
   // <2026-10-16T07:08:00+07:00> Mục đích: Chỉ thêm bước tờ khai khi nhánh đã duyệt. Lý do: DRAFT có plan_ok vẫn là cửa 1.
   if (payload.plan_ok && st === 'APPROVED') steps.push({ id: 'frame-ok', title: 'Nhánh phả hệ đã duyệt' });
   if (payload.plan_ok && st === 'APPROVED') steps.push({ id: 'result-draft', title: 'Tờ khai đang soạn' });
-  if (payload.result_submitted) steps.push({ id: 'result-review', title: 'Tờ khai chờ duyệt' });
-  if (payload.result_ok) steps.push({ id: 'result-ok', title: 'Tờ khai đã duyệt' });
+  // <2026-10-23T09:58:00+07:00> Mục đích: Không lấy bước đã ghi sổ cho tờ đang soạn. Lý do: result_ok sót làm tóm tắt sai.
+  if (payload.result_submitted && (st === 'PENDING' || st === 'UNDER_REVIEW')) steps.push({ id: 'result-review', title: 'Tờ khai chờ duyệt' });
+  if (payload.result_ok && st === 'APPROVED') steps.push({ id: 'result-ok', title: 'Tờ khai đã duyệt' });
   return steps;
 }
 

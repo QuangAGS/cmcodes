@@ -1,13 +1,14 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-18T15:49:00+07:00
- * VERSION    : 4.9.38-KEEP-TICKET
+ * DATETIME   : 2026-10-23T09:58:00+07:00
+ * VERSION    : 4.9.39-DRAFT-EDITABLE
  * DESCRIPTION:
  * - Vá dứt điểm Bug 1: Lỗi SRPF_INVALID_TRANSITION khi Trình Tờ Khai ở Cửa 2.
  * - Khóa chặt State Machine: Khi plan_ok === true, bắt buộc gọi handleSubmitProfiles() (API submitResult Cửa 2), triệt tiêu hoàn toàn việc gọi nhầm createPlan (Cửa 1).
  * - Mở nhánh đang soạn không hiện Alarm.
  *
  * CHANGE LOG:
+ * - 2026-10-23T09:58:00+07:00 | Thêm: đang soạn có Lưu nháp và Trình. Bỏ: DRAFT bị đóng băng vì result_ok. Giữ: chờ duyệt vẫn đóng băng. Lý do: đang soạn hiện Đã đóng băng và Đã trình.
  * - 2026-10-18T15:49:00+07:00 | 4.9.38 | Sửa tờ cần sửa không sinh tờ đang soạn mới.
  * - 2026-10-18T14:57:00+07:00 | 4.9.37 | Thu hoặc hiện con trực tiếp của từng ô.
  * - 2026-10-18T14:52:00+07:00 | 4.9.36 | Vừa khung một lần lúc mở. Bấm chấm không vừa khung.
@@ -202,10 +203,12 @@ export function OpMfoPlanPage() {
   profileModeRef.current = isGate2;
   const profileLocked = profileFlags.result_ok === true || ['PENDING','UNDER_REVIEW','REJECTED'].includes(proposalStatus) || (profileFlags.result_submitted === true && proposalStatus !== 'NEEDS_REVISION');
 
+  // <2026-10-23T09:58:00+07:00> Mục đích: Đang soạn không đóng băng. Lý do: result_ok sót làm DRAFT thành chỉ đọc.
   const isReadOnly = useMemo(() => {
     const st = String(proposalStatus || 'DRAFT').toUpperCase();
-    if (profileFlags.result_ok || st === 'REJECTED' || st === 'PENDING' || st === 'UNDER_REVIEW') return true;
-    return false;
+    if (st === 'DRAFT' || st === 'NEEDS_REVISION') return false;
+    if (st === 'REJECTED' || st === 'PENDING' || st === 'UNDER_REVIEW') return true;
+    return profileFlags.result_ok === true;
   }, [proposalStatus, profileFlags.result_ok]);
 
   const [showSpouseOrderModal, setShowSpouseOrderModal] = useState(false);
@@ -1312,7 +1315,8 @@ export function OpMfoPlanPage() {
       ) : isReadOnly ? (
         <div className="mx-3 mt-3 flex items-center gap-2 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-black text-amber-950 shadow-sm">
           <Lock className="h-4 w-4 shrink-0 text-amber-600" />
-          <span>Tờ trình ở trạng thái [{proposalStatus}] - Giao diện đóng băng Read-Only 100%.</span>
+          {/* <2026-10-23T09:58:00+07:00> Mục đích: Không hiện mã DRAFT. Lý do: đang soạn không phải đóng băng. */}
+          <span>Hồ sơ đang chờ duyệt. Chưa sửa được.</span>
         </div>
       ) : proposalStatus === 'NEEDS_REVISION' && (
         <div className="mx-3 mt-3 flex items-center gap-2 rounded-2xl border border-indigo-300 bg-indigo-50 px-4 py-3 text-xs font-black text-indigo-950 shadow-sm">
@@ -1390,7 +1394,7 @@ export function OpMfoPlanPage() {
             onClick={handleSaveDraft}
           >
             <Save className="h-4 w-4 text-indigo-600" />
-            <span>{isGate2 ? 'Lưu tờ khai' : isReadOnly ? 'Đã đóng băng' : 'Lưu nhánh phả hệ'}</span>
+            <span>{isGate2 ? 'Lưu tờ khai' : isReadOnly ? 'Đã đóng băng' : 'Lưu nháp'}</span>
           </button>
 
           <button
