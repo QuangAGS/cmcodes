@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/pages/AdminMfoPlanPage.jsx
- * DATETIME   : 2026-10-23T09:31:00+07:00
- * VERSION    : 2.4.6-TOP-SPIN
+ * DATETIME   : 2026-10-23T10:24:00+07:00
+ * VERSION    : 2.4.7-CLOCK-ON-PAGE
  * DESCRIPTION:
  * - Vá dứt điểm Bug 3: Card 2 ở Cửa 2 (RESULT) tự động chuyển sang đọc Tóm tắt Tờ khai từ smp_staging_data (hiển thị rõ tên vợ/chồng, con đã kê khai).
  * - Xác nhận Event nút "Duyệt và ghi sổ" thực thi chính xác API Cửa 2 approveResult() qua SRPF Engine mfoResultProcess.
@@ -10,6 +10,7 @@
  * CHANGE LOG:
  * - 2026-10-18T15:24:00+07:00 | 2.4.5 | Trả sửa không làm nút Duyệt hiện Đang duyệt.
  * - 2026-10-23T09:31:00+07:00 | 2.4.6 | Thêm vòng quay trên cùng khi bận. Giữ chữ nút. Lý do: đang xử lý không được hiện trên nút Duyệt.
+ * - 2026-10-23T10:24:00+07:00 | 2.4.7 | Chuyển vòng quay từ ô trống lên trang. Lý do: gắn nhầm làm trang admin không mở.
  * - 2026-10-18T14:57:00+07:00 | 2.4.4 | Thu hoặc hiện con trực tiếp.
  * - 2026-10-18T07:37:00+07:00 | 2.4.3 | Nhóm nút canvas nằm ngang, ngoài khung.
  * - 2026-10-18T07:31:00+07:00 | 2.4.2 | Nhóm nút canvas lên giữa phía trên.
@@ -66,9 +67,6 @@ import MfoReviewForm from '../features/mfo/components/MfoReviewForm.jsx';
 function EmptyCoupleNodeReadonly({ data }) {
   const depth = Number.isInteger(Number(data?.depth)) ? Number(data.depth) : 0;
   return (
-    <>
-    <MfoBusyClock show={busyAction !== null || loading} />
-
     <div className="flex min-h-[72px] w-[180px] select-none items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-center text-slate-500 shadow-sm">
       <span>
         <span className="block text-xs font-black">{data?.label || `Đời ${depth}`}</span>
@@ -430,6 +428,9 @@ export function AdminMfoPlanPage() {
   };
 
   return (
+    <>
+    {/* <2026-10-23T10:24:00+07:00> Mục đích: Vòng quay ở trang, không ở ô trống. Lý do: gắn nhầm làm trang admin không mở. */}
+    <MfoBusyClock show={busyAction !== null || loading} />
     <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-slate-50 font-sans">
       <TenantHeader tenant={tenant} subtitle="Thẩm định & Phê duyệt MFO 5L" />
 
