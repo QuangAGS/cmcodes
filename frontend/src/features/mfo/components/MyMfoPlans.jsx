@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MyMfoPlans.jsx
- * DATETIME   : 2026-10-23T09:31:00+07:00
- * VERSION    : 5.7.7-SOAN-THAO
+ * DATETIME   : 2026-10-23T11:53:00+07:00
+ * VERSION    : 5.7.8-SUA-TO-KHAI
  * DESCRIPTION:
  * - Vá dứt điểm lỗi hiển thị nhầm "Bút phê tờ khai: Duyệt" khi Tờ khai Cửa 2 đang ở trạng thái chờ duyệt.
  * - Loại bỏ fallback || currentPlan.admin_note của Cửa 1, phân lập chính xác bút phê theo trạng thái Tờ khai Cửa 2.
@@ -13,6 +13,7 @@
  * - 2026-10-16T08:24:00+07:00 | 5.7.5 | Tiêu đề trang đổi thành Hồ sơ nhánh phả hệ. Card giữ Hồ sơ của tôi.
  * - 2026-10-17T18:05:00+07:00 | 5.7.6 | Nút Làm mới cạnh danh sách hồ sơ.
  * - 2026-10-23T09:31:00+07:00 | 5.7.7 | Thêm: Soạn thảo, vòng quay trên cùng. Bỏ: Lưu nháp trên trang hồ sơ, bút phê trên DRAFT. Giữ: Khai báo, Xem lại, Xóa. Lý do: nút và bút phê không theo trạng thái.
+ * - 2026-10-23T11:53:00+07:00 | 5.7.8 | Thêm: Sửa tờ khai khi cần sửa, bút phê ở nội dung hiện tại. Bỏ: tờ khai cần sửa không có nút. Giữ: Soạn thảo cửa 1. Lý do: tờ khai trả sửa không sửa được.
  * RULE COMPLIANCE:
  * - Q1 (Bảo tồn): Bảo toàn 100% logic Single Thread Pipeline, hydration draft, CRUD handlers và MfoHistoryChain integration.
  * - Q2 (Code Format): Đầy đủ docstring header và chú thích thời gian <2026-10-14T15:35:00+07:00> từng khối logic.
@@ -416,6 +417,12 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                           Bút phê tờ khai: {payloadData.reject_reason || 'Đã duyệt ghi sổ'}
                         </p>
                       ) : null}
+                      {/* <2026-10-23T11:53:00+07:00> Mục đích: Tờ khai cần sửa hiện bút phê. Lý do: EU phải đọc ý kiến trước khi sửa. */}
+                      {isNeedsRevision && payloadData?.plan_ok ? (
+                        <p className="font-bold text-indigo-900 pt-1 border-t border-slate-100">
+                          Bút phê: {currentPlan.admin_note || payloadData.admin_note || payloadData.reject_reason || 'Chưa có ý kiến.'}
+                        </p>
+                      ) : null}
                     </div>
                   ) : null}
                 </section>
@@ -444,6 +451,19 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                     >
                       <FileEdit className="h-4 w-4" />
                       <span>{isNeedsRevision ? 'Sửa theo ý kiến' : 'Soạn thảo'}</span>
+                    </button>
+                  ) : null}
+
+                  {/* <2026-10-23T11:53:00+07:00> Mục đích: Mở lại tờ khai cần sửa. Lý do: nút cũ chỉ mở nhánh chưa duyệt. */}
+                  {isNeedsRevision && payloadData?.plan_ok ? (
+                    <button
+                      type="button"
+                      disabled={busy}
+                      className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl bg-indigo-600 px-3 text-xs font-black text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40"
+                      onClick={() => navigate(`/op/mfo/plans/new?draft=${selectedTicketId}`)}
+                    >
+                      <FileEdit className="h-4 w-4" />
+                      <span>Sửa tờ khai</span>
                     </button>
                   ) : null}
 

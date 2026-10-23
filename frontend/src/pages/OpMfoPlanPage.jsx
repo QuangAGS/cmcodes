@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-23T11:27:00+07:00
- * VERSION    : 4.9.41-GATE2-CANVAS
+ * DATETIME   : 2026-10-23T11:53:00+07:00
+ * VERSION    : 4.9.42-SUA-TO-KHAI
  * DESCRIPTION:
  * - Vá dứt điểm Bug 1: Lỗi SRPF_INVALID_TRANSITION khi Trình Tờ Khai ở Cửa 2.
  * - Khóa chặt State Machine: Khi plan_ok === true, bắt buộc gọi handleSubmitProfiles() (API submitResult Cửa 2), triệt tiêu hoàn toàn việc gọi nhầm createPlan (Cửa 1).
@@ -11,6 +11,7 @@
  * - 2026-10-23T09:58:00+07:00 | Thêm: đang soạn có Lưu nháp và Trình. Bỏ: DRAFT bị đóng băng vì result_ok. Giữ: chờ duyệt vẫn đóng băng. Lý do: đang soạn hiện Đã đóng băng và Đã trình.
  * - 2026-10-23T10:09:00+07:00 | 4.9.40 | Thêm: vòng quay trên cùng khi bận. Bỏ: chữ Đang gửi trên nút Trình. Giữ: Lưu nháp, Trình. Lý do: trạng thái bận hiện nhầm trên nút.
  * - 2026-10-23T11:27:00+07:00 | 4.9.41 | Thêm: cửa 2 kéo khung, kéo ô, chấm, nút cộng trừ, câu XT. Bỏ: pan và kéo tắt ở cửa 2. Giữ: cửa 1. Lý do: cửa 2 mất các thao tác cây.
+ * - 2026-10-23T11:53:00+07:00 | 4.9.42 | Thêm: tờ khai cần sửa mở cửa 2. Bỏ: chỉ APPROVED mới là cửa 2. Giữ: nhánh cần sửa vẫn cửa 1. Lý do: trả sửa hạ trạng thái nên mở nhầm cửa 1.
  * - 2026-10-18T15:49:00+07:00 | 4.9.38 | Sửa tờ cần sửa không sinh tờ đang soạn mới.
  * - 2026-10-18T14:57:00+07:00 | 4.9.37 | Thu hoặc hiện con trực tiếp của từng ô.
  * - 2026-10-18T14:52:00+07:00 | 4.9.36 | Vừa khung một lần lúc mở. Bấm chấm không vừa khung.
@@ -200,7 +201,8 @@ export function OpMfoPlanPage() {
   // <2026-10-14T11:10:00+07:00> Bắt cờ gate2 chính xác từ URL searchParams hoặc profileFlags
   // <2026-10-16T07:22:00+07:00> Mục đích: Cửa 2 chỉ khi đã duyệt hoặc địa chỉ có gate=2. Lý do: DRAFT có plan_ok vẫn là cửa 1.
   const urlGate = searchParams.get('gate');
-  const isGate2 = urlGate === '2' || (proposalStatus === 'APPROVED' && profileFlags.plan_ok === true);
+  // <2026-10-23T11:53:00+07:00> Mục đích: Tờ khai trả sửa vẫn là cửa 2. Lý do: trạng thái đổi thành cần sửa.
+  const isGate2 = urlGate === '2' || ((proposalStatus === 'APPROVED' || proposalStatus === 'NEEDS_REVISION') && profileFlags.plan_ok === true);
   
   const profileModeRef = useRef(false);
   profileModeRef.current = isGate2;
@@ -408,7 +410,8 @@ export function OpMfoPlanPage() {
           
           // <2026-10-14T11:10:00+07:00> Tự động mở Cửa 2 khi plan_ok === true hoặc status === 'APPROVED'
           // <2026-10-16T07:22:00+07:00> Mục đích: Chỉ coi đã duyệt khi trạng thái là APPROVED và plan_ok đúng.
-          const isPlanApproved = draftData.plan_ok === true && String(draftData.status || '').toUpperCase() === 'APPROVED';
+          const stEarly = String(draftData.status || '').toUpperCase();
+          const isPlanApproved = draftData.plan_ok === true && (stEarly === 'APPROVED' || stEarly === 'NEEDS_REVISION');
           setProfileFlags({
             plan_ok: isPlanApproved,
             result_submitted: draftData.result_submitted === true,

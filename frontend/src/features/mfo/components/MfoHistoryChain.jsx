@@ -1,6 +1,6 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MfoHistoryChain.jsx
- * DATETIME   : 2026-10-23T09:58:00+07:00
+ * DATETIME   : 2026-10-23T11:53:00+07:00
  * VERSION    : 1.4.1-LIST-REFRESH
  * DESCRIPTION:
  * - Vá lỗi tự động gán chữ "Duyệt" khi Lần trình Cửa 2 đang ở trạng thái chờ duyệt.
@@ -98,7 +98,8 @@ export function stageName(plan) {
   if (st === 'DRAFT') return 'Nhánh phả hệ đang soạn';
   if (resultOk && st === 'APPROVED') return 'Đã ghi sổ';
   if (gate2Open && st === 'REJECTED') return 'Tờ khai không được duyệt';
-  if (planOk && resultSubmitted && st === 'NEEDS_REVISION') return 'Tờ khai cần sửa';
+  // <2026-10-23T11:53:00+07:00> Mục đích: Tờ khai trả sửa vẫn là tờ khai. Lý do: trả sửa hạ result_submitted nên hiện nhầm nhánh.
+  if (planOk && st === 'NEEDS_REVISION') return 'Tờ khai cần sửa';
   if (planOk && resultSubmitted) return 'Tờ khai chờ duyệt';
   if (gate2Open) return 'Tờ khai đang soạn';
   if (st === 'NEEDS_REVISION') return 'Nhánh phả hệ cần sửa';
