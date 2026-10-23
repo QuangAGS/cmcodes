@@ -1,11 +1,13 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-22T11:52:00+07:00
+ * DATETIME   : 2026-10-23T15:04:00+07:00
+ * 2026-10-22T11:52:00+07:00
  * VERSION    : 4.7.3-KEEP-GATE-FLAG
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
  * CHANGE LOG:
+ * - 2026-10-23T15:04:00+07:00 | Ghi nhật ký sau khi lưu nháp xong. Lý do: ghi trong giao dịch dài làm đứt kết nối.
  * - 2026-10-18T17:35:00+07:00 | 4.7.2 | Thêm updatePlan. Không bỏ getFullMfoSet.
  * - 2026-10-22T11:52:00+07:00 | 4.7.3 | Thêm: lấy cờ từ đúng tờ. Bỏ: ép plan_ok false khi lưu cửa 2. Giữ getFullMfoSet. Lý do: hạ cờ làm cửa 2 thành cửa 1.
  */
@@ -1329,24 +1331,33 @@ const mfoService = {
           });
         }
 
-        await mfoWriteBpl(tx, {
-          processType: 'MFO_PLAN_SUBMIT',
-          user,
-          ticket,
-          payload: {
-            action: 'MFO_DRAFT_SAVED',
-            ticket_id: ticket.id,
-            target_member_id: targetMemberId,
-            saved_at: now.toISOString(),
-          },
-        });
-
         return {
           ticket,
           updated_at: ticket.updated_at.toISOString(),
         };
       }
-    );
+    ).then(async (saved) => {
+      // <2026-10-23T15:04:00+07:00> Mục đích: Nhật ký không được làm hỏng lưu nháp. Lý do: giao dịch dài bị đứt lúc ghi nhật ký.
+      try {
+        await withTransaction(
+          { tenantId, actorId: actor, correlationId: corr },
+          (tx) => mfoWriteBpl(tx, {
+            processType: 'MFO_PLAN_SUBMIT',
+            user,
+            ticket: saved.ticket,
+            payload: {
+              action: 'MFO_DRAFT_SAVED',
+              ticket_id: saved.ticket.id,
+              target_member_id: targetMemberId,
+              saved_at: now.toISOString(),
+            },
+          })
+        );
+      } catch (error) {
+        console.error('[MFO_DRAFT_BPL_SKIP]', error?.code || error?.message);
+      }
+      return saved;
+    });
   },
 
   /**
