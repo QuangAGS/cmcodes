@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/pages/AdminMfoPlanPage.jsx
- * DATETIME   : 2026-10-23T10:57:00+07:00
- * VERSION    : 2.4.8-GEN-CONFIRM
+ * DATETIME   : 2026-10-23T11:04:00+07:00
+ * VERSION    : 2.4.9-M-GEN
  * DESCRIPTION:
  * - Vá dứt điểm Bug 3: Card 2 ở Cửa 2 (RESULT) tự động chuyển sang đọc Tóm tắt Tờ khai từ smp_staging_data (hiển thị rõ tên vợ/chồng, con đã kê khai).
  * - Xác nhận Event nút "Duyệt và ghi sổ" thực thi chính xác API Cửa 2 approveResult() qua SRPF Engine mfoResultProcess.
@@ -12,6 +12,7 @@
  * - 2026-10-23T09:31:00+07:00 | 2.4.6 | Thêm vòng quay trên cùng khi bận. Giữ chữ nút. Lý do: đang xử lý không được hiện trên nút Duyệt.
  * - 2026-10-23T10:24:00+07:00 | 2.4.7 | Chuyển vòng quay từ ô trống lên trang. Lý do: gắn nhầm làm trang admin không mở.
  * - 2026-10-23T10:57:00+07:00 | 2.4.8 | Thêm: đời mặc định lấy từ M, ô xác nhận. Bỏ: nhãn Đời gốc trên sổ. Giữ: admin sửa được số. Lý do: duyệt phải chốt đời của M.
+ * - 2026-10-23T11:04:00+07:00 | 2.4.9 | Đọc đời từ data.data của sổ. Lý do: lớp ngoài không có generation nên hiện sai.
  * - 2026-10-18T14:57:00+07:00 | 2.4.4 | Thu hoặc hiện con trực tiếp.
  * - 2026-10-18T07:37:00+07:00 | 2.4.3 | Nhóm nút canvas nằm ngang, ngoài khung.
  * - 2026-10-18T07:31:00+07:00 | 2.4.2 | Nhóm nút canvas lên giữa phía trên.
@@ -276,20 +277,18 @@ export function AdminMfoPlanPage() {
 
         setItemDecisions(initialDecisions);
         setItemNotes(initialNotes);
-        // <2026-10-23T10:57:00+07:00> Mục đích: Đời mặc định là đời của M trên sổ. Lý do: admin phải thấy đời đã có trước khi chốt.
+        // <2026-10-23T11:04:00+07:00> Mục đích: Hiện đúng đời của M. Lý do: sổ trả member trong data.data, lớp ngoài không có generation.
         setGenerationConfirmed(null);
-        const targetId = draftData.target_member_id || draftData.payload?.target_member_id;
+        const targetId = draftData.target_member_id || draftData.payload?.target_member_id || draftData.origin_member_id;
         if (targetId) {
           try {
             const memberRes = await getMember(targetId);
-            const member = memberRes?.data?.member || memberRes?.data || memberRes;
+            const member = memberRes?.data?.data || memberRes?.data?.member || memberRes?.data || memberRes;
             const gen = member?.generation;
             setGrantedGeneration(gen == null || gen === '' ? '?' : String(gen));
           } catch {
             setGrantedGeneration('?');
           }
-        } else if (draftData.granted_generation != null) {
-          setGrantedGeneration(String(draftData.granted_generation));
         } else {
           setGrantedGeneration('?');
         }
