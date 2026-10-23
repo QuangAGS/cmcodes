@@ -1,14 +1,13 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MyMfoPlans.jsx
- * DATETIME   : 2026-10-22T16:03:00+07:00
- * VERSION    : 2.5.0-SOAN-THAO
+ * DATETIME   : 2026-10-17T18:05:00+07:00
+ * VERSION    : 5.7.6-LIST-REFRESH
  * DESCRIPTION:
  * - Vá dứt điểm lỗi hiển thị nhầm "Bút phê tờ khai: Duyệt" khi Tờ khai Cửa 2 đang ở trạng thái chờ duyệt.
  * - Loại bỏ fallback || currentPlan.admin_note của Cửa 1, phân lập chính xác bút phê theo trạng thái Tờ khai Cửa 2.
  * - Nhánh đang soạn luôn có nút Sửa nhánh để vào lại cây.
  *
  * CHANGE LOG:
- * - 2026-10-22T16:03:00+07:00 | 2.5.0 | Thêm: nút Soạn thảo cho nhánh đang soạn. Bỏ: nút Lưu nháp trên trang hồ sơ. Giữ: Khai báo ở cửa 2, Xem lại, Xóa. Lý do: Lưu nháp không mở được cây để soạn tiếp.
  * - 2026-10-14T15:35:00+07:00 | 5.7.3 | Phân lập bút phê cửa 2, không lấy nhầm bút phê cửa 1.
  * - 2026-10-16T07:08:00+07:00 | 5.7.4 | DRAFT và cần sửa hiện Sửa nhánh, không phụ thuộc cờ plan_ok.
  * - 2026-10-16T08:24:00+07:00 | 5.7.5 | Tiêu đề trang đổi thành Hồ sơ nhánh phả hệ. Card giữ Hồ sơ của tôi.
@@ -394,14 +393,14 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                   <div className="flex min-h-11 items-center justify-between gap-2 bg-slate-50 px-3.5">
                     <button type="button" className="font-black uppercase text-[10px] text-slate-700" onClick={() => setOpenNow((v) => !v)}>Nội dung hiện tại</button>
                     <div className="flex items-center gap-2">
-                      <AudioHelpButton text={[`Trạng thái: ${String(stageName(viewPlan)).replace(/^\d{2}:\d{2} .*? - /, '')}`, ...currentSummary(viewPlan)].join('. ')} label="Nghe" />
+                      <AudioHelpButton text={[`Trạng thái: ${stageName(viewPlan)}`, ...currentSummary(viewPlan)].join('. ')} label="Nghe" />
                       <button type="button" className="text-xs font-bold text-slate-700" onClick={() => setOpenNow((v) => !v)}>{openNow ? 'Thu lại' : 'Mở ra'}</button>
                     </div>
                   </div>
 
                   {openNow ? (
                     <div className="space-y-2 border-t border-slate-100 px-3.5 py-3 bg-white">
-                      <p><span className="font-bold text-slate-900">Trạng thái: </span>{String(stageName(viewPlan)).replace(/^\d{2}:\d{2} .*? - /, '')}</p>
+                      <p><span className="font-bold text-slate-900">Trạng thái: </span>{stageName(viewPlan)}</p>
                       {currentSummary(viewPlan).map((line, idx) => (
                         <p key={idx} className="text-slate-800 font-medium">{line}</p>
                       ))}
@@ -430,18 +429,17 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                     <span>Xem lại</span>
                   </button>
 
-                  {/* <2026-10-22T16:03:00+07:00> Mục đích: Vào soạn tiếp. Lý do: Lưu nháp không mở cây, hồ sơ đang soạn không có lối vào. */}
-                  {!isRejected && !isApproved && !payloadData?.result_ok ? (
+                  {!isRejected && (
                     <button
                       type="button"
-                      disabled={isPending || busy}
-                      className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl bg-indigo-600 px-3 text-xs font-black text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40"
-                      onClick={() => navigate(`/op/mfo/plans/new?draft=${selectedTicketId}`)}
+                      disabled={isPending || isApproved || busy}
+                      className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl border border-slate-300 bg-white px-3 text-xs font-extrabold text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
+                      onClick={handleSaveDraftDirect}
                     >
-                      <FileEdit className="h-4 w-4" />
-                      <span>{isNeedsRevision ? 'Sửa theo ý kiến' : 'Soạn thảo'}</span>
+                      <Save className="h-4 w-4 text-slate-600" />
+                      <span>Lưu nháp</span>
                     </button>
-                  ) : null}
+                  )}
 
                   {isApproved && payloadData?.plan_ok && !payloadData?.result_ok ? (
                     <button
@@ -452,6 +450,19 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                       <span>Khai báo</span>
                     </button>
                   ) : null}
+
+                  {/* <2026-10-16T07:08:00+07:00> Mục đích: Nhánh còn soạn hoặc cần sửa phải vào lại được cây. Lý do: điều kiện cũ ẩn nút khi plan_ok đúng, dù trạng thái vẫn là DRAFT. */}
+                  {!isRejected && !isApproved && !payloadData?.result_ok && (
+                    <button
+                      type="button"
+                      disabled={isPending || busy}
+                      className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl bg-indigo-600 px-3 text-xs font-black text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
+                      onClick={() => navigate(`/op/mfo/plans/new?draft=${selectedTicketId}`)}
+                    >
+                      <FileEdit className="h-4 w-4" />
+                      <span>{isNeedsRevision ? 'Sửa theo ý kiến' : 'Sửa nhánh'}</span>
+                    </button>
+                  )}
 
                   <button
                     type="button"

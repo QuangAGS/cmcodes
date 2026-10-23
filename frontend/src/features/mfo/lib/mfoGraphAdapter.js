@@ -1,21 +1,13 @@
 /**
  * PATH       : frontend/src/features/mfo/lib/mfoGraphAdapter.js
- * DATETIME   : 2026-10-19T14:45:00+07:00
- * VERSION    : 5.0.1-UNIQUE-TREE-ID-FIX
+ * DATETIME   : 2026-10-08T11:00:00+07:00
+ * VERSION    : 5.0.0-COMPLETE-5L-CANVAS-FULL
  * DESCRIPTION:
  * - Tuân thủ Q1 (Bảo tồn 100% logic cũ) & Q2 (Code Format & Chú thích đầy đủ).
  * - Khắc phục lỗi đứt đường nối con cái khi thêm Vợ/Chồng mới: Bảo tồn 100% các edge 
  *   con cái từ hôn phối cũ và edge unassigned_children từ owner anchor.
- * - Vá dứt điểm lỗi trùng key st:unknown khiến chuyển Tab hôn nhân bị tác động dây chuyền sang các Node khác.
- * - Khóa chặt treeId duy nhất cho từng Standard Tree Card kể cả khi chưa có ID từ DB.
- *
- * CHANGE LOG  :
- * - 2026-10-08T11:00:00+07:00 | 5.0.0 | Render đầy đủ unassigned edge bất kể activeTab đang ở tab nào.
- * - 2026-10-19T14:45:00+07:00 | 5.0.1 | Tạo Unique Key cho treeId khi tree.id null, chống trùng key st:unknown (STATE ISOLATION FIX).
- *
- * RULE COMPLIANCE:
- * - Q1 (Bảo tồn): Bảo toàn 100% logic xây dựng đồ thị MFO Graph, gán handles và edges.
- * - Q2 (Code Format): Đầy đủ docstring header và chú thích thời gian từng khối logic.
+ * CHANGELOG  :
+ * - 2026-10-08: Render đầy đủ unassigned edge bất kể activeTab đang ở tab nào.
  */
 
 const LANE_Y = 310;
@@ -40,15 +32,8 @@ function textOf(member) {
   return member?.full_name || 'Chưa rõ tên';
 }
 
-/**
- * <2026-10-19T14:45:00+07:00>
- * Mục đích: Tạo Unique Key cho treeId không bao giờ bị trùng st:unknown.
- * Lý do: Các node nháp chưa có ID trên DB sẽ bị trùng st:unknown khiến State tab bị nhảy dây chuyền.
- */
-function treeId(tree, index = 0) {
-  if (tree?.id) return String(tree.id);
-  if (tree?.parent?.member?.id) return `st:member:${tree.parent.member.id}`;
-  return `st:draft:${index}:${Date.now()}`;
+function treeId(tree) {
+  return String(tree?.id || 'st:unknown');
 }
 
 function childTargetId(memberToTreeId, member) {
@@ -88,11 +73,10 @@ export function buildMfoGraph(fullSet, options = {}) {
 
   // Index all real child target Standard Trees before creating edges.
   levels.forEach((level) => {
-    asArray(level?.standard_trees).forEach((tree, idx) => {
+    asArray(level?.standard_trees).forEach((tree) => {
       const memberId = tree?.parent?.member?.id;
-      const tId = treeId(tree, idx);
       if (memberId) {
-        memberToTreeId.set(String(memberId), tId);
+        memberToTreeId.set(String(memberId), treeId(tree));
       }
     });
   });
@@ -101,10 +85,10 @@ export function buildMfoGraph(fullSet, options = {}) {
   levels.forEach((level) => {
     const depth = Number(level?.depth ?? 0);
 
-    asArray(level?.standard_trees).forEach((tree, idx) => {
-      const id = treeId(tree, idx);
+    asArray(level?.standard_trees).forEach((tree) => {
+      const id = treeId(tree);
       const tabs = buildTabs(tree?.marriage_tabs);
-      const requestedUnionId = activeUnionByTreeId[id] || activeUnionByTreeId[tree?.id];
+      const requestedUnionId = activeUnionByTreeId[tree?.id];
       const activeUnionId = tabs.some(
         (tab) => tab.unionId === requestedUnionId
       )
@@ -131,7 +115,7 @@ export function buildMfoGraph(fullSet, options = {}) {
         },
         data: {
           depth,
-          treeId: id,
+          treeId: tree?.id || id,
           clan: tree?.parent?.member || null,
           partners: asArray(tree?.parent?.partners),
           clanName: textOf(tree?.parent?.member),
@@ -162,15 +146,17 @@ export function buildMfoGraph(fullSet, options = {}) {
   function addEdge(edge) {
     if (!edge.source || !edge.target) return;
     if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) return;
+    // Tránh add trùng lặp Edge
     if (edges.some((e) => e.id === edge.id)) return;
     edges.push(edge);
   }
 
   levels.forEach((level) => {
-    asArray(level?.standard_trees).forEach((tree, idx) => {
-      const source = treeId(tree, idx);
+    asArray(level?.standard_trees).forEach((tree) => {
+      const source = treeId(tree);
       const rawTabs = asArray(tree?.marriage_tabs);
 
+      // BẢO TỒN TẤT CẢ EDGE CON CÁI CỦA MỌI TAB HÔN NHÂN
       rawTabs.forEach((tab) => {
         const unionId = tab?.union_id;
         asArray(tab?.children).forEach((row) => {
@@ -193,6 +179,7 @@ export function buildMfoGraph(fullSet, options = {}) {
         });
       });
 
+      // LUÔN RENDER EDGE UNASSIGNED ĐƯỜNG NÉT ĐỨT CHO "CON BÀ 2" TỪ ANCHOR OWNER
       asArray(tree?.unassigned_children).forEach((row) => {
         const member = row?.member;
         const target = childTargetId(memberToTreeId, member);

@@ -1,16 +1,13 @@
 /**
  * PATH       : frontend/src/features/mfo/constants/mfoVoiceHelp.self.js
- * DATETIME   : 2026-10-22T10:24:00+07:00
- * VERSION    : 1.0.1-GATE2-XT
+ * DATETIME   : 2026-09-20T10:40:00+07:00
+ * VERSION    : 1.0.0-C1-SELF
  * DESCRIPTION: VoiceHelp + chữ màn C1-SELF (MWL có mặt trên tờ 5L).
  *              Không dùng cho PROXY / khai hộ.
  *              TTS: bấm mới đọc. Không tự nói lúc render.
  * SSOT       : BFA-Branch-Family-Doctrine-v1.3.1
  *              BFA-MFO-Lot-Ops-v1.0
  *              HandOver-MFO-L1-L10-2026-09-20
- *
- * CHANGE LOG:
- * - 2026-10-22T10:24:00+07:00 | 1.0.1 | Thêm chỉ dẫn cửa 2: bấm XT để khai chi tiết.
  */
 
 export const MFO_VOICE_MODE = 'SELF';
@@ -30,10 +27,6 @@ export const MFO_VOICE_SELF = {
 
   whyFive:
     'Năm ô tượng trưng cho năm đời mà bác có thể bổ sung thông tin còn thiếu bằng cách bấm vào một trong năm ô để thực hiện theo chỉ dẫn. Nhánh phả hệ sẽ hiện ra để bác có thể xem và thực hiện đúng ý định của mình.',
-
-  // <2026-10-22T10:24:00+07:00> Mục đích: Chỉ dẫn riêng cửa 2. Lý do: cửa 2 không dùng lại chữ cửa 1.
-  gate2Xt:
-    'Bác hãy bấm vào những chỗ có biểu tượng XT, tức là xin tạo, để khai báo thông tin chi tiết.',
 
   line0: 'Hãy chọn một người đã có trong sổ Họ làm gốc.',
 
