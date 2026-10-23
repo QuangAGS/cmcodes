@@ -8,6 +8,7 @@
  * - DRAFT không còn bị gọi là tờ khai.
  *
  * CHANGE LOG:
+ * - 2026-10-23T09:31:00+07:00 | Đã ghi sổ chỉ khi APPROVED và result_ok. Bỏ: result_ok một mình. Lý do: DRAFT bị hiện Đã ghi sổ.
  * - 2026-10-17T18:05:00+07:00 | 1.4.1 | Nút Làm mới cạnh danh sách bước.
  * - 2026-10-14T15:35:00+07:00 | 3.2.0 | Không gán chữ Duyệt khi tờ khai chưa có bút phê.
  * - 2026-10-16T07:08:00+07:00 | 3.2.1 | stageName và historySteps chỉ mở tờ khai khi nhánh đã duyệt.
@@ -92,7 +93,8 @@ export function stageName(plan) {
   const resultSubmitted = Boolean(payload.result_submitted);
   const resultOk = Boolean(payload.result_ok);
   const gate2Open = planOk && st === 'APPROVED';
-  if (resultOk) return 'Đã ghi sổ';
+  // <2026-10-23T09:31:00+07:00> Mục đích: DRAFT không thành đã ghi sổ. Lý do: result_ok sót.
+  if (resultOk && st === 'APPROVED') return 'Đã ghi sổ';
   if (gate2Open && st === 'REJECTED') return 'Tờ khai không được duyệt';
   if (planOk && resultSubmitted && st === 'NEEDS_REVISION') return 'Tờ khai cần sửa';
   if (planOk && resultSubmitted) return 'Tờ khai chờ duyệt';

@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MyMfoPlans.jsx
- * DATETIME   : 2026-10-17T18:05:00+07:00
- * VERSION    : 5.7.6-LIST-REFRESH
+ * DATETIME   : 2026-10-23T09:31:00+07:00
+ * VERSION    : 5.7.7-SOAN-THAO
  * DESCRIPTION:
  * - Vá dứt điểm lỗi hiển thị nhầm "Bút phê tờ khai: Duyệt" khi Tờ khai Cửa 2 đang ở trạng thái chờ duyệt.
  * - Loại bỏ fallback || currentPlan.admin_note của Cửa 1, phân lập chính xác bút phê theo trạng thái Tờ khai Cửa 2.
@@ -12,6 +12,7 @@
  * - 2026-10-16T07:08:00+07:00 | 5.7.4 | DRAFT và cần sửa hiện Sửa nhánh, không phụ thuộc cờ plan_ok.
  * - 2026-10-16T08:24:00+07:00 | 5.7.5 | Tiêu đề trang đổi thành Hồ sơ nhánh phả hệ. Card giữ Hồ sơ của tôi.
  * - 2026-10-17T18:05:00+07:00 | 5.7.6 | Nút Làm mới cạnh danh sách hồ sơ.
+ * - 2026-10-23T09:31:00+07:00 | 5.7.7 | Thêm: Soạn thảo, vòng quay trên cùng. Bỏ: Lưu nháp trên trang hồ sơ, bút phê trên DRAFT. Giữ: Khai báo, Xem lại, Xóa. Lý do: nút và bút phê không theo trạng thái.
  * RULE COMPLIANCE:
  * - Q1 (Bảo tồn): Bảo toàn 100% logic Single Thread Pipeline, hydration draft, CRUD handlers và MfoHistoryChain integration.
  * - Q2 (Code Format): Đầy đủ docstring header và chú thích thời gian <2026-10-14T15:35:00+07:00> từng khối logic.
@@ -20,6 +21,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import MfoAlarmOverlay from './MfoAlarmOverlay.jsx';
+import MfoBusyClock from './MfoBusyClock.jsx';
 import MfoHistoryPreview from './MfoHistoryPreview.jsx';
 import {
   FileEdit,
@@ -299,6 +301,8 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
   };
 
   return (
+    <>
+    <MfoBusyClock show={busy || loading} />
     <div className="flex flex-col gap-3 font-sans">
       <div className="flex items-center justify-between gap-2">
         {/* <2026-10-16T08:24:00+07:00> Mục đích: Tránh hai tiêu đề giống nhau. Lý do: tiêu đề trang và tiêu đề card đều là Hồ sơ của tôi. */}
@@ -406,7 +410,8 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                       ))}
 
                       {/* <2026-10-14T15:35:00+07:00> PHÂN LẬP BÚT PHÊ TỜ KHAI CỬA 2: CHỈ HIỂN THỊ KHI CÓ REJECT_REASON HOẶC ĐÃ DUYỆT XONG, LOẠI BỎ FALLBACK LẤY NHẦM BÚT PHÊ CỬA 1 */}
-                      {payloadData.result_submitted && (payloadData.reject_reason || payloadData.result_ok) ? (
+                      {/* <2026-10-23T09:31:00+07:00> Mục đích: Bút phê chỉ khi tờ đã ghi sổ. Lý do: DRAFT đang hiện bút phê. */}
+                      {currentStatus === 'APPROVED' && payloadData.result_ok ? (
                         <p className="font-bold text-indigo-900 pt-1 border-t border-slate-100">
                           Bút phê tờ khai: {payloadData.reject_reason || 'Đã duyệt ghi sổ'}
                         </p>
@@ -429,17 +434,18 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                     <span>Xem lại</span>
                   </button>
 
-                  {!isRejected && (
+                  {/* <2026-10-23T09:31:00+07:00> Mục đích: Vào soạn tiếp. Lý do: Lưu nháp không mở cây và Sửa nhánh bị ẩn bởi result_ok. */}
+                  {(currentStatus === 'DRAFT' || (isNeedsRevision && !payloadData?.plan_ok)) ? (
                     <button
                       type="button"
-                      disabled={isPending || isApproved || busy}
-                      className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl border border-slate-300 bg-white px-3 text-xs font-extrabold text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
-                      onClick={handleSaveDraftDirect}
+                      disabled={busy}
+                      className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl bg-indigo-600 px-3 text-xs font-black text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40"
+                      onClick={() => navigate(`/op/mfo/plans/new?draft=${selectedTicketId}`)}
                     >
-                      <Save className="h-4 w-4 text-slate-600" />
-                      <span>Lưu nháp</span>
+                      <FileEdit className="h-4 w-4" />
+                      <span>{isNeedsRevision ? 'Sửa theo ý kiến' : 'Soạn thảo'}</span>
                     </button>
-                  )}
+                  ) : null}
 
                   {isApproved && payloadData?.plan_ok && !payloadData?.result_ok ? (
                     <button
@@ -450,19 +456,6 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                       <span>Khai báo</span>
                     </button>
                   ) : null}
-
-                  {/* <2026-10-16T07:08:00+07:00> Mục đích: Nhánh còn soạn hoặc cần sửa phải vào lại được cây. Lý do: điều kiện cũ ẩn nút khi plan_ok đúng, dù trạng thái vẫn là DRAFT. */}
-                  {!isRejected && !isApproved && !payloadData?.result_ok && (
-                    <button
-                      type="button"
-                      disabled={isPending || busy}
-                      className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl bg-indigo-600 px-3 text-xs font-black text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
-                      onClick={() => navigate(`/op/mfo/plans/new?draft=${selectedTicketId}`)}
-                    >
-                      <FileEdit className="h-4 w-4" />
-                      <span>{isNeedsRevision ? 'Sửa theo ý kiến' : 'Sửa nhánh'}</span>
-                    </button>
-                  )}
 
                   <button
                     type="button"
@@ -501,6 +494,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
 
       <MfoAlarmOverlay open={Boolean(alarm)} message={alarm} onClose={() => setAlarm('')} />
     </div>
+    </>
   );
 }
 

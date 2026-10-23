@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/pages/AdminMfoPlanPage.jsx
- * DATETIME   : 2026-10-18T15:24:00+07:00
- * VERSION    : 2.4.5-BUSY-PER-BUTTON
+ * DATETIME   : 2026-10-23T09:31:00+07:00
+ * VERSION    : 2.4.6-TOP-SPIN
  * DESCRIPTION:
  * - Vá dứt điểm Bug 3: Card 2 ở Cửa 2 (RESULT) tự động chuyển sang đọc Tóm tắt Tờ khai từ smp_staging_data (hiển thị rõ tên vợ/chồng, con đã kê khai).
  * - Xác nhận Event nút "Duyệt và ghi sổ" thực thi chính xác API Cửa 2 approveResult() qua SRPF Engine mfoResultProcess.
@@ -9,6 +9,7 @@
  *
  * CHANGE LOG:
  * - 2026-10-18T15:24:00+07:00 | 2.4.5 | Trả sửa không làm nút Duyệt hiện Đang duyệt.
+ * - 2026-10-23T09:31:00+07:00 | 2.4.6 | Thêm vòng quay trên cùng khi bận. Giữ chữ nút. Lý do: đang xử lý không được hiện trên nút Duyệt.
  * - 2026-10-18T14:57:00+07:00 | 2.4.4 | Thu hoặc hiện con trực tiếp.
  * - 2026-10-18T07:37:00+07:00 | 2.4.3 | Nhóm nút canvas nằm ngang, ngoài khung.
  * - 2026-10-18T07:31:00+07:00 | 2.4.2 | Nhóm nút canvas lên giữa phía trên.
@@ -57,6 +58,7 @@ import {
 import { diffDraftAgainstInit } from '../features/mfo/lib/mfoDiffEngine.js';
 import { toMfoUserMessage, MFO_USER_SUCCESS } from '../features/mfo/constants/mfoUserErrors.js';
 import MfoAlarmOverlay from '../features/mfo/components/MfoAlarmOverlay.jsx';
+import MfoBusyClock from '../features/mfo/components/MfoBusyClock.jsx';
 import { adminGate, canAdminReview } from '../features/mfo/lib/mfoAdminActions.js';
 import MfoHistoryChain, { stepSummary } from '../features/mfo/components/MfoHistoryChain.jsx';
 import MfoReviewForm from '../features/mfo/components/MfoReviewForm.jsx';
@@ -64,6 +66,9 @@ import MfoReviewForm from '../features/mfo/components/MfoReviewForm.jsx';
 function EmptyCoupleNodeReadonly({ data }) {
   const depth = Number.isInteger(Number(data?.depth)) ? Number(data.depth) : 0;
   return (
+    <>
+    <MfoBusyClock show={busyAction !== null || loading} />
+
     <div className="flex min-h-[72px] w-[180px] select-none items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 px-4 py-3 text-center text-slate-500 shadow-sm">
       <span>
         <span className="block text-xs font-black">{data?.label || `Đời ${depth}`}</span>
@@ -92,7 +97,8 @@ function dossierLabel(plan) {
   const resultSubmitted = Boolean(plan.result_submitted ?? payload.result_submitted);
   const resultOk = Boolean(plan.result_ok ?? payload.result_ok);
   const st = String(plan.status || '').toUpperCase();
-  if (resultOk) return 'Đã ghi sổ';
+  // <2026-10-23T09:31:00+07:00> Mục đích: Đã ghi sổ chỉ khi đã duyệt. Lý do: result_ok sót.
+  if (resultOk && st === 'APPROVED') return 'Đã ghi sổ';
   if (planOk) {
     if (st === 'REJECTED') return 'Tờ khai không được duyệt';
     if (st === 'NEEDS_REVISION') return 'Tờ khai cần sửa';
@@ -612,6 +618,7 @@ export function AdminMfoPlanPage() {
       <MfoAlarmOverlay open={Boolean(alarm)} message={alarm} onClose={() => setAlarm('')} />
       <AppFooterNav {...footerNav} />
     </div>
+    </>
   );
 }
 
