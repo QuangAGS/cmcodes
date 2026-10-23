@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-23T11:53:00+07:00
- * VERSION    : 4.9.42-SUA-TO-KHAI
+ * DATETIME   : 2026-10-23T14:48:00+07:00
+ * VERSION    : 4.9.43-AN-O-RONG
  * DESCRIPTION:
  * - Vá dứt điểm Bug 1: Lỗi SRPF_INVALID_TRANSITION khi Trình Tờ Khai ở Cửa 2.
  * - Khóa chặt State Machine: Khi plan_ok === true, bắt buộc gọi handleSubmitProfiles() (API submitResult Cửa 2), triệt tiêu hoàn toàn việc gọi nhầm createPlan (Cửa 1).
@@ -12,6 +12,7 @@
  * - 2026-10-23T10:09:00+07:00 | 4.9.40 | Thêm: vòng quay trên cùng khi bận. Bỏ: chữ Đang gửi trên nút Trình. Giữ: Lưu nháp, Trình. Lý do: trạng thái bận hiện nhầm trên nút.
  * - 2026-10-23T11:27:00+07:00 | 4.9.41 | Thêm: cửa 2 kéo khung, kéo ô, chấm, nút cộng trừ, câu XT. Bỏ: pan và kéo tắt ở cửa 2. Giữ: cửa 1. Lý do: cửa 2 mất các thao tác cây.
  * - 2026-10-23T11:53:00+07:00 | 4.9.42 | Thêm: tờ khai cần sửa mở cửa 2. Bỏ: chỉ APPROVED mới là cửa 2. Giữ: nhánh cần sửa vẫn cửa 1. Lý do: trả sửa hạ trạng thái nên mở nhầm cửa 1.
+ * - 2026-10-23T14:48:00+07:00 | 4.9.43 | Thêm: gỡ ô rỗng khi đời đã có người. Bỏ: ô rỗng còn sau khi thêm con. Giữ: ô rỗng khi đời chưa có ai. Lý do: đời đã có thành viên vẫn hiện ô rỗng.
  * - 2026-10-18T15:49:00+07:00 | 4.9.38 | Sửa tờ cần sửa không sinh tờ đang soạn mới.
  * - 2026-10-18T14:57:00+07:00 | 4.9.37 | Thu hoặc hiện con trực tiếp của từng ô.
  * - 2026-10-18T14:52:00+07:00 | 4.9.36 | Vừa khung một lần lúc mở. Bấm chấm không vừa khung.
@@ -587,7 +588,8 @@ export function OpMfoPlanPage() {
       data: { id: newChildId, treeId: newChildId, depth: childDepth, clanName: `Con đời ${childDepth} (Xin tạo)`, partnerName: null, unassignedCount: 0, tabs: [], isAnonymous: false, originSource: 'from_draft_child', parentUnionKey: relationCouple || 'unknown', parentMemberId: parentNode?.data?.clan?.id || null, spouseMemberId: coupleTab?.partner?.id || null, siblingSeq: relationSibling || 1, onOpenActionForm: handleOpenActionForm },
     };
     const sourceHandle = known ? `union:${relationCouple}:children` : 'owner:unassigned';
-    setNodes((prev) => [...prev, newChildNode]);
+    // <2026-10-23T14:48:00+07:00> Mục đích: Đời đã có người thì không còn ô rỗng. Lý do: thêm con vẫn để ô khởi tạo.
+    setNodes((prev) => [...prev.filter((node) => node.id !== `empty-${childDepth}`), newChildNode]);
     if (targetNodeId) requestAnimationFrame(() => setEdges((prev) => [...prev, { id: `edge-${targetNodeId}-${newChildId}`, type: 'smoothstep', source: targetNodeId, target: newChildId, sourceHandle, style: known ? { stroke: '#6366f1', strokeWidth: 2 } : { stroke: '#f59e0b', strokeWidth: 2, strokeDasharray: '4 4' } }]));
     setShowSpouseOrderModal(false);
     setPendingSpouseNodeInfo(null);
@@ -638,7 +640,7 @@ export function OpMfoPlanPage() {
         const id = `draft-child-${Date.now()}-${index}`;
         return { id, type: 'familyCouple', position: { x: (parent?.position?.x ?? 40) + 30 + index * 40, y: childDepth * 310 }, style: { width: 240 }, data: { id, treeId: id, depth: childDepth, clanName: `Con đời ${childDepth} (Xin tạo)`, partnerName: null, unassignedCount: 0, tabs: [], isAnonymous: false, originSource: 'from_draft_child', parentUnionKey: newUnionId, siblingSeq: index + 1, onOpenActionForm: handleOpenActionForm } };
       });
-      setNodes((prev) => [...prev, ...made]);
+      setNodes((prev) => [...prev.filter((node) => node.id !== `empty-${childDepth}`), ...made]);
       requestAnimationFrame(() => requestAnimationFrame(() => { setEdges((prev) => [...prev, ...made.map((child) => ({ id: `edge-${targetNodeId}-${child.id}`, type: 'smoothstep', source: targetNodeId, target: child.id, sourceHandle: `union:${newUnionId}:children`, style: { stroke: '#6366f1', strokeWidth: 2 } }))]); remeasure(targetNodeId); }));
     }
     // <2026-10-15T22:24:00+07:00>
@@ -774,7 +776,15 @@ export function OpMfoPlanPage() {
             mfoToast.warning('Hãy huỷ con nháp phía dưới trước.');
             return;
           }
-          setNodes((prev) => prev.filter((n) => n.id !== targetNodeId));
+          const goneDepth = Number(nodes.find((n) => n.id === targetNodeId)?.data?.depth);
+          setNodes((prev) => {
+            const next = prev.filter((n) => n.id !== targetNodeId);
+            const stillHas = next.some((n) => Number(n.data?.depth) === goneDepth && n.type !== 'emptyNode');
+            if (Number.isInteger(goneDepth) && !stillHas && !next.some((n) => n.id === `empty-${goneDepth}`)) {
+              next.push({ id: `empty-${goneDepth}`, type: 'emptyNode', position: { x: 40, y: goneDepth * 310 }, data: { depth: goneDepth, label: `Đời ${goneDepth}`, onOpenActionForm: handleOpenActionForm } });
+            }
+            return next;
+          });
           setEdges((prev) => prev.filter((e) => e.source !== targetNodeId && e.target !== targetNodeId));
           mfoToast.success('Đã huỷ con nháp và gỡ cạnh.');
           break;
