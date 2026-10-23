@@ -1,12 +1,13 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MfoReviewForm.jsx
- * DATETIME   : 2026-10-23T09:31:00+07:00
- * VERSION    : 1.1.3-KEEP-LABEL
+ * DATETIME   : 2026-10-23T10:57:00+07:00
+ * VERSION    : 1.1.4-GEN-CONFIRM
  * DESCRIPTION: Mỗi đời có thay đổi thì mở chi tiết từ staging.
  *
  * CHANGE LOG:
  * - 2026-10-18T15:24:00+07:00 | 1.1.2 | Mỗi nút chỉ hiện trạng thái của chính nó.
  * - 2026-10-23T09:31:00+07:00 | 1.1.3 | Bỏ chữ Đang duyệt trên nút. Giữ tên nút. Lý do: trạng thái bận hiện bằng vòng quay trên cùng.
+ * - 2026-10-23T10:57:00+07:00 | 1.1.4 | Đổi nhãn đời cao nhất. Thêm ô xác nhận. Lý do: admin phải chốt đời của M trước khi duyệt.
  * - 2026-10-15T11:35:00+07:00 | 1.1.0 | Mỗi đời mở chi tiết từ staging.
  * - 2026-10-17T09:40:00+07:00 | 1.1.1 | Đời gốc sau bút phê, rộng bốn số. Nút Duyệt hiện Đang duyệt.
  */
@@ -33,6 +34,8 @@ function rowsForDepth(delta, staging, nodes, depth) {
 export default function MfoReviewForm({
   generation,
   onGeneration,
+  generationConfirmed,
+  onGenerationConfirm,
   items,
   delta,
   nodes,
@@ -105,7 +108,16 @@ export default function MfoReviewForm({
         <textarea className="mt-1 w-full rounded-xl border p-2 text-sm" rows={3} placeholder="Bắt buộc. Tóm tắt quyết định cả hồ sơ." value={overall} onChange={(event) => onOverall(event.target.value)} />
       </div>
       {/* 2026-10-17T09:40:00+07:00 Muc dich: Doi goc cung hang, rong bon so. Ly do: de ngay tren nut duyet. */}
-      {onGeneration ? <label className="mt-3 flex items-center justify-between gap-3 text-sm font-bold text-amber-950">Đời gốc trên sổ<input type="number" min="1" max="9999" inputMode="numeric" className="w-20 rounded-xl border border-amber-300 bg-white p-2 text-center font-black" value={generation || ''} onChange={(event) => onGeneration(event.target.value)} /></label> : null}
+      {/* <2026-10-23T10:57:00+07:00> Mục đích: Chốt đời của M. Lý do: sổ có thể chưa có đời, admin phải xác nhận. */}
+      {onGeneration ? (
+        <label className="mt-3 flex items-center justify-between gap-3 text-sm font-bold text-amber-950">
+          <span>Đời cao nhất trên sơ đồ theo sổ họ?</span>
+          <span className="flex items-center gap-2">
+            <input type="text" inputMode="numeric" className="w-16 rounded-xl border border-amber-300 bg-white p-2 text-center font-black" value={generation || ''} onChange={(event) => onGeneration(event.target.value)} />
+            <input type="checkbox" checked={generationConfirmed === true} onChange={(event) => onGenerationConfirm?.(event.target.checked ? true : null)} />
+          </span>
+        </label>
+      ) : null}
       <div className="mt-3 flex gap-2">
         {/* 2026-10-18T15:24:00+07:00 Muc dich: Moi nut hien dung viec cua no. Ly do: Tra sua lam nut Duyet hien Dang duyet. */}
         {/* <2026-10-23T09:31:00+07:00> Mục đích: Nút giữ chữ. Lý do: đang xử lý hiện bằng vòng quay. */}

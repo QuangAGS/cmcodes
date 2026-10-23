@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/pages/AdminMfoPlanPage.jsx
- * DATETIME   : 2026-10-23T10:24:00+07:00
- * VERSION    : 2.4.7-CLOCK-ON-PAGE
+ * DATETIME   : 2026-10-23T10:57:00+07:00
+ * VERSION    : 2.4.8-GEN-CONFIRM
  * DESCRIPTION:
  * - Vá dứt điểm Bug 3: Card 2 ở Cửa 2 (RESULT) tự động chuyển sang đọc Tóm tắt Tờ khai từ smp_staging_data (hiển thị rõ tên vợ/chồng, con đã kê khai).
  * - Xác nhận Event nút "Duyệt và ghi sổ" thực thi chính xác API Cửa 2 approveResult() qua SRPF Engine mfoResultProcess.
@@ -11,6 +11,7 @@
  * - 2026-10-18T15:24:00+07:00 | 2.4.5 | Trả sửa không làm nút Duyệt hiện Đang duyệt.
  * - 2026-10-23T09:31:00+07:00 | 2.4.6 | Thêm vòng quay trên cùng khi bận. Giữ chữ nút. Lý do: đang xử lý không được hiện trên nút Duyệt.
  * - 2026-10-23T10:24:00+07:00 | 2.4.7 | Chuyển vòng quay từ ô trống lên trang. Lý do: gắn nhầm làm trang admin không mở.
+ * - 2026-10-23T10:57:00+07:00 | 2.4.8 | Thêm: đời mặc định lấy từ M, ô xác nhận. Bỏ: nhãn Đời gốc trên sổ. Giữ: admin sửa được số. Lý do: duyệt phải chốt đời của M.
  * - 2026-10-18T14:57:00+07:00 | 2.4.4 | Thu hoặc hiện con trực tiếp.
  * - 2026-10-18T07:37:00+07:00 | 2.4.3 | Nhóm nút canvas nằm ngang, ngoài khung.
  * - 2026-10-18T07:31:00+07:00 | 2.4.2 | Nhóm nút canvas lên giữa phía trên.
@@ -50,6 +51,7 @@ import { resolveFooterNav } from '../lib/resolveFooterNav.js';
 import {
   adminGetReviewQueue,
   getDraftPayload,
+  getMember,
   adminApprovePlan,
   adminReturnPlanForRevision,
   approveResult,
@@ -148,6 +150,7 @@ export function AdminMfoPlanPage() {
   const [itemDecisions, setItemDecisions] = useState({});
   const [itemNotes, setItemNotes] = useState({});
   const [grantedGeneration, setGrantedGeneration] = useState('');
+  const [generationConfirmed, setGenerationConfirmed] = useState(null);
   const [globalAdminNote, setGlobalAdminNote] = useState('');
 
   const loadQueue = async () => {
@@ -273,8 +276,22 @@ export function AdminMfoPlanPage() {
 
         setItemDecisions(initialDecisions);
         setItemNotes(initialNotes);
-        if (draftData.granted_generation != null) {
+        // <2026-10-23T10:57:00+07:00> Mục đích: Đời mặc định là đời của M trên sổ. Lý do: admin phải thấy đời đã có trước khi chốt.
+        setGenerationConfirmed(null);
+        const targetId = draftData.target_member_id || draftData.payload?.target_member_id;
+        if (targetId) {
+          try {
+            const memberRes = await getMember(targetId);
+            const member = memberRes?.data?.member || memberRes?.data || memberRes;
+            const gen = member?.generation;
+            setGrantedGeneration(gen == null || gen === '' ? '?' : String(gen));
+          } catch {
+            setGrantedGeneration('?');
+          }
+        } else if (draftData.granted_generation != null) {
           setGrantedGeneration(String(draftData.granted_generation));
+        } else {
+          setGrantedGeneration('?');
         }
       } catch (error) {
         console.error('===> [ADMIN_HYDRATE_ERROR]', error);
@@ -311,8 +328,9 @@ export function AdminMfoPlanPage() {
   }, [scsItems, itemDecisions]);
 
   const canApprovePlan = useMemo(() => {
-    return isAllAccepted && String(globalAdminNote || '').trim().length > 0;
-  }, [isAllAccepted, globalAdminNote]);
+    const gen = Number(grantedGeneration);
+    return isAllAccepted && String(globalAdminNote || '').trim().length > 0 && generationConfirmed === true && Number.isFinite(gen) && gen > 0;
+  }, [isAllAccepted, globalAdminNote, generationConfirmed, grantedGeneration]);
 
   const handleDecisionToggle = (itemId, decision) => {
     setItemDecisions((prev) => ({ ...prev, [itemId]: decision }));
@@ -588,6 +606,8 @@ export function AdminMfoPlanPage() {
               showReject={selectedGate === 'RESULT'}
               generation={selectedGate === 'PLAN' ? grantedGeneration : ''}
               onGeneration={selectedGate === 'PLAN' ? setGrantedGeneration : null}
+              generationConfirmed={generationConfirmed}
+              onGenerationConfirm={setGenerationConfirmed}
             />
             )}
 
