@@ -25,6 +25,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 import AudioHelpButton from '../features/elder-doctrine/components/AudioHelpButton.jsx';
+import MfoBusyClock from '../features/mfo/components/MfoBusyClock.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
 import { resolveFooterNav } from '../lib/resolveFooterNav.js';
@@ -201,6 +202,8 @@ async function submit() {
   }
 
   return (
+    <>
+    <MfoBusyClock show={Boolean(busy)} />
     <div className="flex min-h-dvh flex-col bg-slate-50">
       <TenantHeader tenant={tenant} />
       <main className="mx-auto w-full max-w-[480px] flex-1 px-4 py-4">
@@ -268,5 +271,6 @@ async function submit() {
       </main>
       <AppFooterNav {...footerNav} />
     </div>
+    </>
   );
 }

@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-23T09:58:00+07:00
- * VERSION    : 4.9.39-DRAFT-EDITABLE
+ * DATETIME   : 2026-10-23T10:09:00+07:00
+ * VERSION    : 4.9.40-BUSY-CLOCK
  * DESCRIPTION:
  * - Vá dứt điểm Bug 1: Lỗi SRPF_INVALID_TRANSITION khi Trình Tờ Khai ở Cửa 2.
  * - Khóa chặt State Machine: Khi plan_ok === true, bắt buộc gọi handleSubmitProfiles() (API submitResult Cửa 2), triệt tiêu hoàn toàn việc gọi nhầm createPlan (Cửa 1).
@@ -9,6 +9,7 @@
  *
  * CHANGE LOG:
  * - 2026-10-23T09:58:00+07:00 | Thêm: đang soạn có Lưu nháp và Trình. Bỏ: DRAFT bị đóng băng vì result_ok. Giữ: chờ duyệt vẫn đóng băng. Lý do: đang soạn hiện Đã đóng băng và Đã trình.
+ * - 2026-10-23T10:09:00+07:00 | 4.9.40 | Thêm: vòng quay trên cùng khi bận. Bỏ: chữ Đang gửi trên nút Trình. Giữ: Lưu nháp, Trình. Lý do: trạng thái bận hiện nhầm trên nút.
  * - 2026-10-18T15:49:00+07:00 | 4.9.38 | Sửa tờ cần sửa không sinh tờ đang soạn mới.
  * - 2026-10-18T14:57:00+07:00 | 4.9.37 | Thu hoặc hiện con trực tiếp của từng ô.
  * - 2026-10-18T14:52:00+07:00 | 4.9.36 | Vừa khung một lần lúc mở. Bấm chấm không vừa khung.
@@ -51,6 +52,7 @@ import { useAuth } from '../context/AuthContext.jsx';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 import AudioHelpButton from '../features/elder-doctrine/components/AudioHelpButton.jsx';
+import MfoBusyClock from '../features/mfo/components/MfoBusyClock.jsx';
 import FamilyCoupleNode from '../features/genealogy/components/FamilyCoupleNode.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
 import { resolveFooterNav } from '../lib/resolveFooterNav.js';
@@ -1287,6 +1289,8 @@ export function OpMfoPlanPage() {
   };
 
   return (
+    <>
+    <MfoBusyClock show={busy} />
     <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-slate-50">
       <TenantHeader tenant={tenant} subtitle={isGate2 ? profileLabel : "Tạo nhánh phả hệ"} />
       {!targetMemberId ? (
@@ -1403,7 +1407,7 @@ export function OpMfoPlanPage() {
             className="min-h-12 flex-1 rounded-2xl bg-indigo-600 px-3 text-sm font-black text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
             onClick={handleSubmitPlan}
           >
-            {busy ? 'Đang gửi...' : isGate2 ? 'Trình tờ khai' : isReadOnly ? 'Đã trình' : 'Trình'}
+            {isGate2 ? 'Trình tờ khai' : isReadOnly ? 'Đã trình' : 'Trình'}
           </button>
         </div>
       </main>
@@ -1572,6 +1576,7 @@ export function OpMfoPlanPage() {
       <MfoAlarmOverlay open={Boolean(profileAlarm)} message={profileAlarm} onClose={() => setProfileAlarm('')} />
       <AppFooterNav {...footerNav} />
     </div>
+    </>
   );
 }
 
