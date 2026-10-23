@@ -1,17 +1,20 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MfoPersonProfileSheet.jsx
- * DATETIME   : 2026-10-17T14:31:00+07:00
+ * DATETIME   : 2026-10-23T11:27:00+07:00
+ * 2026-10-17T14:31:00+07:00
  * VERSION    : 3.0.6-SAVE-ENABLED
  * DESCRIPTION: Hồ sơ dạng lớp nổi trên cây; controlled, không suy nội tộc, không nhập phả hệ.
  * RULE       : Q1 bảo tồn ngoài phạm vi; Q2 metadata và chú thích có thời gian.
  *
  * CHANGE LOG:
+ * - 2026-10-23T11:27:00+07:00 | Thêm vòng quay khi form đang lưu. Lý do: form cũng phải báo hệ thống đang xử lý.
  * - 2026-10-13T14:57:00+07:00 | 3.0.2 | Hồ sơ chỉ nhập SMP, không nhập phả hệ.
  * - 2026-10-17T07:46:00+07:00 | 3.0.3 | Hiện dòng chỉ đọc về người sinh và thứ tự con.
  * - 2026-10-17T09:38:00+07:00 | 3.0.4 | Trường bắt buộc có chữ Bắt buộc.
  * - 2026-10-17T11:19:00+07:00 | 3.0.5 | Thêm thứ tự con. Nội tộc hiện Nội tộc hoặc Ngoại tộc. Lưu chỉ bật khi có thay đổi.
  * - 2026-10-17T14:31:00+07:00 | 3.0.6 | Không truyền dirty thì không khoá nút Lưu.
  */
+import MfoBusyClock from './MfoBusyClock.jsx';
 import { createPortal } from 'react-dom';
 /**
  * <2026-10-13T14:57:00+07:00>
@@ -54,7 +57,7 @@ export default function MfoPersonProfileSheet({
    * <2026-10-13T14:57:00+07:00>
    * Mục đích: Render form mobile-first trên cây; alarm hiện có z=80 nằm trên sheet z=70.
    */
-  return createPortal(<div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-900/50 p-3" role="dialog" aria-modal="true" aria-labelledby="mfo-profile-title">
+  return createPortal(<><MfoBusyClock show={Boolean(busy)} /><div className="fixed inset-0 z-[70] flex items-end justify-center bg-slate-900/50 p-3" role="dialog" aria-modal="true" aria-labelledby="mfo-profile-title">
     <section className="max-h-[85dvh] w-full max-w-[480px] overflow-y-auto rounded-2xl bg-white p-4 shadow-xl">
       <h2 id="mfo-profile-title" className="text-lg font-bold">{item ? 'Hồ sơ người này' : 'Chọn hồ sơ người này'}</h2>
       {!item ? choices.map(choice => <button key={choice.key} type="button" className="mt-2 min-h-12 w-full rounded-xl border px-3 text-left" onClick={() => onPick(choice)}>{choice.label || (choice.kind === 'spouse' ? 'Hôn phối' : 'Người xin thêm')}</button>) : <div className="mt-3 space-y-3">
@@ -70,7 +73,7 @@ export default function MfoPersonProfileSheet({
         {value.is_alive === false ? <label className="block text-sm font-semibold">Ghi chú mất<textarea className={field} disabled={busy || readOnly} value={value.death_note || ''} onChange={e => set('death_note', e.target.value)} /></label> : null}
         <label className="block text-sm font-semibold">Ghi chú<textarea className={field} disabled={busy || readOnly} value={value.note || ''} onChange={e => set('note', e.target.value)} /></label>
       </div>}
-      {item && !readOnly ? <button type="button" disabled={busy || dirty === false} onClick={onSave} className="mt-4 min-h-12 w-full rounded-xl bg-indigo-700 font-bold text-white disabled:opacity-50">{busy ? 'Đang lưu…' : 'Lưu'}</button> : null}
+      {item && !readOnly ? <button type="button" disabled={busy || dirty === false} onClick={onSave} className="mt-4 min-h-12 w-full rounded-xl bg-indigo-700 font-bold text-white disabled:opacity-50">Lưu</button> : null}
       <button type="button" disabled={busy} onClick={onClose} className="mt-2 min-h-12 w-full rounded-xl border font-semibold">Đóng</button>
-    </section></div>, document.body);
+    </section></div></>, document.body);
 }

@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-23T10:09:00+07:00
- * VERSION    : 4.9.40-BUSY-CLOCK
+ * DATETIME   : 2026-10-23T11:27:00+07:00
+ * VERSION    : 4.9.41-GATE2-CANVAS
  * DESCRIPTION:
  * - Vá dứt điểm Bug 1: Lỗi SRPF_INVALID_TRANSITION khi Trình Tờ Khai ở Cửa 2.
  * - Khóa chặt State Machine: Khi plan_ok === true, bắt buộc gọi handleSubmitProfiles() (API submitResult Cửa 2), triệt tiêu hoàn toàn việc gọi nhầm createPlan (Cửa 1).
@@ -10,6 +10,7 @@
  * CHANGE LOG:
  * - 2026-10-23T09:58:00+07:00 | Thêm: đang soạn có Lưu nháp và Trình. Bỏ: DRAFT bị đóng băng vì result_ok. Giữ: chờ duyệt vẫn đóng băng. Lý do: đang soạn hiện Đã đóng băng và Đã trình.
  * - 2026-10-23T10:09:00+07:00 | 4.9.40 | Thêm: vòng quay trên cùng khi bận. Bỏ: chữ Đang gửi trên nút Trình. Giữ: Lưu nháp, Trình. Lý do: trạng thái bận hiện nhầm trên nút.
+ * - 2026-10-23T11:27:00+07:00 | 4.9.41 | Thêm: cửa 2 kéo khung, kéo ô, chấm, nút cộng trừ, câu XT. Bỏ: pan và kéo tắt ở cửa 2. Giữ: cửa 1. Lý do: cửa 2 mất các thao tác cây.
  * - 2026-10-18T15:49:00+07:00 | 4.9.38 | Sửa tờ cần sửa không sinh tờ đang soạn mới.
  * - 2026-10-18T14:57:00+07:00 | 4.9.37 | Thu hoặc hiện con trực tiếp của từng ô.
  * - 2026-10-18T14:52:00+07:00 | 4.9.36 | Vừa khung một lần lúc mở. Bấm chấm không vừa khung.
@@ -1201,15 +1202,20 @@ export function OpMfoPlanPage() {
     remeasure();
   }, [edges, activeUnionByTreeId, isGate2]);
 
+  // <2026-10-23T11:27:00+07:00> Mục đích: Cửa 2 giữ kéo, chấm và nút cộng trừ. Lý do: bản cũ tắt các thao tác này.
   const profileDisplayNodes = useMemo(() => {
     if (!isGate2) return nodes;
-    return projectProfiles(nodes, profileStaging).map((node) => ({ ...node, draggable: false, data: {
+    return projectProfiles(nodes, profileStaging).map((node) => ({ ...node, data: {
       ...node.data,
       isReadOnly: node.type === 'emptyNode',
       activeUnionId: activeUnionByTreeId[node.data?.treeId] || node.data?.activeUnionId,
+      onTabChange: (treeId, unionId) => { setActiveUnionByTreeId((old) => old[treeId] === unionId ? old : { ...old, [treeId]: unionId }); remeasure(treeId); },
+      hasChildren: edges.some((edge) => edge.source === node.id),
+      collapsed: Boolean(collapsedIds[node.id]),
+      onToggleChildren: (nodeId) => setCollapsedIds((old) => ({ ...old, [nodeId]: !old[nodeId] })),
       onOpenActionForm: handleOpenActionForm,
     } }));
-  }, [isGate2, nodes, profileStaging, activeUnionByTreeId, handleOpenActionForm]);
+  }, [isGate2, nodes, edges, profileStaging, activeUnionByTreeId, collapsedIds, handleOpenActionForm]);
 
   async function persistProfiles(items) {
     const incoming = Object.fromEntries(items.map((item) => [item.key, cleanProfile(profileStaging[item.key] || {}, item.kind)]));
@@ -1333,9 +1339,10 @@ export function OpMfoPlanPage() {
       {isGate2 && adminNote ? <p className="mx-3 mt-3 rounded-2xl border bg-white p-3 text-sm text-slate-700">{adminNote}</p> : null}
       <main className="flex flex-1 flex-col gap-3 px-3 py-3 pb-28">
         <section className="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm">
-          <p className="text-sm font-medium text-slate-800">{MFO_VOICE_SELF.whyFive}</p>
+          {/* <2026-10-23T11:27:00+07:00> Mục đích: Cửa 2 nói bấm XT. Lý do: câu năm ô là của cửa 1. */}
+          <p className="text-sm font-medium text-slate-800">{isGate2 ? 'Bấm vào biểu tượng "XT" (tức là Xin tạo) để khai chi tiết thông tin.' : MFO_VOICE_SELF.whyFive}</p>
           <div className="mt-2">
-            <AudioHelpButton text={MFO_VOICE_SELF.whyFive} label="Nghe" />
+            <AudioHelpButton text={isGate2 ? 'Bấm vào biểu tượng XT, tức là Xin tạo, để khai chi tiết thông tin.' : MFO_VOICE_SELF.whyFive} label="Nghe" />
           </div>
         </section>
 
@@ -1367,10 +1374,10 @@ export function OpMfoPlanPage() {
             fitViewOptions={{ padding: 0.08, includeHiddenNodes: true }}
             minZoom={0.1}
             maxZoom={2.5}
-            nodesDraggable={!isGate2 && !isReadOnly}
+            nodesDraggable={!isReadOnly}
             nodesConnectable={false}
             elementsSelectable={isGate2 || !isReadOnly}
-            panOnDrag={!isGate2}
+            panOnDrag={true}
             noPanClassName="nopan"
             panOnScroll={true}
             zoomOnScroll={true}
