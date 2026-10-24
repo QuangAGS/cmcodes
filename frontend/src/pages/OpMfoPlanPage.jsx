@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-24T14:07:00+07:00
- * VERSION    : 4.9.45-SUA-THU-TU
+ * DATETIME   : 2026-10-24T15:49:00+07:00
+ * VERSION    : 4.9.46-THU-TU-TU-ANH
  * DESCRIPTION:
  * - Vá dứt điểm Bug 1: Lỗi SRPF_INVALID_TRANSITION khi Trình Tờ Khai ở Cửa 2.
  * - Khóa chặt State Machine: Khi plan_ok === true, bắt buộc gọi handleSubmitProfiles() (API submitResult Cửa 2), triệt tiêu hoàn toàn việc gọi nhầm createPlan (Cửa 1).
@@ -14,6 +14,7 @@
  * - 2026-10-23T11:53:00+07:00 | 4.9.42 | Thêm: tờ khai cần sửa mở cửa 2. Bỏ: chỉ APPROVED mới là cửa 2. Giữ: nhánh cần sửa vẫn cửa 1. Lý do: trả sửa hạ trạng thái nên mở nhầm cửa 1.
  * - 2026-10-23T14:48:00+07:00 | 4.9.43 | Thêm: gỡ ô rỗng khi đời đã có người. Bỏ: ô rỗng còn sau khi thêm con. Giữ: ô rỗng khi đời chưa có ai. Lý do: đời đã có thành viên vẫn hiện ô rỗng.
  * - 2026-10-24T14:07:00+07:00 | 4.9.45 | Thêm: thứ tự con từ cửa 1, cho sửa. Bỏ: ô khoá và trống. Giữ: số đã khai làm giá trị đầu. Lý do: cửa 2 không nhận và không sửa được thứ tự.
+ * - 2026-10-24T15:49:00+07:00 | 4.9.46 | Thêm: lấy số từ delta khi ảnh mất số. Bỏ: lưu đè số thành trống. Giữ: ô cho sửa. Lý do: ảnh chụp bỏ số nên form trống.
  * - 2026-10-18T15:49:00+07:00 | 4.9.38 | Sửa tờ cần sửa không sinh tờ đang soạn mới.
  * - 2026-10-18T14:57:00+07:00 | 4.9.37 | Thu hoặc hiện con trực tiếp của từng ô.
  * - 2026-10-18T14:52:00+07:00 | 4.9.36 | Vừa khung một lần lúc mở. Bấm chấm không vừa khung.
@@ -442,6 +443,7 @@ export function OpMfoPlanPage() {
             draftData.payload?.graph_snapshot ||
             draftData.payload?.ui_render_snapshot_layer?.graph_snapshot;
 
+          const seqById = Object.fromEntries((draftData.canvas_delta?.draft_children || []).map((row) => [row.id, row.sibling_seq]));
           if (snapshot && Array.isArray(snapshot.nodes) && snapshot.nodes.length > 0) {
             setNodes(
               snapshot.nodes.map((n) => ({
@@ -449,6 +451,7 @@ export function OpMfoPlanPage() {
                 style: { width: 240 },
                 data: {
                   ...n.data,
+                  siblingSeq: n.data?.siblingSeq || seqById[n.id] || null,
                   isReadOnly: readOnlyFlag,
                   onOpenActionForm: readOnlyFlag ? () => {} : handleOpenActionForm,
                   onTabChange: (treeId, unionId) =>
@@ -935,7 +938,7 @@ export function OpMfoPlanPage() {
           parent_union_key: n.data?.parentUnionKey || null,
           parent_member_id: n.data?.parentMemberId || null,
           spouse_member_id: n.data?.spouseMemberId || null,
-          sibling_seq: n.data?.siblingSeq || null,
+          sibling_seq: n.data?.siblingSeq || profileDelta?.draft_children?.find((row) => row.id === n.id)?.sibling_seq || null,
         };
       });
 

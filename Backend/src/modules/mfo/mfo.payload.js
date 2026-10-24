@@ -1,11 +1,13 @@
 /**
  * PATH       : src/modules/mfo/mfo.payload.js
- * DATETIME   : 2026-10-17T15:04:00+07:00
+ * DATETIME   : 2026-10-24T15:49:00+07:00
+ * 2026-10-17T15:04:00+07:00
  * VERSION    : 1.3.3-COUPLE-BY-IDS
  * DESCRIPTION: Lát 2. Sanitize Payload & Cắt lọc tinh gọn graph_snapshot / canvas_delta.
  *              Đã vá bảo tồn isAnonymous, originSource, fallback stroke, và viewport null.
  *
  * CHANGE LOG:
+ * - 2026-10-24T15:49:00+07:00 | Giữ siblingSeq trên ảnh chụp cây. Lý do: ảnh bỏ số nên cửa 2 không nhận thứ tự.
  * - 2026-10-04T20:04:00+07:00 | 1.3.1 | Giữ cờ khuyết danh và viewport.
  * - 2026-10-17T14:18:00+07:00 | 1.3.2 | Giữ sibling_seq của con nháp và assigned_children.
  * - 2026-10-17T15:04:00+07:00 | 1.3.3 | Giữ mã hai người của cặp trên con nháp.
@@ -126,6 +128,7 @@ function sanitizeGraphSnapshot(raw) {
             isTarget: data.isTarget === true,
             isAnonymous: data.isAnonymous === true,
             originSource: data.originSource || null,
+            siblingSeq: Number.isInteger(Number(data.siblingSeq)) && Number(data.siblingSeq) >= 1 ? Number(data.siblingSeq) : null,
             tabs: tabs.map((tab) => ({
               unionId: (tab && tab.unionId) || null,
               order: tab && tab.order != null ? Number(tab.order) : null,
