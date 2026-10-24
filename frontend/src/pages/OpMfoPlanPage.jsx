@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-23T14:48:00+07:00
- * VERSION    : 4.9.43-AN-O-RONG
+ * DATETIME   : 2026-10-24T14:07:00+07:00
+ * VERSION    : 4.9.45-SUA-THU-TU
  * DESCRIPTION:
  * - Vá dứt điểm Bug 1: Lỗi SRPF_INVALID_TRANSITION khi Trình Tờ Khai ở Cửa 2.
  * - Khóa chặt State Machine: Khi plan_ok === true, bắt buộc gọi handleSubmitProfiles() (API submitResult Cửa 2), triệt tiêu hoàn toàn việc gọi nhầm createPlan (Cửa 1).
@@ -13,6 +13,7 @@
  * - 2026-10-23T11:27:00+07:00 | 4.9.41 | Thêm: cửa 2 kéo khung, kéo ô, chấm, nút cộng trừ, câu XT. Bỏ: pan và kéo tắt ở cửa 2. Giữ: cửa 1. Lý do: cửa 2 mất các thao tác cây.
  * - 2026-10-23T11:53:00+07:00 | 4.9.42 | Thêm: tờ khai cần sửa mở cửa 2. Bỏ: chỉ APPROVED mới là cửa 2. Giữ: nhánh cần sửa vẫn cửa 1. Lý do: trả sửa hạ trạng thái nên mở nhầm cửa 1.
  * - 2026-10-23T14:48:00+07:00 | 4.9.43 | Thêm: gỡ ô rỗng khi đời đã có người. Bỏ: ô rỗng còn sau khi thêm con. Giữ: ô rỗng khi đời chưa có ai. Lý do: đời đã có thành viên vẫn hiện ô rỗng.
+ * - 2026-10-24T14:07:00+07:00 | 4.9.45 | Thêm: thứ tự con từ cửa 1, cho sửa. Bỏ: ô khoá và trống. Giữ: số đã khai làm giá trị đầu. Lý do: cửa 2 không nhận và không sửa được thứ tự.
  * - 2026-10-18T15:49:00+07:00 | 4.9.38 | Sửa tờ cần sửa không sinh tờ đang soạn mới.
  * - 2026-10-18T14:57:00+07:00 | 4.9.37 | Thu hoặc hiện con trực tiếp của từng ô.
  * - 2026-10-18T14:52:00+07:00 | 4.9.36 | Vừa khung một lần lúc mở. Bấm chấm không vừa khung.
@@ -977,6 +978,7 @@ export function OpMfoPlanPage() {
           isTarget: n.data?.isTarget,
           isAnonymous: n.data?.isAnonymous,
           originSource: n.data?.originSource,
+          siblingSeq: n.data?.siblingSeq || null,
           tabs: n.data?.tabs,
         },
       })),
@@ -1160,7 +1162,14 @@ export function OpMfoPlanPage() {
 
   profileOpenRef.current = (payload) => {
     const choices = profileItems.filter((item) => String(item.nodeId) === String(payload.nodeId));
-    if (choices.length === 1) setSelectedProfile(choices[0]);
+    const seed = (item) => {
+      if (!item || item.kind !== 'child') return;
+      const fromNode = nodes.find((node) => node.id === item.nodeId)?.data?.siblingSeq;
+      const seq = item.siblingSeq || fromNode || null;
+      if (seq == null) return;
+      setProfileStaging((old) => old[item.key]?.sibling_seq != null ? old : { ...old, [item.key]: { ...(old[item.key] || {}), sibling_seq: seq } });
+    };
+    if (choices.length === 1) { seed(choices[0]); setSelectedProfile(choices[0]); }
     else if (choices.length > 1) setProfileChoices(choices.map((item) => ({ ...item, label: profileStaging[item.key]?.full_name || item.label })));
     else if (payload.isAnonymous) setProfileAlarm(toMfoUserMessage({ code: 'MFO_SMP_INCOMPLETE' }));
   };
@@ -1592,7 +1601,7 @@ export function OpMfoPlanPage() {
         dirty={selectedProfile ? JSON.stringify(cleanProfile(profileStaging[selectedProfile.key] || {}, selectedProfile.kind)) !== JSON.stringify(cleanProfile(savedProfileStaging[selectedProfile.key] || {}, selectedProfile.kind)) : false}
         onPick={(item) => { setSelectedProfile(item); setProfileChoices([]); }}
         onChange={(value) => setProfileStaging((old) => ({ ...old, [selectedProfile.key]: value }))}
-        onSave={handleSaveProfile} onClose={closeProfile} />
+        siblingSeq={selectedProfile?.siblingSeq || nodes.find((node) => node.id === selectedProfile?.nodeId)?.data?.siblingSeq || ''} onSave={handleSaveProfile} onClose={closeProfile} />
       <MfoAlarmOverlay open={Boolean(profileAlarm)} message={profileAlarm} onClose={() => setProfileAlarm('')} />
       <AppFooterNav {...footerNav} />
     </div>
