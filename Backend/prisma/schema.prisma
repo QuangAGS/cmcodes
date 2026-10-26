@@ -564,6 +564,10 @@ model marriages {
   @@index([changed_by], map: "idx_marriages_user")
   @@index([deleted_at], map: "idx_marriages_deleted_at")
   @@index([husband_id], map: "idx_marriage_husband")
+  /// <2026-10-26T11:43:00+07:00> Ghi vết chỉ mục tra cứu hôn nhân kết hợp deleted_at
+  @@index([tenant_id, husband_id, deleted_at], map: "idx_marriages_tenant_husband")
+  @@index([tenant_id, wife_id, deleted_at], map: "idx_marriages_tenant_wife")
+  @@map("marriages")
 }
 
 model media {
@@ -717,6 +721,9 @@ model members {
   @@index([alias(ops: raw("gin_trgm_ops"))], map: "trgm_idx_members_alias", type: Gin)
   @@index([full_name(ops: raw("gin_trgm_ops"))], map: "trgm_idx_members_full_name", type: Gin)
   @@index([parent_union_id], map: "idx_members_parent_union")
+  /// <2026-10-26T11:43:00+07:00> Ghi vết chỉ mục đi xuống kết hợp deleted_at
+  @@index([tenant_id, father_id, deleted_at], map: "idx_members_down_father")
+  @@index([tenant_id, mother_id, deleted_at], map: "idx_members_down_mother")
   @@map("members")
 }
 
@@ -1280,6 +1287,8 @@ model proposals {
   @@index([requester_user_id], map: "idx_proposals_requester")
   @@index([correlation_id], map: "idx_proposals_correlation")
   @@index([deleted_at], map: "idx_proposals_deleted_at")
+  /// <2026-10-26T11:43:00+07:00> Ghi vết chỉ mục GIN cho hold_member_ids
+  @@index([hold_member_ids], map: "idx_proposals_hold_members_gin", type: Gin)
   @@map("proposals")
 }
 

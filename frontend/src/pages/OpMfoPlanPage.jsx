@@ -1,13 +1,14 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-24T15:49:00+07:00
- * VERSION    : 4.9.46-THU-TU-TU-ANH
+ * DATETIME   : 2026-10-26T11:43:00+07:00
+ * VERSION    : 4.9.50-CHAN-LAN-HAI
  * DESCRIPTION:
  * - Vá dứt điểm Bug 1: Lỗi SRPF_INVALID_TRANSITION khi Trình Tờ Khai ở Cửa 2.
  * - Khóa chặt State Machine: Khi plan_ok === true, bắt buộc gọi handleSubmitProfiles() (API submitResult Cửa 2), triệt tiêu hoàn toàn việc gọi nhầm createPlan (Cửa 1).
  * - Mở nhánh đang soạn không hiện Alarm.
  *
  * CHANGE LOG:
+ * - 2026-10-26T11:43:00+07:00 | 4.9.50 | Thêm: khoá full-set theo người trước khi gọi. Bỏ: lần gọi thứ hai sau khi lần đầu xong. Giữ: gán người. Lý do: full-set bị gọi hai lần.
  * - 2026-10-23T09:58:00+07:00 | Thêm: đang soạn có Lưu nháp và Trình. Bỏ: DRAFT bị đóng băng vì result_ok. Giữ: chờ duyệt vẫn đóng băng. Lý do: đang soạn hiện Đã đóng băng và Đã trình.
  * - 2026-10-23T10:09:00+07:00 | 4.9.40 | Thêm: vòng quay trên cùng khi bận. Bỏ: chữ Đang gửi trên nút Trình. Giữ: Lưu nháp, Trình. Lý do: trạng thái bận hiện nhầm trên nút.
  * - 2026-10-23T11:27:00+07:00 | 4.9.41 | Thêm: cửa 2 kéo khung, kéo ô, chấm, nút cộng trừ, câu XT. Bỏ: pan và kéo tắt ở cửa 2. Giữ: cửa 1. Lý do: cửa 2 mất các thao tác cây.
@@ -67,18 +68,18 @@ import { saveStaging, submitResult, createPlan, getFullMfoSet, savePlanDraft, ge
 
 const fullSetCache = new Map();
 function loadFullSetOnce(memberId, depth) {
-  const key = `${memberId}:${depth}`;
+  const key = String(memberId);
   const hit = fullSetCache.get(key);
-  if (hit && Date.now() - hit.at < 15000) return Promise.resolve(hit.data);
+  if (hit && hit.data && Date.now() - hit.at < 15000) return Promise.resolve(hit.data);
   if (hit && hit.job) return hit.job;
   const job = getFullMfoSet(memberId, depth).then((data) => {
-    fullSetCache.set(key, { at: Date.now(), data });
+    fullSetCache.set(key, { at: Date.now(), data, job: null });
     return data;
-  }).finally(() => {
-    const current = fullSetCache.get(key);
-    if (current && current.job) fullSetCache.set(key, { at: current.at, data: current.data });
+  }).catch((error) => {
+    fullSetCache.delete(key);
+    throw error;
   });
-  fullSetCache.set(key, { at: 0, job });
+  fullSetCache.set(key, { at: Date.now(), data: null, job });
   return job;
 }
 import { buildMfoGraph } from '../features/mfo/lib/mfoGraphAdapter.js';
