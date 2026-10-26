@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-26T11:02:00+07:00
- * VERSION    : 4.7.5-MOT-CAU
+ * DATETIME   : 2026-10-26T11:09:00+07:00
+ * VERSION    : 4.7.6-KHONG-EP-UUID
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -10,6 +10,7 @@
  * - 2026-10-22T11:52:00+07:00 | 4.7.3 | Thêm: lấy cờ từ đúng tờ. Bỏ: ép plan_ok false khi lưu cửa 2. Giữ getFullMfoSet. Lý do: hạ cờ làm cửa 2 thành cửa 1.
  * - 2026-10-26T10:55:00+07:00 | 4.7.4 | Thêm: dựng cây chỉ tải nhánh 5 đời. Bỏ: tải cả sổ và cả hôn nhân. Giữ: hình cây và các trường. Lý do: full-set mất gần 4 giây.
  * - 2026-10-26T11:02:00+07:00 | 4.7.5 | Thêm: lấy cả nhánh trong một câu. Bỏ: hỏi từng đời một. Giữ: hình cây. Lý do: nhiều vòng hỏi làm full-set vẫn 3,5 giây.
+ * - 2026-10-26T11:09:00+07:00 | 4.7.6 | Bỏ ép uuid. Giữ: một câu lấy nhánh. Lý do: cột mã là chữ, ép uuid làm lỗi.
  */
 
 const crypto = require('crypto');
@@ -449,14 +450,14 @@ const mfoService = {
       WITH RECURSIVE up AS (
         SELECT id, father_id, mother_id, 0 AS steps
         FROM members
-        WHERE id = ${targetId}::uuid AND deleted_at IS NULL
+        WHERE id = ${targetId} AND deleted_at IS NULL
         UNION ALL
         SELECT p.id, p.father_id, p.mother_id, up.steps + 1
         FROM members p
         JOIN up ON p.id = COALESCE(up.father_id, up.mother_id)
         WHERE up.steps < ${selectedDepth}
           AND p.deleted_at IS NULL
-          AND p.tenant_id = ${targetMember.tenant_id}::uuid
+          AND p.tenant_id = ${targetMember.tenant_id}
       ),
       root AS (
         SELECT id FROM up ORDER BY steps DESC LIMIT 1
@@ -469,7 +470,7 @@ const mfoService = {
         JOIN down ON c.father_id = down.id OR c.mother_id = down.id
         WHERE down.depth < 4
           AND c.deleted_at IS NULL
-          AND c.tenant_id = ${targetMember.tenant_id}::uuid
+          AND c.tenant_id = ${targetMember.tenant_id}
       )
       SELECT DISTINCT m.id, m.full_name, m.generation, m.gender, m.father_id, m.mother_id,
         m.branch_id, m.is_clan, m.child_type, m.sibling_seq, m.birth_year, m.note,
