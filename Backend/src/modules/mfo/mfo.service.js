@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-26T10:55:00+07:00
- * VERSION    : 4.7.4-NHANH-5-DOI
+ * DATETIME   : 2026-10-26T11:02:00+07:00
+ * VERSION    : 4.7.5-MOT-CAU
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -9,6 +9,7 @@
  * - 2026-10-18T17:35:00+07:00 | 4.7.2 | Thêm updatePlan. Không bỏ getFullMfoSet.
  * - 2026-10-22T11:52:00+07:00 | 4.7.3 | Thêm: lấy cờ từ đúng tờ. Bỏ: ép plan_ok false khi lưu cửa 2. Giữ getFullMfoSet. Lý do: hạ cờ làm cửa 2 thành cửa 1.
  * - 2026-10-26T10:55:00+07:00 | 4.7.4 | Thêm: dựng cây chỉ tải nhánh 5 đời. Bỏ: tải cả sổ và cả hôn nhân. Giữ: hình cây và các trường. Lý do: full-set mất gần 4 giây.
+ * - 2026-10-26T11:02:00+07:00 | 4.7.5 | Thêm: lấy cả nhánh trong một câu. Bỏ: hỏi từng đời một. Giữ: hình cây. Lý do: nhiều vòng hỏi làm full-set vẫn 3,5 giây.
  */
 
 const crypto = require('crypto');
@@ -443,52 +444,42 @@ const mfoService = {
       );
     }
 
-    // <2026-10-26T10:55:00+07:00> Mục đích: Chỉ tải nhánh 5 đời. Lý do: tải cả sổ làm full-set mất gần 4 giây.
-    const memberSelect = {
-      id: true,
-      full_name: true,
-      generation: true,
-      gender: true,
-      father_id: true,
-      mother_id: true,
-      branch_id: true,
-      is_clan: true,
-      child_type: true,
-      sibling_seq: true,
-      birth_year: true,
-      note: true,
-      parent_union_id: true,
-      tenant_id: true,
-      deleted_at: true,
-    };
-    const needed = new Map([[targetMember.id, targetMember]]);
-    let cursor = targetMember;
-    for (let step = 0; step < selectedDepth; step += 1) {
-      const parentId = cursor.father_id || cursor.mother_id;
-      if (!parentId || needed.has(parentId)) break;
-      const parent = await prisma.members.findUnique({ where: { id: parentId }, select: memberSelect });
-      if (!parent || parent.deleted_at || String(parent.tenant_id) !== String(targetMember.tenant_id)) break;
-      needed.set(parent.id, parent);
-      cursor = parent;
-    }
-    let frontier = [cursor.id];
-    for (let step = 0; step < 4 && frontier.length; step += 1) {
-      const children = await prisma.members.findMany({
-        where: {
-          tenant_id: targetMember.tenant_id,
-          deleted_at: null,
-          OR: [{ father_id: { in: frontier } }, { mother_id: { in: frontier } }],
-        },
-        select: memberSelect,
-      });
-      const next = [];
-      for (const child of children) {
-        if (needed.has(child.id)) continue;
-        needed.set(child.id, child);
-        next.push(child.id);
-      }
-      frontier = next;
-    }
+    // <2026-10-26T11:02:00+07:00> Mục đích: Lấy cả nhánh trong một câu. Lý do: hỏi từng đời làm full-set vẫn 3,5 giây.
+    const branchRows = await prisma.$queryRaw`
+      WITH RECURSIVE up AS (
+        SELECT id, father_id, mother_id, 0 AS steps
+        FROM members
+        WHERE id = ${targetId}::uuid AND deleted_at IS NULL
+        UNION ALL
+        SELECT p.id, p.father_id, p.mother_id, up.steps + 1
+        FROM members p
+        JOIN up ON p.id = COALESCE(up.father_id, up.mother_id)
+        WHERE up.steps < ${selectedDepth}
+          AND p.deleted_at IS NULL
+          AND p.tenant_id = ${targetMember.tenant_id}::uuid
+      ),
+      root AS (
+        SELECT id FROM up ORDER BY steps DESC LIMIT 1
+      ),
+      down AS (
+        SELECT id, 0 AS depth FROM root
+        UNION ALL
+        SELECT c.id, down.depth + 1
+        FROM members c
+        JOIN down ON c.father_id = down.id OR c.mother_id = down.id
+        WHERE down.depth < 4
+          AND c.deleted_at IS NULL
+          AND c.tenant_id = ${targetMember.tenant_id}::uuid
+      )
+      SELECT DISTINCT m.id, m.full_name, m.generation, m.gender, m.father_id, m.mother_id,
+        m.branch_id, m.is_clan, m.child_type, m.sibling_seq, m.birth_year, m.note,
+        m.parent_union_id, m.tenant_id, m.deleted_at
+      FROM members m
+      JOIN down ON m.id = down.id
+      WHERE m.deleted_at IS NULL
+    `;
+    const needed = new Map(branchRows.map((row) => [row.id, row]));
+    if (!needed.has(targetMember.id)) needed.set(targetMember.id, targetMember);
     const branchIds = [...needed.keys()];
     const unions = branchIds.length
       ? await prisma.marriages.findMany({
@@ -515,7 +506,11 @@ const mfoService = {
     if (spouseIds.length) {
       const spouses = await prisma.members.findMany({
         where: { id: { in: spouseIds }, tenant_id: targetMember.tenant_id, deleted_at: null },
-        select: memberSelect,
+        select: {
+          id: true, full_name: true, generation: true, gender: true, father_id: true, mother_id: true,
+          branch_id: true, is_clan: true, child_type: true, sibling_seq: true, birth_year: true,
+          note: true, parent_union_id: true, tenant_id: true, deleted_at: true,
+        },
       });
       for (const spouse of spouses) needed.set(spouse.id, spouse);
     }
