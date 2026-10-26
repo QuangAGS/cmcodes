@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-26T11:43:00+07:00
- * VERSION    : 4.7.9-CTE-SONG-SONG
+ * DATETIME   : 2026-10-26T14:53:00+07:00
+ * VERSION    : 4.7.11-BOT-GIU-CHO-DAU
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -14,6 +14,7 @@
  * - 2026-10-26T11:14:00+07:00 | 4.7.7 | Thêm: chạy song song giữ chỗ, nhánh, hôn nhân và ảnh. Bỏ: sáu câu nối tiếp. Giữ: hình cây. Lý do: full-set còn 2,9 giây.
  * - 2026-10-26T11:26:00+07:00 | 4.7.8 | Thêm: một câu lấy nhánh, hôn nhân, vợ chồng và ảnh. Bỏ: các câu đứng sau. Giữ: hình cây. Lý do: full-set tăng lại 3,8 giây.
  * - 2026-10-26T11:43:00+07:00 | 4.7.9 | Thêm: câu nhỏ lấy mã rồi hỏi song song. Bỏ: câu gộp row_to_json. Giữ: hình cây. Lý do: câu gộp làm chậm thêm.
+ * - 2026-10-26T14:53:00+07:00 | 4.7.11 | Thêm: hỏi người sáng lập cùng vòng đầu. Bỏ: kiểm giữ chỗ ở đầu. Giữ: kiểm giữ chỗ lúc dựng xong. Lý do: hai lần kiểm và nhiều vòng làm chậm.
  */
 
 const crypto = require('crypto');
@@ -435,12 +436,7 @@ const mfoService = {
     }
 
     // <2026-10-26T11:43:00+07:00> Mục đích: Câu nhỏ lấy mã, rồi hỏi song song. Lý do: câu gộp làm chậm thêm.
-    const [earlyConflict, idRows] = await Promise.all([
-      findHoldConflict(prisma, {
-        tenantId: targetMember.tenant_id,
-        memberIds: [targetId],
-        excludeRequesterId: actorIdOf(user),
-      }),
+    const [idRows, mwlEarly] = await Promise.all([
       prisma.$queryRaw`
         WITH RECURSIVE up AS (
           SELECT id, father_id, mother_id, 0 AS steps
@@ -469,15 +465,9 @@ const mfoService = {
         )
         SELECT DISTINCT id FROM down
       `,
+      resolveFounderMemberId(user),
     ]);
-    if (earlyConflict) {
-      fail(
-        'MFO_HOLD_CONFLICT',
-        409,
-        'MFO_HOLD_CONFLICT',
-        { expires_at: earlyConflict.expires_at || null }
-      );
-    }
+    const mwlIdEarly = mwlEarly;
     const branchIds = [...new Set(idRows.map((row) => row.id).filter(Boolean))];
     if (!branchIds.includes(targetMember.id)) branchIds.push(targetMember.id);
     const memberSelect = {
@@ -1006,7 +996,7 @@ const mfoService = {
       emptyAncestorDepths.push(depth);
     }
 
-    const mwlId = await resolveFounderMemberId(user);
+    const mwlId = mwlIdEarly || await resolveFounderMemberId(user);
 
     let mwlK = null;
     let mwlReason = 'no_mwl';

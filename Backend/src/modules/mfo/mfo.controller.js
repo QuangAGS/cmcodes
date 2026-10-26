@@ -54,6 +54,7 @@ const mfoController = {
         body: req.body || {},
         correlationId: req.correlationId,
       });
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({ status: 'success', data });
     } catch (error) {
       sendError(res, error);
@@ -77,6 +78,7 @@ const mfoController = {
         correlationId: req.correlationId,
       });
 
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({ status: 'success', data });
     } catch (error) {
       sendError(res, error);
@@ -280,6 +282,7 @@ const mfoController = {
         ticketId: req.params.id,
         body: req.body || {},
       });
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({ status: 'success', data });
     } catch (error) {
       sendError(res, error);
@@ -432,6 +435,7 @@ const mfoController = {
         user: req.user,
         ticketId: req.params.id,
       });
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({ status: 'success', data });
     } catch (error) {
       sendError(res, error);
@@ -444,6 +448,7 @@ const mfoController = {
         user: req.user,
         query: req.query || {},
       });
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({ status: 'success', data });
     } catch (error) {
       sendError(res, error);
@@ -456,6 +461,7 @@ const mfoController = {
         user: req.user,
         ticketId: req.params.id,
       });
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({ status: 'success', data });
     } catch (error) {
       sendError(res, error);
@@ -469,6 +475,7 @@ const mfoController = {
         ticketId: req.params.id,
         body: req.body || {},
       });
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({ status: 'success', data });
     } catch (error) {
       sendError(res, error);
@@ -481,6 +488,7 @@ const mfoController = {
         user: req.user,
         originId: req.params.originId,
       });
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({ status: 'success', data });
     } catch (error) {
       sendError(res, error);
@@ -494,6 +502,7 @@ const mfoController = {
         targetMemberId: req.params.targetMemberId || req.params.originId,
         selectedCanvasDepth: req.query.selected_canvas_depth ?? req.query.k,
       });
+      res.set('Cache-Control', 'no-store');
       res.status(200).json({ status: 'success', data });
     } catch (error) {
       sendError(res, error);

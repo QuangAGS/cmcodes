@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/mfo/api/mfoApi.js
  * DATETIME   : 2026-10-26T12:25:00+07:00
- * VERSION    : 5.1.1-MOT-FULLSET
+ * VERSION    : 5.1.2-KHONG-304
  * DESCRIPTION: Giữ toàn bộ exports; tách API trả sửa và không duyệt cửa 2.
  * RULE       : Q1 bảo tồn ngoài phạm vi; Q2 metadata và chú thích thời gian.
  */
@@ -128,7 +128,8 @@ export async function getFullMfoSet(targetMemberId, selectedCanvasDepth = 0) {
   if (hit && hit.job) return hit.job;
   const depth = Number(selectedCanvasDepth);
   const job = apiClient.get(`/mfo/origins/${targetMemberId}/full-set`, {
-    params: { k: depth },
+    params: { k: depth, _t: Date.now() },
+    headers: { 'Cache-Control': 'no-store', Pragma: 'no-cache' },
   }).then((res) => {
     const data = res.data && res.data.data != null ? res.data.data : res.data;
     fullSetFlight.set(key, { at: Date.now(), data, job: null });
