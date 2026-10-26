@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-26T15:09:00+07:00
- * VERSION    : 4.7.12-GIU-CHO-NHE
+ * DATETIME   : 2026-10-26T15:27:00+07:00
+ * VERSION    : 4.7.13-LOG-CHANG
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -16,6 +16,7 @@
  * - 2026-10-26T11:43:00+07:00 | 4.7.9 | Thêm: câu nhỏ lấy mã rồi hỏi song song. Bỏ: câu gộp row_to_json. Giữ: hình cây. Lý do: câu gộp làm chậm thêm.
  * - 2026-10-26T14:53:00+07:00 | 4.7.11 | Thêm: hỏi người sáng lập cùng vòng đầu. Bỏ: kiểm giữ chỗ ở đầu. Giữ: kiểm giữ chỗ lúc dựng xong. Lý do: hai lần kiểm và nhiều vòng làm chậm.
  * - 2026-10-26T15:09:00+07:00 | 4.7.12 | Thêm: kiểm giữ chỗ cùng vòng lấy thành viên. Bỏ: kiểm đứng sau khi cây đã dựng. Giữ: báo xung đột. Lý do: vòng cuối làm full-set còn 2,6 giây.
+ * - 2026-10-26T15:27:00+07:00 | 4.7.13 | Thêm: log thời gian từng chặng. Bỏ: không bỏ. Giữ: cách dựng cây. Lý do: chưa biết chặng nào chậm.
  */
 
 const crypto = require('crypto');
@@ -375,6 +376,14 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal, granted
 const mfoService = {
   //KHÔNG BAO GIỜ ĐƯỢC THAY ĐỔI HÀM NÀY!!!!!
   getFullMfoSet: async ({ user, targetMemberId, selectedCanvasDepth }) => {
+    const startedAt = Date.now();
+    const times = {};
+    const timed = async (name, job) => {
+      const mark = Date.now();
+      const value = await job;
+      times[name] = Date.now() - mark;
+      return value;
+    };
     const tenantId = tenantIdOf(user);
 
     if (!targetMemberId) {
@@ -396,7 +405,7 @@ const mfoService = {
 
     const targetId = targetMemberId;
 
-    const targetMember = await prisma.members.findUnique({
+    const targetMember = await timed('target_ms', prisma.members.findUnique({
       where: { id: targetId },
       select: {
         id: true,
@@ -415,7 +424,7 @@ const mfoService = {
         note: true,
         parent_union_id: true,
       },
-    });
+    }));
 
     if (!targetMember || targetMember.deleted_at) {
       fail('Không tìm thấy thành viên trên sổ.', 404, 'MFO_ORIGIN_NOT_FOUND');
@@ -438,7 +447,7 @@ const mfoService = {
 
     // <2026-10-26T11:43:00+07:00> Mục đích: Câu nhỏ lấy mã, rồi hỏi song song. Lý do: câu gộp làm chậm thêm.
     const [idRows, mwlEarly] = await Promise.all([
-      prisma.$queryRaw`
+      timed('branch_ids_ms', prisma.$queryRaw`
         WITH RECURSIVE up AS (
           SELECT id, father_id, mother_id, 0 AS steps
           FROM members
@@ -465,8 +474,8 @@ const mfoService = {
             AND c.deleted_at IS NULL
         )
         SELECT DISTINCT id FROM down
-      `,
-      resolveFounderMemberId(user),
+      `),
+      timed('founder_ms', resolveFounderMemberId(user)),
     ]);
     const mwlIdEarly = mwlEarly;
     const branchIds = [...new Set(idRows.map((row) => row.id).filter(Boolean))];
@@ -477,11 +486,11 @@ const mfoService = {
       note: true, parent_union_id: true, tenant_id: true, deleted_at: true,
     };
     const [branchMembers, unions, setConflict] = await Promise.all([
-      prisma.members.findMany({
+      timed('branch_members_ms', prisma.members.findMany({
         where: { id: { in: branchIds }, tenant_id: targetMember.tenant_id, deleted_at: null },
         select: memberSelect,
-      }),
-      prisma.marriages.findMany({
+      })),
+      timed('marriages_ms', prisma.marriages.findMany({
         where: {
           tenant_id: targetMember.tenant_id,
           deleted_at: null,
@@ -492,12 +501,12 @@ const mfoService = {
           wife_marriage_order: true, status: true, start_date: true, end_date: true,
           spouse_name_literal: true, note: true,
         },
-      }),
-      findHoldConflict(prisma, {
+      })),
+      timed('hold_ms', findHoldConflict(prisma, {
         tenantId: targetMember.tenant_id,
         memberIds: branchIds,
         excludeRequesterId: actorIdOf(user),
-      }),
+      })),
     ]);
     if (setConflict) {
       fail('MFO_HOLD_CONFLICT', 409, 'MFO_HOLD_CONFLICT', { expires_at: setConflict.expires_at || null });
@@ -505,14 +514,15 @@ const mfoService = {
     const needed = new Map(branchMembers.map((row) => [row.id, row]));
     if (!needed.has(targetMember.id)) needed.set(targetMember.id, targetMember);
     const spouseIds = [...new Set(unions.flatMap((row) => [row.husband_id, row.wife_id]).filter((id) => id && !needed.has(id)))];
+    const buildStartedAt = Date.now();
     const [spouses, avatarRows] = await Promise.all([
       spouseIds.length
-        ? prisma.members.findMany({
+        ? timed('spouses_ms', prisma.members.findMany({
             where: { id: { in: spouseIds }, tenant_id: targetMember.tenant_id, deleted_at: null },
             select: memberSelect,
-          })
+          }))
         : Promise.resolve([]),
-      prisma.media.findMany({
+      timed('avatars_ms', prisma.media.findMany({
         where: {
           tenant_id: targetMember.tenant_id,
           entity_type: 'MEMBER',
@@ -523,8 +533,9 @@ const mfoService = {
         },
         select: { entity_id: true, checksum: true, updated_at: true },
         orderBy: { updated_at: 'desc' },
-      }),
+      })),
     ]);
+    if (!times.spouses_ms) times.spouses_ms = 0;
     for (const spouse of spouses) needed.set(spouse.id, spouse);
     const all = [...needed.values()];
     const avatarByMemberId = new Map();
@@ -1112,6 +1123,26 @@ const mfoService = {
       selectedCanvasDepth: selectedDepth,
       rootCanvasDepth: rootDepth,
       resolvedAncestorSteps: actualAncestorSteps,
+    });
+
+    times.build_payload_ms = Date.now() - buildStartedAt;
+    times.service_total_ms = Date.now() - startedAt;
+    // <2026-10-26T15:27:00+07:00> Mục đích: Đo từng chặng. Lý do: chưa biết chỗ nào chiếm 2,6 giây.
+    console.info('[MFO_FULL_SET_TIMING]', {
+      target_ms: times.target_ms || 0,
+      branch_ids_ms: times.branch_ids_ms || 0,
+      founder_ms: times.founder_ms || 0,
+      branch_members_ms: times.branch_members_ms || 0,
+      marriages_ms: times.marriages_ms || 0,
+      hold_ms: times.hold_ms || 0,
+      spouses_ms: times.spouses_ms || 0,
+      avatars_ms: times.avatars_ms || 0,
+      build_payload_ms: times.build_payload_ms || 0,
+      service_total_ms: times.service_total_ms || 0,
+      branch_count: branchIds.length,
+      spouse_count: spouses.length,
+      union_count: unions.length,
+      node_count: nodes.length,
     });
 
     return {
