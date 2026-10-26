@@ -1,15 +1,14 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-23T15:04:00+07:00
- * 2026-10-22T11:52:00+07:00
- * VERSION    : 4.7.3-KEEP-GATE-FLAG
+ * DATETIME   : 2026-10-26T10:55:00+07:00
+ * VERSION    : 4.7.4-NHANH-5-DOI
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
  * CHANGE LOG:
- * - 2026-10-23T15:04:00+07:00 | Ghi nhật ký sau khi lưu nháp xong. Lý do: ghi trong giao dịch dài làm đứt kết nối.
  * - 2026-10-18T17:35:00+07:00 | 4.7.2 | Thêm updatePlan. Không bỏ getFullMfoSet.
  * - 2026-10-22T11:52:00+07:00 | 4.7.3 | Thêm: lấy cờ từ đúng tờ. Bỏ: ép plan_ok false khi lưu cửa 2. Giữ getFullMfoSet. Lý do: hạ cờ làm cửa 2 thành cửa 1.
+ * - 2026-10-26T10:55:00+07:00 | 4.7.4 | Thêm: dựng cây chỉ tải nhánh 5 đời. Bỏ: tải cả sổ và cả hôn nhân. Giữ: hình cây và các trường. Lý do: full-set mất gần 4 giây.
  */
 
 const crypto = require('crypto');
@@ -444,54 +443,89 @@ const mfoService = {
       );
     }
 
-    const [all, unions] = await Promise.all([
-      prisma.members.findMany({
+    // <2026-10-26T10:55:00+07:00> Mục đích: Chỉ tải nhánh 5 đời. Lý do: tải cả sổ làm full-set mất gần 4 giây.
+    const memberSelect = {
+      id: true,
+      full_name: true,
+      generation: true,
+      gender: true,
+      father_id: true,
+      mother_id: true,
+      branch_id: true,
+      is_clan: true,
+      child_type: true,
+      sibling_seq: true,
+      birth_year: true,
+      note: true,
+      parent_union_id: true,
+      tenant_id: true,
+      deleted_at: true,
+    };
+    const needed = new Map([[targetMember.id, targetMember]]);
+    let cursor = targetMember;
+    for (let step = 0; step < selectedDepth; step += 1) {
+      const parentId = cursor.father_id || cursor.mother_id;
+      if (!parentId || needed.has(parentId)) break;
+      const parent = await prisma.members.findUnique({ where: { id: parentId }, select: memberSelect });
+      if (!parent || parent.deleted_at || String(parent.tenant_id) !== String(targetMember.tenant_id)) break;
+      needed.set(parent.id, parent);
+      cursor = parent;
+    }
+    let frontier = [cursor.id];
+    for (let step = 0; step < 4 && frontier.length; step += 1) {
+      const children = await prisma.members.findMany({
         where: {
           tenant_id: targetMember.tenant_id,
           deleted_at: null,
+          OR: [{ father_id: { in: frontier } }, { mother_id: { in: frontier } }],
         },
-        select: {
-          id: true,
-          full_name: true,
-          generation: true,
-          gender: true,
-          father_id: true,
-          mother_id: true,
-          branch_id: true,
-          is_clan: true,
-          child_type: true,
-          sibling_seq: true,
-          birth_year: true,
-          note: true,
-          parent_union_id: true,
-        },
-      }),
-
-      prisma.marriages.findMany({
-        where: {
-          tenant_id: targetMember.tenant_id,
-          deleted_at: null,
-        },
-        select: {
-          id: true,
-          husband_id: true,
-          wife_id: true,
-          husband_marriage_order: true,
-          wife_marriage_order: true,
-          status: true,
-          start_date: true,
-          end_date: true,
-          spouse_name_literal: true,
-          note: true,
-        },
-      }),
-    ]);
+        select: memberSelect,
+      });
+      const next = [];
+      for (const child of children) {
+        if (needed.has(child.id)) continue;
+        needed.set(child.id, child);
+        next.push(child.id);
+      }
+      frontier = next;
+    }
+    const branchIds = [...needed.keys()];
+    const unions = branchIds.length
+      ? await prisma.marriages.findMany({
+          where: {
+            tenant_id: targetMember.tenant_id,
+            deleted_at: null,
+            OR: [{ husband_id: { in: branchIds } }, { wife_id: { in: branchIds } }],
+          },
+          select: {
+            id: true,
+            husband_id: true,
+            wife_id: true,
+            husband_marriage_order: true,
+            wife_marriage_order: true,
+            status: true,
+            start_date: true,
+            end_date: true,
+            spouse_name_literal: true,
+            note: true,
+          },
+        })
+      : [];
+    const spouseIds = [...new Set(unions.flatMap((row) => [row.husband_id, row.wife_id]).filter((id) => id && !needed.has(id)))];
+    if (spouseIds.length) {
+      const spouses = await prisma.members.findMany({
+        where: { id: { in: spouseIds }, tenant_id: targetMember.tenant_id, deleted_at: null },
+        select: memberSelect,
+      });
+      for (const spouse of spouses) needed.set(spouse.id, spouse);
+    }
+    const all = [...needed.values()];
 
     const avatarRows = await prisma.media.findMany({
       where: {
         tenant_id: targetMember.tenant_id,
         entity_type: 'MEMBER',
-        entity_id: { in: all.map((member) => member.id) },
+        entity_id: { in: all.map((member) => member.id).filter(Boolean) },
         purpose: 'AVATAR',
         is_primary: true,
         deleted_at: null,
@@ -1331,33 +1365,24 @@ const mfoService = {
           });
         }
 
+        await mfoWriteBpl(tx, {
+          processType: 'MFO_PLAN_SUBMIT',
+          user,
+          ticket,
+          payload: {
+            action: 'MFO_DRAFT_SAVED',
+            ticket_id: ticket.id,
+            target_member_id: targetMemberId,
+            saved_at: now.toISOString(),
+          },
+        });
+
         return {
           ticket,
           updated_at: ticket.updated_at.toISOString(),
         };
       }
-    ).then(async (saved) => {
-      // <2026-10-23T15:04:00+07:00> Mục đích: Nhật ký không được làm hỏng lưu nháp. Lý do: giao dịch dài bị đứt lúc ghi nhật ký.
-      try {
-        await withTransaction(
-          { tenantId, actorId: actor, correlationId: corr },
-          (tx) => mfoWriteBpl(tx, {
-            processType: 'MFO_PLAN_SUBMIT',
-            user,
-            ticket: saved.ticket,
-            payload: {
-              action: 'MFO_DRAFT_SAVED',
-              ticket_id: saved.ticket.id,
-              target_member_id: targetMemberId,
-              saved_at: now.toISOString(),
-            },
-          })
-        );
-      } catch (error) {
-        console.error('[MFO_DRAFT_BPL_SKIP]', error?.code || error?.message);
-      }
-      return saved;
-    });
+    );
   },
 
   /**
