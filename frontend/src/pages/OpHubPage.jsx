@@ -1,10 +1,12 @@
 /**
  * PATH       : src/pages/OpHubPage.jsx
- * DATETIME   : 2026-09-20T13:35:00+07:00
- * VERSION    : 1.7.2-OP-STAY
+ * DATETIME   : 2026-10-26T09:55:00+07:00
+ * VERSION    : 1.7.3-MOT-ANH
  * DESCRIPTION: Hub /op. DU_BI / chưa đủ field → /op/base-profile.
  *              Không gọi /me/profile khi member chưa CHINH_THUC.
  *              C1: thêm mục việc «Khai năm đời» — không đổi form hồ sơ.
+ * CHANGE LOG:
+ * - 2026-10-26T09:55:00+07:00 | 1.7.3 | Thêm: lấy ảnh từ hồ sơ đã gọi. Bỏ: gọi lại hồ sơ để moi ảnh. Giữ: đường ảnh riêng khi hồ sơ không có ảnh. Lý do: mở trang gọi hồ sơ hai lần.
  */
 
 import { useEffect, useMemo, useState, useRef } from 'react';
@@ -298,9 +300,13 @@ export default function MemberProfilePage() {
         });
 
         try {
-          const src =
+          // <2026-10-26T09:55:00+07:00> Mục đích: Dùng ảnh trong hồ sơ vừa tải. Lý do: gọi lại hồ sơ chỉ để lấy ảnh.
+          const fromProfile =
             (d.avatar && (d.avatar.url || d.avatar.read_url)) ||
-            (m.id ? await memberAvatarUrl(m.id) : '');
+            m.avatar_url || m.photo_url ||
+            (m.avatar && (m.avatar.url || m.avatar.read_url)) ||
+            '';
+          const src = fromProfile || (m.id ? await memberAvatarUrl(m.id) : '');
           if (!cancelled && src) setAvatarUrl(src);
         } catch {
           /* chữ cái */

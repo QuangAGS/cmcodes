@@ -1,8 +1,10 @@
 /**
  * PATH       : frontend/src/features/mfo/lib/memberAvatarUrl.js
- * DATETIME   : 2026-09-24T15:25:00+07:00
- * VERSION    : 1.1.0-W2
+ * DATETIME   : 2026-10-26T09:55:00+07:00
+ * VERSION    : 1.1.1-KHONG-HO-SO
  * DESCRIPTION: Cùng kênh /me/profile — profile pack + media AVATAR.
+ * CHANGE LOG:
+ * - 2026-10-26T09:55:00+07:00 | 1.1.1 | Bỏ gọi lại hồ sơ thành viên. Giữ: ảnh riêng và media. Lý do: hồ sơ đã được trang gọi trước.
  */
 
 import apiClient from '../../../lib/apiClient.js';
@@ -39,14 +41,8 @@ export async function memberAvatarUrl(memberId) {
     return res.data?.data ?? res.data ?? {};
   };
 
+  // <2026-10-26T09:55:00+07:00> Mục đích: Không gọi lại hồ sơ. Lý do: trang đã có hồ sơ, lần này chỉ tìm ảnh.
   let url = '';
-  try {
-    const pack = await tryGet(`/members/${encodeURIComponent(id)}/profile`);
-    url = pickAvatar(pack) || pickAvatar(pack.member) || pickAvatar(pack.avatar);
-  } catch {
-    /* next */
-  }
-
   if (!url) {
     try {
       const me = await tryGet('/me/avatar');
