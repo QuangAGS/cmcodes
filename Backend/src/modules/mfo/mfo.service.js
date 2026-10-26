@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-26T11:09:00+07:00
- * VERSION    : 4.7.6-KHONG-EP-UUID
+ * DATETIME   : 2026-10-26T11:14:00+07:00
+ * VERSION    : 4.7.7-SONG-SONG
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -11,6 +11,7 @@
  * - 2026-10-26T10:55:00+07:00 | 4.7.4 | Thêm: dựng cây chỉ tải nhánh 5 đời. Bỏ: tải cả sổ và cả hôn nhân. Giữ: hình cây và các trường. Lý do: full-set mất gần 4 giây.
  * - 2026-10-26T11:02:00+07:00 | 4.7.5 | Thêm: lấy cả nhánh trong một câu. Bỏ: hỏi từng đời một. Giữ: hình cây. Lý do: nhiều vòng hỏi làm full-set vẫn 3,5 giây.
  * - 2026-10-26T11:09:00+07:00 | 4.7.6 | Bỏ ép uuid. Giữ: một câu lấy nhánh. Lý do: cột mã là chữ, ép uuid làm lỗi.
+ * - 2026-10-26T11:14:00+07:00 | 4.7.7 | Thêm: chạy song song giữ chỗ, nhánh, hôn nhân và ảnh. Bỏ: sáu câu nối tiếp. Giữ: hình cây. Lý do: full-set còn 2,9 giây.
  */
 
 const crypto = require('crypto');
@@ -431,22 +432,14 @@ const mfoService = {
       );
     }
 
-    const earlyConflict = await findHoldConflict(prisma, {
-      tenantId: targetMember.tenant_id,
-      memberIds: [targetId],
-      excludeRequesterId: actorIdOf(user),
-    });
-    if (earlyConflict) {
-      fail(
-        'MFO_HOLD_CONFLICT',
-        409,
-        'MFO_HOLD_CONFLICT',
-        { expires_at: earlyConflict.expires_at || null }
-      );
-    }
-
-    // <2026-10-26T11:02:00+07:00> Mục đích: Lấy cả nhánh trong một câu. Lý do: hỏi từng đời làm full-set vẫn 3,5 giây.
-    const branchRows = await prisma.$queryRaw`
+    // <2026-10-26T11:14:00+07:00> Mục đích: Giữ chỗ và nhánh chạy cùng lúc. Lý do: nối tiếp làm mất gần 3 giây.
+    const [earlyConflict, branchRows] = await Promise.all([
+      findHoldConflict(prisma, {
+        tenantId: targetMember.tenant_id,
+        memberIds: [targetId],
+        excludeRequesterId: actorIdOf(user),
+      }),
+      prisma.$queryRaw`
       WITH RECURSIVE up AS (
         SELECT id, father_id, mother_id, 0 AS steps
         FROM members
@@ -478,7 +471,16 @@ const mfoService = {
       FROM members m
       JOIN down ON m.id = down.id
       WHERE m.deleted_at IS NULL
-    `;
+    `,
+    ]);
+    if (earlyConflict) {
+      fail(
+        'MFO_HOLD_CONFLICT',
+        409,
+        'MFO_HOLD_CONFLICT',
+        { expires_at: earlyConflict.expires_at || null }
+      );
+    }
     const needed = new Map(branchRows.map((row) => [row.id, row]));
     if (!needed.has(targetMember.id)) needed.set(targetMember.id, targetMember);
     const branchIds = [...needed.keys()];
@@ -517,6 +519,7 @@ const mfoService = {
     }
     const all = [...needed.values()];
 
+    // <2026-10-26T11:14:00+07:00> Mục đích: Ảnh không chờ thêm vòng. Lý do: câu ảnh đứng sau hết.
     const avatarRows = await prisma.media.findMany({
       where: {
         tenant_id: targetMember.tenant_id,

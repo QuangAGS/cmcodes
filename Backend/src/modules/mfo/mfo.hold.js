@@ -1,6 +1,7 @@
 /**
  * PATH       : src/modules/mfo/mfo.hold.js
- * DATETIME   : 2026-10-10T21:25:00+07:00
+ * DATETIME   : 2026-10-26T11:14:00+07:00
+ * 2026-10-10T21:25:00+07:00
  * VERSION    : 1.0.0-AMENDMENT3-HOLD-SET
  * DESCRIPTION: Rút member_id thật để ghi hold_member_ids. Không kiểm giao nhau.
  */
@@ -72,8 +73,7 @@ const RELEASABLE = new Set(['DRAFT', 'NEEDS_REVISION', 'APPROVED']);
 function stillHolding(row, now) {
   if (!row || row.deleted_at) return false;
   if (!HOLDING_STATUSES.includes(row.status)) return false;
-  const payload = row.payload || {};
-  if (payload.result_ok === true) return false;
+  if (row.result_ok === true) return false;
   if (RELEASABLE.has(row.status) && row.expires_at && new Date(row.expires_at).getTime() <= now.getTime()) {
     return false;
   }
@@ -92,13 +92,14 @@ async function findHoldConflict(prisma, { tenantId, memberIds, excludeProposalId
       hold_member_ids: { hasSome: ids },
       ...(excludeProposalId ? { id: { not: excludeProposalId } } : {}),
       ...(excludeRequesterId ? { requester_user_id: { not: excludeRequesterId } } : {}),
+      // <2026-10-26T11:14:00+07:00> Mục đích: Lọc tờ đã ghi sổ ngay trong câu. Lý do: không kéo payload.
+      NOT: { payload: { path: ['result_ok'], equals: true } },
     },
     select: {
       id: true,
       status: true,
       requester_user_id: true,
       expires_at: true,
-      payload: true,
       hold_member_ids: true,
       deleted_at: true,
     },

@@ -12,7 +12,7 @@
  * - 2026-10-23T10:09:00+07:00 | 4.9.40 | Thêm: vòng quay trên cùng khi bận. Bỏ: chữ Đang gửi trên nút Trình. Giữ: Lưu nháp, Trình. Lý do: trạng thái bận hiện nhầm trên nút.
  * - 2026-10-23T11:27:00+07:00 | 4.9.41 | Thêm: cửa 2 kéo khung, kéo ô, chấm, nút cộng trừ, câu XT. Bỏ: pan và kéo tắt ở cửa 2. Giữ: cửa 1. Lý do: cửa 2 mất các thao tác cây.
  * - 2026-10-23T11:53:00+07:00 | 4.9.42 | Thêm: tờ khai cần sửa mở cửa 2. Bỏ: chỉ APPROVED mới là cửa 2. Giữ: nhánh cần sửa vẫn cửa 1. Lý do: trả sửa hạ trạng thái nên mở nhầm cửa 1.
- * - 2026-10-23T14:48:00+07:00 | 4.9.43 | Thêm: gỡ ô rỗng khi đời đã có người. Bỏ: ô rỗng còn sau khi thêm con. Giữ: ô rỗng khi đời chưa có ai. Lý do: đời đã có thành viên vẫn hiện ô rỗng.
+ * - 2026-10-26T11:14:00+07:00 | 4.9.48 | Thêm: cùng một người chỉ gọi full-set một lần. Bỏ: lần gọi thứ hai khi mở lại hiệu ứng. Giữ: gán người. Lý do: full-set bị gọi hai lần.\n * - 2026-10-23T14:48:00+07:00 | 4.9.43 | Thêm: gỡ ô rỗng khi đời đã có người. Bỏ: ô rỗng còn sau khi thêm con. Giữ: ô rỗng khi đời chưa có ai. Lý do: đời đã có thành viên vẫn hiện ô rỗng.
  * - 2026-10-24T14:07:00+07:00 | 4.9.45 | Thêm: thứ tự con từ cửa 1, cho sửa. Bỏ: ô khoá và trống. Giữ: số đã khai làm giá trị đầu. Lý do: cửa 2 không nhận và không sửa được thứ tự.
  * - 2026-10-24T15:49:00+07:00 | 4.9.46 | Thêm: lấy số từ delta khi ảnh mất số. Bỏ: lưu đè số thành trống. Giữ: ô cho sửa. Lý do: ảnh chụp bỏ số nên form trống.
  * - 2026-10-18T15:49:00+07:00 | 4.9.38 | Sửa tờ cần sửa không sinh tờ đang soạn mới.
@@ -64,6 +64,15 @@ import { resolveFooterNav } from '../lib/resolveFooterNav.js';
 import { MFO_VOICE_SELF } from '../features/mfo/constants/mfoVoiceHelp.self.js';
 import { toMfoUserMessage, MFO_USER_SUCCESS } from '../features/mfo/constants/mfoUserErrors.js';
 import { saveStaging, submitResult, createPlan, getFullMfoSet, savePlanDraft, getDraftPayload } from '../features/mfo/api/mfoApi.js';
+
+const fullSetInFlight = new Map();
+function loadFullSetOnce(memberId, depth) {
+  const key = `${memberId}:${depth}`;
+  if (fullSetInFlight.has(key)) return fullSetInFlight.get(key);
+  const job = getFullMfoSet(memberId, depth).finally(() => fullSetInFlight.delete(key));
+  fullSetInFlight.set(key, job);
+  return job;
+}
 import { buildMfoGraph } from '../features/mfo/lib/mfoGraphAdapter.js';
 import { fulfillViewFocus5L, getOriginMemberIdForSubmission } from '../shared/services/genealogyViewFocusService.js';
 import { sanitizeLines } from '../features/mfo/lib/sanitizeLines.js';
@@ -338,7 +347,7 @@ export function OpMfoPlanPage() {
       setOriginId(result?.resolvedRootMemberId || result?.originId || null);
       setLines(result?.lines || empty5Lines());
 
-      const payload = await getFullMfoSet(memberId, selected);
+      const payload = await loadFullSetOnce(memberId, selected);
       if (sequence === requestRef.current) {
         setFullSet(payload);
         setDraftSet(JSON.parse(JSON.stringify(payload)));
@@ -514,7 +523,7 @@ export function OpMfoPlanPage() {
       } else if (targetMemberId && !isUserMutatedRef.current && !fulfilledPickRef.current) {
         // <2026-10-16T09:11:00+07:00> Mục đích: Không gọi lại full-set. Lý do: fulfill đã gọi, gọi thêm làm Alarm xếp nhiều lần.
         const selected = Number(k);
-        getFullMfoSet(
+        loadFullSetOnce(
           targetMemberId,
           Number.isInteger(selected) && selected >= 0 && selected <= 4 ? selected : 0
         )
