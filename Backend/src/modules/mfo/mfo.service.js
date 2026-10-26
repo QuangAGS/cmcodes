@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-26T14:53:00+07:00
- * VERSION    : 4.7.11-BOT-GIU-CHO-DAU
+ * DATETIME   : 2026-10-26T15:09:00+07:00
+ * VERSION    : 4.7.12-GIU-CHO-NHE
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -15,6 +15,7 @@
  * - 2026-10-26T11:26:00+07:00 | 4.7.8 | Thêm: một câu lấy nhánh, hôn nhân, vợ chồng và ảnh. Bỏ: các câu đứng sau. Giữ: hình cây. Lý do: full-set tăng lại 3,8 giây.
  * - 2026-10-26T11:43:00+07:00 | 4.7.9 | Thêm: câu nhỏ lấy mã rồi hỏi song song. Bỏ: câu gộp row_to_json. Giữ: hình cây. Lý do: câu gộp làm chậm thêm.
  * - 2026-10-26T14:53:00+07:00 | 4.7.11 | Thêm: hỏi người sáng lập cùng vòng đầu. Bỏ: kiểm giữ chỗ ở đầu. Giữ: kiểm giữ chỗ lúc dựng xong. Lý do: hai lần kiểm và nhiều vòng làm chậm.
+ * - 2026-10-26T15:09:00+07:00 | 4.7.12 | Thêm: kiểm giữ chỗ cùng vòng lấy thành viên. Bỏ: kiểm đứng sau khi cây đã dựng. Giữ: báo xung đột. Lý do: vòng cuối làm full-set còn 2,6 giây.
  */
 
 const crypto = require('crypto');
@@ -475,7 +476,7 @@ const mfoService = {
       branch_id: true, is_clan: true, child_type: true, sibling_seq: true, birth_year: true,
       note: true, parent_union_id: true, tenant_id: true, deleted_at: true,
     };
-    const [branchMembers, unions] = await Promise.all([
+    const [branchMembers, unions, setConflict] = await Promise.all([
       prisma.members.findMany({
         where: { id: { in: branchIds }, tenant_id: targetMember.tenant_id, deleted_at: null },
         select: memberSelect,
@@ -492,7 +493,15 @@ const mfoService = {
           spouse_name_literal: true, note: true,
         },
       }),
+      findHoldConflict(prisma, {
+        tenantId: targetMember.tenant_id,
+        memberIds: branchIds,
+        excludeRequesterId: actorIdOf(user),
+      }),
     ]);
+    if (setConflict) {
+      fail('MFO_HOLD_CONFLICT', 409, 'MFO_HOLD_CONFLICT', { expires_at: setConflict.expires_at || null });
+    }
     const needed = new Map(branchMembers.map((row) => [row.id, row]));
     if (!needed.has(targetMember.id)) needed.set(targetMember.id, targetMember);
     const spouseIds = [...new Set(unions.flatMap((row) => [row.husband_id, row.wife_id]).filter((id) => id && !needed.has(id)))];
@@ -1104,21 +1113,6 @@ const mfoService = {
       rootCanvasDepth: rootDepth,
       resolvedAncestorSteps: actualAncestorSteps,
     });
-
-    const fulfilledIds = nodes.map((node) => node && node.id).filter(Boolean);
-    const setConflict = await findHoldConflict(prisma, {
-      tenantId: targetMember.tenant_id,
-      memberIds: fulfilledIds,
-      excludeRequesterId: actorIdOf(user),
-    });
-    if (setConflict) {
-      fail(
-        'MFO_HOLD_CONFLICT',
-        409,
-        'MFO_HOLD_CONFLICT',
-        { expires_at: setConflict.expires_at || null }
-      );
-    }
 
     return {
       request_context: {
