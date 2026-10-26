@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/mfo/api/mfoApi.js
- * DATETIME   : 2026-10-13T17:07:00+07:00
- * VERSION    : 5.1.0-LAT5
+ * DATETIME   : 2026-10-26T12:25:00+07:00
+ * VERSION    : 5.1.1-MOT-FULLSET
  * DESCRIPTION: Giữ toàn bộ exports; tách API trả sửa và không duyệt cửa 2.
  * RULE       : Q1 bảo tồn ngoài phạm vi; Q2 metadata và chú thích thời gian.
  */
@@ -15,6 +15,7 @@
  * - Cung cấp cả alias `listPlans` song song với `listMyPlans` / `listAdminPlans`.
  * - Giữ nguyên toàn bộ các hàm thao tác Sổ họ, Thành viên, Hôn nhân và Admin Review.
  * CHANGELOG  :
+ * - 2026-10-26T12:25:00+07:00 | 5.1.1 | Thêm: cùng một người chỉ gọi full-set một lần. Bỏ: lần gọi thứ hai từ dịch vụ lấy đời. Giữ: các hàm khác. Lý do: trang và dịch vụ cùng gọi.
  * - 2026-10-08: Thêm deleteDraft, deletePlanDraft, listPlans alias. 保 toàn 100% legacy exports.
  */
 
@@ -119,12 +120,26 @@ export function getOriginTree(originId) {
 
 /** Full-Set v2. Alias k. Không gọi /tree. */
 /** <2026-10-13T17:07:00+07:00> Mục đích: Giữ xử lý getFullMfoSet; thay đổi chỉ trong thao tác admin lát 5. */
+const fullSetFlight = new Map();
 export async function getFullMfoSet(targetMemberId, selectedCanvasDepth = 0) {
+  const key = String(targetMemberId);
+  const hit = fullSetFlight.get(key);
+  if (hit && hit.data && Date.now() - hit.at < 15000) return hit.data;
+  if (hit && hit.job) return hit.job;
   const depth = Number(selectedCanvasDepth);
-  const res = await apiClient.get(`/mfo/origins/${targetMemberId}/full-set`, {
+  const job = apiClient.get(`/mfo/origins/${targetMemberId}/full-set`, {
     params: { k: depth },
+  }).then((res) => {
+    const data = res.data && res.data.data != null ? res.data.data : res.data;
+    fullSetFlight.set(key, { at: Date.now(), data, job: null });
+    return data;
+  }).catch((error) => {
+    fullSetFlight.delete(key);
+    throw error;
   });
-  return res.data && res.data.data != null ? res.data.data : res.data;
+  // <2026-10-26T12:25:00+07:00> Mục đích: Khoá trước khi gọi. Lý do: trang và dịch vụ lấy đời cùng gọi một người.
+  fullSetFlight.set(key, { at: Date.now(), data: null, job });
+  return job;
 }
 
 
