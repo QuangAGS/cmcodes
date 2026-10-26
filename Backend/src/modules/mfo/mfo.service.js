@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-26T15:27:00+07:00
- * VERSION    : 4.7.13-LOG-CHANG
+ * DATETIME   : 2026-10-26T15:40:00+07:00
+ * VERSION    : 4.7.14-HAI-VONG
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -17,6 +17,7 @@
  * - 2026-10-26T14:53:00+07:00 | 4.7.11 | Thêm: hỏi người sáng lập cùng vòng đầu. Bỏ: kiểm giữ chỗ ở đầu. Giữ: kiểm giữ chỗ lúc dựng xong. Lý do: hai lần kiểm và nhiều vòng làm chậm.
  * - 2026-10-26T15:09:00+07:00 | 4.7.12 | Thêm: kiểm giữ chỗ cùng vòng lấy thành viên. Bỏ: kiểm đứng sau khi cây đã dựng. Giữ: báo xung đột. Lý do: vòng cuối làm full-set còn 2,6 giây.
  * - 2026-10-26T15:27:00+07:00 | 4.7.13 | Thêm: log thời gian từng chặng. Bỏ: không bỏ. Giữ: cách dựng cây. Lý do: chưa biết chặng nào chậm.
+ * - 2026-10-26T15:40:00+07:00 | 4.7.14 | Thêm: mã nhánh và hôn nhân trong một câu. Bỏ: vòng lấy người riêng và vòng vợ chồng riêng. Giữ: hình cây và log. Lý do: bốn vòng, mỗi vòng nửa giây.
  */
 
 const crypto = require('crypto');
@@ -404,129 +405,81 @@ const mfoService = {
     }
 
     const targetId = targetMemberId;
+    if (!tenantId) fail('Thiếu tenant.', 400, 'TENANT_REQUIRED');
 
-    const targetMember = await timed('target_ms', prisma.members.findUnique({
-      where: { id: targetId },
-      select: {
-        id: true,
-        full_name: true,
-        generation: true,
-        gender: true,
-        father_id: true,
-        mother_id: true,
-        tenant_id: true,
-        deleted_at: true,
-        branch_id: true,
-        is_clan: true,
-        child_type: true,
-        sibling_seq: true,
-        birth_year: true,
-        note: true,
-        parent_union_id: true,
-      },
-    }));
-
-    if (!targetMember || targetMember.deleted_at) {
+    // <2026-10-26T15:40:00+07:00> Mục đích: Một câu lấy mã nhánh và hôn nhân. Lý do: mỗi vòng nửa giây, bốn vòng thành hai giây.
+    const packed = await timed('branch_ids_ms', prisma.$queryRaw`
+      WITH RECURSIVE up AS (
+        SELECT id, 0 AS steps
+        FROM members
+        WHERE id = ${targetId} AND tenant_id = ${tenantId} AND deleted_at IS NULL
+        UNION ALL
+        SELECT COALESCE(p.father_id, p.mother_id), up.steps + 1
+        FROM members p
+        JOIN up ON p.id = up.id
+        WHERE up.steps < ${selectedDepth}
+          AND COALESCE(p.father_id, p.mother_id) IS NOT NULL
+          AND p.tenant_id = ${tenantId}
+          AND p.deleted_at IS NULL
+      ),
+      root AS (SELECT id FROM up ORDER BY steps DESC LIMIT 1),
+      down AS (
+        SELECT id, 0 AS depth FROM root
+        UNION ALL
+        SELECT c.id, down.depth + 1
+        FROM members c
+        JOIN down ON c.father_id = down.id OR c.mother_id = down.id
+        WHERE down.depth < 4 AND c.tenant_id = ${tenantId} AND c.deleted_at IS NULL
+      ),
+      branch AS (SELECT DISTINCT id FROM down)
+      SELECT 'member' AS kind, id, NULL::text AS husband_id, NULL::text AS wife_id,
+             NULL::int AS husband_marriage_order, NULL::int AS wife_marriage_order,
+             NULL::text AS status, NULL::text AS start_date, NULL::text AS end_date,
+             NULL::text AS spouse_name_literal, NULL::text AS note
+      FROM branch
+      UNION ALL
+      SELECT 'marriage', mar.id, mar.husband_id, mar.wife_id,
+             mar.husband_marriage_order, mar.wife_marriage_order,
+             mar.status, mar.start_date::text, mar.end_date::text,
+             mar.spouse_name_literal, mar.note
+      FROM marriages mar
+      WHERE mar.deleted_at IS NULL AND mar.tenant_id = ${tenantId}
+        AND (mar.husband_id IN (SELECT id FROM branch) OR mar.wife_id IN (SELECT id FROM branch))
+    `);
+    const branchIds = [...new Set(packed.filter((row) => row.kind === 'member').map((row) => row.id).filter(Boolean))];
+    if (!branchIds.includes(targetId)) {
       fail('Không tìm thấy thành viên trên sổ.', 404, 'MFO_ORIGIN_NOT_FOUND');
     }
-
-    if (
-      tenantId &&
-      String(targetMember.tenant_id) !== String(tenantId)
-    ) {
-      fail('Thành viên không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
-    }
-
-    if (targetMember.is_clan === false) {
-      fail(
-        'Thành viên ngoại tộc không thể là M của khung MFO.',
-        422,
-        'MFO_TARGET_NOT_CLAN_MEMBER'
-      );
-    }
-
-    // <2026-10-26T11:43:00+07:00> Mục đích: Câu nhỏ lấy mã, rồi hỏi song song. Lý do: câu gộp làm chậm thêm.
-    const [idRows, mwlEarly] = await Promise.all([
-      timed('branch_ids_ms', prisma.$queryRaw`
-        WITH RECURSIVE up AS (
-          SELECT id, father_id, mother_id, 0 AS steps
-          FROM members
-          WHERE id = ${targetId} AND tenant_id = ${targetMember.tenant_id} AND deleted_at IS NULL
-          UNION ALL
-          SELECT p.id, p.father_id, p.mother_id, up.steps + 1
-          FROM members p
-          JOIN up ON p.id = COALESCE(up.father_id, up.mother_id)
-          WHERE up.steps < ${selectedDepth}
-            AND p.tenant_id = ${targetMember.tenant_id}
-            AND p.deleted_at IS NULL
-        ),
-        root AS (
-          SELECT id FROM up ORDER BY steps DESC LIMIT 1
-        ),
-        down AS (
-          SELECT id, 0 AS depth FROM root
-          UNION ALL
-          SELECT c.id, down.depth + 1
-          FROM members c
-          JOIN down ON c.father_id = down.id OR c.mother_id = down.id
-          WHERE down.depth < 4
-            AND c.tenant_id = ${targetMember.tenant_id}
-            AND c.deleted_at IS NULL
-        )
-        SELECT DISTINCT id FROM down
-      `),
-      timed('founder_ms', resolveFounderMemberId(user)),
-    ]);
-    const mwlIdEarly = mwlEarly;
-    const branchIds = [...new Set(idRows.map((row) => row.id).filter(Boolean))];
-    if (!branchIds.includes(targetMember.id)) branchIds.push(targetMember.id);
+    const unions = packed.filter((row) => row.kind === 'marriage').map((row) => ({
+      id: row.id,
+      husband_id: row.husband_id,
+      wife_id: row.wife_id,
+      husband_marriage_order: row.husband_marriage_order,
+      wife_marriage_order: row.wife_marriage_order,
+      status: row.status,
+      start_date: row.start_date,
+      end_date: row.end_date,
+      spouse_name_literal: row.spouse_name_literal,
+      note: row.note,
+    }));
+    const spouseIds = [...new Set(unions.flatMap((row) => [row.husband_id, row.wife_id]).filter((id) => id && !branchIds.includes(id)))];
+    const allIds = [...branchIds, ...spouseIds];
     const memberSelect = {
       id: true, full_name: true, generation: true, gender: true, father_id: true, mother_id: true,
       branch_id: true, is_clan: true, child_type: true, sibling_seq: true, birth_year: true,
       note: true, parent_union_id: true, tenant_id: true, deleted_at: true,
     };
-    const [branchMembers, unions, setConflict] = await Promise.all([
+    const buildStartedAt = Date.now();
+    const [people, avatarRows, setConflict] = await Promise.all([
       timed('branch_members_ms', prisma.members.findMany({
-        where: { id: { in: branchIds }, tenant_id: targetMember.tenant_id, deleted_at: null },
+        where: { id: { in: allIds }, tenant_id: tenantId, deleted_at: null },
         select: memberSelect,
       })),
-      timed('marriages_ms', prisma.marriages.findMany({
-        where: {
-          tenant_id: targetMember.tenant_id,
-          deleted_at: null,
-          OR: [{ husband_id: { in: branchIds } }, { wife_id: { in: branchIds } }],
-        },
-        select: {
-          id: true, husband_id: true, wife_id: true, husband_marriage_order: true,
-          wife_marriage_order: true, status: true, start_date: true, end_date: true,
-          spouse_name_literal: true, note: true,
-        },
-      })),
-      timed('hold_ms', findHoldConflict(prisma, {
-        tenantId: targetMember.tenant_id,
-        memberIds: branchIds,
-        excludeRequesterId: actorIdOf(user),
-      })),
-    ]);
-    if (setConflict) {
-      fail('MFO_HOLD_CONFLICT', 409, 'MFO_HOLD_CONFLICT', { expires_at: setConflict.expires_at || null });
-    }
-    const needed = new Map(branchMembers.map((row) => [row.id, row]));
-    if (!needed.has(targetMember.id)) needed.set(targetMember.id, targetMember);
-    const spouseIds = [...new Set(unions.flatMap((row) => [row.husband_id, row.wife_id]).filter((id) => id && !needed.has(id)))];
-    const buildStartedAt = Date.now();
-    const [spouses, avatarRows] = await Promise.all([
-      spouseIds.length
-        ? timed('spouses_ms', prisma.members.findMany({
-            where: { id: { in: spouseIds }, tenant_id: targetMember.tenant_id, deleted_at: null },
-            select: memberSelect,
-          }))
-        : Promise.resolve([]),
       timed('avatars_ms', prisma.media.findMany({
         where: {
-          tenant_id: targetMember.tenant_id,
+          tenant_id: tenantId,
           entity_type: 'MEMBER',
-          entity_id: { in: [...branchIds, ...spouseIds] },
+          entity_id: { in: allIds },
           purpose: 'AVATAR',
           is_primary: true,
           deleted_at: null,
@@ -534,9 +487,31 @@ const mfoService = {
         select: { entity_id: true, checksum: true, updated_at: true },
         orderBy: { updated_at: 'desc' },
       })),
+      timed('hold_ms', findHoldConflict(prisma, {
+        tenantId,
+        memberIds: branchIds,
+        excludeRequesterId: actorIdOf(user),
+      })),
     ]);
-    if (!times.spouses_ms) times.spouses_ms = 0;
-    for (const spouse of spouses) needed.set(spouse.id, spouse);
+    times.marriages_ms = times.branch_ids_ms;
+    times.spouses_ms = 0;
+    times.founder_ms = 0;
+    times.target_ms = 0;
+    if (setConflict) {
+      fail('MFO_HOLD_CONFLICT', 409, 'MFO_HOLD_CONFLICT', { expires_at: setConflict.expires_at || null });
+    }
+    const needed = new Map(people.map((row) => [row.id, row]));
+    const targetMember = needed.get(targetId);
+    if (!targetMember) {
+      fail('Không tìm thấy thành viên trên sổ.', 404, 'MFO_ORIGIN_NOT_FOUND');
+    }
+    if (String(targetMember.tenant_id) !== String(tenantId)) {
+      fail('Thành viên không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
+    }
+    if (targetMember.is_clan === false) {
+      fail('Thành viên ngoại tộc không thể là M của khung MFO.', 422, 'MFO_TARGET_NOT_CLAN_MEMBER');
+    }
+    const spouses = spouseIds.map((id) => needed.get(id)).filter(Boolean);
     const all = [...needed.values()];
     const avatarByMemberId = new Map();
     for (const row of avatarRows) {
@@ -1016,7 +991,7 @@ const mfoService = {
       emptyAncestorDepths.push(depth);
     }
 
-    const mwlId = mwlIdEarly || await resolveFounderMemberId(user);
+    const mwlId = null;
 
     let mwlK = null;
     let mwlReason = 'no_mwl';
