@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-26T15:40:00+07:00
- * VERSION    : 4.7.14-HAI-VONG
+ * DATETIME   : 2026-10-26T15:47:00+07:00
+ * VERSION    : 4.7.15-EP-KIEU
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -18,6 +18,7 @@
  * - 2026-10-26T15:09:00+07:00 | 4.7.12 | Thêm: kiểm giữ chỗ cùng vòng lấy thành viên. Bỏ: kiểm đứng sau khi cây đã dựng. Giữ: báo xung đột. Lý do: vòng cuối làm full-set còn 2,6 giây.
  * - 2026-10-26T15:27:00+07:00 | 4.7.13 | Thêm: log thời gian từng chặng. Bỏ: không bỏ. Giữ: cách dựng cây. Lý do: chưa biết chặng nào chậm.
  * - 2026-10-26T15:40:00+07:00 | 4.7.14 | Thêm: mã nhánh và hôn nhân trong một câu. Bỏ: vòng lấy người riêng và vòng vợ chồng riêng. Giữ: hình cây và log. Lý do: bốn vòng, mỗi vòng nửa giây.
+ * - 2026-10-26T15:47:00+07:00 | 4.7.15 | Thêm: ép trạng thái hôn nhân về chữ. Bỏ: không bỏ. Giữ: hai vòng. Lý do: kiểu riêng không ghép được với chữ.
  */
 
 const crypto = require('crypto');
@@ -440,7 +441,7 @@ const mfoService = {
       UNION ALL
       SELECT 'marriage', mar.id, mar.husband_id, mar.wife_id,
              mar.husband_marriage_order, mar.wife_marriage_order,
-             mar.status, mar.start_date::text, mar.end_date::text,
+             mar.status::text, mar.start_date::text, mar.end_date::text,
              mar.spouse_name_literal, mar.note
       FROM marriages mar
       WHERE mar.deleted_at IS NULL AND mar.tenant_id = ${tenantId}
