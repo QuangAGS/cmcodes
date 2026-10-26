@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-26T11:14:00+07:00
- * VERSION    : 4.7.7-SONG-SONG
+ * DATETIME   : 2026-10-26T11:26:00+07:00
+ * VERSION    : 4.7.8-MOT-VONG
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -12,6 +12,7 @@
  * - 2026-10-26T11:02:00+07:00 | 4.7.5 | Thêm: lấy cả nhánh trong một câu. Bỏ: hỏi từng đời một. Giữ: hình cây. Lý do: nhiều vòng hỏi làm full-set vẫn 3,5 giây.
  * - 2026-10-26T11:09:00+07:00 | 4.7.6 | Bỏ ép uuid. Giữ: một câu lấy nhánh. Lý do: cột mã là chữ, ép uuid làm lỗi.
  * - 2026-10-26T11:14:00+07:00 | 4.7.7 | Thêm: chạy song song giữ chỗ, nhánh, hôn nhân và ảnh. Bỏ: sáu câu nối tiếp. Giữ: hình cây. Lý do: full-set còn 2,9 giây.
+ * - 2026-10-26T11:26:00+07:00 | 4.7.8 | Thêm: một câu lấy nhánh, hôn nhân, vợ chồng và ảnh. Bỏ: các câu đứng sau. Giữ: hình cây. Lý do: full-set tăng lại 3,8 giây.
  */
 
 const crypto = require('crypto');
@@ -432,8 +433,8 @@ const mfoService = {
       );
     }
 
-    // <2026-10-26T11:14:00+07:00> Mục đích: Giữ chỗ và nhánh chạy cùng lúc. Lý do: nối tiếp làm mất gần 3 giây.
-    const [earlyConflict, branchRows] = await Promise.all([
+    // <2026-10-26T11:26:00+07:00> Mục đích: Một vòng lấy đủ nhánh, hôn nhân và ảnh. Lý do: nhiều câu làm full-set 3,8 giây.
+    const [earlyConflict, packed] = await Promise.all([
       findHoldConflict(prisma, {
         tenantId: targetMember.tenant_id,
         memberIds: [targetId],
@@ -441,16 +442,15 @@ const mfoService = {
       }),
       prisma.$queryRaw`
       WITH RECURSIVE up AS (
-        SELECT id, father_id, mother_id, 0 AS steps
+        SELECT id, 0 AS steps
         FROM members
         WHERE id = ${targetId} AND deleted_at IS NULL
         UNION ALL
-        SELECT p.id, p.father_id, p.mother_id, up.steps + 1
+        SELECT COALESCE(p.father_id, p.mother_id), up.steps + 1
         FROM members p
-        JOIN up ON p.id = COALESCE(up.father_id, up.mother_id)
+        JOIN up ON p.id = up.id
         WHERE up.steps < ${selectedDepth}
-          AND p.deleted_at IS NULL
-          AND p.tenant_id = ${targetMember.tenant_id}
+          AND COALESCE(p.father_id, p.mother_id) IS NOT NULL
       ),
       root AS (
         SELECT id FROM up ORDER BY steps DESC LIMIT 1
@@ -464,13 +464,48 @@ const mfoService = {
         WHERE down.depth < 4
           AND c.deleted_at IS NULL
           AND c.tenant_id = ${targetMember.tenant_id}
+      ),
+      branch AS (
+        SELECT m.id FROM members m
+        JOIN down ON m.id = down.id
+        WHERE m.deleted_at IS NULL
+      ),
+      unions AS (
+        SELECT mar.id, mar.husband_id, mar.wife_id
+        FROM marriages mar
+        WHERE mar.deleted_at IS NULL
+          AND mar.tenant_id = ${targetMember.tenant_id}
+          AND (mar.husband_id IN (SELECT id FROM branch) OR mar.wife_id IN (SELECT id FROM branch))
       )
-      SELECT DISTINCT m.id, m.full_name, m.generation, m.gender, m.father_id, m.mother_id,
-        m.branch_id, m.is_clan, m.child_type, m.sibling_seq, m.birth_year, m.note,
-        m.parent_union_id, m.tenant_id, m.deleted_at
+      SELECT 'member' AS kind, row_to_json(m) AS data
       FROM members m
-      JOIN down ON m.id = down.id
-      WHERE m.deleted_at IS NULL
+      WHERE m.deleted_at IS NULL AND m.tenant_id = ${targetMember.tenant_id}
+        AND m.id IN (
+          SELECT id FROM branch
+          UNION
+          SELECT husband_id FROM unions WHERE husband_id IS NOT NULL
+          UNION
+          SELECT wife_id FROM unions WHERE wife_id IS NOT NULL
+        )
+      UNION ALL
+      SELECT 'marriage', row_to_json(mar)
+      FROM marriages mar
+      WHERE mar.id IN (SELECT id FROM unions)
+      UNION ALL
+      SELECT 'avatar', row_to_json(med)
+      FROM media med
+      WHERE med.deleted_at IS NULL
+        AND med.tenant_id = ${targetMember.tenant_id}
+        AND med.entity_type = 'MEMBER'
+        AND med.purpose = 'AVATAR'
+        AND med.is_primary = true
+        AND med.entity_id IN (
+          SELECT id FROM branch
+          UNION
+          SELECT husband_id FROM unions WHERE husband_id IS NOT NULL
+          UNION
+          SELECT wife_id FROM unions WHERE wife_id IS NOT NULL
+        )
     `,
     ]);
     if (earlyConflict) {
@@ -481,61 +516,18 @@ const mfoService = {
         { expires_at: earlyConflict.expires_at || null }
       );
     }
+    const branchRows = [];
+    const unions = [];
+    const avatarRows = [];
+    for (const row of packed) {
+      const data = row.data || {};
+      if (row.kind === 'member') branchRows.push(data);
+      else if (row.kind === 'marriage') unions.push(data);
+      else if (row.kind === 'avatar') avatarRows.push(data);
+    }
     const needed = new Map(branchRows.map((row) => [row.id, row]));
     if (!needed.has(targetMember.id)) needed.set(targetMember.id, targetMember);
-    const branchIds = [...needed.keys()];
-    const unions = branchIds.length
-      ? await prisma.marriages.findMany({
-          where: {
-            tenant_id: targetMember.tenant_id,
-            deleted_at: null,
-            OR: [{ husband_id: { in: branchIds } }, { wife_id: { in: branchIds } }],
-          },
-          select: {
-            id: true,
-            husband_id: true,
-            wife_id: true,
-            husband_marriage_order: true,
-            wife_marriage_order: true,
-            status: true,
-            start_date: true,
-            end_date: true,
-            spouse_name_literal: true,
-            note: true,
-          },
-        })
-      : [];
-    const spouseIds = [...new Set(unions.flatMap((row) => [row.husband_id, row.wife_id]).filter((id) => id && !needed.has(id)))];
-    if (spouseIds.length) {
-      const spouses = await prisma.members.findMany({
-        where: { id: { in: spouseIds }, tenant_id: targetMember.tenant_id, deleted_at: null },
-        select: {
-          id: true, full_name: true, generation: true, gender: true, father_id: true, mother_id: true,
-          branch_id: true, is_clan: true, child_type: true, sibling_seq: true, birth_year: true,
-          note: true, parent_union_id: true, tenant_id: true, deleted_at: true,
-        },
-      });
-      for (const spouse of spouses) needed.set(spouse.id, spouse);
-    }
     const all = [...needed.values()];
-
-    // <2026-10-26T11:14:00+07:00> Mục đích: Ảnh không chờ thêm vòng. Lý do: câu ảnh đứng sau hết.
-    const avatarRows = await prisma.media.findMany({
-      where: {
-        tenant_id: targetMember.tenant_id,
-        entity_type: 'MEMBER',
-        entity_id: { in: all.map((member) => member.id).filter(Boolean) },
-        purpose: 'AVATAR',
-        is_primary: true,
-        deleted_at: null,
-      },
-      select: {
-        entity_id: true,
-        checksum: true,
-        updated_at: true,
-      },
-      orderBy: { updated_at: 'desc' },
-    });
     const avatarByMemberId = new Map();
     for (const row of avatarRows) {
       if (!avatarByMemberId.has(row.entity_id)) avatarByMemberId.set(row.entity_id, row);

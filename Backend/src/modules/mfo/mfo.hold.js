@@ -92,8 +92,6 @@ async function findHoldConflict(prisma, { tenantId, memberIds, excludeProposalId
       hold_member_ids: { hasSome: ids },
       ...(excludeProposalId ? { id: { not: excludeProposalId } } : {}),
       ...(excludeRequesterId ? { requester_user_id: { not: excludeRequesterId } } : {}),
-      // <2026-10-26T11:14:00+07:00> Mục đích: Lọc tờ đã ghi sổ ngay trong câu. Lý do: không kéo payload.
-      NOT: { payload: { path: ['result_ok'], equals: true } },
     },
     select: {
       id: true,

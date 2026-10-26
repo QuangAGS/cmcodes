@@ -65,12 +65,20 @@ import { MFO_VOICE_SELF } from '../features/mfo/constants/mfoVoiceHelp.self.js';
 import { toMfoUserMessage, MFO_USER_SUCCESS } from '../features/mfo/constants/mfoUserErrors.js';
 import { saveStaging, submitResult, createPlan, getFullMfoSet, savePlanDraft, getDraftPayload } from '../features/mfo/api/mfoApi.js';
 
-const fullSetInFlight = new Map();
+const fullSetCache = new Map();
 function loadFullSetOnce(memberId, depth) {
   const key = `${memberId}:${depth}`;
-  if (fullSetInFlight.has(key)) return fullSetInFlight.get(key);
-  const job = getFullMfoSet(memberId, depth).finally(() => fullSetInFlight.delete(key));
-  fullSetInFlight.set(key, job);
+  const hit = fullSetCache.get(key);
+  if (hit && Date.now() - hit.at < 15000) return Promise.resolve(hit.data);
+  if (hit && hit.job) return hit.job;
+  const job = getFullMfoSet(memberId, depth).then((data) => {
+    fullSetCache.set(key, { at: Date.now(), data });
+    return data;
+  }).finally(() => {
+    const current = fullSetCache.get(key);
+    if (current && current.job) fullSetCache.set(key, { at: current.at, data: current.data });
+  });
+  fullSetCache.set(key, { at: 0, job });
   return job;
 }
 import { buildMfoGraph } from '../features/mfo/lib/mfoGraphAdapter.js';
