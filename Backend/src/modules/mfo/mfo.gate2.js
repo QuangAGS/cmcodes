@@ -1,10 +1,12 @@
 /**
  * PATH       : backend/src/modules/mfo/mfo.gate2.js
- * DATETIME   : 2026-10-22T12:18:00+07:00
+ * DATETIME   : 2026-10-26T10:37:00+07:00
+ * 2026-10-22T12:18:00+07:00
  * VERSION    : 1.2.6-BOOK-RULES
  * DESCRIPTION: Ghi sổ lúc duyệt Cửa 2. Đời lấy từ sổ. is_clan lấy từ khẳng định. status = CHINH_THUC. Tối ưu hoá Transaction chống timeout P2028 & Ghi nhận branch_id + alias.
  *
  * CHANGE LOG:
+ * - 2026-10-26T10:37:00+07:00 | Xoá hạn giữ khi ghi sổ. Lý do: duyệt xong expires_at vẫn còn.
  * - 2026-10-12T17:30:00+07:00 | 1.2.0 | Đời lấy từ sổ. Nội tộc lấy từ khẳng định.
  * - 2026-10-17T14:18:00+07:00 | 1.2.1 | Đọc sibling_seq. Cập nhật con có sẵn, không tạo người mới.
  * - 2026-10-17T15:04:00+07:00 | 1.2.2 | Con mới tìm hôn nhân bằng mã hai người.
@@ -249,6 +251,12 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
       },
     });
   }
+
+  // <2026-10-26T10:37:00+07:00> Mục đích: Ghi sổ xong thì bỏ hạn giữ. Lý do: tờ đã chốt không còn giữ chỗ.
+  await tx.proposals.update({
+    where: { id: proposal.id },
+    data: { expires_at: null, hold_member_ids: [] },
+  });
 
   return {
     created_member_ids: Array.from(memberMap.values()),

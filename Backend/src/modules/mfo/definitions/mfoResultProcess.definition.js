@@ -1,12 +1,13 @@
 /**
  * PATH       : Backend/src/modules/mfo/definitions/mfoResultProcess.definition.js
- * DATETIME   : 2026-10-22T10:59:00+07:00
- * VERSION    : 3.0.1-RETURN-STATUS
+ * DATETIME   : 2026-10-26T10:37:00+07:00
+ * VERSION    : 3.0.2-XA-HAN
  * DESCRIPTION: Bổ sung lịch sử, giữ ma trận trạng thái, guards và tác vụ DB hiện có.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
  * CHANGE LOG:
  * - 2026-10-22T10:59:00+07:00 | 3.0.1 | Thêm: trả sửa ghi NEEDS_REVISION và hạ result_submitted. Bỏ: header thứ hai. Giữ: ghi sổ chỉ lúc APPROVED. Lý do: hai header làm mất dấu vết.
+ * - 2026-10-26T10:37:00+07:00 | 3.0.2 | Thêm: xoá hạn ngay trong ghi sổ. Bỏ: chỉ xoá ở bước sau. Giữ: trạng thái đã duyệt. Lý do: hạn còn sau khi ghi sổ.
  */
 'use strict';
 
