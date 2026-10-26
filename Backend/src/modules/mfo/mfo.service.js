@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-26T12:31:00+07:00
- * VERSION    : 4.7.10-CTE-MOT-VONG
+ * DATETIME   : 2026-10-26T11:43:00+07:00
+ * VERSION    : 4.7.9-CTE-SONG-SONG
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -13,7 +13,7 @@
  * - 2026-10-26T11:09:00+07:00 | 4.7.6 | Bỏ ép uuid. Giữ: một câu lấy nhánh. Lý do: cột mã là chữ, ép uuid làm lỗi.
  * - 2026-10-26T11:14:00+07:00 | 4.7.7 | Thêm: chạy song song giữ chỗ, nhánh, hôn nhân và ảnh. Bỏ: sáu câu nối tiếp. Giữ: hình cây. Lý do: full-set còn 2,9 giây.
  * - 2026-10-26T11:26:00+07:00 | 4.7.8 | Thêm: một câu lấy nhánh, hôn nhân, vợ chồng và ảnh. Bỏ: các câu đứng sau. Giữ: hình cây. Lý do: full-set tăng lại 3,8 giây.
- * - 2026-10-26T12:31:00+07:00 | 4.7.10 | Thêm: câu nhỏ lấy mã, một vòng hỏi phần còn lại. Bỏ: câu gộp row_to_json. Giữ: hình cây. Lý do: câu gộp làm một lần gọi thành 2,2 giây.
+ * - 2026-10-26T11:43:00+07:00 | 4.7.9 | Thêm: câu nhỏ lấy mã rồi hỏi song song. Bỏ: câu gộp row_to_json. Giữ: hình cây. Lý do: câu gộp làm chậm thêm.
  */
 
 const crypto = require('crypto');
@@ -434,7 +434,7 @@ const mfoService = {
       );
     }
 
-    // <2026-10-26T12:31:00+07:00> Mục đích: Câu nhỏ lấy mã, một vòng hỏi phần còn lại. Lý do: câu gộp làm một lần gọi thành 2,2 giây.
+    // <2026-10-26T11:43:00+07:00> Mục đích: Câu nhỏ lấy mã, rồi hỏi song song. Lý do: câu gộp làm chậm thêm.
     const [earlyConflict, idRows] = await Promise.all([
       findHoldConflict(prisma, {
         tenantId: targetMember.tenant_id,
@@ -443,32 +443,40 @@ const mfoService = {
       }),
       prisma.$queryRaw`
         WITH RECURSIVE up AS (
-          SELECT id, 0 AS steps
+          SELECT id, father_id, mother_id, 0 AS steps
           FROM members
           WHERE id = ${targetId} AND tenant_id = ${targetMember.tenant_id} AND deleted_at IS NULL
           UNION ALL
-          SELECT COALESCE(p.father_id, p.mother_id), up.steps + 1
+          SELECT p.id, p.father_id, p.mother_id, up.steps + 1
           FROM members p
-          JOIN up ON p.id = up.id
+          JOIN up ON p.id = COALESCE(up.father_id, up.mother_id)
           WHERE up.steps < ${selectedDepth}
-            AND COALESCE(p.father_id, p.mother_id) IS NOT NULL
             AND p.tenant_id = ${targetMember.tenant_id}
             AND p.deleted_at IS NULL
         ),
-        root AS (SELECT id FROM up ORDER BY steps DESC LIMIT 1),
+        root AS (
+          SELECT id FROM up ORDER BY steps DESC LIMIT 1
+        ),
         down AS (
           SELECT id, 0 AS depth FROM root
           UNION ALL
           SELECT c.id, down.depth + 1
           FROM members c
           JOIN down ON c.father_id = down.id OR c.mother_id = down.id
-          WHERE down.depth < 4 AND c.tenant_id = ${targetMember.tenant_id} AND c.deleted_at IS NULL
+          WHERE down.depth < 4
+            AND c.tenant_id = ${targetMember.tenant_id}
+            AND c.deleted_at IS NULL
         )
         SELECT DISTINCT id FROM down
       `,
     ]);
     if (earlyConflict) {
-      fail('MFO_HOLD_CONFLICT', 409, 'MFO_HOLD_CONFLICT', { expires_at: earlyConflict.expires_at || null });
+      fail(
+        'MFO_HOLD_CONFLICT',
+        409,
+        'MFO_HOLD_CONFLICT',
+        { expires_at: earlyConflict.expires_at || null }
+      );
     }
     const branchIds = [...new Set(idRows.map((row) => row.id).filter(Boolean))];
     if (!branchIds.includes(targetMember.id)) branchIds.push(targetMember.id);
@@ -477,7 +485,7 @@ const mfoService = {
       branch_id: true, is_clan: true, child_type: true, sibling_seq: true, birth_year: true,
       note: true, parent_union_id: true, tenant_id: true, deleted_at: true,
     };
-    const [branchMembers, unions, avatarRows] = await Promise.all([
+    const [branchMembers, unions] = await Promise.all([
       prisma.members.findMany({
         where: { id: { in: branchIds }, tenant_id: targetMember.tenant_id, deleted_at: null },
         select: memberSelect,
@@ -494,11 +502,22 @@ const mfoService = {
           spouse_name_literal: true, note: true,
         },
       }),
+    ]);
+    const needed = new Map(branchMembers.map((row) => [row.id, row]));
+    if (!needed.has(targetMember.id)) needed.set(targetMember.id, targetMember);
+    const spouseIds = [...new Set(unions.flatMap((row) => [row.husband_id, row.wife_id]).filter((id) => id && !needed.has(id)))];
+    const [spouses, avatarRows] = await Promise.all([
+      spouseIds.length
+        ? prisma.members.findMany({
+            where: { id: { in: spouseIds }, tenant_id: targetMember.tenant_id, deleted_at: null },
+            select: memberSelect,
+          })
+        : Promise.resolve([]),
       prisma.media.findMany({
         where: {
           tenant_id: targetMember.tenant_id,
           entity_type: 'MEMBER',
-          entity_id: { in: branchIds },
+          entity_id: { in: [...branchIds, ...spouseIds] },
           purpose: 'AVATAR',
           is_primary: true,
           deleted_at: null,
@@ -507,16 +526,7 @@ const mfoService = {
         orderBy: { updated_at: 'desc' },
       }),
     ]);
-    const needed = new Map(branchMembers.map((row) => [row.id, row]));
-    if (!needed.has(targetMember.id)) needed.set(targetMember.id, targetMember);
-    const spouseIds = [...new Set(unions.flatMap((row) => [row.husband_id, row.wife_id]).filter((id) => id && !needed.has(id)))];
-    if (spouseIds.length) {
-      const spouses = await prisma.members.findMany({
-        where: { id: { in: spouseIds }, tenant_id: targetMember.tenant_id, deleted_at: null },
-        select: memberSelect,
-      });
-      for (const spouse of spouses) needed.set(spouse.id, spouse);
-    }
+    for (const spouse of spouses) needed.set(spouse.id, spouse);
     const all = [...needed.values()];
     const avatarByMemberId = new Map();
     for (const row of avatarRows) {
