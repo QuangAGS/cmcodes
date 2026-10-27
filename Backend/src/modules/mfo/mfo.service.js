@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-27T08:05:00+07:00
- * VERSION    : 4.7.18-GIOI-HAN-GIU-CHO
+ * DATETIME   : 2026-10-27T09:08:00+07:00
+ * VERSION    : 4.7.19-LUU-DUNG-CHO
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -22,6 +22,7 @@
  * - 2026-10-27T07:58:00+07:00 | 4.7.16 | Thêm: một câu lấy người, hôn nhân, ảnh và giữ chỗ. Bỏ: vòng thứ hai. Giữ: hình cây. Lý do: hai vòng còn khoảng một giây.
  * - 2026-10-27T08:03:00+07:00 | 4.7.17 | Thêm: ép mã nhánh về chữ khi so giữ chỗ. Bỏ: không bỏ. Giữ: một vòng. Lý do: hai kiểu mảng không so được.
  * - 2026-10-27T08:05:00+07:00 | 4.7.18 | Thêm: giới hạn năm dòng chỉ cho giữ chỗ. Bỏ: giới hạn cả câu. Giữ: một vòng. Lý do: giới hạn cả câu làm mất người vừa chọn.
+ * - 2026-10-27T09:08:00+07:00 | 4.7.19 | Thêm: đọc song song và chỉ trả mã tờ khi lưu nháp. Bỏ: trả cả bản lớn. Giữ: cây và sổ cái. Lý do: đường lưu nằm ở dịch vụ, không ở file nháp.
  */
 
 const crypto = require('crypto');
@@ -1219,59 +1220,53 @@ const mfoService = {
       fail('Lưu nháp bắt buộc chọn Thành viên mốc M (target_member_id).', 400, 'MFO_TARGET_REQUIRED');
     }
 
-    const targetMember = await prisma.members.findUnique({
-      where: { id: targetMemberId },
-      select: { id: true, tenant_id: true, deleted_at: true },
-    });
+    const started = Date.now();
+    const times = {};
+    const selectedCanvasDepth = Number(body.selected_canvas_depth ?? body.k ?? 0);
+    const now = new Date();
+    const keepId = body.ticket_id || body.ticketId || null;
+    const readStarted = Date.now();
+    // <2026-10-27T09:08:00+07:00> Mục đích: Đọc song song đúng chỗ lưu. Lý do: file nháp không được gọi.
+    const [targetMember, existingDraft, currentProposal] = await Promise.all([
+      prisma.members.findUnique({
+        where: { id: targetMemberId },
+        select: { id: true, tenant_id: true, deleted_at: true },
+      }),
+      prisma.proposals.findFirst({
+        where: {
+          tenant_id: tenantId,
+          requester_user_id: actor,
+          ticket_type: 'MFO_REVIEW',
+          deleted_at: null,
+          status: { in: ['DRAFT', 'NEEDS_REVISION', 'APPROVED'] },
+        },
+        orderBy: { updated_at: 'desc' },
+        select: { id: true, status: true, updated_at: true, correlation_id: true, expires_at: true, payload: true },
+      }),
+      keepId
+        ? prisma.proposals.findUnique({
+            where: { id: keepId },
+            select: { id: true, status: true, payload: true, updated_at: true, correlation_id: true, expires_at: true },
+          })
+        : null,
+    ]);
+    times.read_ms = Date.now() - readStarted;
 
     if (!targetMember || targetMember.deleted_at) {
       fail('Thành viên mốc M không tồn tại trên sổ.', 404, 'MFO_TARGET_NOT_FOUND');
     }
-
     if (String(targetMember.tenant_id) !== String(tenantId)) {
       fail('Thành viên mốc M không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
     }
-
-    const selectedCanvasDepth = Number(body.selected_canvas_depth ?? body.k ?? 0);
-    const now = new Date();
-
-    const existingDraft = await prisma.proposals.findFirst({
-      where: {
-        tenant_id: tenantId,
-        requester_user_id: actor,
-        ticket_type: 'MFO_REVIEW',
-        deleted_at: null,
-        status: { in: ['DRAFT', 'NEEDS_REVISION', 'APPROVED'] },
-      },
-      orderBy: { updated_at: 'desc' },
-    });
-
-    if (body.ticket_id || body.ticketId) {
-      const targetTicketId = body.ticket_id || body.ticketId;
-      const currentProposal = await prisma.proposals.findUnique({
-        where: { id: targetTicketId },
-        select: { id: true, status: true, payload: true, updated_at: true },
-      });
-
-      if (currentProposal) {
-        const st = currentProposal.status;
-        const p = currentProposal.payload || {};
-        const isEditable = st === 'DRAFT' || st === 'NEEDS_REVISION' || (st === 'APPROVED' && p.plan_ok && !p.result_submitted && !p.result_ok);
-        if (!isEditable) {
-          fail(
-            `Tờ trình đang ở trạng thái [${st}], không thể lưu sửa nháp!`,
-            409,
-            'MFO_PROPOSAL_LOCKED'
-          );
-        }
+    if (currentProposal) {
+      const st = currentProposal.status;
+      const p = currentProposal.payload || {};
+      const isEditable = st === 'DRAFT' || st === 'NEEDS_REVISION' || (st === 'APPROVED' && p.plan_ok && !p.result_submitted && !p.result_ok);
+      if (!isEditable) {
+        fail(`Tờ trình đang ở trạng thái [${st}], không thể lưu sửa nháp!`, 409, 'MFO_PROPOSAL_LOCKED');
       }
     }
-
-    // <2026-10-22T11:52:00+07:00> Mục đích: Lấy cờ từ đúng tờ đang lưu. Lý do: ép plan_ok false làm cửa 2 thành cửa 1.
-    const flagged = (body.ticket_id || body.ticketId)
-      ? await prisma.proposals.findUnique({ where: { id: body.ticket_id || body.ticketId }, select: { payload: true } })
-      : existingDraft;
-    const kept = (flagged && flagged.payload) || {};
+    const kept = (currentProposal && currentProposal.payload) || (existingDraft && existingDraft.payload) || {};
     const payloadToSave = {
       kind: 'PLAN',
       target_member_id: targetMemberId,
@@ -1318,16 +1313,12 @@ const mfoService = {
 
     const corr = correlationId || existingDraft?.correlation_id || crypto.randomUUID();
 
-    return await withTransaction(
+    const saved = await withTransaction(
       { tenantId, actorId: actor, correlationId: corr },
       async (tx) => {
         let ticket;
 
-        const targetId = body.ticket_id || body.ticketId;
-        const targetRow = targetId
-          ? await tx.proposals.findFirst({ where: { id: targetId, tenant_id: tenantId, deleted_at: null } })
-          : null;
-        const rowToUpdate = targetRow || (existingDraft && existingDraft.status === 'DRAFT' ? existingDraft : null);
+        const rowToUpdate = currentProposal || (existingDraft && existingDraft.status === 'DRAFT' ? existingDraft : null);
         if (rowToUpdate) {
           if (body.updated_at) {
             const clientTime = new Date(body.updated_at).getTime();
@@ -1346,6 +1337,7 @@ const mfoService = {
               updated_at: now,
               changed_by: actor,
             },
+            select: { id: true, updated_at: true, expires_at: true, correlation_id: true, requester_user_id: true, tenant_id: true, target_id: true },
           });
         } else {
           ticket = await tx.proposals.create({
@@ -1363,6 +1355,7 @@ const mfoService = {
               correlation_id: corr,
               changed_by: actor,
             },
+            select: { id: true, updated_at: true, expires_at: true, correlation_id: true, requester_user_id: true, tenant_id: true, target_id: true },
           });
         }
 
@@ -1384,6 +1377,10 @@ const mfoService = {
         };
       }
     );
+    times.write_ms = Date.now() - started - (times.read_ms || 0);
+    times.service_total_ms = Date.now() - started;
+    console.info('[MFO_DRAFT_TIMING]', times);
+    return saved;
   },
 
   /**
