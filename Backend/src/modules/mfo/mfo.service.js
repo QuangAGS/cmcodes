@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-27T09:12:00+07:00
- * VERSION    : 4.7.20-LUU-CO
+ * DATETIME   : 2026-10-27T09:17:00+07:00
+ * VERSION    : 4.7.21-LUU-MOT-CAU
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -24,6 +24,7 @@
  * - 2026-10-27T08:05:00+07:00 | 4.7.18 | Thêm: giới hạn năm dòng chỉ cho giữ chỗ. Bỏ: giới hạn cả câu. Giữ: một vòng. Lý do: giới hạn cả câu làm mất người vừa chọn.
  * - 2026-10-27T09:08:00+07:00 | 4.7.19 | Thêm: đọc song song và chỉ trả mã tờ khi lưu nháp. Bỏ: trả cả bản lớn. Giữ: cây và sổ cái. Lý do: đường lưu nằm ở dịch vụ, không ở file nháp.
  * - 2026-10-27T09:12:00+07:00 | 4.7.20 | Thêm: chỉ lấy cờ khi lưu. Bỏ: đọc cả bản lớn và câu nháp thừa. Giữ: lưu và sổ cái. Lý do: đọc mất 1,5 giây.
+ * - 2026-10-27T09:17:00+07:00 | 4.7.21 | Thêm: một câu đọc khi lưu. Bỏ: ba câu đọc. Giữ: cờ và giữ chỗ. Lý do: ba câu chạy nối tiếp thành 1,2 giây.
  */
 
 const crypto = require('crypto');
@@ -1233,45 +1234,54 @@ const mfoService = {
       levels: body.levels,
       lines: body.lines,
       canvas_delta: body.canvas_delta,
+      target_member_id: targetMemberId,
     });
-    // <2026-10-27T09:12:00+07:00> Mục đích: Chỉ lấy cờ, không kéo cả bản. Lý do: đọc cả bản mất 1,5 giây.
-    const [targetMember, ticketRows, draftConflict] = await Promise.all([
-      prisma.members.findUnique({
-        where: { id: targetMemberId },
-        select: { id: true, tenant_id: true, deleted_at: true },
-      }),
-      keepId
-        ? prisma.$queryRaw`
-            SELECT id, status, updated_at, correlation_id, expires_at,
-                   (payload->>'plan_ok')::boolean AS plan_ok,
-                   (payload->>'result_submitted')::boolean AS result_submitted,
-                   (payload->>'result_ok')::boolean AS result_ok
-            FROM proposals
-            WHERE id = ${keepId} AND tenant_id = ${tenantId} AND deleted_at IS NULL
-            LIMIT 1
-          `
-        : prisma.$queryRaw`
-            SELECT id, status, updated_at, correlation_id, expires_at,
-                   (payload->>'plan_ok')::boolean AS plan_ok,
-                   (payload->>'result_submitted')::boolean AS result_submitted,
-                   (payload->>'result_ok')::boolean AS result_ok
-            FROM proposals
-            WHERE tenant_id = ${tenantId} AND requester_user_id = ${actor}
-              AND ticket_type = 'MFO_REVIEW' AND deleted_at IS NULL
-              AND status IN ('DRAFT', 'NEEDS_REVISION', 'APPROVED')
-            ORDER BY updated_at DESC
-            LIMIT 1
-          `,
-      findHoldConflict(prisma, {
-        tenantId,
-        memberIds: holdIds,
-        excludeProposalId: keepId,
-        excludeRequesterId: actor,
-      }),
-    ]);
+    const holdList = holdIds.length ? holdIds : ['00000000-0000-0000-0000-000000000000'];
+    // <2026-10-27T09:17:00+07:00> Mục đích: Một câu đọc người, cờ và giữ chỗ. Lý do: ba câu chạy nối tiếp.
+    const rows = await prisma.$queryRaw`
+      SELECT m.id AS member_id, m.tenant_id, m.deleted_at,
+             t.id, t.status, t.updated_at, t.correlation_id, t.expires_at, t.plan_ok, t.result_submitted, t.result_ok,
+             h.id AS hold_id, h.expires_at AS hold_expires
+      FROM members m
+      LEFT JOIN LATERAL (
+        SELECT id, status, updated_at, correlation_id, expires_at,
+               (payload->>'plan_ok')::boolean AS plan_ok,
+               (payload->>'result_submitted')::boolean AS result_submitted,
+               (payload->>'result_ok')::boolean AS result_ok
+        FROM proposals
+        WHERE deleted_at IS NULL AND tenant_id = ${tenantId}
+          AND (
+            (${keepId}::text IS NOT NULL AND id = ${keepId})
+            OR (${keepId}::text IS NULL AND requester_user_id = ${actor}
+                AND ticket_type = 'MFO_REVIEW'
+                AND status IN ('DRAFT', 'NEEDS_REVISION', 'APPROVED'))
+          )
+        ORDER BY updated_at DESC
+        LIMIT 1
+      ) t ON true
+      LEFT JOIN LATERAL (
+        SELECT id, expires_at
+        FROM proposals
+        WHERE deleted_at IS NULL AND tenant_id = ${tenantId}
+          AND status::text IN ('DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION', 'APPROVED')
+          AND hold_member_ids && ${holdList}::text[]
+          AND (${keepId}::text IS NULL OR id <> ${keepId})
+          AND requester_user_id <> ${actor}
+          AND NOT (
+            status::text IN ('DRAFT', 'NEEDS_REVISION', 'APPROVED')
+            AND expires_at IS NOT NULL AND expires_at <= NOW()
+          )
+        LIMIT 1
+      ) h ON true
+      WHERE m.id = ${targetMemberId}
+      LIMIT 1
+    `;
     times.read_ms = Date.now() - readStarted;
-    const currentProposal = Array.isArray(ticketRows) ? ticketRows[0] : null;
+    const row = Array.isArray(rows) ? rows[0] : null;
+    const targetMember = row && row.member_id ? { id: row.member_id, tenant_id: row.tenant_id, deleted_at: row.deleted_at } : null;
+    const currentProposal = row && row.id ? row : null;
     const existingDraft = currentProposal;
+    const draftConflict = row && row.hold_id ? { id: row.hold_id, expires_at: row.hold_expires } : null;
 
     if (!targetMember || targetMember.deleted_at) {
       fail('Thành viên mốc M không tồn tại trên sổ.', 404, 'MFO_TARGET_NOT_FOUND');
