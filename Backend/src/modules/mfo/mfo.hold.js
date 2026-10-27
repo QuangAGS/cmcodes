@@ -1,9 +1,11 @@
 /**
  * PATH       : src/modules/mfo/mfo.hold.js
- * DATETIME   : 2026-10-26T11:14:00+07:00
+ * DATETIME   : 2026-10-27T09:38:00+07:00
  * 2026-10-10T21:25:00+07:00
- * VERSION    : 1.0.0-AMENDMENT3-HOLD-SET
+ * VERSION    : 1.0.1-BO-XOA
  * DESCRIPTION: Rút member_id thật để ghi hold_member_ids. Không kiểm giao nhau.
+ * CHANGE LOG:
+ * - 2026-10-27T09:38:00+07:00 | 1.0.1 | Thêm: bỏ hồ sơ đã xoá khỏi kiểm xung đột. Bỏ: không bỏ. Giữ: kiểm giao nhau. Lý do: hồ sơ đã xoá vẫn bị tính.
  */
 'use strict';
 
@@ -90,6 +92,7 @@ async function findHoldConflict(prisma, { tenantId, memberIds, excludeProposalId
       deleted_at: null,
       status: { in: HOLDING_STATUSES },
       hold_member_ids: { hasSome: ids },
+      NOT: { hold_member_ids: { equals: [] } },
       ...(excludeProposalId ? { id: { not: excludeProposalId } } : {}),
       ...(excludeRequesterId ? { requester_user_id: { not: excludeRequesterId } } : {}),
     },

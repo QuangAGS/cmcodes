@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-27T09:21:00+07:00
- * VERSION    : 4.7.22-LUU-KHONG-HOI-LAN
+ * DATETIME   : 2026-10-27T09:38:00+07:00
+ * VERSION    : 4.7.23-BO-HO-SO-XOA
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -26,6 +26,7 @@
  * - 2026-10-27T09:12:00+07:00 | 4.7.20 | Thêm: chỉ lấy cờ khi lưu. Bỏ: đọc cả bản lớn và câu nháp thừa. Giữ: lưu và sổ cái. Lý do: đọc mất 1,5 giây.
  * - 2026-10-27T09:17:00+07:00 | 4.7.21 | Thêm: một câu đọc khi lưu. Bỏ: ba câu đọc. Giữ: cờ và giữ chỗ. Lý do: ba câu chạy nối tiếp thành 1,2 giây.
  * - 2026-10-27T09:21:00+07:00 | 4.7.22 | Thêm: lấy số lần ghi sổ cái trong câu đọc. Bỏ: hỏi số lần lúc ghi. Giữ: sổ cái. Lý do: phần ghi còn 1,2 giây.
+ * - 2026-10-27T09:38:00+07:00 | 4.7.23 | Thêm: bỏ chỗ giữ khi xoá hồ sơ. Bỏ: không bỏ. Giữ: kiểm xung đột. Lý do: hồ sơ đã xoá vẫn bị tính xung đột.
  */
 
 const crypto = require('crypto');
@@ -493,6 +494,8 @@ const mfoService = {
         FROM proposals p
         WHERE p.deleted_at IS NULL AND p.tenant_id = ${tenantId}
           AND p.status::text IN ('DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION', 'APPROVED')
+          AND cardinality(p.hold_member_ids) > 0
+          AND COALESCE((p.payload->>'result_ok')::boolean, false) = false
           AND p.hold_member_ids && (SELECT COALESCE(array_agg(id::text), ARRAY[]::text[]) FROM branch)
           AND (${actorId}::text IS NULL OR p.requester_user_id <> ${actorId})
         LIMIT 5
@@ -1266,6 +1269,8 @@ const mfoService = {
         FROM proposals
         WHERE deleted_at IS NULL AND tenant_id = ${tenantId}
           AND status::text IN ('DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION', 'APPROVED')
+          AND cardinality(hold_member_ids) > 0
+          AND COALESCE((payload->>'result_ok')::boolean, false) = false
           AND hold_member_ids && ${holdList}::text[]
           AND (${keepId}::text IS NULL OR id <> ${keepId})
           AND requester_user_id <> ${actor}
@@ -1613,6 +1618,7 @@ const mfoService = {
           where: { id: ticketId },
           data: {
             deleted_at: now,
+            hold_member_ids: [],
             changed_by: actor,
           },
         });
