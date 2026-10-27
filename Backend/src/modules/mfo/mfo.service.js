@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-27T09:08:00+07:00
- * VERSION    : 4.7.19-LUU-DUNG-CHO
+ * DATETIME   : 2026-10-27T09:12:00+07:00
+ * VERSION    : 4.7.20-LUU-CO
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -23,6 +23,7 @@
  * - 2026-10-27T08:03:00+07:00 | 4.7.17 | Thêm: ép mã nhánh về chữ khi so giữ chỗ. Bỏ: không bỏ. Giữ: một vòng. Lý do: hai kiểu mảng không so được.
  * - 2026-10-27T08:05:00+07:00 | 4.7.18 | Thêm: giới hạn năm dòng chỉ cho giữ chỗ. Bỏ: giới hạn cả câu. Giữ: một vòng. Lý do: giới hạn cả câu làm mất người vừa chọn.
  * - 2026-10-27T09:08:00+07:00 | 4.7.19 | Thêm: đọc song song và chỉ trả mã tờ khi lưu nháp. Bỏ: trả cả bản lớn. Giữ: cây và sổ cái. Lý do: đường lưu nằm ở dịch vụ, không ở file nháp.
+ * - 2026-10-27T09:12:00+07:00 | 4.7.20 | Thêm: chỉ lấy cờ khi lưu. Bỏ: đọc cả bản lớn và câu nháp thừa. Giữ: lưu và sổ cái. Lý do: đọc mất 1,5 giây.
  */
 
 const crypto = require('crypto');
@@ -1226,31 +1227,51 @@ const mfoService = {
     const now = new Date();
     const keepId = body.ticket_id || body.ticketId || null;
     const readStarted = Date.now();
-    // <2026-10-27T09:08:00+07:00> Mục đích: Đọc song song đúng chỗ lưu. Lý do: file nháp không được gọi.
-    const [targetMember, existingDraft, currentProposal] = await Promise.all([
+    const holdIds = collectHoldMemberIds({
+      hold_member_ids: body.hold_member_ids,
+      nodes: body.nodes,
+      levels: body.levels,
+      lines: body.lines,
+      canvas_delta: body.canvas_delta,
+    });
+    // <2026-10-27T09:12:00+07:00> Mục đích: Chỉ lấy cờ, không kéo cả bản. Lý do: đọc cả bản mất 1,5 giây.
+    const [targetMember, ticketRows, draftConflict] = await Promise.all([
       prisma.members.findUnique({
         where: { id: targetMemberId },
         select: { id: true, tenant_id: true, deleted_at: true },
       }),
-      prisma.proposals.findFirst({
-        where: {
-          tenant_id: tenantId,
-          requester_user_id: actor,
-          ticket_type: 'MFO_REVIEW',
-          deleted_at: null,
-          status: { in: ['DRAFT', 'NEEDS_REVISION', 'APPROVED'] },
-        },
-        orderBy: { updated_at: 'desc' },
-        select: { id: true, status: true, updated_at: true, correlation_id: true, expires_at: true, payload: true },
-      }),
       keepId
-        ? prisma.proposals.findUnique({
-            where: { id: keepId },
-            select: { id: true, status: true, payload: true, updated_at: true, correlation_id: true, expires_at: true },
-          })
-        : null,
+        ? prisma.$queryRaw`
+            SELECT id, status, updated_at, correlation_id, expires_at,
+                   (payload->>'plan_ok')::boolean AS plan_ok,
+                   (payload->>'result_submitted')::boolean AS result_submitted,
+                   (payload->>'result_ok')::boolean AS result_ok
+            FROM proposals
+            WHERE id = ${keepId} AND tenant_id = ${tenantId} AND deleted_at IS NULL
+            LIMIT 1
+          `
+        : prisma.$queryRaw`
+            SELECT id, status, updated_at, correlation_id, expires_at,
+                   (payload->>'plan_ok')::boolean AS plan_ok,
+                   (payload->>'result_submitted')::boolean AS result_submitted,
+                   (payload->>'result_ok')::boolean AS result_ok
+            FROM proposals
+            WHERE tenant_id = ${tenantId} AND requester_user_id = ${actor}
+              AND ticket_type = 'MFO_REVIEW' AND deleted_at IS NULL
+              AND status IN ('DRAFT', 'NEEDS_REVISION', 'APPROVED')
+            ORDER BY updated_at DESC
+            LIMIT 1
+          `,
+      findHoldConflict(prisma, {
+        tenantId,
+        memberIds: holdIds,
+        excludeProposalId: keepId,
+        excludeRequesterId: actor,
+      }),
     ]);
     times.read_ms = Date.now() - readStarted;
+    const currentProposal = Array.isArray(ticketRows) ? ticketRows[0] : null;
+    const existingDraft = currentProposal;
 
     if (!targetMember || targetMember.deleted_at) {
       fail('Thành viên mốc M không tồn tại trên sổ.', 404, 'MFO_TARGET_NOT_FOUND');
@@ -1266,7 +1287,7 @@ const mfoService = {
         fail(`Tờ trình đang ở trạng thái [${st}], không thể lưu sửa nháp!`, 409, 'MFO_PROPOSAL_LOCKED');
       }
     }
-    const kept = (currentProposal && currentProposal.payload) || (existingDraft && existingDraft.payload) || {};
+    const kept = currentProposal || {};
     const payloadToSave = {
       kind: 'PLAN',
       target_member_id: targetMemberId,
@@ -1287,18 +1308,7 @@ const mfoService = {
       result_submitted: kept.result_submitted === true,
       result_ok: kept.result_ok === true,
     };
-    const holdMemberIds = collectHoldMemberIds({
-      ...payloadToSave,
-      hold_member_ids: body.hold_member_ids,
-      nodes: body.nodes,
-      levels: body.levels,
-    });
-    const draftConflict = await findHoldConflict(prisma, {
-      tenantId,
-      memberIds: holdMemberIds,
-      excludeProposalId: existingDraft && existingDraft.id,
-      excludeRequesterId: actor,
-    });
+    const holdMemberIds = holdIds;
     if (draftConflict) {
       fail(
         'MFO_HOLD_CONFLICT',
