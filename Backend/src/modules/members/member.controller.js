@@ -1,7 +1,7 @@
 /**
  * DATETIME: 2026-07-16T12:15:00+07:00
  * PATH: src/modules/members/member.controller.js
- * VERSION: 1.5.0-FE-OP-B2 cho phép VIEWER Cập nhật thành viên
+ * VERSION: 1.6.0-TEN-NHOM
  * DESCRIPTION: Điều phối Thành viên. 
  * Đảm bảo đầy đủ các hàm getAll, getById, create, update, delete, getStats.
  */
@@ -10,6 +10,23 @@ const vitalService = require('./vital.service.js');
 const profileService = require('../profile/profile.service.js');
 
 const memberController = {
+  // <2026-10-27T08:39:00+07:00> Mục đích: Lấy tên cả nhóm. Lý do: hỏi từng người làm năm vòng.
+  getNames: async (req, res) => {
+    try {
+      const tenantId = req.user?.tenantId || req.user?.tenant_id;
+      const raw = String(req.query?.ids || '');
+      const ids = raw.split(',').map((id) => id.trim()).filter(Boolean);
+      const result = await memberService.getMemberNames(tenantId, ids);
+      res.status(200).json({ status: 'success', data: result });
+    } catch (error) {
+      res.status(error.statusCode || 500).json({
+        status: 'error',
+        code: error.code || 'INTERNAL_ERROR',
+        message: error.message || 'Lỗi server',
+      });
+    }
+  },
+
   // Lấy danh sách toàn bộ thành viên trong Tenant
   getAll: async (req, res) => {
     try {

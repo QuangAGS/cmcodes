@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MyMfoPlans.jsx
- * DATETIME   : 2026-10-23T11:53:00+07:00
- * VERSION    : 5.7.8-SUA-TO-KHAI
+ * DATETIME   : 2026-10-27T08:39:00+07:00
+ * VERSION    : 5.7.9-TEN-NHOM
  * DESCRIPTION:
  * - Vá dứt điểm lỗi hiển thị nhầm "Bút phê tờ khai: Duyệt" khi Tờ khai Cửa 2 đang ở trạng thái chờ duyệt.
  * - Loại bỏ fallback || currentPlan.admin_note của Cửa 1, phân lập chính xác bút phê theo trạng thái Tờ khai Cửa 2.
@@ -13,6 +13,7 @@
  * - 2026-10-16T08:24:00+07:00 | 5.7.5 | Tiêu đề trang đổi thành Hồ sơ nhánh phả hệ. Card giữ Hồ sơ của tôi.
  * - 2026-10-17T18:05:00+07:00 | 5.7.6 | Nút Làm mới cạnh danh sách hồ sơ.
  * - 2026-10-23T09:31:00+07:00 | 5.7.7 | Thêm: Soạn thảo, vòng quay trên cùng. Bỏ: Lưu nháp trên trang hồ sơ, bút phê trên DRAFT. Giữ: Khai báo, Xem lại, Xóa. Lý do: nút và bút phê không theo trạng thái.
+ * - 2026-10-27T08:39:00+07:00 | 5.7.9 | Thêm: lấy tên cả nhóm khi chọn hồ sơ. Bỏ: hỏi từng người. Giữ: tên trên tờ. Lý do: năm người thành năm câu.
  * - 2026-10-23T11:53:00+07:00 | 5.7.8 | Thêm: Sửa tờ khai khi cần sửa, bút phê ở nội dung hiện tại. Bỏ: tờ khai cần sửa không có nút. Giữ: Soạn thảo cửa 1. Lý do: tờ khai trả sửa không sửa được.
  * RULE COMPLIANCE:
  * - Q1 (Bảo tồn): Bảo toàn 100% logic Single Thread Pipeline, hydration draft, CRUD handlers và MfoHistoryChain integration.
@@ -40,6 +41,7 @@ import {
   listPlans,
   deleteDraft,
   getMember,
+  listMemberNames,
   getDraftPayload,
   savePlanDraft,
 } from '../api/mfoApi.js';
@@ -221,21 +223,18 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
 
         const missingIds = Array.from(idsToFetch).filter((mid) => mid && !memberNames[mid]);
         if (missingIds.length > 0) {
-          const nameResults = await Promise.allSettled(
-            missingIds.map((mid) => getMember(mid))
-          );
-
+          const started = Date.now();
+          const nameRes = await listMemberNames(missingIds);
+          const rows = nameRes?.data?.data || nameRes?.data || [];
           const newNames = {};
-          nameResults.forEach((result, idx) => {
-            if (result.status === 'fulfilled') {
-              const mRes = result.value;
-              const mData = mRes?.data?.member || mRes?.data || mRes;
-              if (mData?.full_name || mData?.name) {
-                newNames[missingIds[idx]] = mData.full_name || mData.name;
-              }
-            }
+          (Array.isArray(rows) ? rows : []).forEach((row) => {
+            if (row?.id && row.full_name) newNames[row.id] = row.full_name;
           });
-
+          console.info('[MFO_PLAN_NAMES_TIMING]', {
+            count: missingIds.length,
+            found: Object.keys(newNames).length,
+            client_ms: Date.now() - started,
+          });
           if (Object.keys(newNames).length > 0) {
             setMemberNames((prev) => ({ ...prev, ...newNames }));
           }

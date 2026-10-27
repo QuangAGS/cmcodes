@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/mfo/api/mfoApi.js
  * DATETIME   : 2026-10-26T12:25:00+07:00
- * VERSION    : 5.1.4-MOT-DANH-SACH
+ * VERSION    : 5.1.5-TEN-NHOM
  * DESCRIPTION: Giữ toàn bộ exports; tách API trả sửa và không duyệt cửa 2.
  * RULE       : Q1 bảo tồn ngoài phạm vi; Q2 metadata và chú thích thời gian.
  */
@@ -16,6 +16,7 @@
  * - Giữ nguyên toàn bộ các hàm thao tác Sổ họ, Thành viên, Hôn nhân và Admin Review.
  * CHANGELOG  :
  * - 2026-10-27T08:20:00+07:00 | 5.1.4 | Thêm: khoá danh sách hồ sơ của tôi. Bỏ: gọi đôi. Giữ: danh sách. Lý do: trang mở gọi hai lần.
+ * - 2026-10-27T08:39:00+07:00 | 5.1.5 | Thêm: lấy tên cả nhóm. Bỏ: không bỏ. Giữ: lấy từng người. Lý do: chọn hồ sơ hỏi năm lần.
  * - 2026-10-26T12:25:00+07:00 | 5.1.1 | Thêm: cùng một người chỉ gọi full-set một lần. Bỏ: lần gọi thứ hai từ dịch vụ lấy đời. Giữ: các hàm khác. Lý do: trang và dịch vụ cùng gọi.
  * - 2026-10-08: Thêm deleteDraft, deletePlanDraft, listPlans alias. 保 toàn 100% legacy exports.
  */
@@ -125,6 +126,11 @@ export function searchBookMembers(q) {
 /** <2026-10-13T17:07:00+07:00> Mục đích: Giữ xử lý getMember; thay đổi chỉ trong thao tác admin lát 5. */
 export function getMember(id) {
   return apiClient.get(`/members/${id}`);
+}
+
+export function listMemberNames(ids) {
+  const list = [...new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean))];
+  return apiClient.get('/members/names', { params: { ids: list.join(',') } });
 }
 
 /** Cây theo gốc — cửa GFL khi đã có sổ. */

@@ -372,4 +372,25 @@ const memberService = {
 
 };
 
+  /**
+   * DATETIME: 2026-10-27T08:39:00+07:00
+   * VERSION: 1.9.0-TEN-NHOM
+   * Lấy tên một nhóm mã. Không đổi getAll.
+   */
+  getMemberNames: async (tenantId, ids) => {
+    const started = Date.now();
+    const list = [...new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 40);
+    if (!tenantId || list.length === 0) return [];
+    const rows = await prisma.members.findMany({
+      where: { tenant_id: tenantId, deleted_at: null, id: { in: list } },
+      select: { id: true, full_name: true },
+    });
+    console.info('[MEMBER_NAMES_TIMING]', {
+      count: list.length,
+      found: rows.length,
+      service_ms: Date.now() - started,
+    });
+    return rows;
+  },
+
 module.exports = memberService;
