@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-27T09:17:00+07:00
- * VERSION    : 4.7.21-LUU-MOT-CAU
+ * DATETIME   : 2026-10-27T09:21:00+07:00
+ * VERSION    : 4.7.22-LUU-KHONG-HOI-LAN
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -25,6 +25,7 @@
  * - 2026-10-27T09:08:00+07:00 | 4.7.19 | Thêm: đọc song song và chỉ trả mã tờ khi lưu nháp. Bỏ: trả cả bản lớn. Giữ: cây và sổ cái. Lý do: đường lưu nằm ở dịch vụ, không ở file nháp.
  * - 2026-10-27T09:12:00+07:00 | 4.7.20 | Thêm: chỉ lấy cờ khi lưu. Bỏ: đọc cả bản lớn và câu nháp thừa. Giữ: lưu và sổ cái. Lý do: đọc mất 1,5 giây.
  * - 2026-10-27T09:17:00+07:00 | 4.7.21 | Thêm: một câu đọc khi lưu. Bỏ: ba câu đọc. Giữ: cờ và giữ chỗ. Lý do: ba câu chạy nối tiếp thành 1,2 giây.
+ * - 2026-10-27T09:21:00+07:00 | 4.7.22 | Thêm: lấy số lần ghi sổ cái trong câu đọc. Bỏ: hỏi số lần lúc ghi. Giữ: sổ cái. Lý do: phần ghi còn 1,2 giây.
  */
 
 const crypto = require('crypto');
@@ -1240,14 +1241,15 @@ const mfoService = {
     // <2026-10-27T09:17:00+07:00> Mục đích: Một câu đọc người, cờ và giữ chỗ. Lý do: ba câu chạy nối tiếp.
     const rows = await prisma.$queryRaw`
       SELECT m.id AS member_id, m.tenant_id, m.deleted_at,
-             t.id, t.status, t.updated_at, t.correlation_id, t.expires_at, t.plan_ok, t.result_submitted, t.result_ok,
+             t.id, t.status, t.updated_at, t.correlation_id, t.expires_at, t.plan_ok, t.result_submitted, t.result_ok, t.next_attempt,
              h.id AS hold_id, h.expires_at AS hold_expires
       FROM members m
       LEFT JOIN LATERAL (
         SELECT id, status, updated_at, correlation_id, expires_at,
                (payload->>'plan_ok')::boolean AS plan_ok,
                (payload->>'result_submitted')::boolean AS result_submitted,
-               (payload->>'result_ok')::boolean AS result_ok
+               (payload->>'result_ok')::boolean AS result_ok,
+               COALESCE((SELECT MAX(attempt_no) FROM business_process_logs WHERE correlation_id = proposals.correlation_id), 0) + 1 AS next_attempt
         FROM proposals
         WHERE deleted_at IS NULL AND tenant_id = ${tenantId}
           AND (
@@ -1383,6 +1385,7 @@ const mfoService = {
           processType: 'MFO_PLAN_SUBMIT',
           user,
           ticket,
+          attemptNo: currentProposal && currentProposal.next_attempt,
           payload: {
             action: 'MFO_DRAFT_SAVED',
             ticket_id: ticket.id,
