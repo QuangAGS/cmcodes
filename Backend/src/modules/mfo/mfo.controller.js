@@ -207,6 +207,7 @@ const mfoController = {
         body,
       });
 
+      const srpfStarted = Date.now();
       const srpfResult = await executeAction({
         processType: 'MFO_PLAN',
         instanceId: ticketId,
@@ -215,22 +216,19 @@ const mfoController = {
           ? { ...serviceResult.ticket, currentState: serviceResult.ticket.status, _storage: 'proposals' }
           : null,
         payload: {
-          prepared_payload: serviceResult.ticket && serviceResult.ticket.payload,
           review_scs: serviceResult.reviewScs || body.review_scs || [],
-          review_rounds: serviceResult.ticket && serviceResult.ticket.payload
-            ? serviceResult.ticket.payload.review_rounds
-            : [],
           revision_request: serviceResult.globalAdminNote || body.note || body.admin_note || 'Yêu cầu hiệu chỉnh theo bút phê',
           admin_note: serviceResult.globalAdminNote || body.note || body.admin_note || null,
         },
         actorContext,
       });
+      console.info('[MFO_RETURN_TIMING]', { srpf_ms: Date.now() - srpfStarted });
 
       res.status(200).json({
         status: 'success',
         message: 'Đã chuyển hồ sơ về trạng thái NEEDS_REVISION kèm bút phê.',
         correlation_id: srpfResult.correlationId,
-        data: serviceResult,
+        data: { id: ticketId, status: 'NEEDS_REVISION' },
       });
     } catch (error) {
       sendError(res, error);

@@ -1,7 +1,7 @@
 /**
  * PATH       : backend/src/shared/frameworks/srpf/engine/ActionExecutor.js
- * DATETIME   : 2026-10-27T10:39:00+07:00
- * VERSION    : 0.7.1-DUNG-TO-DA-DOC
+ * DATETIME   : 2026-08-13T11:40:00+07:00
+ * VERSION    : 0.7.0-LAT-SUBMIT-PROPOSALS
  * DESCRIPTION: Nạp proposals qua resolveInstance. Gọi side effect mọi trạng thái.
  */
 
@@ -32,7 +32,6 @@ async function executeAction({
   action,
   payload = {},
   actorContext = {},
-  instance: givenInstance = null,
 }) {
   const definition = registry.get(processType);
   if (!definition) {
@@ -43,10 +42,9 @@ async function executeAction({
     );
   }
 
-  const instance = givenInstance
-    || (typeof definition.resolveInstance === 'function'
-      ? await definition.resolveInstance(prisma, instanceId)
-      : await processInstanceLoader.load(instanceId));
+  const instance = typeof definition.resolveInstance === 'function'
+    ? await definition.resolveInstance(prisma, instanceId)
+    : await processInstanceLoader.load(instanceId);
 
   if (!instance) {
     throw srpfError(
@@ -82,6 +80,7 @@ async function executeAction({
     await definition.profileValidation[action](instance, payload);
   }
 
+  const txStarted = Date.now();
   const result = await prisma.$transaction(async (tx) => {
     const correlationId = await correlationFactory.create({
       action,
@@ -121,13 +120,14 @@ async function executeAction({
     return { instance: updated, correlationId };
   });
 
+  console.info('[SRPF_TIMING]', { action, tx_ms: Date.now() - txStarted });
   if (result.correlationId) {
-    await communicationHook.emit({
+    communicationHook.emit({
       event: `${processType}_${action}`,
       correlationId: result.correlationId,
       instance: result.instance,
       actorContext,
-    });
+    }).catch((err) => console.warn('[SRPF] emit failed', err && err.message));
   }
 
   return result;
