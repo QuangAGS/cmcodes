@@ -211,7 +211,9 @@ const mfoController = {
         processType: 'MFO_PLAN',
         instanceId: ticketId,
         action: SRPF_ACTIONS.RETURN_FOR_REVISION,
-        instance: serviceResult.ticket,
+        instance: serviceResult.ticket
+          ? { ...serviceResult.ticket, currentState: serviceResult.ticket.status, _storage: 'proposals' }
+          : null,
         payload: {
           prepared_payload: serviceResult.ticket && serviceResult.ticket.payload,
           review_scs: serviceResult.reviewScs || body.review_scs || [],
