@@ -167,29 +167,21 @@ async function write({
   const tenantId = actorForBpl.tenant_id || instance?.tenant_id || null;
 
   if (tenantId && instance?.id) {
-    try {
-      // <2026-10-16T10:19:00+07:00> Mục đích: Ghi đúng bảng của tờ. Lý do: MFO nằm ở proposals. Không có _storage thì giữ onboarding_cases, RP và OP không đổi.
-      const auditTable = instance._storage || 'onboarding_cases';
-      audit = await prisma.audit.create(client, {
-        tableName: auditTable,
-        recordId: instance.id,
-        action: toAuditAction(action),
-        tenantId: tenantId,
-        changedBy: changedBy,
-        correlationId: correlationId,
-        oldData: metadata.from ? { status: metadata.from } : null,
-        newData: {
-          status: metadata.to || instance.currentState || instance.status,
-        },
-        changeReason: `SRPF ${processType || 'PROCESS'}:${action}`,
-      });
-      auditJob.catch((err) => console.warn('[SRPF] audit_logs skipped/failed:', err && err.message));
-    } catch (err) {
-      if (process.env.SRPF_STRICT_AUDIT === '1') {
-        throw err;
-      }
-      console.warn('[SRPF] audit_logs skipped/failed:', err.message);
-    }
+    // <2026-10-27T11:03:00+07:00> Mục đích: Ghi sổ kiểm sau, không chặn giao dịch. Lý do: câu này làm trả sửa chậm.
+    const auditTable = instance._storage || 'onboarding_cases';
+    prisma.audit.create(prisma, {
+      tableName: auditTable,
+      recordId: instance.id,
+      action: toAuditAction(action),
+      tenantId: tenantId,
+      changedBy: changedBy,
+      correlationId: correlationId,
+      oldData: metadata.from ? { status: metadata.from } : null,
+      newData: {
+        status: metadata.to || instance.currentState || instance.status,
+      },
+      changeReason: `SRPF ${processType || 'PROCESS'}:${action}`,
+    }).catch((err) => console.warn('[SRPF] audit_logs skipped/failed:', err && err.message));
   }
 
   return { bpl, audit };
