@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-27T07:58:00+07:00
- * VERSION    : 4.7.16-MOT-VONG-NHE
+ * DATETIME   : 2026-10-27T08:03:00+07:00
+ * VERSION    : 4.7.17-EP-MANG
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -20,6 +20,7 @@
  * - 2026-10-26T15:40:00+07:00 | 4.7.14 | Thêm: mã nhánh và hôn nhân trong một câu. Bỏ: vòng lấy người riêng và vòng vợ chồng riêng. Giữ: hình cây và log. Lý do: bốn vòng, mỗi vòng nửa giây.
  * - 2026-10-26T15:47:00+07:00 | 4.7.15 | Thêm: ép trạng thái hôn nhân về chữ. Bỏ: không bỏ. Giữ: hai vòng. Lý do: kiểu riêng không ghép được với chữ.
  * - 2026-10-27T07:58:00+07:00 | 4.7.16 | Thêm: một câu lấy người, hôn nhân, ảnh và giữ chỗ. Bỏ: vòng thứ hai. Giữ: hình cây. Lý do: hai vòng còn khoảng một giây.
+ * - 2026-10-27T08:03:00+07:00 | 4.7.17 | Thêm: ép mã nhánh về chữ khi so giữ chỗ. Bỏ: không bỏ. Giữ: một vòng. Lý do: hai kiểu mảng không so được.
  */
 
 const crypto = require('crypto');
@@ -485,7 +486,7 @@ const mfoService = {
       FROM proposals p
       WHERE p.deleted_at IS NULL AND p.tenant_id = ${tenantId}
         AND p.status::text IN ('DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION', 'APPROVED')
-        AND p.hold_member_ids && (SELECT COALESCE(array_agg(id), ARRAY[]::text[]) FROM branch)
+        AND p.hold_member_ids && (SELECT COALESCE(array_agg(id::text), ARRAY[]::text[]) FROM branch)
         AND (${actorId}::text IS NULL OR p.requester_user_id <> ${actorId})
       LIMIT 5
     `);
