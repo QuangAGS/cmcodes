@@ -1,12 +1,13 @@
 /**
  * PATH       : src/pages/OpHubPage.jsx
- * DATETIME   : 2026-10-26T09:55:00+07:00
- * VERSION    : 1.7.3-MOT-ANH
+ * DATETIME   : 2026-10-27T08:20:00+07:00
+ * VERSION    : 1.7.4-MOT-MO-TRANG
  * DESCRIPTION: Hub /op. DU_BI / chưa đủ field → /op/base-profile.
  *              Không gọi /me/profile khi member chưa CHINH_THUC.
  *              C1: thêm mục việc «Khai năm đời» — không đổi form hồ sơ.
  * CHANGE LOG:
  * - 2026-10-26T09:55:00+07:00 | 1.7.3 | Thêm: lấy ảnh từ hồ sơ đã gọi. Bỏ: gọi lại hồ sơ để moi ảnh. Giữ: đường ảnh riêng khi hồ sơ không có ảnh. Lý do: mở trang gọi hồ sơ hai lần.
+ * - 2026-10-27T08:20:00+07:00 | 1.7.4 | Thêm: khoá mở trang. Bỏ: gọi đôi my-op và hồ sơ. Giữ: hồ sơ và việc. Lý do: trang mở chạy hiệu ứng hai lần.
  */
 
 import { useEffect, useMemo, useState, useRef } from 'react';
@@ -18,6 +19,40 @@ import apiClient from '../lib/apiClient.js';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
+
+const hubFlight = new Map();
+
+async function loadHubBundle() {
+  const hit = hubFlight.get('bundle');
+  if (hit && hit.data && Date.now() - hit.at < 8000) return hit.data;
+  if (hit && hit.job) return hit.job;
+  const job = (async () => {
+    let op = null;
+    try {
+      const opRes = await apiClient.get('/onboarding/my-op');
+      op = opRes.data?.data ?? opRes.data ?? null;
+    } catch {
+      op = null;
+    }
+    const res = await apiClient.get('/me/profile');
+    let achievements = [];
+    try {
+      const ach = await apiClient.get('/me/achievements');
+      achievements = ach.data?.data?.items || [];
+    } catch {
+      achievements = [];
+    }
+    const data = { op, profile: res.data?.data || {}, achievements };
+    hubFlight.set('bundle', { at: Date.now(), data, job: null });
+    return data;
+  })().catch((error) => {
+    hubFlight.delete('bundle');
+    throw error;
+  });
+  hubFlight.set('bundle', { at: Date.now(), data: null, job });
+  return job;
+}
+
 import { resolveFooterNav } from '../lib/resolveFooterNav.js';
 import AudioHelpButton from '../features/elder-doctrine/components/AudioHelpButton.jsx';
 import ZoneVoiceButton from '../features/elder-doctrine/components/ZoneVoiceButton.jsx';
@@ -228,27 +263,18 @@ export default function MemberProfilePage() {
   // ==========================================================================
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    const apply = async () => {
       try {
-        // OP trước M12: DU_BI không được /me/profile
-        try {
-          const opRes = await apiClient.get('/onboarding/my-op');
-          const op = opRes.data?.data ?? opRes.data ?? null;
-          if (cancelled) return;
-          const primaryStatus = op?.primary?.status;
-          const complete = op?.completeness?.complete === true;
-          if (op?.hasOpen === true && (primaryStatus === 'DU_BI' || !complete)) {
-            navigate('/op/base-profile', { replace: true });
-            return;
-          }
-          /* hasOpen false / primary null: OP đã đóng — ở lại /op (catalog việc + hồ sơ).
-             Không đẩy /tree: chặn C1 «Khai năm đời». */
-        } catch {
-          /* my-op lỗi: thử M12; 403 NOT_MEMBER_ACTOR xử lý phía dưới */
+        const bundle = await loadHubBundle();
+        if (cancelled || !bundle) return;
+        const op = bundle.op;
+        const primaryStatus = op?.primary?.status;
+        const complete = op?.completeness?.complete === true;
+        if (op?.hasOpen === true && (primaryStatus === 'DU_BI' || !complete)) {
+          navigate('/op/base-profile', { replace: true });
+          return;
         }
-
-        const res = await apiClient.get('/me/profile');
-        const d = res.data?.data || {};
+        const d = bundle.profile || {};
         const m = d.member || {};
         const b = d.biography || {};
         const social = m.social_profiles || {};
@@ -313,19 +339,15 @@ export default function MemberProfilePage() {
         }
 
         // Tải danh sách thành tựu
-        try {
-          const ach = await apiClient.get('/me/achievements');
-          if (!cancelled) setAchievements(ach.data?.data?.items || []);
-        } catch {
-          if (!cancelled) setAchievements([]);
-        }
+        if (!cancelled) setAchievements(bundle.achievements || []);
       } catch (e) {
         toast.error(e.response?.data?.message || 'Không tải được hồ sơ.');
       } finally {
         if (!cancelled) setLoading(false);
       }
-    })();
-
+    };
+    // <2026-10-27T08:20:00+07:00> Mục đích: Gọi một lần, đổ vào lần mở còn sống. Lý do: hiệu ứng chạy hai lần.
+    void apply();
     return () => {
       cancelled = true;
     };

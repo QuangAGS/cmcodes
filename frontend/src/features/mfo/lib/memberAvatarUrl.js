@@ -1,10 +1,11 @@
 /**
  * PATH       : frontend/src/features/mfo/lib/memberAvatarUrl.js
- * DATETIME   : 2026-10-26T09:55:00+07:00
- * VERSION    : 1.1.1-KHONG-HO-SO
+ * DATETIME   : 2026-10-27T08:20:00+07:00
+ * VERSION    : 1.1.2-MOT-ANH
  * DESCRIPTION: Cùng kênh /me/profile — profile pack + media AVATAR.
  * CHANGE LOG:
  * - 2026-10-26T09:55:00+07:00 | 1.1.1 | Bỏ gọi lại hồ sơ thành viên. Giữ: ảnh riêng và media. Lý do: hồ sơ đã được trang gọi trước.
+ * - 2026-10-27T08:20:00+07:00 | 1.1.2 | Thêm: khoá ảnh đang lấy. Bỏ: gọi đôi. Giữ: đường ảnh. Lý do: trang mở hỏi ảnh hai lần.
  */
 
 import apiClient from '../../../lib/apiClient.js';
@@ -30,11 +31,11 @@ function pickAvatar(obj) {
 }
 
 const cache = new Map();
+const flight = new Map();
 
-export async function memberAvatarUrl(memberId) {
+async function loadAvatar(memberId) {
   const id = String(memberId || '').trim();
   if (!id) return '';
-  if (cache.has(id)) return cache.get(id);
 
   const tryGet = async (path, params) => {
     const res = await apiClient.get(path, params ? { params } : {});
@@ -75,6 +76,17 @@ export async function memberAvatarUrl(memberId) {
 
   cache.set(id, url || '');
   return url || '';
+}
+
+export async function memberAvatarUrl(memberId) {
+  const id = String(memberId || '').trim();
+  if (!id) return '';
+  if (cache.has(id)) return cache.get(id);
+  if (flight.has(id)) return flight.get(id);
+  const job = loadAvatar(id).finally(() => flight.delete(id));
+  // <2026-10-27T08:20:00+07:00> Mục đích: Khoá ảnh đang lấy. Lý do: hai lần mở cùng hỏi.
+  flight.set(id, job);
+  return job;
 }
 
 export function clearMemberAvatarCache(memberId) {

@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/mfo/api/mfoApi.js
  * DATETIME   : 2026-10-26T12:25:00+07:00
- * VERSION    : 5.1.3-BO-DAU-DE
+ * VERSION    : 5.1.4-MOT-DANH-SACH
  * DESCRIPTION: Giữ toàn bộ exports; tách API trả sửa và không duyệt cửa 2.
  * RULE       : Q1 bảo tồn ngoài phạm vi; Q2 metadata và chú thích thời gian.
  */
@@ -15,6 +15,7 @@
  * - Cung cấp cả alias `listPlans` song song với `listMyPlans` / `listAdminPlans`.
  * - Giữ nguyên toàn bộ các hàm thao tác Sổ họ, Thành viên, Hôn nhân và Admin Review.
  * CHANGELOG  :
+ * - 2026-10-27T08:20:00+07:00 | 5.1.4 | Thêm: khoá danh sách hồ sơ của tôi. Bỏ: gọi đôi. Giữ: danh sách. Lý do: trang mở gọi hai lần.
  * - 2026-10-26T12:25:00+07:00 | 5.1.1 | Thêm: cùng một người chỉ gọi full-set một lần. Bỏ: lần gọi thứ hai từ dịch vụ lấy đời. Giữ: các hàm khác. Lý do: trang và dịch vụ cùng gọi.
  * - 2026-10-08: Thêm deleteDraft, deletePlanDraft, listPlans alias. 保 toàn 100% legacy exports.
  */
@@ -33,8 +34,22 @@ export function listMyPlans(params = {}) {
 
 /** Alias cho listMyPlans để tương thích với các component gọi listPlans */
 /** <2026-10-13T17:07:00+07:00> Mục đích: Giữ xử lý listPlans; thay đổi chỉ trong thao tác admin lát 5. */
+const planListFlight = new Map();
 export function listPlans(params = {}) {
-  return apiClient.get('/mfo/plans', { params: { mine: 1, ...params } });
+  const key = JSON.stringify({ mine: 1, ...params });
+  const hit = planListFlight.get(key);
+  if (hit && hit.data && Date.now() - hit.at < 8000) return Promise.resolve(hit.data);
+  if (hit && hit.job) return hit.job;
+  const job = apiClient.get('/mfo/plans', { params: { mine: 1, ...params } }).then((res) => {
+    planListFlight.set(key, { at: Date.now(), data: res, job: null });
+    return res;
+  }).catch((error) => {
+    planListFlight.delete(key);
+    throw error;
+  });
+  // <2026-10-27T08:20:00+07:00> Mục đích: Khoá trước khi gọi. Lý do: trang mở gọi danh sách hai lần.
+  planListFlight.set(key, { at: Date.now(), data: null, job });
+  return job;
 }
 
 /** Lấy danh sách Tờ trình phía Admin */
