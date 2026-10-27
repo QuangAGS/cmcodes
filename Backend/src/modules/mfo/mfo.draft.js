@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/mfo/mfo.draft.js
- * DATETIME   : 2026-10-22T11:52:00+07:00
- * VERSION    : 2.4.1-KEEP-GATE-FLAG
+ * DATETIME   : 2026-10-27T08:57:00+07:00
+ * VERSION    : 2.4.2-LUU-NHE
  * DESCRIPTION:
  * - Tuân thủ Q1 (Bảo tồn nghiệp vụ cũ) & Q2 (Code Format & Chú thích đầy đủ).
  * - Bổ sung Guardrail khóa cứng API saveDraft: Chặn không cho sửa bản nháp nếu ticket_id
@@ -10,6 +10,7 @@
  * - 2026-10-08: Thêm chặn lưu khi khác DRAFT.
  * - 2026-10-22T08:06:00+07:00 | 2.4.0 | Thêm: lưu tờ cần sửa vào chính nó. Bỏ: tạo tờ DRAFT mới.
  * - 2026-10-22T11:52:00+07:00 | 2.4.1 | Bỏ: ép plan_ok false. Giữ: cờ của tờ đang mở. Lý do: ép false làm cửa 2 thành cửa 1.
+ * - 2026-10-27T08:57:00+07:00 | 2.4.2 | Thêm: đọc song song và chỉ trả mã tờ. Bỏ: trả cả bản lớn. Giữ: lưu và sổ cái. Lý do: lưu nháp hơn bốn giây.
  */
 
 const { prisma, withTransaction } = require('../../lib/prisma.js');
@@ -37,51 +38,54 @@ async function saveDraft({ user, body, correlationId }) {
     fail('Lưu nháp bắt buộc chọn Thành viên mốc M (target_member_id).', 400, 'MFO_TARGET_REQUIRED');
   }
 
-  // Bắt buộc mốc M phải tồn tại trên sổ
-  const targetMember = await prisma.members.findUnique({
-    where: { id: targetMemberId },
-    select: { id: true, tenant_id: true, deleted_at: true },
-  });
+  const started = Date.now();
+  const times = {};
+  const selectedCanvasDepth = Number(body.selected_canvas_depth ?? body.k ?? 0);
+  const now = new Date();
+  const keepId = body.ticket_id || body.ticketId || null;
+
+  // <2026-10-27T08:57:00+07:00> Mục đích: Đọc song song. Lý do: bốn câu nối tiếp làm lưu nháp hơn bốn giây.
+  const readStarted = Date.now();
+  const [targetMember, existingDraft, currentProposal] = await Promise.all([
+    prisma.members.findUnique({
+      where: { id: targetMemberId },
+      select: { id: true, tenant_id: true, deleted_at: true },
+    }),
+    prisma.proposals.findFirst({
+      where: {
+        tenant_id: tenantId,
+        requester_user_id: actor,
+        ticket_type: 'MFO_REVIEW',
+        deleted_at: null,
+        status: 'DRAFT',
+      },
+      orderBy: { updated_at: 'desc' },
+      select: { id: true, status: true, updated_at: true, correlation_id: true, expires_at: true },
+    }),
+    keepId
+      ? prisma.proposals.findUnique({
+          where: { id: keepId },
+          select: { id: true, status: true, updated_at: true, correlation_id: true, expires_at: true, payload: true },
+        })
+      : null,
+    keepId
+      ? prisma.proposals.findUnique({ where: { id: keepId }, select: { payload: true } })
+      : null,
+  ]);
+  times.read_ms = Date.now() - readStarted;
 
   if (!targetMember || targetMember.deleted_at) {
     fail('Thành viên mốc M không tồn tại trên sổ.', 404, 'MFO_TARGET_NOT_FOUND');
   }
-
   if (String(targetMember.tenant_id) !== String(tenantId)) {
     fail('Thành viên mốc M không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
   }
-
-  const selectedCanvasDepth = Number(body.selected_canvas_depth ?? body.k ?? 0);
-  const now = new Date();
-
-  // Tìm bản nháp DRAFT đang mở của User
-  const existingDraft = await prisma.proposals.findFirst({
-    where: {
-      tenant_id: tenantId,
-      requester_user_id: actor,
-      ticket_type: 'MFO_REVIEW',
-      deleted_at: null,
-      status: 'DRAFT',
-    },
-    orderBy: { updated_at: 'desc' },
-  });
-
-  // NẾU CÓ TICKET_ID TRUYỀN LÊN: KIỂM TRA KHÓA ĐÓNG BĂNG HỒ SƠ
-  if (body.ticket_id || body.ticketId) {
-    const targetTicketId = body.ticket_id || body.ticketId;
-    const currentProposal = await prisma.proposals.findUnique({
-      where: { id: targetTicketId },
-      select: { id: true, status: true, updated_at: true },
-    });
-
-    // <2026-10-22T08:06:00+07:00> Mục đích: Tờ cần sửa vẫn được lưu vào chính nó. Lý do: chặn khác DRAFT làm máy tạo tờ mới.
-    if (currentProposal && !['DRAFT', 'NEEDS_REVISION'].includes(currentProposal.status)) {
-      fail(
-        `Tờ trình đang ở trạng thái [${currentProposal.status}], không thể lưu sửa nháp!`,
-        409,
-        'MFO_PROPOSAL_LOCKED'
-      );
-    }
+  if (currentProposal && !['DRAFT', 'NEEDS_REVISION'].includes(currentProposal.status)) {
+    fail(
+      `Tờ trình đang ở trạng thái [${currentProposal.status}], không thể lưu sửa nháp!`,
+      409,
+      'MFO_PROPOSAL_LOCKED'
+    );
   }
 
   const payloadToSave = {
@@ -105,10 +109,8 @@ async function saveDraft({ user, body, correlationId }) {
     result_ok: false,
   };
   // <2026-10-22T11:52:00+07:00> Mục đích: Giữ cờ của tờ đang mở. Lý do: ép false làm cửa 2 thành cửa 1.
-  const keepId = body.ticket_id || body.ticketId;
+  const kept = (currentProposal && currentProposal.payload) || {};
   if (keepId) {
-    const keep = await prisma.proposals.findUnique({ where: { id: keepId }, select: { payload: true } });
-    const kept = (keep && keep.payload) || {};
     payloadToSave.plan_ok = kept.plan_ok === true;
     payloadToSave.result_submitted = kept.result_submitted === true;
     payloadToSave.result_ok = kept.result_ok === true;
@@ -116,15 +118,13 @@ async function saveDraft({ user, body, correlationId }) {
 
   const corr = correlationId || existingDraft?.correlation_id || require('crypto').randomUUID();
 
-  return await withTransaction(
+  const saved = await withTransaction(
     { tenantId, actorId: actor, correlationId: corr },
     async (tx) => {
       let ticket;
 
       const ticketId = body.ticket_id || body.ticketId;
-      const openTicket = ticketId
-        ? await tx.proposals.findFirst({ where: { id: ticketId, tenant_id: tenantId, deleted_at: null } })
-        : existingDraft;
+      const openTicket = currentProposal || existingDraft;
       if (openTicket) {
         // KIỂM TRA OPTIMISTIC LOCK (Khóa lạc quan)
         if (body.updated_at) {
@@ -143,6 +143,7 @@ async function saveDraft({ user, body, correlationId }) {
             updated_at: now,
             changed_by: actor,
           },
+          select: { id: true, updated_at: true, expires_at: true, correlation_id: true, requester_user_id: true, tenant_id: true, target_id: true },
         });
       } else {
         ticket = await tx.proposals.create({
@@ -158,6 +159,7 @@ async function saveDraft({ user, body, correlationId }) {
             correlation_id: corr,
             changed_by: actor,
           },
+          select: { id: true, updated_at: true, expires_at: true, correlation_id: true, requester_user_id: true, tenant_id: true, target_id: true },
         });
       }
 
@@ -180,6 +182,10 @@ async function saveDraft({ user, body, correlationId }) {
       };
     }
   );
+  times.write_ms = Date.now() - started - times.read_ms;
+  times.service_total_ms = Date.now() - started;
+  console.info('[MFO_DRAFT_TIMING]', times);
+  return saved;
 }
 
 module.exports = {
