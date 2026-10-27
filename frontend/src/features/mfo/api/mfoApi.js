@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/mfo/api/mfoApi.js
  * DATETIME   : 2026-10-26T12:25:00+07:00
- * VERSION    : 5.1.5-TEN-NHOM
+ * VERSION    : 5.1.6-CHAN-TAO
  * DESCRIPTION: Giữ toàn bộ exports; tách API trả sửa và không duyệt cửa 2.
  * RULE       : Q1 bảo tồn ngoài phạm vi; Q2 metadata và chú thích thời gian.
  */
@@ -17,6 +17,7 @@
  * CHANGELOG  :
  * - 2026-10-27T08:20:00+07:00 | 5.1.4 | Thêm: khoá danh sách hồ sơ của tôi. Bỏ: gọi đôi. Giữ: danh sách. Lý do: trang mở gọi hai lần.
  * - 2026-10-27T08:39:00+07:00 | 5.1.5 | Thêm: lấy tên cả nhóm. Bỏ: không bỏ. Giữ: lấy từng người. Lý do: chọn hồ sơ hỏi năm lần.
+ * - 2026-10-27T09:55:00+07:00 | 5.1.6 | Thêm: hỏi được tạo mới không. Bỏ: không bỏ. Giữ: danh sách. Lý do: chặn tạo mới sớm.
  * - 2026-10-26T12:25:00+07:00 | 5.1.1 | Thêm: cùng một người chỉ gọi full-set một lần. Bỏ: lần gọi thứ hai từ dịch vụ lấy đời. Giữ: các hàm khác. Lý do: trang và dịch vụ cùng gọi.
  * - 2026-10-08: Thêm deleteDraft, deletePlanDraft, listPlans alias. 保 toàn 100% legacy exports.
  */
@@ -36,6 +37,10 @@ export function listMyPlans(params = {}) {
 /** Alias cho listMyPlans để tương thích với các component gọi listPlans */
 /** <2026-10-13T17:07:00+07:00> Mục đích: Giữ xử lý listPlans; thay đổi chỉ trong thao tác admin lát 5. */
 const planListFlight = new Map();
+export function canCreatePlan() {
+  return apiClient.get('/mfo/plans/can-create');
+}
+
 export function listPlans(params = {}) {
   const key = JSON.stringify({ mine: 1, ...params });
   const hit = planListFlight.get(key);

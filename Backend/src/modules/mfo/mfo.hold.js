@@ -2,7 +2,7 @@
  * PATH       : src/modules/mfo/mfo.hold.js
  * DATETIME   : 2026-10-27T09:38:00+07:00
  * 2026-10-10T21:25:00+07:00
- * VERSION    : 1.0.1-BO-XOA
+ * VERSION    : 1.0.2-LOC-XOA
  * DESCRIPTION: Rút member_id thật để ghi hold_member_ids. Không kiểm giao nhau.
  * CHANGE LOG:
  * - 2026-10-27T09:38:00+07:00 | 1.0.1 | Thêm: bỏ hồ sơ đã xoá khỏi kiểm xung đột. Bỏ: không bỏ. Giữ: kiểm giao nhau. Lý do: hồ sơ đã xoá vẫn bị tính.
@@ -85,30 +85,26 @@ function stillHolding(row, now) {
 async function findHoldConflict(prisma, { tenantId, memberIds, excludeProposalId, excludeRequesterId }) {
   const ids = Array.from(new Set((memberIds || []).filter((id) => UUID_RE.test(String(id || '')))));
   if (!tenantId || !ids.length) return null;
-
-  const rows = await prisma.proposals.findMany({
-    where: {
-      tenant_id: tenantId,
-      deleted_at: null,
-      status: { in: HOLDING_STATUSES },
-      hold_member_ids: { hasSome: ids },
-      NOT: { hold_member_ids: { equals: [] } },
-      ...(excludeProposalId ? { id: { not: excludeProposalId } } : {}),
-      ...(excludeRequesterId ? { requester_user_id: { not: excludeRequesterId } } : {}),
-    },
-    select: {
-      id: true,
-      status: true,
-      requester_user_id: true,
-      expires_at: true,
-      hold_member_ids: true,
-      deleted_at: true,
-    },
-    take: 5,
-  });
-
-  const now = new Date();
-  return rows.find((row) => stillHolding(row, now)) || null;
+  // <2026-10-27T09:55:00+07:00> Mục đích: Câu thô loại hồ sơ đã xoá. Lý do: câu cũ vẫn tính hồ sơ đã xoá.
+  const rows = await prisma.$queryRaw`
+    SELECT id, status, requester_user_id, expires_at, hold_member_ids, deleted_at,
+           COALESCE((payload->>'result_ok')::boolean, false) AS result_ok
+    FROM proposals
+    WHERE tenant_id = ${tenantId}
+      AND deleted_at IS NULL
+      AND status::text IN ('DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION', 'APPROVED')
+      AND cardinality(hold_member_ids) > 0
+      AND hold_member_ids && ${ids}::text[]
+      AND COALESCE((payload->>'result_ok')::boolean, false) = false
+      AND (${excludeProposalId}::text IS NULL OR id <> ${excludeProposalId})
+      AND (${excludeRequesterId}::text IS NULL OR requester_user_id <> ${excludeRequesterId})
+      AND NOT (
+        status::text IN ('DRAFT', 'NEEDS_REVISION', 'APPROVED')
+        AND expires_at IS NOT NULL AND expires_at <= NOW()
+      )
+    LIMIT 5
+  `;
+  return Array.isArray(rows) && rows[0] ? rows[0] : null;
 }
 
 module.exports = {

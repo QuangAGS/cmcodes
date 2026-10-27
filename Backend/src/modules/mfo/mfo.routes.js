@@ -45,6 +45,7 @@ router.get(
 // =============================================================================
 // 2. NHÓM API DANH SÁCH & BẢN NHÁP (DRAFT - STAGING)
 // =============================================================================
+router.get('/plans/can-create', verifyToken, checkRole(READ), mfoController.canCreate);
 router.get('/plans', verifyToken, checkRole(READ), mfoController.listPlans);
 
 // Lưu nháp Khung 5L

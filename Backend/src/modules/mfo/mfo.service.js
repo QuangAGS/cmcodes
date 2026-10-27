@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-27T09:38:00+07:00
- * VERSION    : 4.7.23-BO-HO-SO-XOA
+ * DATETIME   : 2026-10-27T09:55:00+07:00
+ * VERSION    : 4.7.24-CHAN-SOM
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -27,6 +27,7 @@
  * - 2026-10-27T09:17:00+07:00 | 4.7.21 | Thêm: một câu đọc khi lưu. Bỏ: ba câu đọc. Giữ: cờ và giữ chỗ. Lý do: ba câu chạy nối tiếp thành 1,2 giây.
  * - 2026-10-27T09:21:00+07:00 | 4.7.22 | Thêm: lấy số lần ghi sổ cái trong câu đọc. Bỏ: hỏi số lần lúc ghi. Giữ: sổ cái. Lý do: phần ghi còn 1,2 giây.
  * - 2026-10-27T09:38:00+07:00 | 4.7.23 | Thêm: bỏ chỗ giữ khi xoá hồ sơ. Bỏ: không bỏ. Giữ: kiểm xung đột. Lý do: hồ sơ đã xoá vẫn bị tính xung đột.
+ * - 2026-10-27T09:55:00+07:00 | 4.7.24 | Thêm: chặn tạo mới nếu còn hồ sơ sống. Bỏ: không bỏ. Giữ: hồ sơ đã xoá không chặn. Lý do: kiểm xung đột đang muộn.
  */
 
 const crypto = require('crypto');
@@ -1801,6 +1802,34 @@ const mfoService = {
     );
 
     return { ticket, payload };
+  },
+
+  canCreate: async ({ user }) => {
+    const actor = actorIdOf(user);
+    const tenantId = tenantIdOf(user);
+    if (!actor || !tenantId) fail('Thiếu người thực hiện.', 401, 'UNAUTHENTICATED');
+    // <2026-10-27T09:55:00+07:00> Mục đích: Chặn tạo mới sớm. Lý do: hồ sơ đã xoá không được tính.
+    const active = await prisma.proposals.findFirst({
+      where: {
+        tenant_id: tenantId,
+        requester_user_id: actor,
+        ticket_type: { in: ['MFO_REVIEW', 'BRANCH_REVIEW'] },
+        deleted_at: null,
+        OR: [
+          { status: { in: OPEN } },
+          { status: 'APPROVED', payload: { path: ['result_ok'], equals: false } },
+        ],
+      },
+      select: { id: true, status: true, expires_at: true },
+    });
+    if (active) {
+      fail('Bác đang có một tờ chưa xong. Hãy làm xong tờ cũ trước khi mở tờ mới.', 409, 'MFO_ACTIVE_PROPOSAL_EXISTS', {
+        active_ticket_id: active.id,
+        status: active.status,
+        expires_at: active.expires_at || null,
+      });
+    }
+    return { ok: true };
   },
 
   listPlans: async ({ user, query }) => {

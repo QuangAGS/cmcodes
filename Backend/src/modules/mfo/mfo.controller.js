@@ -442,6 +442,16 @@ const mfoController = {
     }
   },
 
+  canCreate: async (req, res) => {
+    try {
+      const data = await mfoService.canCreate({ user: req.user });
+      res.set('Cache-Control', 'no-store');
+      res.status(200).json({ status: 'success', data });
+    } catch (error) {
+      sendError(res, error);
+    }
+  },
+
   listPlans: async (req, res) => {
     try {
       const data = await mfoService.listPlans({

@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MyMfoPlans.jsx
- * DATETIME   : 2026-10-27T08:39:00+07:00
- * VERSION    : 5.7.9-TEN-NHOM
+ * DATETIME   : 2026-10-27T09:55:00+07:00
+ * VERSION    : 5.7.10-CHAN-TAO
  * DESCRIPTION:
  * - Vá dứt điểm lỗi hiển thị nhầm "Bút phê tờ khai: Duyệt" khi Tờ khai Cửa 2 đang ở trạng thái chờ duyệt.
  * - Loại bỏ fallback || currentPlan.admin_note của Cửa 1, phân lập chính xác bút phê theo trạng thái Tờ khai Cửa 2.
@@ -42,6 +42,7 @@ import {
   deleteDraft,
   getMember,
   listMemberNames,
+  canCreatePlan,
   getDraftPayload,
   savePlanDraft,
 } from '../api/mfoApi.js';
@@ -126,11 +127,20 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
     void loadPlansList();
   }, [loadPlansList]);
 
+  const startNewPlan = async () => {
+    try {
+      await canCreatePlan();
+      navigate('/op/mfo/plans/new');
+    } catch (error) {
+      setAlarm(toMfoUserMessage(error));
+    }
+  };
+
   const handleSelectChange = (e) => {
     const val = e.target.value;
 
     if (val === '__NEW_PLAN__') {
-      navigate('/op/mfo/plans/new');
+      void startNewPlan();
       return;
     }
 
@@ -326,7 +336,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
             <button
               type="button"
               className="mt-3 flex items-center gap-1.5 rounded-2xl bg-indigo-600 px-4 py-2.5 text-xs font-black text-white shadow-md hover:bg-indigo-700 active:scale-95"
-              onClick={() => navigate('/op/mfo/plans/new')}
+              onClick={() => { void startNewPlan(); }}
             >
               <Plus className="h-4 w-4" />
               <span>+ Tạo nhánh phả hệ mới</span>
@@ -383,7 +393,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                 <button
                   type="button"
                   className="flex items-center gap-1.5 rounded-2xl bg-indigo-600 px-4 py-2.5 text-xs font-black text-white shadow-sm hover:bg-indigo-700 active:scale-95"
-                  onClick={() => navigate('/op/mfo/plans/new')}
+                  onClick={() => { void startNewPlan(); }}
                 >
                   <PlusCircle className="h-4 w-4" />
                   <span>Bấm để tạo nhánh mới ngay</span>
