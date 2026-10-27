@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/mfo/api/mfoApi.js
  * DATETIME   : 2026-10-26T12:25:00+07:00
- * VERSION    : 5.1.7-MOT-TRINH
+ * VERSION    : 5.1.8-MOT-LAY-TO
  * DESCRIPTION: Giữ toàn bộ exports; tách API trả sửa và không duyệt cửa 2.
  * RULE       : Q1 bảo tồn ngoài phạm vi; Q2 metadata và chú thích thời gian.
  */
@@ -19,6 +19,7 @@
  * - 2026-10-27T08:39:00+07:00 | 5.1.5 | Thêm: lấy tên cả nhóm. Bỏ: không bỏ. Giữ: lấy từng người. Lý do: chọn hồ sơ hỏi năm lần.
  * - 2026-10-27T09:55:00+07:00 | 5.1.6 | Thêm: hỏi được tạo mới không. Bỏ: không bỏ. Giữ: danh sách. Lý do: chặn tạo mới sớm.
  * - 2026-10-27T10:16:00+07:00 | 5.1.7 | Thêm: một lần trình cho một tờ. Bỏ: không bỏ. Giữ: trình. Lý do: bấm trình gửi hai lần.
+ * - 2026-10-27T10:27:00+07:00 | 5.1.8 | Thêm: một lần lấy tờ. Bỏ: không bỏ. Giữ: lấy tờ. Lý do: mở tờ gọi hai lần.
  * - 2026-10-26T12:25:00+07:00 | 5.1.1 | Thêm: cùng một người chỉ gọi full-set một lần. Bỏ: lần gọi thứ hai từ dịch vụ lấy đời. Giữ: các hàm khác. Lý do: trang và dịch vụ cùng gọi.
  * - 2026-10-08: Thêm deleteDraft, deletePlanDraft, listPlans alias. 保 toàn 100% legacy exports.
  */
@@ -67,8 +68,14 @@ export function listAdminPlans(params = {}) {
 
 /** Lấy thông tin chi tiết một Proposal/Ticket theo ID */
 /** <2026-10-13T17:07:00+07:00> Mục đích: Giữ xử lý getPlan; thay đổi chỉ trong thao tác admin lát 5. */
+const planFlight = new Map();
 export function getPlan(id) {
-  return apiClient.get(`/mfo/plans/${id}`);
+  const key = String(id);
+  const hit = planFlight.get(key);
+  if (hit) return hit;
+  const job = apiClient.get(`/mfo/plans/${id}`).finally(() => planFlight.delete(key));
+  planFlight.set(key, job);
+  return job;
 }
 
 /** Tạo/Trình mới Tờ trình Khung MFO 5L */
