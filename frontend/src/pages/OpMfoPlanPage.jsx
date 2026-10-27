@@ -12,6 +12,7 @@
  * - 2026-10-26T11:43:00+07:00 | 4.9.50 | Thêm: khoá full-set theo người trước khi gọi. Bỏ: lần gọi thứ hai sau khi lần đầu xong. Giữ: gán người. Lý do: full-set bị gọi hai lần.
  * - 2026-10-23T09:58:00+07:00 | Thêm: đang soạn có Lưu nháp và Trình. Bỏ: DRAFT bị đóng băng vì result_ok. Giữ: chờ duyệt vẫn đóng băng. Lý do: đang soạn hiện Đã đóng băng và Đã trình.
  * - 2026-10-23T10:09:00+07:00 | 4.9.40 | Thêm: vòng quay trên cùng khi bận. Bỏ: chữ Đang gửi trên nút Trình. Giữ: Lưu nháp, Trình. Lý do: trạng thái bận hiện nhầm trên nút.
+ * - 2026-10-27T10:16:00+07:00 | 4.9.41 | Thêm: khoá trình ngay khi bấm. Bỏ: không bỏ. Giữ: trình một lần. Lý do: bấm hai lần gửi hai tờ.
  * - 2026-10-23T11:27:00+07:00 | 4.9.41 | Thêm: cửa 2 kéo khung, kéo ô, chấm, nút cộng trừ, câu XT. Bỏ: pan và kéo tắt ở cửa 2. Giữ: cửa 1. Lý do: cửa 2 mất các thao tác cây.
  * - 2026-10-23T11:53:00+07:00 | 4.9.42 | Thêm: tờ khai cần sửa mở cửa 2. Bỏ: chỉ APPROVED mới là cửa 2. Giữ: nhánh cần sửa vẫn cửa 1. Lý do: trả sửa hạ trạng thái nên mở nhầm cửa 1.
  * - 2026-10-26T11:14:00+07:00 | 4.9.48 | Thêm: cùng một người chỉ gọi full-set một lần. Bỏ: lần gọi thứ hai khi mở lại hiệu ứng. Giữ: gán người. Lý do: full-set bị gọi hai lần.\n * - 2026-10-23T14:48:00+07:00 | 4.9.43 | Thêm: gỡ ô rỗng khi đời đã có người. Bỏ: ô rỗng còn sau khi thêm con. Giữ: ô rỗng khi đời chưa có ai. Lý do: đời đã có thành viên vẫn hiện ô rỗng.
@@ -280,6 +281,7 @@ export function OpMfoPlanPage() {
     }, 60);
   };
   const fulfilledPickRef = useRef(null);
+  const submitLockRef = useRef(false);
   const requestRef = useRef(0);
 
   const handleOpenActionForm = useCallback(
@@ -1111,6 +1113,9 @@ export function OpMfoPlanPage() {
 
   // <2026-10-14T11:20:00+07:00> CHỐT CHẶN BẢO VỆ CỬA 1 & CỬA 2 TẬN GỐC
   async function handleSubmitPlan() {
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
+
     const isAlreadyApprovedGate1 = profileFlags.plan_ok === true || String(proposalStatus).toUpperCase() === 'APPROVED';
     
     // Nếu là Cửa 2 (isGate2 = true) hoặc Tờ trình đã được phê duyệt ở Cửa 1, ÉP BUỘC 100% gọi handleSubmitProfiles() (API submitResult Cửa 2)
@@ -1177,6 +1182,7 @@ export function OpMfoPlanPage() {
       setErr(message);
       mfoToast.error(message);
     } finally {
+      submitLockRef.current = false;
       setBusy(false);
     }
   }
