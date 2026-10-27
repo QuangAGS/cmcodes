@@ -1,6 +1,6 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MfoHistoryChain.jsx
- * DATETIME   : 2026-10-23T11:53:00+07:00
+ * DATETIME   : 2026-10-27T14:56:00+07:00
  * VERSION    : 1.4.1-LIST-REFRESH
  * DESCRIPTION:
  * - Vá lỗi tự động gán chữ "Duyệt" khi Lần trình Cửa 2 đang ở trạng thái chờ duyệt.
@@ -112,17 +112,18 @@ export function stageName(plan) {
 /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý historySteps; phần thay đổi giới hạn lịch sử lát 4. */
 export function historySteps(plan) {
   const payload = sourceOf(plan);
-  const steps = [{ id: 'frame', title: 'Nhánh phả hệ đang soạn' }];
   const st = String(plan?.status || '').toUpperCase();
-  if (payload.plan_ok || ['PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION', 'APPROVED', 'REJECTED'].includes(st)) {
-    steps.push({ id: 'frame-review', title: 'Nhánh phả hệ chờ phê duyệt' });
-  }
-  // <2026-10-16T07:08:00+07:00> Mục đích: Chỉ thêm bước tờ khai khi nhánh đã duyệt. Lý do: DRAFT có plan_ok vẫn là cửa 1.
-  if (payload.plan_ok && st === 'APPROVED') steps.push({ id: 'frame-ok', title: 'Nhánh phả hệ đã duyệt' });
-  if (payload.plan_ok && st === 'APPROVED') steps.push({ id: 'result-draft', title: 'Tờ khai đang soạn' });
-  // <2026-10-23T09:58:00+07:00> Mục đích: Không lấy bước đã ghi sổ cho tờ đang soạn. Lý do: result_ok sót làm tóm tắt sai.
-  if (payload.result_submitted && (st === 'PENDING' || st === 'UNDER_REVIEW')) steps.push({ id: 'result-review', title: 'Tờ khai chờ duyệt' });
-  if (payload.result_ok && st === 'APPROVED') steps.push({ id: 'result-ok', title: 'Tờ khai đã duyệt' });
+  const planOk = Boolean(payload.plan_ok);
+  const steps = [{ id: 'frame', title: 'Nhánh phả hệ đang soạn' }];
+  if (st !== 'DRAFT') steps.push({ id: 'frame-review', title: 'Nhánh phả hệ chờ phê duyệt' });
+  if (!planOk && st === 'NEEDS_REVISION') steps.push({ id: 'frame-fix', title: 'Nhánh phả hệ cần sửa' });
+  if (!planOk && st === 'REJECTED') steps.push({ id: 'frame-no', title: 'Nhánh phả hệ không được duyệt' });
+  if (planOk) steps.push({ id: 'frame-ok', title: 'Nhánh phả hệ đã duyệt' });
+  if (planOk) steps.push({ id: 'result-draft', title: 'Tờ khai đang soạn' });
+  if (planOk && st === 'NEEDS_REVISION') steps.push({ id: 'result-fix', title: 'Tờ khai cần sửa' });
+  if (planOk && payload.result_submitted && (st === 'PENDING' || st === 'UNDER_REVIEW')) steps.push({ id: 'result-review', title: 'Tờ khai chờ duyệt' });
+  if (planOk && st === 'REJECTED') steps.push({ id: 'result-no', title: 'Tờ khai không được duyệt' });
+  if (payload.result_ok && st === 'APPROVED') steps.push({ id: 'result-ok', title: 'Đã ghi sổ' });
   return steps;
 }
 
