@@ -1382,7 +1382,7 @@ export function OpMfoPlanPage() {
       ) : proposalStatus === 'NEEDS_REVISION' && (
         <div className="mx-3 mt-3 flex items-center gap-2 rounded-2xl border border-indigo-300 bg-indigo-50 px-4 py-3 text-xs font-black text-indigo-950 shadow-sm">
           <Save className="h-4 w-4 shrink-0 text-indigo-600" />
-          <span>Hồ sơ bị trả về [{proposalStatus}]. Hãy sửa Canvas theo Bút phê rồi Trình lại!</span>
+          <span>Bút phê: {adminNote || 'Chưa có ý kiến.'}</span>
         </div>
       )}
 

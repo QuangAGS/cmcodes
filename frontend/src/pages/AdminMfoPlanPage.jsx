@@ -163,8 +163,8 @@ export function AdminMfoPlanPage() {
       const list = Array.isArray(rawList) ? rawList : [];
 
       const queueList = list.filter((item) => {
-        const st = String(item.status || '').toUpperCase();
-        return st !== 'DRAFT' && st !== 'WITHDRAWN';
+        const label = dossierLabel(item);
+        return ['Nhánh phả hệ chờ phê duyệt', 'Nhánh phả hệ cần sửa', 'Nhánh phả hệ không được duyệt', 'Tờ khai chờ phê duyệt', 'Tờ khai cần sửa', 'Tờ khai không được duyệt'].includes(label);
       });
 
       setPlans(queueList);

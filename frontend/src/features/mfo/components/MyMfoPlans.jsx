@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MyMfoPlans.jsx
- * DATETIME   : 2026-10-27T09:55:00+07:00
- * VERSION    : 5.7.10-CHAN-TAO
+ * DATETIME   : 2026-10-27T14:47:00+07:00
+ * VERSION    : 5.7.11-BUT-PHE-SUA
  * DESCRIPTION:
  * - Vá dứt điểm lỗi hiển thị nhầm "Bút phê tờ khai: Duyệt" khi Tờ khai Cửa 2 đang ở trạng thái chờ duyệt.
  * - Loại bỏ fallback || currentPlan.admin_note của Cửa 1, phân lập chính xác bút phê theo trạng thái Tờ khai Cửa 2.
@@ -427,7 +427,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                         </p>
                       ) : null}
                       {/* <2026-10-23T11:53:00+07:00> Mục đích: Tờ khai cần sửa hiện bút phê. Lý do: EU phải đọc ý kiến trước khi sửa. */}
-                      {isNeedsRevision && payloadData?.plan_ok ? (
+                      {isNeedsRevision ? (
                         <p className="font-bold text-indigo-900 pt-1 border-t border-slate-100">
                           Bút phê: {currentPlan.admin_note || payloadData.admin_note || payloadData.reject_reason || 'Chưa có ý kiến.'}
                         </p>
