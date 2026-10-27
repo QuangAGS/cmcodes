@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-27T08:03:00+07:00
- * VERSION    : 4.7.17-EP-MANG
+ * DATETIME   : 2026-10-27T08:05:00+07:00
+ * VERSION    : 4.7.18-GIOI-HAN-GIU-CHO
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -21,6 +21,7 @@
  * - 2026-10-26T15:47:00+07:00 | 4.7.15 | Thêm: ép trạng thái hôn nhân về chữ. Bỏ: không bỏ. Giữ: hai vòng. Lý do: kiểu riêng không ghép được với chữ.
  * - 2026-10-27T07:58:00+07:00 | 4.7.16 | Thêm: một câu lấy người, hôn nhân, ảnh và giữ chỗ. Bỏ: vòng thứ hai. Giữ: hình cây. Lý do: hai vòng còn khoảng một giây.
  * - 2026-10-27T08:03:00+07:00 | 4.7.17 | Thêm: ép mã nhánh về chữ khi so giữ chỗ. Bỏ: không bỏ. Giữ: một vòng. Lý do: hai kiểu mảng không so được.
+ * - 2026-10-27T08:05:00+07:00 | 4.7.18 | Thêm: giới hạn năm dòng chỉ cho giữ chỗ. Bỏ: giới hạn cả câu. Giữ: một vòng. Lý do: giới hạn cả câu làm mất người vừa chọn.
  */
 
 const crypto = require('crypto');
@@ -482,13 +483,16 @@ const mfoService = {
         AND med.entity_type = 'MEMBER' AND med.purpose = 'AVATAR' AND med.is_primary = true
         AND med.entity_id IN (SELECT id FROM people)
       UNION ALL
-      SELECT 'hold', jsonb_build_object('id', p.id, 'status', p.status::text, 'expires_at', p.expires_at)
-      FROM proposals p
-      WHERE p.deleted_at IS NULL AND p.tenant_id = ${tenantId}
-        AND p.status::text IN ('DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION', 'APPROVED')
-        AND p.hold_member_ids && (SELECT COALESCE(array_agg(id::text), ARRAY[]::text[]) FROM branch)
-        AND (${actorId}::text IS NULL OR p.requester_user_id <> ${actorId})
-      LIMIT 5
+      SELECT 'hold', hold.data
+      FROM (
+        SELECT jsonb_build_object('id', p.id, 'status', p.status::text, 'expires_at', p.expires_at) AS data
+        FROM proposals p
+        WHERE p.deleted_at IS NULL AND p.tenant_id = ${tenantId}
+          AND p.status::text IN ('DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION', 'APPROVED')
+          AND p.hold_member_ids && (SELECT COALESCE(array_agg(id::text), ARRAY[]::text[]) FROM branch)
+          AND (${actorId}::text IS NULL OR p.requester_user_id <> ${actorId})
+        LIMIT 5
+      ) hold
     `);
     const rowsOf = (kind) => packed.filter((row) => row.kind === kind).map((row) => row.data || {});
     const people = rowsOf('member');
