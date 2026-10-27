@@ -1,7 +1,7 @@
 /**
  * PATH       : backend/src/shared/frameworks/srpf/engine/ActionExecutor.js
- * DATETIME   : 2026-08-13T11:40:00+07:00
- * VERSION    : 0.7.0-LAT-SUBMIT-PROPOSALS
+ * DATETIME   : 2026-10-27T10:39:00+07:00
+ * VERSION    : 0.7.1-DUNG-TO-DA-DOC
  * DESCRIPTION: Nạp proposals qua resolveInstance. Gọi side effect mọi trạng thái.
  */
 
@@ -32,6 +32,7 @@ async function executeAction({
   action,
   payload = {},
   actorContext = {},
+  instance: givenInstance = null,
 }) {
   const definition = registry.get(processType);
   if (!definition) {
@@ -42,9 +43,10 @@ async function executeAction({
     );
   }
 
-  const instance = typeof definition.resolveInstance === 'function'
-    ? await definition.resolveInstance(prisma, instanceId)
-    : await processInstanceLoader.load(instanceId);
+  const instance = givenInstance
+    || (typeof definition.resolveInstance === 'function'
+      ? await definition.resolveInstance(prisma, instanceId)
+      : await processInstanceLoader.load(instanceId));
 
   if (!instance) {
     throw srpfError(

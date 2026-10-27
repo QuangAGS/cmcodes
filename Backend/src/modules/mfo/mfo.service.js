@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-27T09:55:00+07:00
- * VERSION    : 4.7.24-CHAN-SOM
+ * DATETIME   : 2026-10-27T10:39:00+07:00
+ * VERSION    : 4.7.27-TRA-SUA-NHE
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -1979,6 +1979,7 @@ const mfoService = {
   },
 
   returnPlanForRevision: async ({ user, ticketId, body }) => {
+    const started = Date.now();
     if (!isClanOrSys(user)) {
       fail('Chỉ CLAN_ADMIN / SYSTEM_ADMIN có quyền yêu cầu sửa đổi.', 403, 'FORBIDDEN');
     }
@@ -2026,6 +2027,7 @@ const mfoService = {
       reject_reason: globalAdminNote || 'Yêu cầu hiệu chỉnh theo bút phê',
     };
 
+    console.info('[MFO_RETURN_TIMING]', { service_ms: Date.now() - started });
     return { ticket: { ...row, payload: nextPayload }, reviewScs, globalAdminNote };
   },
 
