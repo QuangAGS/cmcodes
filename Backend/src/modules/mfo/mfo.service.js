@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-27T09:55:00+07:00
- * VERSION    : 4.7.24-CHAN-SOM
+ * DATETIME   : 2026-10-27T10:05:00+07:00
+ * VERSION    : 4.7.25-KHONG-BAM-TO-CU
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -28,6 +28,7 @@
  * - 2026-10-27T09:21:00+07:00 | 4.7.22 | Thêm: lấy số lần ghi sổ cái trong câu đọc. Bỏ: hỏi số lần lúc ghi. Giữ: sổ cái. Lý do: phần ghi còn 1,2 giây.
  * - 2026-10-27T09:38:00+07:00 | 4.7.23 | Thêm: bỏ chỗ giữ khi xoá hồ sơ. Bỏ: không bỏ. Giữ: kiểm xung đột. Lý do: hồ sơ đã xoá vẫn bị tính xung đột.
  * - 2026-10-27T09:55:00+07:00 | 4.7.24 | Thêm: chặn tạo mới nếu còn hồ sơ sống. Bỏ: không bỏ. Giữ: hồ sơ đã xoá không chặn. Lý do: kiểm xung đột đang muộn.
+ * - 2026-10-27T10:05:00+07:00 | 4.7.25 | Thêm: tờ mới không bám tờ đã duyệt. Bỏ: lấy tờ APPROVED khi không có mã tờ. Giữ: lưu đúng tờ đang mở. Lý do: lưu nháp báo khoá vì bám tờ cũ.
  */
 
 const crypto = require('crypto');
@@ -1260,7 +1261,7 @@ const mfoService = {
             (${keepId}::text IS NOT NULL AND id = ${keepId})
             OR (${keepId}::text IS NULL AND requester_user_id = ${actor}
                 AND ticket_type = 'MFO_REVIEW'
-                AND status IN ('DRAFT', 'NEEDS_REVISION', 'APPROVED'))
+                AND status = 'DRAFT')
           )
         ORDER BY updated_at DESC
         LIMIT 1
@@ -1287,8 +1288,7 @@ const mfoService = {
     times.read_ms = Date.now() - readStarted;
     const row = Array.isArray(rows) ? rows[0] : null;
     const targetMember = row && row.member_id ? { id: row.member_id, tenant_id: row.tenant_id, deleted_at: row.deleted_at } : null;
-    const currentProposal = row && row.id ? row : null;
-    const existingDraft = currentProposal;
+    let currentProposal = row && row.id ? row : null;
     const draftConflict = row && row.hold_id ? { id: row.hold_id, expires_at: row.hold_expires } : null;
 
     if (!targetMember || targetMember.deleted_at) {
@@ -1297,7 +1297,7 @@ const mfoService = {
     if (String(targetMember.tenant_id) !== String(tenantId)) {
       fail('Thành viên mốc M không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
     }
-    if (currentProposal) {
+    if (currentProposal && keepId) {
       const st = currentProposal.status;
       const p = currentProposal.payload || {};
       const isEditable = st === 'DRAFT' || st === 'NEEDS_REVISION' || (st === 'APPROVED' && p.plan_ok && !p.result_submitted && !p.result_ok);
@@ -1305,6 +1305,10 @@ const mfoService = {
         fail(`Tờ trình đang ở trạng thái [${st}], không thể lưu sửa nháp!`, 409, 'MFO_PROPOSAL_LOCKED');
       }
     }
+    if (currentProposal && !keepId && currentProposal.status !== 'DRAFT') {
+      currentProposal = null;
+    }
+    const existingDraft = currentProposal;
     const kept = currentProposal || {};
     const payloadToSave = {
       kind: 'PLAN',
