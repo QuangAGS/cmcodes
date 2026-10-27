@@ -183,6 +183,7 @@ async function write({
         },
         changeReason: `SRPF ${processType || 'PROCESS'}:${action}`,
       });
+      auditJob.catch((err) => console.warn('[SRPF] audit_logs skipped/failed:', err && err.message));
     } catch (err) {
       if (process.env.SRPF_STRICT_AUDIT === '1') {
         throw err;
