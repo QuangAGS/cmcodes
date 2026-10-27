@@ -370,8 +370,6 @@ const memberService = {
       return memberService.getMemberById(existing.id, tenantId || existing.tenant_id);
   },
 
-};
-
   /**
    * DATETIME: 2026-10-27T08:39:00+07:00
    * VERSION: 1.9.0-TEN-NHOM
@@ -392,5 +390,7 @@ const memberService = {
     });
     return rows;
   },
+
+};
 
 module.exports = memberService;
