@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-26T15:47:00+07:00
- * VERSION    : 4.7.15-EP-KIEU
+ * DATETIME   : 2026-10-27T07:58:00+07:00
+ * VERSION    : 4.7.16-MOT-VONG-NHE
  * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
  * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
  *
@@ -19,6 +19,7 @@
  * - 2026-10-26T15:27:00+07:00 | 4.7.13 | Thêm: log thời gian từng chặng. Bỏ: không bỏ. Giữ: cách dựng cây. Lý do: chưa biết chặng nào chậm.
  * - 2026-10-26T15:40:00+07:00 | 4.7.14 | Thêm: mã nhánh và hôn nhân trong một câu. Bỏ: vòng lấy người riêng và vòng vợ chồng riêng. Giữ: hình cây và log. Lý do: bốn vòng, mỗi vòng nửa giây.
  * - 2026-10-26T15:47:00+07:00 | 4.7.15 | Thêm: ép trạng thái hôn nhân về chữ. Bỏ: không bỏ. Giữ: hai vòng. Lý do: kiểu riêng không ghép được với chữ.
+ * - 2026-10-27T07:58:00+07:00 | 4.7.16 | Thêm: một câu lấy người, hôn nhân, ảnh và giữ chỗ. Bỏ: vòng thứ hai. Giữ: hình cây. Lý do: hai vòng còn khoảng một giây.
  */
 
 const crypto = require('crypto');
@@ -408,7 +409,8 @@ const mfoService = {
     const targetId = targetMemberId;
     if (!tenantId) fail('Thiếu tenant.', 400, 'TENANT_REQUIRED');
 
-    // <2026-10-26T15:40:00+07:00> Mục đích: Một câu lấy mã nhánh và hôn nhân. Lý do: mỗi vòng nửa giây, bốn vòng thành hai giây.
+    // <2026-10-27T07:58:00+07:00> Mục đích: Một vòng lấy đủ nhánh, hôn nhân, ảnh và giữ chỗ. Lý do: hai vòng còn khoảng một giây.
+    const actorId = actorIdOf(user);
     const packed = await timed('branch_ids_ms', prisma.$queryRaw`
       WITH RECURSIVE up AS (
         SELECT id, 0 AS steps
@@ -432,72 +434,84 @@ const mfoService = {
         JOIN down ON c.father_id = down.id OR c.mother_id = down.id
         WHERE down.depth < 4 AND c.tenant_id = ${tenantId} AND c.deleted_at IS NULL
       ),
-      branch AS (SELECT DISTINCT id FROM down)
-      SELECT 'member' AS kind, id, NULL::text AS husband_id, NULL::text AS wife_id,
-             NULL::int AS husband_marriage_order, NULL::int AS wife_marriage_order,
-             NULL::text AS status, NULL::text AS start_date, NULL::text AS end_date,
-             NULL::text AS spouse_name_literal, NULL::text AS note
-      FROM branch
+      branch AS (SELECT DISTINCT id FROM down),
+      unions AS (
+        SELECT mar.id, mar.husband_id, mar.wife_id, mar.husband_marriage_order, mar.wife_marriage_order,
+               mar.status::text AS status, mar.start_date::text AS start_date, mar.end_date::text AS end_date,
+               mar.spouse_name_literal, mar.note
+        FROM marriages mar
+        WHERE mar.deleted_at IS NULL AND mar.tenant_id = ${tenantId}
+          AND mar.husband_id IN (SELECT id FROM branch)
+        UNION
+        SELECT mar.id, mar.husband_id, mar.wife_id, mar.husband_marriage_order, mar.wife_marriage_order,
+               mar.status::text, mar.start_date::text, mar.end_date::text,
+               mar.spouse_name_literal, mar.note
+        FROM marriages mar
+        WHERE mar.deleted_at IS NULL AND mar.tenant_id = ${tenantId}
+          AND mar.wife_id IN (SELECT id FROM branch)
+      ),
+      people AS (
+        SELECT id FROM branch
+        UNION
+        SELECT husband_id FROM unions WHERE husband_id IS NOT NULL
+        UNION
+        SELECT wife_id FROM unions WHERE wife_id IS NOT NULL
+      )
+      SELECT 'member' AS kind, jsonb_build_object(
+        'id', m.id, 'full_name', m.full_name, 'generation', m.generation, 'gender', m.gender::text,
+        'father_id', m.father_id, 'mother_id', m.mother_id, 'branch_id', m.branch_id,
+        'is_clan', m.is_clan, 'child_type', m.child_type::text, 'sibling_seq', m.sibling_seq,
+        'birth_year', m.birth_year, 'note', m.note, 'parent_union_id', m.parent_union_id,
+        'tenant_id', m.tenant_id, 'in_branch', m.id IN (SELECT id FROM branch)
+      ) AS data
+      FROM members m
+      WHERE m.deleted_at IS NULL AND m.tenant_id = ${tenantId} AND m.id IN (SELECT id FROM people)
       UNION ALL
-      SELECT 'marriage', mar.id, mar.husband_id, mar.wife_id,
-             mar.husband_marriage_order, mar.wife_marriage_order,
-             mar.status::text, mar.start_date::text, mar.end_date::text,
-             mar.spouse_name_literal, mar.note
-      FROM marriages mar
-      WHERE mar.deleted_at IS NULL AND mar.tenant_id = ${tenantId}
-        AND (mar.husband_id IN (SELECT id FROM branch) OR mar.wife_id IN (SELECT id FROM branch))
+      SELECT 'marriage', jsonb_build_object(
+        'id', u.id, 'husband_id', u.husband_id, 'wife_id', u.wife_id,
+        'husband_marriage_order', u.husband_marriage_order, 'wife_marriage_order', u.wife_marriage_order,
+        'status', u.status, 'start_date', u.start_date, 'end_date', u.end_date,
+        'spouse_name_literal', u.spouse_name_literal, 'note', u.note
+      )
+      FROM unions u
+      UNION ALL
+      SELECT 'avatar', jsonb_build_object('entity_id', med.entity_id, 'checksum', med.checksum, 'updated_at', med.updated_at)
+      FROM media med
+      WHERE med.deleted_at IS NULL AND med.tenant_id = ${tenantId}
+        AND med.entity_type = 'MEMBER' AND med.purpose = 'AVATAR' AND med.is_primary = true
+        AND med.entity_id IN (SELECT id FROM people)
+      UNION ALL
+      SELECT 'hold', jsonb_build_object('id', p.id, 'status', p.status::text, 'expires_at', p.expires_at)
+      FROM proposals p
+      WHERE p.deleted_at IS NULL AND p.tenant_id = ${tenantId}
+        AND p.status::text IN ('DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION', 'APPROVED')
+        AND p.hold_member_ids && (SELECT COALESCE(array_agg(id), ARRAY[]::text[]) FROM branch)
+        AND (${actorId}::text IS NULL OR p.requester_user_id <> ${actorId})
+      LIMIT 5
     `);
-    const branchIds = [...new Set(packed.filter((row) => row.kind === 'member').map((row) => row.id).filter(Boolean))];
-    if (!branchIds.includes(targetId)) {
+    const rowsOf = (kind) => packed.filter((row) => row.kind === kind).map((row) => row.data || {});
+    const people = rowsOf('member');
+    const unions = rowsOf('marriage');
+    const avatarRows = rowsOf('avatar');
+    const holdRows = rowsOf('hold');
+    const branchIds = [...new Set(people.filter((row) => row.in_branch).map((row) => row.id).filter(Boolean))];
+    if (!people.some((row) => row.id === targetId)) {
       fail('Không tìm thấy thành viên trên sổ.', 404, 'MFO_ORIGIN_NOT_FOUND');
     }
-    const unions = packed.filter((row) => row.kind === 'marriage').map((row) => ({
-      id: row.id,
-      husband_id: row.husband_id,
-      wife_id: row.wife_id,
-      husband_marriage_order: row.husband_marriage_order,
-      wife_marriage_order: row.wife_marriage_order,
-      status: row.status,
-      start_date: row.start_date,
-      end_date: row.end_date,
-      spouse_name_literal: row.spouse_name_literal,
-      note: row.note,
-    }));
-    const spouseIds = [...new Set(unions.flatMap((row) => [row.husband_id, row.wife_id]).filter((id) => id && !branchIds.includes(id)))];
-    const allIds = [...branchIds, ...spouseIds];
-    const memberSelect = {
-      id: true, full_name: true, generation: true, gender: true, father_id: true, mother_id: true,
-      branch_id: true, is_clan: true, child_type: true, sibling_seq: true, birth_year: true,
-      note: true, parent_union_id: true, tenant_id: true, deleted_at: true,
-    };
-    const buildStartedAt = Date.now();
-    const [people, avatarRows, setConflict] = await Promise.all([
-      timed('branch_members_ms', prisma.members.findMany({
-        where: { id: { in: allIds }, tenant_id: tenantId, deleted_at: null },
-        select: memberSelect,
-      })),
-      timed('avatars_ms', prisma.media.findMany({
-        where: {
-          tenant_id: tenantId,
-          entity_type: 'MEMBER',
-          entity_id: { in: allIds },
-          purpose: 'AVATAR',
-          is_primary: true,
-          deleted_at: null,
-        },
-        select: { entity_id: true, checksum: true, updated_at: true },
-        orderBy: { updated_at: 'desc' },
-      })),
-      timed('hold_ms', findHoldConflict(prisma, {
-        tenantId,
-        memberIds: branchIds,
-        excludeRequesterId: actorIdOf(user),
-      })),
-    ]);
+    const now = Date.now();
+    const setConflict = holdRows.find((row) => {
+      if (!row.expires_at) return true;
+      if (['DRAFT', 'NEEDS_REVISION', 'APPROVED'].includes(row.status) && new Date(row.expires_at).getTime() <= now) return false;
+      return true;
+    }) || null;
+    times.branch_members_ms = times.branch_ids_ms;
     times.marriages_ms = times.branch_ids_ms;
+    times.avatars_ms = times.branch_ids_ms;
+    times.hold_ms = times.branch_ids_ms;
     times.spouses_ms = 0;
     times.founder_ms = 0;
     times.target_ms = 0;
+    const buildStartedAt = Date.now();
     if (setConflict) {
       fail('MFO_HOLD_CONFLICT', 409, 'MFO_HOLD_CONFLICT', { expires_at: setConflict.expires_at || null });
     }
@@ -512,7 +526,7 @@ const mfoService = {
     if (targetMember.is_clan === false) {
       fail('Thành viên ngoại tộc không thể là M của khung MFO.', 422, 'MFO_TARGET_NOT_CLAN_MEMBER');
     }
-    const spouses = spouseIds.map((id) => needed.get(id)).filter(Boolean);
+    const spouses = people.filter((row) => !row.in_branch);
     const all = [...needed.values()];
     const avatarByMemberId = new Map();
     for (const row of avatarRows) {
