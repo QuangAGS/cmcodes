@@ -1,22 +1,19 @@
 /**
- * PATH       : Backend/src/modules/mfo/definitions/mfoPlanProcess.definition.js
- * DATETIME   : 2026-10-13T15:24:00+07:00
- * VERSION    : 3.0.0-LAT4-HISTORY
- * DESCRIPTION: Bổ sung lịch sử, giữ ma trận trạng thái, guards và tác vụ DB hiện có.
- * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
- */
-/**
  * PATH       : backend/src/modules/mfo/definitions/mfoPlanProcess.definition.js
- * DATETIME   : 2026-10-09T23:55:00+07:00
- * VERSION    : 2.5.0-AMENDMENT-20261009-SIDEEFFECTS-STATE-TRANSITION-FIXED
- * DESCRIPTION:
- * - Tuân thủ Q1 (Bảo tồn 100% logic/UI) & Q2 (Code Format & DateTime Annotation).
- * - Sửa dứt điểm lỗi 404 SRPF_INSTANCE_NOT_FOUND khi Admin bấm Không duyệt (RETURN_FOR_REVISION).
- * - Tự động cập nhật status đích trong sideEffects của SRPF Engine.
+ * DATETIME   : 2026-10-30T17:40:00+07:00
+ * VERSION    : 3.1.0-AUDIT-LOGS-INTEGRATED
+ * DESCRIPTION: Bổ sung giám sát audit_logs cho toàn bộ sideEffects của Gate 1 (PENDING, NEEDS_REVISION, APPROVED, REJECTED).
+ *              Bảo toàn 100% ma trận chuyển dịch trạng thái, context guards, entry conditions và lịch sử submission_history.
+ *
+ * CHANGE LOG:
+ * - 2026-10-30T17:40:00+07:00 | 3.1.0 | Tích hợp audit.create vào các sideEffects của MFO_PLAN trên bảng proposals.
+ * - 2026-10-13T15:24:00+07:00 | 3.0.0 | Bổ sung lịch sử submission_history, giữ ma trận trạng thái, guards và tác vụ DB hiện có.
+ * - 2026-10-09T23:55:00+07:00 | 2.5.0 | Sửa dứt điểm lỗi 404 SRPF_INSTANCE_NOT_FOUND khi Admin bấm Không duyệt (RETURN_FOR_REVISION).
  */
 
 'use strict';
 
+const { audit } = require('../../../lib/prisma.js');
 const { expiresAtFor } = require('../mfo.ttl.js');
 const { SRPF_STATES } = require('../../../shared/frameworks/srpf/constants/states');
 const { SRPF_ACTIONS } = require('../../../shared/frameworks/srpf/constants/actions');
@@ -119,6 +116,9 @@ const mfoPlanProcessDefinition = Object.freeze({
     [SRPF_STATES.PENDING]: async (instance, tx, actorWithPayload) => {
       const incomingPayload = actorWithPayload._payload || {};
       const currentPayload = instance.payload || {};
+      const actorId = actorWithPayload.id || actorWithPayload.userId || null;
+      const tenantId = instance.tenant_id;
+      const correlationId = instance.correlation_id || null;
 
       const updatedPayload = {
         ...currentPayload,
@@ -131,11 +131,16 @@ const mfoPlanProcessDefinition = Object.freeze({
       };
 
       /**
- * <2026-10-13T15:24:00+07:00>
- * Mục đích: Ghi snapshot bất biến của lần trình trước persist, cùng transaction SRPF.
- */
-    updatedPayload.submission_history = recordSubmission({ ...updatedPayload, submission_history: currentPayload.submission_history }, 'PLAN', actorWithPayload);
-    await tx.proposals.update({
+       * <2026-10-13T15:24:00+07:00>
+       * Mục đích: Ghi snapshot bất biến của lần trình trước persist, cùng transaction SRPF.
+       */
+      updatedPayload.submission_history = recordSubmission(
+        { ...updatedPayload, submission_history: currentPayload.submission_history },
+        'PLAN',
+        actorWithPayload
+      );
+
+      const updated = await tx.proposals.update({
         where: { id: instance.id },
         data: {
           status: 'PENDING',
@@ -144,8 +149,31 @@ const mfoPlanProcessDefinition = Object.freeze({
           expires_at: expiresAtFor('PENDING', new Date()),
           target_id: updatedPayload.origin_member_id || updatedPayload.target_member_id || instance.target_id,
           updated_at: new Date(),
+          changed_by: actorId,
         },
       });
+
+      // <2026-10-30T17:40:00+07:00> Audit Cửa 1: Trình Khung 5L
+      if (audit && typeof audit.create === 'function') {
+        await audit.create(tx, {
+          tableName: 'proposals',
+          recordId: instance.id,
+          action: 'CAP_NHAT',
+          tenantId,
+          changedBy: actorId,
+          correlationId,
+          oldData: {
+            status: instance.status,
+            plan_ok: currentPayload.plan_ok,
+          },
+          newData: {
+            status: 'PENDING',
+            plan_ok: false,
+            submitted_at: updatedPayload.submitted_at,
+          },
+          changeReason: `Người dùng trình Khung 5L (Gate 1) cho hồ sơ #${instance.id}`,
+        });
+      }
     },
 
     /**
@@ -154,6 +182,9 @@ const mfoPlanProcessDefinition = Object.freeze({
     [SRPF_STATES.NEEDS_REVISION]: async (instance, tx, actorWithPayload) => {
       const incomingPayload = actorWithPayload._payload || {};
       const currentPayload = instance.payload || {};
+      const actorId = actorWithPayload.id || actorWithPayload.userId || null;
+      const tenantId = instance.tenant_id;
+      const correlationId = instance.correlation_id || null;
 
       const updatedPayload = {
         ...currentPayload,
@@ -163,11 +194,18 @@ const mfoPlanProcessDefinition = Object.freeze({
       };
 
       /**
- * <2026-10-13T15:24:00+07:00>
- * Mục đích: Ghi ý kiến cho lần trình tương ứng trước persist, cùng transaction SRPF.
- */
-    updatedPayload.submission_history = recordReview({ ...updatedPayload, submission_history: currentPayload.submission_history }, 'PLAN', 'NEEDS_REVISION', actorWithPayload, actorWithPayload._payload || {});
-    await tx.proposals.update({
+       * <2026-10-13T15:24:00+07:00>
+       * Mục đích: Ghi ý kiến cho lần trình tương ứng trước persist, cùng transaction SRPF.
+       */
+      updatedPayload.submission_history = recordReview(
+        { ...updatedPayload, submission_history: currentPayload.submission_history },
+        'PLAN',
+        'NEEDS_REVISION',
+        actorWithPayload,
+        actorWithPayload._payload || {}
+      );
+
+      const updated = await tx.proposals.update({
         where: { id: instance.id },
         data: {
           status: 'NEEDS_REVISION',
@@ -175,8 +213,30 @@ const mfoPlanProcessDefinition = Object.freeze({
           expires_at: expiresAtFor('NEEDS_REVISION', new Date()),
           admin_note: updatedPayload.admin_note,
           updated_at: new Date(),
+          changed_by: actorId,
         },
       });
+
+      // <2026-10-30T17:40:00+07:00> Audit Cửa 1: Admin trả về sửa Khung
+      if (audit && typeof audit.create === 'function') {
+        await audit.create(tx, {
+          tableName: 'proposals',
+          recordId: instance.id,
+          action: 'CAP_NHAT',
+          tenantId,
+          changedBy: actorId,
+          correlationId,
+          oldData: {
+            status: instance.status,
+            admin_note: currentPayload.admin_note || null,
+          },
+          newData: {
+            status: 'NEEDS_REVISION',
+            admin_note: updatedPayload.admin_note,
+          },
+          changeReason: `Admin yêu cầu sửa Khung 5L (Gate 1) cho hồ sơ #${instance.id}`,
+        });
+      }
     },
 
     /**
@@ -185,6 +245,9 @@ const mfoPlanProcessDefinition = Object.freeze({
     [SRPF_STATES.APPROVED]: async (instance, tx, actorWithPayload) => {
       const incomingPayload = actorWithPayload._payload || {};
       const currentPayload = instance.payload || {};
+      const actorId = actorWithPayload.id || actorWithPayload.userId || null;
+      const tenantId = instance.tenant_id;
+      const correlationId = instance.correlation_id || null;
 
       const updatedPayload = {
         ...currentPayload,
@@ -197,11 +260,18 @@ const mfoPlanProcessDefinition = Object.freeze({
       };
 
       /**
- * <2026-10-13T15:24:00+07:00>
- * Mục đích: Ghi ý kiến cho lần trình tương ứng trước persist, cùng transaction SRPF.
- */
-    updatedPayload.submission_history = recordReview({ ...updatedPayload, submission_history: currentPayload.submission_history }, 'PLAN', 'APPROVED', actorWithPayload, actorWithPayload._payload || {});
-    await tx.proposals.update({
+       * <2026-10-13T15:24:00+07:00>
+       * Mục đích: Ghi ý kiến cho lần trình tương ứng trước persist, cùng transaction SRPF.
+       */
+      updatedPayload.submission_history = recordReview(
+        { ...updatedPayload, submission_history: currentPayload.submission_history },
+        'PLAN',
+        'APPROVED',
+        actorWithPayload,
+        actorWithPayload._payload || {}
+      );
+
+      const updated = await tx.proposals.update({
         where: { id: instance.id },
         data: {
           status: 'APPROVED',
@@ -209,8 +279,33 @@ const mfoPlanProcessDefinition = Object.freeze({
           expires_at: expiresAtFor('APPROVED', new Date()),
           admin_note: incomingPayload.note || currentPayload.admin_note || null,
           updated_at: new Date(),
+          changed_by: actorId,
         },
       });
+
+      // <2026-10-30T17:40:00+07:00> Audit Cửa 1: Admin phê duyệt Khung 5L
+      if (audit && typeof audit.create === 'function') {
+        await audit.create(tx, {
+          tableName: 'proposals',
+          recordId: instance.id,
+          action: 'CAP_NHAT',
+          tenantId,
+          changedBy: actorId,
+          correlationId,
+          oldData: {
+            status: instance.status,
+            plan_ok: currentPayload.plan_ok || false,
+            granted_generation: currentPayload.granted_generation || null,
+          },
+          newData: {
+            status: 'APPROVED',
+            plan_ok: true,
+            granted_generation: updatedPayload.granted_generation,
+            granted_branch_id: updatedPayload.granted_branch_id || null,
+          },
+          changeReason: `Admin phê duyệt Khung 5L (Gate 1), chốt đời ${updatedPayload.granted_generation} cho hồ sơ #${instance.id}`,
+        });
+      }
     },
 
     /**
@@ -219,6 +314,9 @@ const mfoPlanProcessDefinition = Object.freeze({
     [SRPF_STATES.REJECTED]: async (instance, tx, actorWithPayload) => {
       const incomingPayload = actorWithPayload._payload || {};
       const currentPayload = instance.payload || {};
+      const actorId = actorWithPayload.id || actorWithPayload.userId || null;
+      const tenantId = instance.tenant_id;
+      const correlationId = instance.correlation_id || null;
 
       const updatedPayload = {
         ...currentPayload,
@@ -229,11 +327,18 @@ const mfoPlanProcessDefinition = Object.freeze({
       };
 
       /**
- * <2026-10-13T15:24:00+07:00>
- * Mục đích: Ghi ý kiến cho lần trình tương ứng trước persist, cùng transaction SRPF.
- */
-    updatedPayload.submission_history = recordReview({ ...updatedPayload, submission_history: currentPayload.submission_history }, 'PLAN', 'REJECTED', actorWithPayload, actorWithPayload._payload || {});
-    await tx.proposals.update({
+       * <2026-10-13T15:24:00+07:00>
+       * Mục đích: Ghi ý kiến cho lần trình tương ứng trước persist, cùng transaction SRPF.
+       */
+      updatedPayload.submission_history = recordReview(
+        { ...updatedPayload, submission_history: currentPayload.submission_history },
+        'PLAN',
+        'REJECTED',
+        actorWithPayload,
+        actorWithPayload._payload || {}
+      );
+
+      const updated = await tx.proposals.update({
         where: { id: instance.id },
         data: {
           status: 'REJECTED',
@@ -242,8 +347,29 @@ const mfoPlanProcessDefinition = Object.freeze({
           expires_at: null,
           admin_note: updatedPayload.reject_reason,
           updated_at: new Date(),
+          changed_by: actorId,
         },
       });
+
+      // <2026-10-30T17:40:00+07:00> Audit Cửa 1: Admin bác bỏ Khung 5L
+      if (audit && typeof audit.create === 'function') {
+        await audit.create(tx, {
+          tableName: 'proposals',
+          recordId: instance.id,
+          action: 'CAP_NHAT',
+          tenantId,
+          changedBy: actorId,
+          correlationId,
+          oldData: {
+            status: instance.status,
+          },
+          newData: {
+            status: 'REJECTED',
+            reject_reason: updatedPayload.reject_reason,
+          },
+          changeReason: `Admin bác bỏ vĩnh viễn Khung 5L (Gate 1) cho hồ sơ #${instance.id}`,
+        });
+      }
     },
   },
 });

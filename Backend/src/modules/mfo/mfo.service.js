@@ -1,12 +1,18 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-30T14:40:00+07:00
- * VERSION    : 4.7.31-DUAL-WRITE-PARENTAGES
+ * DATETIME   : 2026-10-30T17:30:00+07:00
+ * VERSION    : 4.7.33-AUDIT-LOGS-GATE1-GATE2
  * DESCRIPTION:
- * - Vá dứt điểm Bug 16: Populate chính xác sibling_seq vào bảng members khi Admin duyệt ghi sổ Cửa 2.
- * - Cơ chế fallback an toàn: lấy từ smp_staging_data, nếu thiếu tự động fallback sang draft_children.sibling_seq.
+ * - Bảo tồn 100% kiến trúc tương thích SRPF Engine và các thuật toán dựng cây 5L.
+ * - Bổ sung đầy đủ giám sát audit_logs cho Trạm 1 (Gate 1) và Trạm 2 (Workbench) trên bảng proposals:
+ *   + saveDraft & updatePlan (Lưu/cập nhật nháp).
+ *   + saveStaging (Kê khai xưởng Workbench).
+ *   + abortPlan (Rút hồ sơ).
+ * - Giữ nguyên getDraftPayload trả về target_member_generation và deleteDraft đã có audit.
  *
  * CHANGE LOG:
+ * - 2026-10-30T17:30:00+07:00 | 4.7.33 | Bổ sung audit.create cho saveDraft, updatePlan, saveStaging, abortPlan trên bảng proposals.
+ * - 2026-10-30T15:50:00+07:00 | 4.7.32 | Hoàn nguyên approveResult về cơ chế SRPF điều phối, loại bỏ mutation kép gây xung đột trạng thái APPROVED.
  * - 2026-10-29T21:15:00+07:00 | 4.7.30 | Sửa executeGate2DbMutation để gán đúng sibling_seq vào members.
  * - 2026-10-29T08:44:00+07:00 | 4.7.29 | Thêm: get members.generation trong getDraftPayload. Bỏ: không bỏ. Giữ: lấy generation từ bảng members. Lý do: tránh lỗi khi payload không có generation.
  * - 2026-10-18T17:35:00+07:00 | 4.7.2 | Thêm updatePlan. Không bỏ getFullMfoSet.
@@ -42,77 +48,6 @@ const { expiresAtFor } = require('./mfo.ttl.js');
 const { normalizeStaging } = require('./mfo.smp.js');
 
 const OPEN = ['DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION'];
-
-
-// =============================================================================
-// HELPER — Mapping child_type → parentage_type (FTDI / GAP-ANALYSIS v1.1.0)
-// =============================================================================
-/**
- * Ánh xạ child_type từ form Staging / members sang parentage_type chuẩn FTDI.
- * Lưu ý: CON_DAU, CON_RE không tạo liên kết parentages (thuộc quan hệ hôn nhân).
- */
-function mapChildTypeToParentageType(childType) {
-  switch (childType) {
-    case 'CON_NUOI':
-      return 'ADOPTIVE';
-    case 'CON_DO_DAU':
-      return 'FOSTER';
-    case 'CON_RIENG':
-      return 'STEPCHILD';
-    case 'KHAC':
-      return 'OTHER';
-    case 'CON_DE':
-    default:
-      return 'BIOLOGICAL';
-  }
-}
-
-/**
- * Tạo hoặc cập nhật một bản ghi parentages (idempotent).
- */
-async function upsertParentage(tx, { tenantId, parentId, childId, relationshipType, unionId, actorId, ticketId }) {
-  if (!parentId || !childId) return null;
-
-  const existing = await tx.parentages.findFirst({
-    where: {
-      tenant_id: tenantId,
-      parent_id: parentId,
-      child_id: childId,
-      relationship_type: relationshipType,
-      review_status: 'ACCEPTED',
-      deleted_at: null,
-    },
-    select: { id: true },
-  });
-
-  if (existing) {
-    return tx.parentages.update({
-      where: { id: existing.id },
-      data: {
-        union_id: unionId || null,
-        is_selected_for_lineage: true,
-        changed_by: actorId,
-        deleted_at: null,
-        note: `Cập nhật từ duyệt MFO Gate 2 (Ticket: ${ticketId || 'N/A'})`,
-      },
-    });
-  }
-
-  return tx.parentages.create({
-    data: {
-      tenant_id: tenantId,
-      parent_id: parentId,
-      child_id: childId,
-      relationship_type: relationshipType,
-      union_id: unionId || null,
-      review_status: 'ACCEPTED',
-      is_selected_for_lineage: true,
-      note: `Ghi nhận từ duyệt MFO Gate 2 (Ticket: ${ticketId || 'N/A'})`,
-      changed_by: actorId,
-    },
-  });
-}
-
 
 /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý actorIdOf; phần thay đổi giới hạn lịch sử lát 4. */
 function actorIdOf(user) {
@@ -310,190 +245,6 @@ async function afterMfo(user, ticket, processType, event, payload) {
     ...(payload || {}),
     userId: actorIdOf(user) || ticket.requester_user_id,
   });
-}
-
-/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý executeGate2DbMutation; phần thay đổi giới hạn lịch sử lát 4. */
-async function executeGate2DbMutation(tx, { tenantId, actorId, proposal, grantedGeneration }) {
-  const payload = proposal.payload || {};
-  const stagingData = payload.smp_staging_data || {};
-  const canvasDelta = payload.canvas_delta || {};
-  const draftChildren = canvasDelta.draft_children || [];
-  const draftSpouses = canvasDelta.draft_spouses || [];
-
-  const draftToRealMemberMap = new Map();
-  const draftToRealMarriageMap = new Map();
-
-  for (const child of draftChildren) {
-    const smp = stagingData[child.id] || {};
-    const depth = Number(child.depth ?? 0);
-    const calculatedGen = grantedGeneration != null ? grantedGeneration + depth : null;
-
-    const rawSeq = smp.sibling_seq ?? smp.child_order ?? child.sibling_seq;
-    const finalSiblingSeq = (rawSeq != null && rawSeq !== '' && !isNaN(Number(rawSeq)))
-      ? Number(rawSeq)
-      : null;
-
-    const createdMember = await tx.members.create({
-      data: {
-        tenant_id: tenantId,
-        full_name: smp.full_name || child.label || 'Khuyết danh',
-        gender: smp.gender || 'NAM',
-        generation: calculatedGen,
-        is_clan: true,
-        birth_year: smp.birth_year ? Number(smp.birth_year) : null,
-        sibling_seq: finalSiblingSeq,
-        note: smp.is_anonymous ? '[UM] Khuyết danh tạo bởi MFO 5L' : null,
-        changed_by: actorId,
-      },
-    });
-    draftToRealMemberMap.set(child.id, createdMember.id);
-  }
-
-  for (const spouse of draftSpouses) {
-    const unionDraftId = spouse.union_id;
-    const smp = stagingData[unionDraftId] || {};
-    const partnerName = smp.partner_full_name || spouse.partner_name || 'Vợ/Chồng (Khai MFO)';
-
-    const createdSpouseMember = await tx.members.create({
-      data: {
-        tenant_id: tenantId,
-        full_name: partnerName,
-        gender: smp.partner_gender || 'NU',
-        is_clan: false,
-        birth_year: smp.partner_birth_year ? Number(smp.partner_birth_year) : null,
-        changed_by: actorId,
-      },
-    });
-    draftToRealMemberMap.set(`spouse:${unionDraftId}`, createdSpouseMember.id);
-  }
-
-  for (const spouse of draftSpouses) {
-    const unionDraftId = spouse.union_id;
-    const ownerNodeId = spouse.owner_node_id;
-
-    let realOwnerId = null;
-    if (ownerNodeId && ownerNodeId.startsWith('draft-child-')) {
-      realOwnerId = draftToRealMemberMap.get(ownerNodeId);
-    } else if (ownerNodeId && ownerNodeId.startsWith('st:')) {
-      const parts = ownerNodeId.split(':');
-      realOwnerId = parts[2] || parts[1];
-    } else {
-      realOwnerId = ownerNodeId;
-    }
-
-    const realSpouseId = draftToRealMemberMap.get(`spouse:${unionDraftId}`);
-
-    if (realOwnerId) {
-      const ownerMember = await tx.members.findUnique({
-        where: { id: realOwnerId },
-        select: { gender: true },
-      });
-      const isOwnerMale = (ownerMember?.gender || 'NAM') === 'NAM';
-
-      const createdMarriage = await tx.marriages.create({
-        data: {
-          tenant_id: tenantId,
-          husband_id: isOwnerMale ? realOwnerId : realSpouseId,
-          wife_id: isOwnerMale ? realSpouseId : realOwnerId,
-          husband_marriage_order: isOwnerMale ? Number(spouse.owner_marriage_order || 1) : 1,
-          wife_marriage_order: !isOwnerMale ? Number(spouse.owner_marriage_order || 1) : 1,
-          status: 'DANG_KET_HON',
-          spouse_name_literal: spouse.partner_name || null,
-          changed_by: actorId,
-        },
-      });
-      draftToRealMarriageMap.set(unionDraftId, createdMarriage.id);
-    }
-  }
-
-  for (const child of draftChildren) {
-    const realChildId = draftToRealMemberMap.get(child.id);
-    if (!realChildId) continue;
-
-    const smp = stagingData[child.id] || {};
-    const childType = smp.child_type || 'CON_DE';
-
-    const link = child.link || '';
-    let targetUnionId = null;
-
-    if (link.startsWith('union:')) {
-      const unionKey = link.split(':')[1];
-      targetUnionId = draftToRealMarriageMap.get(unionKey) || null;
-    }
-
-    let fatherId = null;
-    let motherId = null;
-
-    if (targetUnionId) {
-      const marriage = await tx.marriages.findUnique({
-        where: { id: targetUnionId },
-        select: { husband_id: true, wife_id: true },
-      });
-      fatherId = marriage?.husband_id || null;
-      motherId = marriage?.wife_id || null;
-    } else if (child.parent_node_id) {
-      let realParentId = child.parent_node_id.startsWith('draft-child-')
-        ? draftToRealMemberMap.get(child.parent_node_id)
-        : child.parent_node_id.replace(/^st:\d+:/, '').replace(/^st:/, '');
-
-      if (realParentId) {
-        const parentMember = await tx.members.findUnique({
-          where: { id: realParentId },
-          select: { gender: true },
-        });
-        if (parentMember?.gender === 'NU') {
-          motherId = realParentId;
-        } else {
-          fatherId = realParentId;
-        }
-      }
-    }
-
-    await tx.members.update({
-      where: { id: realChildId },
-      data: {
-        parent_union_id: targetUnionId,
-        father_id: fatherId,
-        mother_id: motherId,
-        child_type: childType,
-        changed_by: actorId,
-      },
-    });
-
-    if (!['CON_DAU', 'CON_RE'].includes(childType)) {
-      const parentageType = mapChildTypeToParentageType(childType);
-      const ticketId = proposal?.id || null;
-
-      if (fatherId) {
-        await upsertParentage(tx, {
-          tenantId,
-          parentId: fatherId,
-          childId: realChildId,
-          relationshipType: parentageType,
-          unionId: targetUnionId,
-          actorId,
-          ticketId,
-        });
-      }
-
-      if (motherId) {
-        await upsertParentage(tx, {
-          tenantId,
-          parentId: motherId,
-          childId: realChildId,
-          relationshipType: parentageType,
-          unionId: targetUnionId,
-          actorId,
-          ticketId,
-        });
-      }
-    }
-  }
-
-  return {
-    created_member_ids: Array.from(draftToRealMemberMap.values()),
-    created_marriage_ids: Array.from(draftToRealMarriageMap.values()),
-  };
 }
 
 const mfoService = {
@@ -1477,8 +1228,30 @@ const mfoService = {
               updated_at: now,
               changed_by: actor,
             },
-            select: { id: true, updated_at: true, expires_at: true, correlation_id: true, requester_user_id: true, tenant_id: true, target_id: true },
+            select: { id: true, updated_at: true, expires_at: true, correlation_id: true, requester_user_id: true, tenant_id: true, target_id: true, status: true },
           });
+
+          // <2026-10-30T17:30:00+07:00> Audit cập nhật bản nháp (Trạm 1/Trạm 2)
+          if (audit && typeof audit.create === 'function') {
+            await audit.create(tx, {
+              tableName: 'proposals',
+              recordId: ticket.id,
+              action: 'CAP_NHAT',
+              tenantId,
+              changedBy: actor,
+              correlationId: corr,
+              oldData: {
+                target_id: rowToUpdate.target_id,
+                updated_at: rowToUpdate.updated_at,
+              },
+              newData: {
+                target_id: ticket.target_id,
+                updated_at: ticket.updated_at,
+                lines_count: payloadToSave.lines.length,
+              },
+              changeReason: `Cập nhật bản nháp MFO #${ticket.id}`,
+            });
+          }
         } else {
           ticket = await tx.proposals.create({
             data: {
@@ -1495,8 +1268,28 @@ const mfoService = {
               correlation_id: corr,
               changed_by: actor,
             },
-            select: { id: true, updated_at: true, expires_at: true, correlation_id: true, requester_user_id: true, tenant_id: true, target_id: true },
+            select: { id: true, updated_at: true, expires_at: true, correlation_id: true, requester_user_id: true, tenant_id: true, target_id: true, status: true },
           });
+
+          // <2026-10-30T17:30:00+07:00> Audit tạo mới bản nháp (Trạm 1)
+          if (audit && typeof audit.create === 'function') {
+            await audit.create(tx, {
+              tableName: 'proposals',
+              recordId: ticket.id,
+              action: 'THEM_MOI',
+              tenantId,
+              changedBy: actor,
+              correlationId: corr,
+              oldData: null,
+              newData: {
+                id: ticket.id,
+                target_id: ticket.target_id,
+                status: ticket.status,
+                ticket_type: 'MFO_REVIEW',
+              },
+              changeReason: `Tạo mới bản nháp MFO 5L neo tại mốc ${targetMemberId}`,
+            });
+          }
         }
 
         await mfoWriteBpl(tx, {
@@ -1610,6 +1403,27 @@ const mfoService = {
           },
         });
 
+        // <2026-10-30T17:30:00+07:00> Audit cập nhật Tờ trình
+        if (audit && typeof audit.create === 'function') {
+          await audit.create(tx, {
+            tableName: 'proposals',
+            recordId: updatedProposal.id,
+            action: 'CAP_NHAT',
+            tenantId,
+            changedBy: actor,
+            correlationId: corr,
+            oldData: {
+              target_id: proposal.target_id,
+              status: proposal.status,
+            },
+            newData: {
+              target_id: updatedProposal.target_id,
+              status: updatedProposal.status,
+            },
+            changeReason: `Cập nhật nội dung tờ trình MFO #${updatedProposal.id}`,
+          });
+        }
+
         await mfoWriteBpl(tx, {
           processType: 'MFO_PLAN_SUBMIT',
           user,
@@ -1650,7 +1464,6 @@ const mfoService = {
     }
 
     const payload = proposal.payload || {};
-    // 2026-10-29T08:44:00+07:00   | 4.7.29-get members.generation trong bảng members.
     let targetMemberGeneration = null;
     const targetMemberId = proposal.target_id || payload.target_member_id || payload.origin_member_id;
     if (targetMemberId) {
@@ -1665,7 +1478,7 @@ const mfoService = {
       ticket_id: proposal.id,
       tenant_id: proposal.tenant_id,
       target_member_id: proposal.target_id,
-      target_member_generation: targetMemberGeneration, // 🌟 TRẢ VỀ TRƯỜNG NÀY
+      target_member_generation: targetMemberGeneration,
       status: proposal.status,
       ticket_type: proposal.ticket_type,
       updated_at: proposal.updated_at,
@@ -1901,6 +1714,27 @@ const mfoService = {
               changed_by: actor,
             },
           });
+
+          // <2026-10-30T17:30:00+07:00> Audit trình lại / cập nhật tờ trình
+          if (audit && typeof audit.create === 'function') {
+            await audit.create(tx, {
+              tableName: 'proposals',
+              recordId: row.id,
+              action: 'CAP_NHAT',
+              tenantId,
+              changedBy: actor,
+              correlationId: corr,
+              oldData: {
+                target_id: existing.target_id,
+                status: existing.status,
+              },
+              newData: {
+                target_id: row.target_id,
+                status: row.status,
+              },
+              changeReason: `Cập nhật nội dung trình khung MFO #${row.id}`,
+            });
+          }
         } else {
           row = await tx.proposals.create({
             data: {
@@ -1918,6 +1752,25 @@ const mfoService = {
               changed_by: actor,
             },
           });
+
+          // <2026-10-30T17:30:00+07:00> Audit tạo mới tờ trình
+          if (audit && typeof audit.create === 'function') {
+            await audit.create(tx, {
+              tableName: 'proposals',
+              recordId: row.id,
+              action: 'THEM_MOI',
+              tenantId,
+              changedBy: actor,
+              correlationId: corr,
+              oldData: null,
+              newData: {
+                id: row.id,
+                target_id: row.target_id,
+                status: row.status,
+              },
+              changeReason: `Tạo tờ trình MFO 5L neo tại mốc ${mergedPayload.origin_member_id}`,
+            });
+          }
         }
 
         return row;
@@ -1931,7 +1784,6 @@ const mfoService = {
     const actor = actorIdOf(user);
     const tenantId = tenantIdOf(user);
     if (!actor || !tenantId) fail('Thiếu người thực hiện.', 401, 'UNAUTHENTICATED');
-    // <2026-10-27T09:55:00+07:00> Mục đích: Chặn tạo mới sớm. Lý do: hồ sơ đã xoá không được tính.
     const active = await prisma.proposals.findFirst({
       where: {
         tenant_id: tenantId,
@@ -1954,61 +1806,49 @@ const mfoService = {
     }
     return { ok: true };
   },
-  //  28-10-2026: Thay thế toàn bộ khối lệnh listPlans bằng đoạn mã đã được hiệu chỉnh dưới đây. 
-  //  Hàm vẫn giữ nguyên tên, nhận prisma đã bọc, phân định rõ ràng giữa EU và Admin, 
-  //  hỗ trợ đầy đủ bộ lọc tìm kiếm 2 tầng
+
   listPlans: async ({ user, query }) => {
     const tenantId = tenantIdOf(user);
     if (!tenantId) fail('Thiếu tenant.', 400, 'TENANT_REQUIRED');
     const q = query || {};
 
-    // 1. BASE FILTER: Sử dụng prisma đã bọc, khóa chặt tenant và deleted_at
     const where = {
       tenant_id: tenantId,
       ticket_type: { in: ['MFO_REVIEW', 'BRANCH_REVIEW'] },
       target_table: 'members',
-      deleted_at: null, // Đảm bảo tuyệt đối không rò rỉ hồ sơ đã xóa
+      deleted_at: null,
     };
 
-    // 2. PHÂN TẦNG QUYỀN TRUY CẬP (EU vs ADMIN)
     if (!isClanOrSys(user)) {
-      // TÌNH HUỐNG A: Người dùng cuối (EU/MWL)
-      // BẮT BUỘC chỉ lấy các hồ sơ do chính mình tạo (bảo vệ quyền riêng tư)
       where.requester_user_id = actorIdOf(user);
     } else {
-      // TÌNH HUỐNG B: Ban Quản trị (Admin)
-      // B.1: Admin lọc xem riêng các hồ sơ cá nhân của chính mình (Tab "Cá nhân")
       if (q.mine === '1' || q.mine === 'true') {
         where.requester_user_id = actorIdOf(user);
       }
-      // B.2: Admin lọc theo mốc Gốc tổ / Thành viên cụ thể
       if (q.origin_id) {
         where.target_id = q.origin_id;
       }
     }
 
-    // 3. XỬ LÝ LỌC TRẠNG THÁI DOCTRINE 3.0 (Dropdown 1)
-    // Cột status chỉ có 6 enum, bắt buộc kết hợp bóc tách trường JSONB payload
     if (q.status && q.status !== 'ALL' && q.status !== 'BAM_DE_CHON') {
       switch (q.status) {
-        // --- CỬA 1 (PLAN: NHÁNH PHẢ HỆ) ---
         case 'C1_DRAFT':
-        case 'DRAFT': // Nhánh phả hệ đang soạn (DRAFT, plan_ok = false)
+        case 'DRAFT':
           where.status = 'DRAFT';
           where.payload = { path: ['plan_ok'], equals: false };
           break;
 
         case 'C1_PENDING':
-        case 'PENDING': // Nhánh phả hệ chờ phê duyệt (PENDING, plan_ok = false)
+        case 'PENDING':
           where.status = 'PENDING';
           break;
 
-        case 'C1_NEEDS_REVISION': // Nhánh phả hệ cần sửa (NEEDS_REVISION, plan_ok = false)
+        case 'C1_NEEDS_REVISION':
           where.status = 'NEEDS_REVISION';
           where.payload = { path: ['plan_ok'], equals: false };
           break;
 
-        case 'C1_APPROVED': // Nhánh phả hệ đã duyệt (APPROVED Cửa 1, chưa trình Cửa 2)
+        case 'C1_APPROVED':
           where.status = 'APPROVED';
           where.payload = {
             path: ['plan_ok'],
@@ -2018,13 +1858,12 @@ const mfoService = {
           };
           break;
 
-        case 'C1_REJECTED': // Nhánh phả hệ không được duyệt (REJECTED Cửa 1, plan_ok = false)
+        case 'C1_REJECTED':
           where.status = 'REJECTED';
           where.payload = { path: ['plan_ok'], equals: false };
           break;
 
-        // --- CỬA 2 (RESULT: TỜ KHAI) ---
-        case 'C2_DRAFT': // Tờ khai đang soạn (APPROVED Cửa 1, plan_ok = true, chưa nộp Cửa 2)
+        case 'C2_DRAFT':
           where.status = 'APPROVED';
           where.payload = {
             path: ['plan_ok'],
@@ -2035,34 +1874,32 @@ const mfoService = {
           break;
 
         case 'C2_PENDING':
-        case 'UNDER_REVIEW': // Tờ khai chờ duyệt (UNDER_REVIEW, plan_ok = true)
+        case 'UNDER_REVIEW':
           where.status = 'UNDER_REVIEW';
           where.payload = { path: ['plan_ok'], equals: true };
           break;
 
-        case 'C2_NEEDS_REVISION': // Tờ khai cần sửa (NEEDS_REVISION Cửa 2, plan_ok = true)
+        case 'C2_NEEDS_REVISION':
           where.status = 'NEEDS_REVISION';
           where.payload = { path: ['plan_ok'], equals: true };
           break;
 
-        case 'C2_REJECTED': // Tờ khai không được duyệt (REJECTED Cửa 2, giữ plan_ok = true)
+        case 'C2_REJECTED':
           where.status = 'REJECTED';
           where.payload = { path: ['plan_ok'], equals: true };
           break;
 
-        case 'RECORDED': // Đã ghi sổ (APPROVED Cửa 2, result_ok = true)
+        case 'RECORDED':
           where.status = 'APPROVED';
           where.payload = { path: ['result_ok'], equals: true };
           break;
 
         default:
-          // Nếu truyền mã status DB thuần túy (ví dụ từ các trang cũ)
           where.status = q.status;
           break;
       }
     }
 
-    // 4. TRUY VẤN DỮ LIỆU QUA PRISMA ĐÃ BỌC
     const rows = await prisma.proposals.findMany({
       where,
       orderBy: { updated_at: 'desc' },
@@ -2082,7 +1919,6 @@ const mfoService = {
       },
     });
 
-    // 5. MAPPING NHÃN VÀ METADATA TRẢ VỀ CHO DROPDOWN
     return rows.map((r) => {
       const p = r.payload || {};
       const targetMemberId = r.target_id || p.target_member_id || p.origin_member_id || null;
@@ -2494,8 +2330,13 @@ const mfoService = {
     };
   },
 
+  // <2026-10-30T17:30:00+07:00> Audit Trạm 2: Kê khai xưởng Workbench
   saveStaging: async ({ user, ticketId, body }) => {
     const actor = actorIdOf(user);
+    const tenantId = tenantIdOf(user);
+    if (!actor) fail('Thiếu người thực hiện.', 401, 'UNAUTHENTICATED');
+    if (!tenantId) fail('Thiếu tenant.', 400, 'TENANT_REQUIRED');
+
     const row = await mfoService.assertLot({
       user,
       ticketId,
@@ -2517,14 +2358,43 @@ const mfoService = {
         ...incoming,
       },
     };
-    const ticket = await prisma.proposals.update({
-      where: { id: row.id },
-      data: {
-        payload: nextPayload,
-        updated_at: new Date(),
-        changed_by: actor,
-      },
-    });
+
+    const corr = row.correlation_id || crypto.randomUUID();
+
+    const ticket = await withTransaction(
+      { tenantId, actorId: actor, correlationId: corr },
+      async (tx) => {
+        const updated = await tx.proposals.update({
+          where: { id: row.id },
+          data: {
+            payload: nextPayload,
+            updated_at: new Date(),
+            changed_by: actor,
+          },
+        });
+
+        if (audit && typeof audit.create === 'function') {
+          await audit.create(tx, {
+            tableName: 'proposals',
+            recordId: updated.id,
+            action: 'CAP_NHAT',
+            tenantId,
+            changedBy: actor,
+            correlationId: corr,
+            oldData: {
+              staging_keys_count: Object.keys(payload.smp_staging_data || {}).length,
+            },
+            newData: {
+              staging_keys_count: Object.keys(nextPayload.smp_staging_data || {}).length,
+            },
+            changeReason: `Cập nhật dữ liệu nhân khẩu SMP tại xưởng Workbench #${updated.id}`,
+          });
+        }
+
+        return updated;
+      }
+    );
+
     return { ticket, smp_staging_data: nextPayload.smp_staging_data };
   },
 
@@ -2554,20 +2424,19 @@ const mfoService = {
     return { ticket: row };
   },
 
+  // <2026-10-30T15:50:00+07:00> 4.7.32: Hoàn nguyên theo đúng chuẩn SRPF Engine.
+  // Không thực thi withTransaction độc lập ở đây, nhường quyền duy nhất cho SRPF sideEffects gọi mfo.gate2.js.
   approveResult: async ({ user, ticketId, body }) => {
     if (!isClanOrSys(user)) {
       fail('Chỉ ADMIN nghiệm thu RESULT.', 403, 'FORBIDDEN');
     }
-    const actor = actorIdOf(user);
-    const tenantId = tenantIdOf(user);
-
     const row = await mfoService.assertLot({
       user,
       ticketId,
       expectKind: 'PLAN',
     });
 
-    if (!row.payload.result_submitted) {
+    if (!row.payload || !row.payload.result_submitted) {
       fail('Chưa nộp Tờ khai Nghiệm thu kết quả xưởng.', 409, 'MFO_RESULT_NOT_SUBMITTED');
     }
     assertClanConfirmed(row.payload);
@@ -2617,8 +2486,13 @@ const mfoService = {
     return { ticket: row, reason: String(reason).trim() };
   },
 
+  // <2026-10-30T17:30:00+07:00> Audit Trạm 4: Rút tờ trình MFO
   abortPlan: async ({ user, ticketId, body }) => {
     const actor = actorIdOf(user);
+    const tenantId = tenantIdOf(user);
+    if (!actor) fail('Thiếu người thực hiện.', 401, 'UNAUTHENTICATED');
+    if (!tenantId) fail('Thiếu tenant.', 400, 'TENANT_REQUIRED');
+
     const row = await mfoService.assertLot({
       user,
       ticketId,
@@ -2652,15 +2526,45 @@ const mfoService = {
       result_submitted: false,
       result_ok: false,
     };
-    const ticket = await prisma.proposals.update({
-      where: { id: row.id },
-      data: {
-        status: 'WITHDRAWN',
-        payload: nextPayload,
-        admin_note: (body && (body.note || body.reason)) || row.admin_note,
-        changed_by: actor,
-      },
-    });
+
+    const corr = row.correlation_id || crypto.randomUUID();
+
+    const ticket = await withTransaction(
+      { tenantId, actorId: actor, correlationId: corr },
+      async (tx) => {
+        const updated = await tx.proposals.update({
+          where: { id: row.id },
+          data: {
+            status: 'WITHDRAWN',
+            payload: nextPayload,
+            admin_note: (body && (body.note || body.reason)) || row.admin_note,
+            changed_by: actor,
+          },
+        });
+
+        if (audit && typeof audit.create === 'function') {
+          await audit.create(tx, {
+            tableName: 'proposals',
+            recordId: updated.id,
+            action: 'CAP_NHAT',
+            tenantId,
+            changedBy: actor,
+            correlationId: corr,
+            oldData: {
+              status: row.status,
+            },
+            newData: {
+              status: 'WITHDRAWN',
+              aborted_at: now.toISOString(),
+            },
+            changeReason: `Người dùng rút tờ trình MFO #${updated.id}`,
+          });
+        }
+
+        return updated;
+      }
+    );
+
     await afterMfo(user, ticket, 'MFO_PLAN_ABORT', 'MFO_PLAN_ABORTED', {
       from_status: row.status,
       to_status: 'WITHDRAWN',
