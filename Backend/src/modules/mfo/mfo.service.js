@@ -1,11 +1,14 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-27T10:39:00+07:00
- * VERSION    : 4.7.27-TRA-SUA-NHE
- * DESCRIPTION: Chỉ trả submission_history qua getDraftPayload; giữ mọi hàm dịch vụ. Bổ sung updatePlan sửa BUG10.
- * RULE       : Q1 bảo tồn ngoài lịch sử; Q2 metadata và chú thích thời gian.
+ * DATETIME   : 2026-10-29T21:15:00+07:00
+ * VERSION    : 4.7.30-FIX-BUG16-POPULATE-SIBLING-SEQ
+ * DESCRIPTION:
+ * - Vá dứt điểm Bug 16: Populate chính xác sibling_seq vào bảng members khi Admin duyệt ghi sổ Cửa 2.
+ * - Cơ chế fallback an toàn: lấy từ smp_staging_data, nếu thiếu tự động fallback sang draft_children.sibling_seq.
  *
  * CHANGE LOG:
+ * - 2026-10-29T21:15:00+07:00 | 4.7.30 | Sửa executeGate2DbMutation để gán đúng sibling_seq vào members.
+ * - 2026-10-29T08:44:00+07:00 | 4.7.29 | Thêm: get members.generation trong getDraftPayload. Bỏ: không bỏ. Giữ: lấy generation từ bảng members. Lý do: tránh lỗi khi payload không có generation.
  * - 2026-10-18T17:35:00+07:00 | 4.7.2 | Thêm updatePlan. Không bỏ getFullMfoSet.
  * - 2026-10-22T11:52:00+07:00 | 4.7.3 | Thêm: lấy cờ từ đúng tờ. Bỏ: ép plan_ok false khi lưu cửa 2. Giữ getFullMfoSet. Lý do: hạ cờ làm cửa 2 thành cửa 1.
  * - 2026-10-26T10:55:00+07:00 | 4.7.4 | Thêm: dựng cây chỉ tải nhánh 5 đời. Bỏ: tải cả sổ và cả hôn nhân. Giữ: hình cây và các trường. Lý do: full-set mất gần 4 giây.
@@ -254,6 +257,12 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal, granted
     const depth = Number(child.depth ?? 0);
     const calculatedGen = grantedGeneration != null ? grantedGeneration + depth : null;
 
+    // 🌟 LẤY THỨ TỰ CON ĐA TẦNG: smp_staging_data -> draft_children
+    const rawSeq = smp.sibling_seq ?? smp.child_order ?? child.sibling_seq;
+    const finalSiblingSeq = (rawSeq != null && rawSeq !== '' && !isNaN(Number(rawSeq))) 
+      ? Number(rawSeq) 
+      : null;
+
     const createdMember = await tx.members.create({
       data: {
         tenant_id: tenantId,
@@ -262,7 +271,7 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal, granted
         generation: calculatedGen,
         is_clan: true,
         birth_year: smp.birth_year ? Number(smp.birth_year) : null,
-        sibling_seq: smp.child_order ? Number(smp.child_order) : null,
+        sibling_seq: finalSiblingSeq, // 🌟 GHI CHÍNH XÁC VÀO DB
         note: smp.is_anonymous ? '[UM] Khuyết danh tạo bởi MFO 5L' : null,
         changed_by: actorId,
       },
@@ -1517,7 +1526,7 @@ const mfoService = {
       }
     );
   },
-
+  
   getDraftPayload: async ({ user, ticketId }) => {
     const tenantId = tenantIdOf(user);
     if (!ticketId) fail('Thiếu Ticket ID.', 400, 'MFO_TICKET_REQUIRED');
@@ -1538,11 +1547,22 @@ const mfoService = {
     }
 
     const payload = proposal.payload || {};
+    // 2026-10-29T08:44:00+07:00   | 4.7.29-get members.generation trong bảng members.
+    let targetMemberGeneration = null;
+    const targetMemberId = proposal.target_id || payload.target_member_id || payload.origin_member_id;
+    if (targetMemberId) {
+      const targetMember = await prisma.members.findUnique({
+        where: { id: targetMemberId },
+        select: { generation: true },
+      });
+      targetMemberGeneration = targetMember?.generation ?? null;
+    }
 
     return {
       ticket_id: proposal.id,
       tenant_id: proposal.tenant_id,
       target_member_id: proposal.target_id,
+      target_member_generation: targetMemberGeneration, // 🌟 TRẢ VỀ TRƯỜNG NÀY
       status: proposal.status,
       ticket_type: proposal.ticket_type,
       updated_at: proposal.updated_at,
@@ -1831,25 +1851,115 @@ const mfoService = {
     }
     return { ok: true };
   },
-
+  //  28-10-2026: Thay thế toàn bộ khối lệnh listPlans bằng đoạn mã đã được hiệu chỉnh dưới đây. 
+  //  Hàm vẫn giữ nguyên tên, nhận prisma đã bọc, phân định rõ ràng giữa EU và Admin, 
+  //  hỗ trợ đầy đủ bộ lọc tìm kiếm 2 tầng
   listPlans: async ({ user, query }) => {
     const tenantId = tenantIdOf(user);
     if (!tenantId) fail('Thiếu tenant.', 400, 'TENANT_REQUIRED');
     const q = query || {};
+
+    // 1. BASE FILTER: Sử dụng prisma đã bọc, khóa chặt tenant và deleted_at
     const where = {
       tenant_id: tenantId,
       ticket_type: { in: ['MFO_REVIEW', 'BRANCH_REVIEW'] },
       target_table: 'members',
-      deleted_at: null,
+      deleted_at: null, // Đảm bảo tuyệt đối không rò rỉ hồ sơ đã xóa
     };
-    if (!isClanOrSys(user)) {
-      where.requester_user_id = actorIdOf(user);
-    } else if (q.mine === '1' || q.mine === 'true') {
-      where.requester_user_id = actorIdOf(user);
-    }
-    if (q.origin_id) where.target_id = q.origin_id;
-    if (q.status) where.status = q.status;
 
+    // 2. PHÂN TẦNG QUYỀN TRUY CẬP (EU vs ADMIN)
+    if (!isClanOrSys(user)) {
+      // TÌNH HUỐNG A: Người dùng cuối (EU/MWL)
+      // BẮT BUỘC chỉ lấy các hồ sơ do chính mình tạo (bảo vệ quyền riêng tư)
+      where.requester_user_id = actorIdOf(user);
+    } else {
+      // TÌNH HUỐNG B: Ban Quản trị (Admin)
+      // B.1: Admin lọc xem riêng các hồ sơ cá nhân của chính mình (Tab "Cá nhân")
+      if (q.mine === '1' || q.mine === 'true') {
+        where.requester_user_id = actorIdOf(user);
+      }
+      // B.2: Admin lọc theo mốc Gốc tổ / Thành viên cụ thể
+      if (q.origin_id) {
+        where.target_id = q.origin_id;
+      }
+    }
+
+    // 3. XỬ LÝ LỌC TRẠNG THÁI DOCTRINE 3.0 (Dropdown 1)
+    // Cột status chỉ có 6 enum, bắt buộc kết hợp bóc tách trường JSONB payload
+    if (q.status && q.status !== 'ALL' && q.status !== 'BAM_DE_CHON') {
+      switch (q.status) {
+        // --- CỬA 1 (PLAN: NHÁNH PHẢ HỆ) ---
+        case 'C1_DRAFT':
+        case 'DRAFT': // Nhánh phả hệ đang soạn (DRAFT, plan_ok = false)
+          where.status = 'DRAFT';
+          where.payload = { path: ['plan_ok'], equals: false };
+          break;
+
+        case 'C1_PENDING':
+        case 'PENDING': // Nhánh phả hệ chờ phê duyệt (PENDING, plan_ok = false)
+          where.status = 'PENDING';
+          break;
+
+        case 'C1_NEEDS_REVISION': // Nhánh phả hệ cần sửa (NEEDS_REVISION, plan_ok = false)
+          where.status = 'NEEDS_REVISION';
+          where.payload = { path: ['plan_ok'], equals: false };
+          break;
+
+        case 'C1_APPROVED': // Nhánh phả hệ đã duyệt (APPROVED Cửa 1, chưa trình Cửa 2)
+          where.status = 'APPROVED';
+          where.payload = {
+            path: ['plan_ok'],
+            equals: true,
+            path: ['result_submitted'],
+            not: true,
+          };
+          break;
+
+        case 'C1_REJECTED': // Nhánh phả hệ không được duyệt (REJECTED Cửa 1, plan_ok = false)
+          where.status = 'REJECTED';
+          where.payload = { path: ['plan_ok'], equals: false };
+          break;
+
+        // --- CỬA 2 (RESULT: TỜ KHAI) ---
+        case 'C2_DRAFT': // Tờ khai đang soạn (APPROVED Cửa 1, plan_ok = true, chưa nộp Cửa 2)
+          where.status = 'APPROVED';
+          where.payload = {
+            path: ['plan_ok'],
+            equals: true,
+            path: ['result_submitted'],
+            not: true,
+          };
+          break;
+
+        case 'C2_PENDING':
+        case 'UNDER_REVIEW': // Tờ khai chờ duyệt (UNDER_REVIEW, plan_ok = true)
+          where.status = 'UNDER_REVIEW';
+          where.payload = { path: ['plan_ok'], equals: true };
+          break;
+
+        case 'C2_NEEDS_REVISION': // Tờ khai cần sửa (NEEDS_REVISION Cửa 2, plan_ok = true)
+          where.status = 'NEEDS_REVISION';
+          where.payload = { path: ['plan_ok'], equals: true };
+          break;
+
+        case 'C2_REJECTED': // Tờ khai không được duyệt (REJECTED Cửa 2, giữ plan_ok = true)
+          where.status = 'REJECTED';
+          where.payload = { path: ['plan_ok'], equals: true };
+          break;
+
+        case 'RECORDED': // Đã ghi sổ (APPROVED Cửa 2, result_ok = true)
+          where.status = 'APPROVED';
+          where.payload = { path: ['result_ok'], equals: true };
+          break;
+
+        default:
+          // Nếu truyền mã status DB thuần túy (ví dụ từ các trang cũ)
+          where.status = q.status;
+          break;
+      }
+    }
+
+    // 4. TRUY VẤN DỮ LIỆU QUA PRISMA ĐÃ BỌC
     const rows = await prisma.proposals.findMany({
       where,
       orderBy: { updated_at: 'desc' },
@@ -1869,6 +1979,7 @@ const mfoService = {
       },
     });
 
+    // 5. MAPPING NHÃN VÀ METADATA TRẢ VỀ CHO DROPDOWN
     return rows.map((r) => {
       const p = r.payload || {};
       const targetMemberId = r.target_id || p.target_member_id || p.origin_member_id || null;

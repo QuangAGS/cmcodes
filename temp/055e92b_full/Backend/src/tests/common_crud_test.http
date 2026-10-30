@@ -1,0 +1,117 @@
+FILE: tests/common_crud_test.http
+
+VERSION: 1.0.0
+
+DESCRIPTION: Kịch bản kiểm tra toàn diện CommonService qua thực thể 'branches'.
+
+HƯỚNG DẪN: Chạy theo thứ tự từ Bước 0 đến Bước 5.
+
+@baseUrl = q=https://gia-pha-backend.onrender.com/api 
+@tenantSlug = NHTB01
+
+==========================================================
+
+BƯỚC 0: ĐĂNG NHẬP (Lấy danh tính người thực hiện - changed_by)
+
+==========================================================
+
+@name login
+
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+"identifier": "nguyenthanhq@gmail.com",
+"password": "France1989"
+}
+
+@authToken = {{login.response.body.token}}
+@adminId = {{login.response.body.user.id}}
+
+==========================================================
+
+BƯỚC 1: TẠO CHI HỌ MỚI (CREATE)
+
+Kiểm tra: Tự động sinh ID, bóc tách Metadata, gán DEFAULT_ID cho parent_id
+
+==========================================================
+
+@name createBranch
+
+POST {{baseUrl}}/branches
+Authorization: Bearer {{authToken}}
+x-tenant-slug: {{tenantSlug}}
+Content-Type: application/json
+
+{
+"name": "Chi họ Nguyễn Đình - Nhánh phía Nam",
+"description": "Nhánh di cư vào Hà Tĩnh từ thế kỷ 18",
+"contact_phone": "0987654321",
+"parent_id": "",
+"changed_by": "{{adminId}}",
+"change_reason": "Khởi tạo chi họ mới phục vụ việc dựng cây gia phả"
+}
+
+@branchId = {{createBranch.response.body.data.id}}
+
+==========================================================
+
+BƯỚC 2: LẤY CHI TIẾT (READ)
+
+Kiểm tra: Dữ liệu có đúng như đã tạo không?
+
+==========================================================
+
+GET {{baseUrl}}/branches/{{branchId}}
+Authorization: Bearer {{authToken}}
+x-tenant-slug: {{tenantSlug}}
+
+==========================================================
+
+BƯỚC 3: CẬP NHẬT THÔNG TIN (UPDATE)
+
+Kiểm tra: Ghi log CAP_NHAT, lưu OldData và NewData
+
+==========================================================
+
+PUT {{baseUrl}}/branches/{{branchId}}
+Authorization: Bearer {{authToken}}
+x-tenant-slug: {{tenantSlug}}
+Content-Type: application/json
+
+{
+"name": "Chi họ Nguyễn Đình - Nhánh Kỳ Anh",
+"description": "Cập nhật lại tên nhánh theo địa danh cụ thể",
+"changed_by": "{{adminId}}",
+"change_reason": "Mới tìm được thông tin chính xác của nhánh thông qua cụ Nguyễn Đình X"
+}
+
+==========================================================
+
+BƯỚC 4: XÓA MỀM (DELETE)
+
+Kiểm tra: deleted_at != null, Action = 'XOA'
+
+==========================================================
+
+DELETE {{baseUrl}}/branches/{{branchId}}
+Authorization: Bearer {{authToken}}
+x-tenant-slug: {{tenantSlug}}
+Content-Type: application/json
+
+{
+"reason": "Dữ liệu tạo sai nhánh, cần thực hiện tạo lại từ đầu",
+"userId": "{{adminId}}"
+}
+
+==========================================================
+
+BƯỚC 5: KIỂM TRA NHẬT KÝ HỆ THỐNG (AUDIT LOGS)
+
+Kiểm tra: Truy vết 3 hành động: THEM_MOI -> CAP_NHAT -> XOA
+
+==========================================================
+
+GET {{baseUrl}}/audit_logs?record_id={{branchId}}
+Authorization: Bearer {{authToken}}
+x-tenant-slug: {{tenantSlug}}

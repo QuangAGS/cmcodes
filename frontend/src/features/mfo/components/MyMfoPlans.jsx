@@ -1,7 +1,7 @@
 /**
  * PATH       : frontend/src/features/mfo/components/MyMfoPlans.jsx
- * DATETIME   : 2026-10-27T14:47:00+07:00
- * VERSION    : 5.7.11-BUT-PHE-SUA
+ * DATETIME   : 2026-10-17T18:05:00+07:00
+ * VERSION    : 5.7.6-LIST-REFRESH
  * DESCRIPTION:
  * - Vá dứt điểm lỗi hiển thị nhầm "Bút phê tờ khai: Duyệt" khi Tờ khai Cửa 2 đang ở trạng thái chờ duyệt.
  * - Loại bỏ fallback || currentPlan.admin_note của Cửa 1, phân lập chính xác bút phê theo trạng thái Tờ khai Cửa 2.
@@ -12,9 +12,6 @@
  * - 2026-10-16T07:08:00+07:00 | 5.7.4 | DRAFT và cần sửa hiện Sửa nhánh, không phụ thuộc cờ plan_ok.
  * - 2026-10-16T08:24:00+07:00 | 5.7.5 | Tiêu đề trang đổi thành Hồ sơ nhánh phả hệ. Card giữ Hồ sơ của tôi.
  * - 2026-10-17T18:05:00+07:00 | 5.7.6 | Nút Làm mới cạnh danh sách hồ sơ.
- * - 2026-10-23T09:31:00+07:00 | 5.7.7 | Thêm: Soạn thảo, vòng quay trên cùng. Bỏ: Lưu nháp trên trang hồ sơ, bút phê trên DRAFT. Giữ: Khai báo, Xem lại, Xóa. Lý do: nút và bút phê không theo trạng thái.
- * - 2026-10-27T08:39:00+07:00 | 5.7.9 | Thêm: lấy tên cả nhóm khi chọn hồ sơ. Bỏ: hỏi từng người. Giữ: tên trên tờ. Lý do: năm người thành năm câu.
- * - 2026-10-23T11:53:00+07:00 | 5.7.8 | Thêm: Sửa tờ khai khi cần sửa, bút phê ở nội dung hiện tại. Bỏ: tờ khai cần sửa không có nút. Giữ: Soạn thảo cửa 1. Lý do: tờ khai trả sửa không sửa được.
  * RULE COMPLIANCE:
  * - Q1 (Bảo tồn): Bảo toàn 100% logic Single Thread Pipeline, hydration draft, CRUD handlers và MfoHistoryChain integration.
  * - Q2 (Code Format): Đầy đủ docstring header và chú thích thời gian <2026-10-14T15:35:00+07:00> từng khối logic.
@@ -23,7 +20,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import MfoAlarmOverlay from './MfoAlarmOverlay.jsx';
-import MfoBusyClock from './MfoBusyClock.jsx';
 import MfoHistoryPreview from './MfoHistoryPreview.jsx';
 import {
   FileEdit,
@@ -41,8 +37,6 @@ import {
   listPlans,
   deleteDraft,
   getMember,
-  listMemberNames,
-  canCreatePlan,
   getDraftPayload,
   savePlanDraft,
 } from '../api/mfoApi.js';
@@ -127,20 +121,11 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
     void loadPlansList();
   }, [loadPlansList]);
 
-  const startNewPlan = async () => {
-    try {
-      await canCreatePlan();
-      navigate('/op/mfo/plans/new');
-    } catch (error) {
-      setAlarm(toMfoUserMessage(error));
-    }
-  };
-
   const handleSelectChange = (e) => {
     const val = e.target.value;
 
     if (val === '__NEW_PLAN__') {
-      void startNewPlan();
+      navigate('/op/mfo/plans/new');
       return;
     }
 
@@ -233,18 +218,21 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
 
         const missingIds = Array.from(idsToFetch).filter((mid) => mid && !memberNames[mid]);
         if (missingIds.length > 0) {
-          const started = Date.now();
-          const nameRes = await listMemberNames(missingIds);
-          const rows = nameRes?.data?.data || nameRes?.data || [];
+          const nameResults = await Promise.allSettled(
+            missingIds.map((mid) => getMember(mid))
+          );
+
           const newNames = {};
-          (Array.isArray(rows) ? rows : []).forEach((row) => {
-            if (row?.id && row.full_name) newNames[row.id] = row.full_name;
+          nameResults.forEach((result, idx) => {
+            if (result.status === 'fulfilled') {
+              const mRes = result.value;
+              const mData = mRes?.data?.member || mRes?.data || mRes;
+              if (mData?.full_name || mData?.name) {
+                newNames[missingIds[idx]] = mData.full_name || mData.name;
+              }
+            }
           });
-          console.info('[MFO_PLAN_NAMES_TIMING]', {
-            count: missingIds.length,
-            found: Object.keys(newNames).length,
-            client_ms: Date.now() - started,
-          });
+
           if (Object.keys(newNames).length > 0) {
             setMemberNames((prev) => ({ ...prev, ...newNames }));
           }
@@ -311,8 +299,6 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
   };
 
   return (
-    <>
-    <MfoBusyClock show={busy || loading} />
     <div className="flex flex-col gap-3 font-sans">
       <div className="flex items-center justify-between gap-2">
         {/* <2026-10-16T08:24:00+07:00> Mục đích: Tránh hai tiêu đề giống nhau. Lý do: tiêu đề trang và tiêu đề card đều là Hồ sơ của tôi. */}
@@ -336,7 +322,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
             <button
               type="button"
               className="mt-3 flex items-center gap-1.5 rounded-2xl bg-indigo-600 px-4 py-2.5 text-xs font-black text-white shadow-md hover:bg-indigo-700 active:scale-95"
-              onClick={() => { void startNewPlan(); }}
+              onClick={() => navigate('/op/mfo/plans/new')}
             >
               <Plus className="h-4 w-4" />
               <span>+ Tạo nhánh phả hệ mới</span>
@@ -393,7 +379,7 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                 <button
                   type="button"
                   className="flex items-center gap-1.5 rounded-2xl bg-indigo-600 px-4 py-2.5 text-xs font-black text-white shadow-sm hover:bg-indigo-700 active:scale-95"
-                  onClick={() => { void startNewPlan(); }}
+                  onClick={() => navigate('/op/mfo/plans/new')}
                 >
                   <PlusCircle className="h-4 w-4" />
                   <span>Bấm để tạo nhánh mới ngay</span>
@@ -407,7 +393,17 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                   <div className="flex min-h-11 items-center justify-between gap-2 bg-slate-50 px-3.5">
                     <button type="button" className="font-black uppercase text-[10px] text-slate-700" onClick={() => setOpenNow((v) => !v)}>Nội dung hiện tại</button>
                     <div className="flex items-center gap-2">
-                      <AudioHelpButton text={[`Trạng thái: ${stageName(viewPlan)}`, ...currentSummary(viewPlan)].join('. ')} label="Nghe" />
+                      {/* Cập nhật Voice: Đọc kèm bút phê nếu hồ sơ đang cần sửa */}
+                      <AudioHelpButton 
+                        text={[
+                          `Trạng thái: ${stageName(viewPlan)}`, 
+                          ...currentSummary(viewPlan),
+                          (isNeedsRevision && (currentPlan?.admin_note || payloadData?.admin_note || payloadData?.revision_request))
+                            ? `Bút phê ban quản trị: ${currentPlan?.admin_note || payloadData?.admin_note || payloadData?.revision_request}`
+                            : ''
+                        ].filter(Boolean).join('. ')} 
+                        label="Nghe" 
+                      />
                       <button type="button" className="text-xs font-bold text-slate-700" onClick={() => setOpenNow((v) => !v)}>{openNow ? 'Thu lại' : 'Mở ra'}</button>
                     </div>
                   </div>
@@ -419,18 +415,28 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                         <p key={idx} className="text-slate-800 font-medium">{line}</p>
                       ))}
 
-                      {/* <2026-10-14T15:35:00+07:00> PHÂN LẬP BÚT PHÊ TỜ KHAI CỬA 2: CHỈ HIỂN THỊ KHI CÓ REJECT_REASON HOẶC ĐÃ DUYỆT XONG, LOẠI BỎ FALLBACK LẤY NHẦM BÚT PHÊ CỬA 1 */}
-                      {/* <2026-10-23T09:31:00+07:00> Mục đích: Bút phê chỉ khi tờ đã ghi sổ. Lý do: DRAFT đang hiện bút phê. */}
-                      {currentStatus === 'APPROVED' && payloadData.result_ok ? (
-                        <p className="font-bold text-indigo-900 pt-1 border-t border-slate-100">
-                          Bút phê tờ khai: {payloadData.reject_reason || 'Đã duyệt ghi sổ'}
-                        </p>
+                      {/* --- BÚT PHÊ CỬA 1: HIỂN THỊ KHI NHÁNH PHẢ HỆ CẦN SỬA --- */}
+                      {!payloadData.plan_ok && isNeedsRevision && (currentPlan?.admin_note || payloadData?.admin_note || payloadData?.revision_request) ? (
+                        <div className="mt-2 pt-2 border-t border-slate-100">
+                          <p className="font-bold text-rose-900">
+                            Bút phê ban quản trị:
+                          </p>
+                          <p className="mt-0.5 text-slate-800 font-medium italic bg-rose-50/60 p-2.5 rounded-xl border border-rose-100">
+                            "{currentPlan?.admin_note || payloadData?.admin_note || payloadData?.revision_request}"
+                          </p>
+                        </div>
                       ) : null}
-                      {/* <2026-10-23T11:53:00+07:00> Mục đích: Tờ khai cần sửa hiện bút phê. Lý do: EU phải đọc ý kiến trước khi sửa. */}
-                      {isNeedsRevision ? (
-                        <p className="font-bold text-indigo-900 pt-1 border-t border-slate-100">
-                          Bút phê: {currentPlan.admin_note || payloadData.admin_note || payloadData.reject_reason || 'Chưa có ý kiến.'}
-                        </p>
+
+                      {/* --- BÚT PHÊ CỬA 2: HIỂN THỊ KHI TỜ KHAI CẦN SỬA HOẶC ĐÃ GHI SỔ --- */}
+                      {payloadData.plan_ok && payloadData.result_submitted && (payloadData.reject_reason || payloadData.admin_note || payloadData.result_ok) ? (
+                        <div className="mt-2 pt-2 border-t border-slate-100">
+                          <p className="font-bold text-indigo-900">
+                            Bút phê tờ khai:
+                          </p>
+                          <p className="mt-0.5 text-slate-800 font-medium italic bg-indigo-50/60 p-2.5 rounded-xl border border-indigo-100">
+                            "{payloadData.reject_reason || payloadData.admin_note || (payloadData.result_ok ? 'Đã duyệt ghi sổ' : '')}"
+                          </p>
+                        </div>
                       ) : null}
                     </div>
                   ) : null}
@@ -450,31 +456,17 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                     <span>Xem lại</span>
                   </button>
 
-                  {/* <2026-10-23T09:31:00+07:00> Mục đích: Vào soạn tiếp. Lý do: Lưu nháp không mở cây và Sửa nhánh bị ẩn bởi result_ok. */}
-                  {(currentStatus === 'DRAFT' || (isNeedsRevision && !payloadData?.plan_ok)) ? (
+                  {!isRejected && (
                     <button
                       type="button"
-                      disabled={busy}
-                      className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl bg-indigo-600 px-3 text-xs font-black text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40"
-                      onClick={() => navigate(`/op/mfo/plans/new?draft=${selectedTicketId}`)}
+                      disabled={isPending || isApproved || busy}
+                      className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl border border-slate-300 bg-white px-3 text-xs font-extrabold text-slate-700 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
+                      onClick={handleSaveDraftDirect}
                     >
-                      <FileEdit className="h-4 w-4" />
-                      <span>{isNeedsRevision ? 'Sửa theo ý kiến' : 'Soạn thảo'}</span>
+                      <Save className="h-4 w-4 text-slate-600" />
+                      <span>Lưu nháp</span>
                     </button>
-                  ) : null}
-
-                  {/* <2026-10-23T11:53:00+07:00> Mục đích: Mở lại tờ khai cần sửa. Lý do: nút cũ chỉ mở nhánh chưa duyệt. */}
-                  {isNeedsRevision && payloadData?.plan_ok ? (
-                    <button
-                      type="button"
-                      disabled={busy}
-                      className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl bg-indigo-600 px-3 text-xs font-black text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40"
-                      onClick={() => navigate(`/op/mfo/plans/new?draft=${selectedTicketId}`)}
-                    >
-                      <FileEdit className="h-4 w-4" />
-                      <span>Sửa tờ khai</span>
-                    </button>
-                  ) : null}
+                  )}
 
                   {isApproved && payloadData?.plan_ok && !payloadData?.result_ok ? (
                     <button
@@ -485,6 +477,19 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
                       <span>Khai báo</span>
                     </button>
                   ) : null}
+
+                  {/* <2026-10-16T07:08:00+07:00> Mục đích: Nhánh còn soạn hoặc cần sửa phải vào lại được cây. Lý do: điều kiện cũ ẩn nút khi plan_ok đúng, dù trạng thái vẫn là DRAFT. */}
+                  {!isRejected && !isApproved && !payloadData?.result_ok && (
+                    <button
+                      type="button"
+                      disabled={isPending || busy}
+                      className="min-h-[48px] flex items-center justify-center gap-1.5 rounded-2xl bg-indigo-600 px-3 text-xs font-black text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
+                      onClick={() => navigate(`/op/mfo/plans/new?draft=${selectedTicketId}`)}
+                    >
+                      <FileEdit className="h-4 w-4" />
+                      <span>{isNeedsRevision ? 'Sửa theo ý kiến' : 'Sửa nhánh'}</span>
+                    </button>
+                  )}
 
                   <button
                     type="button"
@@ -523,7 +528,6 @@ export function MyMfoPlans({ onSelectPlan, onPlanDeleted }) {
 
       <MfoAlarmOverlay open={Boolean(alarm)} message={alarm} onClose={() => setAlarm('')} />
     </div>
-    </>
   );
 }
 

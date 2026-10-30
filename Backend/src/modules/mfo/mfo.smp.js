@@ -1,17 +1,23 @@
 /**
  * PATH       : src/modules/mfo/mfo.smp.js
- * DATETIME   : 2026-10-11T14:00:00+07:00
- * VERSION    : 1.0.0-AMENDMENT4-LAT2-SMP
- * DESCRIPTION: Schema SMP. Hệ thống điền is_clan. EU không gửi đời và cha mẹ.
- */
+* DATETIME   : 2026-10-29T20:20:00+07:00
+ * VERSION    : 1.1.0-ALLOW-CHILD-ORDER
+ * DESCRIPTION: Schema SMP. Tiếp nhận child_order/sibling_seq từ Cửa 2. EU không gửi đời và cha mẹ.
+ * TUÂN THỦ   : QX (Bảo tồn) & MFO-DOCTRINE-3.0-20261013 (Mục 7 & 10).
+ *
+ * CHANGE LOG:
+ * - 2026-10-29T20:20:00+07:00 | 1.1.0 | Thêm: tiếp nhận child_order và sibling_seq trong childSmp. Bỏ: cấm child_order khỏi FORBIDDEN. Giữ: cấm đời, cha mẹ. Lý do: EU cần lưu thứ tự con để ghi sổ.
+ * - 2026-10-11T14:00:00+07:00 | 1.0.0 | Khởi tạo Schema SMP; kiểm tra các trường bắt buộc, whitelist ngày tháng.
+*/
+
 'use strict';
 
 const { fail } = require('./mfo.payload.js');
 
 const GENDERS = new Set(['NAM', 'NU']);
 const CHILD_TYPES = new Set(['CON_DE', 'CON_RE', 'CON_DAU', 'CON_NUOI']);
-const FORBIDDEN = ['generation', 'father_id', 'mother_id', 'parent_union_id', 'granted_generation', 'child_order'];
-
+// <2026-10-29T20:20:00+07:00> Mục đích: Bỏ child_order khỏi cấm. Lý do: thứ tự con do EU khai ở Cửa 2 để lưu sổ.
+const FORBIDDEN = ['generation', 'father_id', 'mother_id', 'parent_union_id', 'granted_generation'];
 function boolOf(value) {
   if (value === true || value === false) return value;
   if (value === 'true') return true;
@@ -82,6 +88,13 @@ function childSmp(raw) {
   out.child_type = childType;
   const anonymous = boolOf(raw.is_anonymous);
   if (anonymous != null) out.is_anonymous = anonymous;
+  // 🌟 TIẾP NHẬN VÀ LƯU THỨ TỰ CON VÀO STAGING DATA
+  const orderRaw = raw.sibling_seq ?? raw.child_order;
+  const order = intOf(orderRaw, 1, 99);
+  if (order !== undefined && order !== null) {
+    out.sibling_seq = order;
+    out.child_order = order;
+  }
   return out;
 }
 

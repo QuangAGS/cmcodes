@@ -1,0 +1,139 @@
+// =============================================================================
+// Đợt 2a — append vào Backend/prisma/schema.prisma (SSOT)
+// Đồng bộ Backend/schema.prisma nếu vẫn giữ bản root.
+// Không nhồi clan narrative vào tenants.social_configs.
+// =============================================================================
+
+enum proposal_status {
+  DRAFT
+  PENDING
+  UNDER_REVIEW
+  NEEDS_REVISION
+  REJECTED
+  APPROVED
+  APPLIED
+  WITHDRAWN
+  FAILED_TO_APPLY
+}
+
+enum proposal_ticket_type {
+  PROFILE_CORRECTION
+  TREE_MERGE
+  FUND_CONTRIBUTION
+}
+
+enum privacy_field_group {
+  CONTACT
+  ACHIEVEMENT
+  BIRTH_DATE
+}
+
+enum privacy_visibility {
+  SELF
+  TENANT
+}
+
+model clan_profiles {
+  id                  String    @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  tenant_id           String    @unique @db.VarChar(36)
+  origin_summary      String?
+  progenitor_summary  String?
+  clan_rules          String?
+  welcome_message     String?
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  changed_by          String?   @db.VarChar(36)
+  deleted_at          DateTime? @db.Timestamptz(6)
+
+  tenants tenants @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_clan_profiles_tenant")
+
+  @@index([deleted_at], map: "idx_clan_profiles_deleted_at")
+  @@map("clan_profiles")
+}
+
+model generation_naming_rules {
+  id            String    @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  tenant_id     String    @db.VarChar(36)
+  generation_no Int
+  middle_name   String    @db.VarChar(100)
+  notes         String?
+  assigned_at   DateTime? @db.Timestamptz(6)
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  changed_by    String?   @db.VarChar(36)
+  deleted_at    DateTime? @db.Timestamptz(6)
+
+  tenants tenants @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_generation_naming_tenant")
+
+  @@unique([tenant_id, generation_no], map: "uq_generation_naming_tenant_gen")
+  @@index([tenant_id], map: "idx_generation_naming_tenant")
+  @@index([deleted_at], map: "idx_generation_naming_deleted_at")
+  @@map("generation_naming_rules")
+}
+
+model proposals {
+  id                     String                @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  tenant_id              String                @db.VarChar(36)
+  ticket_type            proposal_ticket_type
+  status                 proposal_status       @default(DRAFT)
+  requester_user_id      String                @db.VarChar(36)
+  target_table           String?               @db.VarChar(50)
+  target_id              String?               @db.VarChar(36)
+  payload                Json                  @default("{}")
+  payload_schema_version Int                   @default(1)
+  admin_note             String?
+  reviewed_by            String?               @db.VarChar(36)
+  reviewed_at            DateTime?             @db.Timestamptz(6)
+  applied_at             DateTime?             @db.Timestamptz(6)
+  correlation_id         String?               @db.VarChar(64)
+  created_at             DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at             DateTime              @default(now()) @updatedAt @db.Timestamptz(6)
+  changed_by             String?               @db.VarChar(36)
+  deleted_at             DateTime?             @db.Timestamptz(6)
+
+  tenants   tenants @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_proposals_tenant")
+  requester users   @relation("ProposalRequester", fields: [requester_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_proposals_requester")
+  reviewer  users?  @relation("ProposalReviewer", fields: [reviewed_by], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_proposals_reviewer")
+
+  @@index([tenant_id, status], map: "idx_proposals_tenant_status")
+  @@index([tenant_id, ticket_type], map: "idx_proposals_tenant_type")
+  @@index([requester_user_id], map: "idx_proposals_requester")
+  @@index([correlation_id], map: "idx_proposals_correlation")
+  @@index([deleted_at], map: "idx_proposals_deleted_at")
+  @@map("proposals")
+}
+
+model member_privacy_rules {
+  id          String               @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  tenant_id   String               @db.VarChar(36)
+  member_id   String               @db.VarChar(36)
+  field_group privacy_field_group
+  visibility  privacy_visibility   @default(TENANT)
+  created_at  DateTime             @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime             @default(now()) @updatedAt @db.Timestamptz(6)
+  changed_by  String?              @db.VarChar(36)
+  deleted_at  DateTime?            @db.Timestamptz(6)
+
+  tenants tenants @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_privacy_tenant")
+  members members @relation(fields: [member_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_privacy_member")
+
+  @@unique([member_id, field_group], map: "uq_privacy_member_group")
+  @@index([tenant_id], map: "idx_privacy_tenant")
+  @@index([deleted_at], map: "idx_privacy_deleted_at")
+  @@map("member_privacy_rules")
+}
+
+// --- Quan hệ cần thêm vào model có sẵn ---
+//
+// model tenants { ... thêm:
+//   clan_profiles            clan_profiles?
+//   generation_naming_rules  generation_naming_rules[]
+//   proposals                proposals[]
+//   member_privacy_rules     member_privacy_rules[]
+//
+// model members { ... thêm:
+//   member_privacy_rules member_privacy_rules[]
+//
+// model users { ... thêm:
+//   proposals_requested proposals[] @relation("ProposalRequester")
+//   proposals_reviewed  proposals[] @relation("ProposalReviewer")

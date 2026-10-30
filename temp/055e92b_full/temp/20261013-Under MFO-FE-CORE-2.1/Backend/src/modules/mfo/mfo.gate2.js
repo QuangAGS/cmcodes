@@ -1,0 +1,188 @@
+/**
+ * PATH       : backend/src/modules/mfo/mfo.gate2.js
+ * DATETIME   : 2026-10-11T14:10:00+07:00
+ * VERSION    : 1.1.0-AMENDMENT4-LAT4-PROPAGATE
+ * DESCRIPTION: Ghi sổ lúc duyệt Cửa 2. Đời lấy từ sổ. Không bịa hôn phối.
+ */
+'use strict';
+
+function fail(message, statusCode, code) {
+  const err = new Error(message);
+  err.statusCode = statusCode;
+  err.code = code;
+  err.isOperational = true;
+  throw err;
+}
+
+function layerOf(payload) {
+  const root = payload && typeof payload === 'object' ? payload : {};
+  const layer = root.business_layer && typeof root.business_layer === 'object' ? root.business_layer : root;
+  return {
+    staging: layer.smp_staging_data || root.smp_staging_data || {},
+    delta: layer.canvas_delta || root.canvas_delta || {},
+  };
+}
+
+function ownerIdOf(ownerNodeId, memberMap) {
+  if (!ownerNodeId) return null;
+  if (String(ownerNodeId).startsWith('draft-child-')) return memberMap.get(ownerNodeId) || null;
+  if (String(ownerNodeId).startsWith('st:')) {
+    const parts = String(ownerNodeId).split(':');
+    return parts[2] || parts[1] || null;
+  }
+  return ownerNodeId;
+}
+
+async function generationAfter(tx, parentId) {
+  if (!parentId) fail('Thiếu người đời trên để tính đời.', 422, 'MFO_GENERATION_REQUIRED');
+  const parent = await tx.members.findUnique({
+    where: { id: parentId },
+    select: { generation: true },
+  });
+  if (!parent || parent.generation == null) {
+    fail('Người đời trên chưa có đời trên sổ.', 422, 'MFO_GENERATION_REQUIRED');
+  }
+  return Number(parent.generation) + 1;
+}
+
+async function refuseIfOnBook(tx, tenantId, { fullName, fatherId, motherId }) {
+  if (!fullName || (!fatherId && !motherId)) return;
+  const where = {
+    tenant_id: tenantId,
+    deleted_at: null,
+    full_name: fullName,
+  };
+  if (fatherId) where.father_id = fatherId;
+  if (motherId) where.mother_id = motherId;
+  const existing = await tx.members.findFirst({ where, select: { id: true } });
+  if (existing) fail('Người này đã có trên sổ với cùng cha mẹ.', 409, 'MFO_ALREADY_ON_BOOK');
+}
+
+async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
+  const { staging, delta } = layerOf(proposal.payload);
+  const children = (Array.isArray(delta.draft_children) ? delta.draft_children : [])
+    .slice()
+    .sort((a, b) => Number(a.depth || 0) - Number(b.depth || 0));
+  const spouses = Array.isArray(delta.draft_spouses) ? delta.draft_spouses : [];
+
+  for (const child of children) {
+    const smp = staging[child.id] || {};
+    if (!String(smp.full_name || '').trim()) fail('Con nháp chưa có hồ sơ.', 422, 'MFO_STAGING_INCOMPLETE');
+  }
+  for (const spouse of spouses) {
+    const smp = staging[spouse.union_id] || {};
+    if (!String(smp.full_name || smp.partner_full_name || '').trim()) {
+      fail('Hôn phối nháp chưa có hồ sơ.', 422, 'MFO_STAGING_INCOMPLETE');
+    }
+  }
+
+  const memberMap = new Map();
+  const marriageMap = new Map();
+
+  for (const child of children) {
+    const smp = staging[child.id] || {};
+    const parentId = ownerIdOf(child.parent_node_id, memberMap);
+    const generation = await generationAfter(tx, parentId);
+    const parent = parentId
+      ? await tx.members.findUnique({ where: { id: parentId }, select: { gender: true } })
+      : null;
+    const fatherId = parent && parent.gender !== 'NU' ? parentId : null;
+    const motherId = parent && parent.gender === 'NU' ? parentId : null;
+    await refuseIfOnBook(tx, tenantId, { fullName: smp.full_name, fatherId, motherId });
+    const created = await tx.members.create({
+      data: {
+        tenant_id: tenantId,
+        full_name: smp.full_name,
+        gender: smp.gender,
+        generation,
+        is_clan: true,
+        is_alive: smp.is_alive !== false,
+        child_type: smp.child_type || 'CON_DE',
+        birth_day: smp.birth_day || null,
+        birth_month: smp.birth_month || null,
+        birth_year: smp.birth_year || null,
+        sibling_seq: child.child_order != null ? Number(child.child_order) : null,
+        note: smp.is_anonymous ? '[UM] Khuyết danh tạo bởi MFO 5L' : (smp.note || null),
+        changed_by: actorId,
+      },
+    });
+    memberMap.set(child.id, created.id);
+  }
+
+  for (const spouse of spouses) {
+    const smp = staging[spouse.union_id] || {};
+    const created = await tx.members.create({
+      data: {
+        tenant_id: tenantId,
+        full_name: smp.full_name || smp.partner_full_name,
+        gender: smp.gender || smp.partner_gender || 'NU',
+        is_clan: false,
+        is_alive: smp.is_alive !== false,
+        birth_year: smp.birth_year || smp.partner_birth_year || null,
+        changed_by: actorId,
+      },
+    });
+    memberMap.set('spouse:' + spouse.union_id, created.id);
+  }
+
+  for (const spouse of spouses) {
+    const ownerId = ownerIdOf(spouse.owner_node_id, memberMap);
+    const spouseId = memberMap.get('spouse:' + spouse.union_id);
+    if (!ownerId || !spouseId) continue;
+    const owner = await tx.members.findUnique({ where: { id: ownerId }, select: { gender: true } });
+    const ownerMale = (owner && owner.gender) !== 'NU';
+    const marriage = await tx.marriages.create({
+      data: {
+        tenant_id: tenantId,
+        husband_id: ownerMale ? ownerId : spouseId,
+        wife_id: ownerMale ? spouseId : ownerId,
+        husband_marriage_order: ownerMale ? Number(spouse.owner_marriage_order || 1) : 1,
+        wife_marriage_order: ownerMale ? 1 : Number(spouse.owner_marriage_order || 1),
+        status: 'DANG_KET_HON',
+        changed_by: actorId,
+      },
+    });
+    marriageMap.set(spouse.union_id, marriage.id);
+  }
+
+  for (const child of children) {
+    const childId = memberMap.get(child.id);
+    if (!childId) continue;
+    const link = String(child.link || '');
+    const unionKey = link.startsWith('union:') ? link.split(':')[1] : null;
+    const unionId = unionKey ? marriageMap.get(unionKey) || null : null;
+    let fatherId = null;
+    let motherId = null;
+    if (unionId) {
+      const marriage = await tx.marriages.findUnique({
+        where: { id: unionId },
+        select: { husband_id: true, wife_id: true },
+      });
+      fatherId = marriage && marriage.husband_id;
+      motherId = marriage && marriage.wife_id;
+    } else if (child.parent_node_id) {
+      const parentId = ownerIdOf(child.parent_node_id, memberMap);
+      if (parentId) {
+        const parent = await tx.members.findUnique({ where: { id: parentId }, select: { gender: true } });
+        if (parent && parent.gender === 'NU') motherId = parentId;
+        else fatherId = parentId;
+      }
+    }
+    await tx.members.update({
+      where: { id: childId },
+      data: {
+        parent_union_id: unionId,
+        father_id: fatherId,
+        mother_id: motherId,
+        changed_by: actorId,
+      },
+    });
+  }
+
+  return {
+    created_member_ids: Array.from(memberMap.values()),
+    created_marriage_ids: Array.from(marriageMap.values()),
+  };
+}
+
+module.exports = { executeGate2DbMutation };

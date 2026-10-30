@@ -1,19 +1,21 @@
 /**
  * PATH       : frontend/src/pages/AdminMfoPlanPage.jsx
- * DATETIME   : 2026-10-23T12:07:00+07:00
- * VERSION    : 2.4.10-CUA2-DUYET
+ * DATETIME   : 2026-10-29T08:03:00+07:00   
+ * VERSION    : 2.4.6-Change "Đời gốc trên sổ" - Của 1&2.
  * DESCRIPTION:
  * - Vá dứt điểm Bug 3: Card 2 ở Cửa 2 (RESULT) tự động chuyển sang đọc Tóm tắt Tờ khai từ smp_staging_data (hiển thị rõ tên vợ/chồng, con đã kê khai).
  * - Xác nhận Event nút "Duyệt và ghi sổ" thực thi chính xác API Cửa 2 approveResult() qua SRPF Engine mfoResultProcess.
  * - Bộ lọc chỉ còn trạng thái, có Tất cả.
  *
  * CHANGE LOG:
+ * - 2026-10-29T08:03:00+07:00 | 2.4.6 | Change "Đời gốc trên sổ" - Của 1&2:
+ *    1. Đổi nhãn "Đời gốc trên sổ" thành "Đời cao nhất trong nhánh theo sổ họ" (cho phép sửa lại
+ *       giá trị số).
+ *    2. Lấy Default value tự động theo members.generation của thành viên $M$ (Target Member) 
+ *       được gán làm mốc từ sổ họ.Thêm một checkbox bên cạnh (default value = false). 
+ *    3. Bắt buộc checkbox này phải được tích chọn (true) thì nút "Duyệt nhánh phả hệ" mới được
+ *        kích hoạt (enable).
  * - 2026-10-18T15:24:00+07:00 | 2.4.5 | Trả sửa không làm nút Duyệt hiện Đang duyệt.
- * - 2026-10-23T09:31:00+07:00 | 2.4.6 | Thêm vòng quay trên cùng khi bận. Giữ chữ nút. Lý do: đang xử lý không được hiện trên nút Duyệt.
- * - 2026-10-23T10:24:00+07:00 | 2.4.7 | Chuyển vòng quay từ ô trống lên trang. Lý do: gắn nhầm làm trang admin không mở.
- * - 2026-10-23T10:57:00+07:00 | 2.4.8 | Thêm: đời mặc định lấy từ M, ô xác nhận. Bỏ: nhãn Đời gốc trên sổ. Giữ: admin sửa được số. Lý do: duyệt phải chốt đời của M.
- * - 2026-10-23T11:04:00+07:00 | 2.4.9 | Đọc đời từ data.data của sổ. Lý do: lớp ngoài không có generation nên hiện sai.
- * - 2026-10-23T12:07:00+07:00 | 2.4.10 | Thêm: cửa 2 duyệt khi đã tick các đời và có bút phê. Bỏ: cửa 2 đòi tick đời của M. Giữ: cửa 1 vẫn đòi tick đời. Lý do: ô đời không hiện ở cửa 2 nên nút Duyệt không bật.
  * - 2026-10-18T14:57:00+07:00 | 2.4.4 | Thu hoặc hiện con trực tiếp.
  * - 2026-10-18T07:37:00+07:00 | 2.4.3 | Nhóm nút canvas nằm ngang, ngoài khung.
  * - 2026-10-18T07:31:00+07:00 | 2.4.2 | Nhóm nút canvas lên giữa phía trên.
@@ -53,7 +55,6 @@ import { resolveFooterNav } from '../lib/resolveFooterNav.js';
 import {
   adminGetReviewQueue,
   getDraftPayload,
-  getMember,
   adminApprovePlan,
   adminReturnPlanForRevision,
   approveResult,
@@ -63,10 +64,10 @@ import {
 import { diffDraftAgainstInit } from '../features/mfo/lib/mfoDiffEngine.js';
 import { toMfoUserMessage, MFO_USER_SUCCESS } from '../features/mfo/constants/mfoUserErrors.js';
 import MfoAlarmOverlay from '../features/mfo/components/MfoAlarmOverlay.jsx';
-import MfoBusyClock from '../features/mfo/components/MfoBusyClock.jsx';
 import { adminGate, canAdminReview } from '../features/mfo/lib/mfoAdminActions.js';
 import MfoHistoryChain, { stepSummary } from '../features/mfo/components/MfoHistoryChain.jsx';
 import MfoReviewForm from '../features/mfo/components/MfoReviewForm.jsx';
+import { projectProfiles } from '../features/mfo/lib/mfoProfile.js';
 
 function EmptyCoupleNodeReadonly({ data }) {
   const depth = Number.isInteger(Number(data?.depth)) ? Number(data.depth) : 0;
@@ -99,8 +100,7 @@ function dossierLabel(plan) {
   const resultSubmitted = Boolean(plan.result_submitted ?? payload.result_submitted);
   const resultOk = Boolean(plan.result_ok ?? payload.result_ok);
   const st = String(plan.status || '').toUpperCase();
-  // <2026-10-23T09:31:00+07:00> Mục đích: Đã ghi sổ chỉ khi đã duyệt. Lý do: result_ok sót.
-  if (resultOk && st === 'APPROVED') return 'Đã ghi sổ';
+  if (resultOk) return 'Đã ghi sổ';
   if (planOk) {
     if (st === 'REJECTED') return 'Tờ khai không được duyệt';
     if (st === 'NEEDS_REVISION') return 'Tờ khai cần sửa';
@@ -145,6 +145,8 @@ export function AdminMfoPlanPage() {
   const flowRef = useRef(null);
   const [collapsedIds, setCollapsedIds] = useState({});
 
+  
+
   const actionLockRef = useRef(null);
   const [alarm, setAlarm] = useState('');
 
@@ -152,7 +154,7 @@ export function AdminMfoPlanPage() {
   const [itemDecisions, setItemDecisions] = useState({});
   const [itemNotes, setItemNotes] = useState({});
   const [grantedGeneration, setGrantedGeneration] = useState('');
-  const [generationConfirmed, setGenerationConfirmed] = useState(null);
+  const [isGenConfirmed, setIsGenConfirmed] = useState(false); // 2026-10-29T08:03:00+07:00 Default = false
   const [globalAdminNote, setGlobalAdminNote] = useState('');
 
   const loadQueue = async () => {
@@ -163,8 +165,8 @@ export function AdminMfoPlanPage() {
       const list = Array.isArray(rawList) ? rawList : [];
 
       const queueList = list.filter((item) => {
-        const label = dossierLabel(item);
-        return ['Nhánh phả hệ chờ phê duyệt', 'Nhánh phả hệ cần sửa', 'Nhánh phả hệ không được duyệt', 'Tờ khai chờ phê duyệt', 'Tờ khai cần sửa', 'Tờ khai không được duyệt'].includes(label);
+        const st = String(item.status || '').toUpperCase();
+        return st !== 'DRAFT' && st !== 'WITHDRAWN';
       });
 
       setPlans(queueList);
@@ -194,6 +196,7 @@ export function AdminMfoPlanPage() {
     const val = e.target.value;
     setSelectedTicketId(val);
     setGrantedGeneration('');
+    setIsGenConfirmed(false); // 2026-10-29T08:03:00+07:00: THÊM DÒNG NÀY ĐỂ RESET VỀ FALSE
     setGlobalAdminNote('');
 
     if (val === '') {
@@ -275,23 +278,25 @@ export function AdminMfoPlanPage() {
           initialDecisions[it.item_id] = 'REJECT';
           initialNotes[it.item_id] = '';
         });
-
+        //2026-10-29T08:03:00+07:00  2.4.6-Change "Đời gốc trên sổ" - Của 1&2.
         setItemDecisions(initialDecisions);
         setItemNotes(initialNotes);
-        // <2026-10-23T11:04:00+07:00> Mục đích: Hiện đúng đời của M. Lý do: sổ trả member trong data.data, lớp ngoài không có generation.
-        setGenerationConfirmed(null);
-        const targetId = draftData.target_member_id || draftData.payload?.target_member_id || draftData.origin_member_id;
-        if (targetId) {
-          try {
-            const memberRes = await getMember(targetId);
-            const member = memberRes?.data?.data || memberRes?.data?.member || memberRes?.data || memberRes;
-            const gen = member?.generation;
-            setGrantedGeneration(gen == null || gen === '' ? '?' : String(gen));
-          } catch {
-            setGrantedGeneration('?');
-          }
-        } else {
-          setGrantedGeneration('?');
+        setIsGenConfirmed(false); // Reset checkbox về false khi mở hồ sơ mới
+
+        // Ưu tiên 1: Đã từng được Admin duyệt cấp granted_generation trước đó
+        if (draftData.granted_generation != null && String(draftData.granted_generation).trim() !== '') {
+          setGrantedGeneration(String(draftData.granted_generation));
+        } 
+        // Ưu tiên 2: Đọc trực tiếp trường target_member_generation do Backend mfo.service.js trả về
+        else if (draftData.target_member_generation != null && String(draftData.target_member_generation).trim() !== '') {
+          setGrantedGeneration(String(draftData.target_member_generation));
+        } 
+        // Dự phòng: Tìm trong các trường khác của payload
+        else {
+          const fallbackGen = draftData.payload?.target_member_generation ?? 
+                              draftData.payload?.origin?.generation ?? 
+                              '';
+          setGrantedGeneration(fallbackGen !== null && fallbackGen !== undefined ? String(fallbackGen) : '');
         }
       } catch (error) {
         console.error('===> [ADMIN_HYDRATE_ERROR]', error);
@@ -306,6 +311,24 @@ export function AdminMfoPlanPage() {
 
   const selectedGate = Boolean(detail?.plan_ok) && Boolean(detail?.result_submitted) ? 'RESULT' : 'PLAN';
   const selectedReviewable = Boolean(detail?.ticket_id === selectedTicketId);
+  // 2026-10-29: Chiếu tên thật từ staging (Cửa 2) và lọc sạch ô rỗng ở đời đã có người
+  const displayNodes = useMemo(() => {
+    if (!nodes || nodes.length === 0) return [];
+
+    const staging = detail?.smp_staging_data || detail?.payload?.smp_staging_data || {};
+    const hasStaging = Object.keys(staging).length > 0;
+    const projected = (hasStaging || selectedGate === 'RESULT') 
+      ? projectProfiles(nodes, staging) 
+      : nodes;
+
+    const depthsWithRealMembers = new Set(
+      projected.filter((n) => n.type !== 'emptyNode').map((n) => Number(n.data?.depth))
+    );
+
+    return projected.filter(
+      (n) => n.type !== 'emptyNode' || !depthsWithRealMembers.has(Number(n.data?.depth))
+    );
+  }, [nodes, detail, selectedGate]);
 
   function beginReviewAction(gate, action, requiresReason = false) {
     if (actionLockRef.current || busyAction !== null) return false;
@@ -327,13 +350,14 @@ export function AdminMfoPlanPage() {
     return scsItems.every((it) => itemDecisions[it.item_id] === 'ACCEPT');
   }, [scsItems, itemDecisions]);
 
+  //2026-10-29T08:03:00+07:00  2.4.6-Change "Đời gốc trên sổ" - Của 1&2.
   const canApprovePlan = useMemo(() => {
-    const gen = Number(grantedGeneration);
-    const noteOk = String(globalAdminNote || '').trim().length > 0;
-    // <2026-10-23T12:07:00+07:00> Mục đích: Cửa 2 không đòi tick đời của M. Lý do: ô đó chỉ có ở cửa 1.
-    if (selectedGate === 'RESULT') return isAllAccepted && noteOk;
-    return isAllAccepted && noteOk && generationConfirmed === true && Number.isFinite(gen) && gen > 0;
-  }, [isAllAccepted, globalAdminNote, generationConfirmed, grantedGeneration, selectedGate]);
+    const hasNote = String(globalAdminNote || '').trim().length > 0;
+    const hasValidGen = String(grantedGeneration || '').trim().length > 0 && !isNaN(Number(grantedGeneration));
+    
+    // Cả Cửa 1 và Cửa 2: Bắt buộc Accept hết + Có bút phê + Có số đời hợp lệ + ĐÃ TÍCH XÁC NHẬN
+    return isAllAccepted && hasNote && hasValidGen && isGenConfirmed;
+  }, [isAllAccepted, globalAdminNote, grantedGeneration, isGenConfirmed]);
 
   const handleDecisionToggle = (itemId, decision) => {
     setItemDecisions((prev) => ({ ...prev, [itemId]: decision }));
@@ -449,24 +473,21 @@ export function AdminMfoPlanPage() {
   };
 
   return (
-    <>
-    {/* <2026-10-23T10:24:00+07:00> Mục đích: Vòng quay ở trang, không ở ô trống. Lý do: gắn nhầm làm trang admin không mở. */}
-    <MfoBusyClock show={busyAction !== null || loading} />
     <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-slate-50 font-sans">
-      <TenantHeader tenant={tenant} subtitle="Thẩm định & Phê duyệt MFO 5L" />
+      <TenantHeader tenant={tenant} subtitle="" /> 
 
       <main className="flex flex-1 flex-col gap-3 px-3 py-3 pb-28">
         <section className="flex items-center justify-between rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm">
           <div>
-            <h1 className="text-base font-black text-slate-900">Thẩm định MFO 5L</h1>
+            <h1 className="text-base font-black text-slate-900">Thẩm định Nhánh phả hệ trong giới hạn 5 đời</h1>
             <p className="text-xs text-slate-500">Soi từng biến đổi &amp; bút phê chính thức</p>
           </div>
-          <AudioHelpButton text="Giao diện thẩm định khung 5L dành cho Quản trị viên." label="Hướng dẫn" />
+          <AudioHelpButton text="Đây là trang dành cho thẩm định nhánh phả hệ trong giưới hạn 5 đời." label="Hướng dẫn" />
         </section>
 
         {/* TAB LOẠI HÀNG ĐỢI */}
         {/* <2026-10-16T09:30:00+07:00> Mục đích: Chỉ một danh sách trạng thái. Lý do: loại hồ sơ trùng với tên trạng thái. */}
-        <label className="text-sm font-bold text-slate-700">Trạng thái
+        <label className="text-sm font-bold text-slate-700">Trạng thái hồ sơ:
           <select className="mt-1 min-h-12 w-full rounded-2xl border px-3" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setSelectedTicketId(''); }}>
             <option value="">Bấm để chọn</option>
             <option>Tất cả</option>
@@ -553,7 +574,7 @@ export function AdminMfoPlanPage() {
                 <div className="relative h-[380px] w-full border-b border-slate-100 bg-white">
                   {nodes.length > 0 ? (
                     <ReactFlow
-                      nodes={nodes.filter((node) => {
+                      nodes={displayNodes.filter((node) => {
                         const hidden = new Set();
                         const walk = (id) => edges.filter((edge) => edge.source === id).forEach((edge) => { if (!hidden.has(edge.target)) { hidden.add(edge.target); walk(edge.target); } });
                         Object.keys(collapsedIds).filter((id) => collapsedIds[id]).forEach(walk);
@@ -607,10 +628,10 @@ export function AdminMfoPlanPage() {
               onReturn={selectedGate === 'RESULT' ? handleReturnResultGate2 : handleReturnPlanGate1}
               onReject={handleRejectResultGate2}
               showReject={selectedGate === 'RESULT'}
-              generation={selectedGate === 'PLAN' ? grantedGeneration : ''}
-              onGeneration={selectedGate === 'PLAN' ? setGrantedGeneration : null}
-              generationConfirmed={generationConfirmed}
-              onGenerationConfirm={setGenerationConfirmed}
+              generation={grantedGeneration}
+              onGeneration={setGrantedGeneration}
+              isGenConfirmed={isGenConfirmed}                  
+              onGenConfirmedChange={setIsGenConfirmed}         
             />
             )}
 
@@ -642,7 +663,6 @@ export function AdminMfoPlanPage() {
       <MfoAlarmOverlay open={Boolean(alarm)} message={alarm} onClose={() => setAlarm('')} />
       <AppFooterNav {...footerNav} />
     </div>
-    </>
   );
 }
 

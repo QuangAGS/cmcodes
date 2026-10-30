@@ -1,0 +1,28 @@
+/* Empty MFO frame: lane selector, not a pannable graph. */
+.mfo-canvas-locked,
+.mfo-canvas-locked .react-flow,
+.mfo-canvas-locked .react-flow__renderer,
+.mfo-canvas-locked .react-flow__pane,
+.mfo-canvas-locked .react-flow__viewport,
+.mfo-canvas-locked .react-flow__nodes,
+.mfo-canvas-locked .react-flow__node,
+.mfo-canvas-locked .react-flow__pane:active,
+.mfo-canvas-locked .react-flow__pane.dragging,
+.mfo-canvas-locked .react-flow__pane.selection {
+  cursor: default !important;
+}
+
+/* React Flow can set cursor directly on SVG/pane descendants. */
+.mfo-canvas-locked .react-flow__pane *,
+.mfo-canvas-locked .react-flow__viewport *,
+.mfo-canvas-locked .react-flow__nodes * {
+  cursor: default !important;
+}
+
+/* Empty lanes remain the only actionable controls. */
+.mfo-canvas-locked .react-flow__node .mfo-empty-lane-button,
+.mfo-canvas-locked .react-flow__node .mfo-empty-lane-button *,
+.mfo-canvas-locked .mfo-empty-lane-button,
+.mfo-canvas-locked .mfo-empty-lane-button * {
+  cursor: pointer !important;
+}

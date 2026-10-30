@@ -1,0 +1,126 @@
+/**
+ * FILE: server.js
+ * VERSION: 1.8.2
+ * DATE: 29-03-2026 11:45
+ * CHỨC NĂNG: Tích hợp Auth & Bổ sung Global Error Handler để gỡ lỗi 500.
+ * -------------------------------------------------------------------------
+ */
+/*
+require('dotenv').config();
+const express = require('express');
+const cors = require('cors');
+const { PrismaClient } = require('@prisma/client');
+
+// 1. IMPORT MIDDLEWARE & ROUTES
+const tenantMiddleware = require('./src/middlewares/tenantMiddleware');
+const branchRoutes = require('./src/routes/branchRoutes');
+const memberRoutes = require('./src/routes/memberRoutes');
+const addressRoutes = require('./src/routes/addressRoutes');
+const worshipRoutes = require('./src/routes/worshipRoutes');
+
+// Cập nhật cách require authRoutes
+const authRoutesRaw = require('./src/routes/authRoutes');
+const authRoutes = authRoutesRaw.default || authRoutesRaw;
+
+const prisma = new PrismaClient();
+const app = express();
+
+// 2. CẤU HÌNH CORS
+app.use(cors({
+    origin: '*',
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'x-tenant-slug']
+}));
+
+app.use(express.json());
+
+// 3. KIỂM TRA TRẠNG THÁI SERVER
+app.get('/', (req, res) => {
+    res.json({ 
+        status: 'Online', 
+        message: '🚀 API Gia Phả đang chạy trên Render!',
+        database: 'Đang kiểm tra...' 
+    });
+});
+
+// 4. KIỂM TRA KẾT NỐI DATABASE
+app.use(async (req, res, next) => {
+    try {
+        await prisma.$queryRaw`SELECT 1`;
+        next();
+    } catch (err) {
+        console.error('❌ LỖI KẾT NỐI SUPABASE:', err.message);
+        return res.status(500).json({ 
+            error: 'Lỗi kết nối Cơ sở dữ liệu', 
+            details: 'Vui lòng kiểm tra DATABASE_URL trong mục Environment.' 
+        });
+    }
+});
+
+// 5. ĐĂNG KÝ ROUTES CÔNG KHAI
+if (typeof authRoutes === 'function') {
+    app.use('/api/auth', authRoutes);
+}
+
+// 6. ĐĂNG KÝ MIDDLEWARE & ROUTES BẢO MẬT
+// Middleware này sẽ kiểm tra x-tenant-slug cho các route nghiệp vụ bên dưới
+app.use('/api/members', tenantMiddleware, memberRoutes);
+app.use('/api/branches', tenantMiddleware, branchRoutes);
+app.use('/api/addresses', tenantMiddleware, addressRoutes);
+app.use('/api/worships', tenantMiddleware, worshipRoutes);
+
+// 7. GLOBAL ERROR HANDLER (MỚI BỔ SUNG ĐỂ GỠ LỖI 500)
+// Mọi lỗi phát sinh trong Controller nếu không được catch kỹ sẽ rơi vào đây
+app.use((err, req, res, next) => {
+    console.error('🔥 [SERVER ERROR]:', err.stack);
+    res.status(500).json({
+        error: 'Lỗi hệ thống nội bộ',
+        message: err.message,
+        dev_note: 'Kiểm tra Terminal của Codespaces để xem chi tiết lỗi.'
+    });
+});
+*/
+/**
+ * THÊM ĐOẠN NÀY VÀO BACKEND ĐỂ TEST
+ * CẢI TIẾN: Trả về chi tiết lỗi kết nối Database để Debug.
+ */
+
+app.get('/api/debug-db', async (req, res) => {
+  try {
+    // Nếu bạn dùng Prisma
+    await prisma.$queryRaw`SELECT 1`;
+    
+    // Nếu bạn dùng Pool/Sequelize (ví dụ)
+    // await db.authenticate(); 
+
+    res.json({
+      status: "Thành công",
+      message: "Backend đã kết nối được tới Database!",
+      db_url: process.env.DATABASE_URL ? "Đã cấu hình" : "Chưa có biến môi trường"
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: "Thất bại",
+      error_message: error.message,
+      error_detail: error.original || error
+    });
+  }
+});
+
+// 8. KHỞI CHẠY SERVER
+/**
+ * FILE: index.js (Nằm ở thư mục gốc project Backend)
+ * VERSION: 1.0.0
+ * CHỨC NĂNG: Điểm khởi đầu (Entry Point) để chạy Server trên Render.
+ */
+
+const app = require('../../src/app'); // Import bộ não từ src/app.js
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, '0.0.0.0', () => {
+    console.log('====================================');
+    console.log(`🌍 SERVER ĐANG CHẠY TRÊN CỔNG ${PORT}`);
+    console.log(`🔓 Public: /api/auth`);
+    console.log(`🔒 Private: /api/members, /api/branches...`);
+    console.log('====================================');
+});

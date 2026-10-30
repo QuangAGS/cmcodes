@@ -1,0 +1,173 @@
+/**
+
+DATETIME: 02-04-2026 17:00
+
+PATH: tests/registration_scenarios.http
+
+VERSION: 1.0.0
+
+DESCRIPTION: Kịch bản kiểm thử toàn diện quy trình Register, Login, Approve và Reject.
+*/
+
+@baseUrl = https://gia-pha-backend.onrender.com/api
+@systemAdminEmail = nguyenthanhq@gmail.com
+@systemAdminPass = Admin@123
+
+==========================================================
+
+BƯỚC 0: ĐĂNG NHẬP SYSTEM ADMIN (Để thực hiện phê duyệt/từ chối)
+
+==========================================================
+
+@name sysLogin
+
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+"identifier": "{{systemAdminEmail}}",
+"password": "{{systemAdminPass}}"
+}
+
+@sysToken = {{sysLogin.response.body.token}}
+
+==========================================================
+
+CASE 1: ĐĂNG KÝ TRỞ THÀNH CLAN_ADMIN (Tạo dòng họ mới)
+
+==========================================================
+
+1.1 Kiểm tra tính khả dụng của tên dòng họ/slug
+
+GET {{baseUrl}}/auth/check-slug?name=Họ Nguyễn Hữu
+Content-Type: application/json
+
+@suggestedSlug = NH2026
+
+1.2 Thực hiện đăng ký (Case 1)
+
+@name regClanAdmin
+
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+"name": "Nguyễn Hữu Thành",
+"email": "thanh.nh@gmail.com",
+"password": "Password123",
+"isNewClan": true,
+"clanName": "Họ Nguyễn Hữu",
+"selectedSlug": "{{suggestedSlug}}",
+"change_reason": "Đăng ký khởi tạo dòng họ Nguyễn Hữu"
+}
+
+@newClanAdminId = {{regClanAdmin.response.body.data.userId}}
+@newTenantId = {{regClanAdmin.response.body.data.tenantId}}
+
+1.3 Thử đăng nhập ngay (Sẽ báo "Tài khoản đang chờ phê duyệt")
+
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+"identifier": "thanh.nh@gmail.com",
+"password": "Password123"
+}
+
+1.4 SYSTEM_ADMIN thực hiện phê duyệt cho CLAN_ADMIN
+
+PATCH {{baseUrl}}/auth/approve/{{newClanAdminId}}
+Authorization: Bearer {{sysToken}}
+Content-Type: application/json
+
+1.5 Đăng nhập lại sau khi đã được duyệt (Thành công - Lấy Token Clan Admin)
+
+@name clanAdminLogin
+
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+"identifier": "thanh.nh@gmail.com",
+"password": "Password123"
+}
+
+@clanAdminToken = {{clanAdminLogin.response.body.token}}
+
+==========================================================
+
+CASE 2: ĐĂNG KÝ TRỞ THÀNH USER (Tham gia vào slug đã có)
+
+==========================================================
+
+2.1 Thực hiện đăng ký tham gia vào dòng họ vừa tạo ở Case 1
+
+@name regUser
+
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+"name": "Nguyễn Hữu Bình",
+"email": "binh.nh@gmail.com",
+"password": "UserPass123",
+"isNewClan": false,
+"tenantId": "{{newTenantId}}",
+"onboardingData": {
+"fullName": "Nguyễn Hữu Bình",
+"fatherName": "Nguyễn Hữu Thành",
+"relationship": "Con trai"
+}
+}
+
+@newUserId = {{regUser.response.body.data.userId}}
+
+2.2 CLAN_ADMIN phê duyệt cho USER trong dòng họ của mình
+
+PATCH {{baseUrl}}/auth/approve/{{newUserId}}
+Authorization: Bearer {{clanAdminToken}}
+Content-Type: application/json
+
+==========================================================
+
+CASE 3: TỪ CHỐI ĐĂNG KÝ (Hard Delete / Dọn rác)
+
+==========================================================
+
+3.1 Một tài khoản spam đăng ký dòng họ ảo
+
+@name regSpam
+
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+"name": "Spam User",
+"email": "spam@test.com",
+"password": "SpamPassword",
+"isNewClan": true,
+"clanName": "Dòng họ Rác",
+"selectedSlug": "RAC123"
+}
+
+@spamUserId = {{regSpam.response.body.data.userId}}
+
+3.2 SYSTEM_ADMIN từ chối và xóa sạch dữ liệu (Hard Delete)
+
+DELETE {{baseUrl}}/auth/reject/{{spamUserId}}
+Authorization: Bearer {{sysToken}}
+Content-Type: application/json
+
+{
+"reason": "Tên dòng họ không hợp lệ, có dấu hiệu spam hệ thống."
+}
+
+3.3 Kiểm tra xem User spam còn tồn tại không (Sẽ trả về 404 hoặc lỗi Auth)
+
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+"identifier": "spam@test.com",
+"password": "SpamPassword"
+}

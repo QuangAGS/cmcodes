@@ -1,23 +1,13 @@
 /**
  * PATH       : frontend/src/pages/OpMfoPlanPage.jsx  
- * DATETIME   : 2026-10-26T14:53:00+07:00
- * VERSION    : 4.9.51-DUNG-CAY-DA-CO
+ * DATETIME   : 2026-10-18T15:49:00+07:00
+ * VERSION    : 4.9.38-KEEP-TICKET
  * DESCRIPTION:
  * - Vá dứt điểm Bug 1: Lỗi SRPF_INVALID_TRANSITION khi Trình Tờ Khai ở Cửa 2.
  * - Khóa chặt State Machine: Khi plan_ok === true, bắt buộc gọi handleSubmitProfiles() (API submitResult Cửa 2), triệt tiêu hoàn toàn việc gọi nhầm createPlan (Cửa 1).
  * - Mở nhánh đang soạn không hiện Alarm.
  *
  * CHANGE LOG:
- * - 2026-10-26T14:53:00+07:00 | 4.9.51 | Thêm: dùng cây đã lấy khi gán người. Bỏ: gọi full-set lần hai. Giữ: dựng cây. Lý do: hai lần gọi làm chậm hơn.
- * - 2026-10-26T11:43:00+07:00 | 4.9.50 | Thêm: khoá full-set theo người trước khi gọi. Bỏ: lần gọi thứ hai sau khi lần đầu xong. Giữ: gán người. Lý do: full-set bị gọi hai lần.
- * - 2026-10-23T09:58:00+07:00 | Thêm: đang soạn có Lưu nháp và Trình. Bỏ: DRAFT bị đóng băng vì result_ok. Giữ: chờ duyệt vẫn đóng băng. Lý do: đang soạn hiện Đã đóng băng và Đã trình.
- * - 2026-10-23T10:09:00+07:00 | 4.9.40 | Thêm: vòng quay trên cùng khi bận. Bỏ: chữ Đang gửi trên nút Trình. Giữ: Lưu nháp, Trình. Lý do: trạng thái bận hiện nhầm trên nút.
- * - 2026-10-27T10:16:00+07:00 | 4.9.41 | Thêm: khoá trình ngay khi bấm. Bỏ: không bỏ. Giữ: trình một lần. Lý do: bấm hai lần gửi hai tờ.
- * - 2026-10-23T11:27:00+07:00 | 4.9.41 | Thêm: cửa 2 kéo khung, kéo ô, chấm, nút cộng trừ, câu XT. Bỏ: pan và kéo tắt ở cửa 2. Giữ: cửa 1. Lý do: cửa 2 mất các thao tác cây.
- * - 2026-10-23T11:53:00+07:00 | 4.9.42 | Thêm: tờ khai cần sửa mở cửa 2. Bỏ: chỉ APPROVED mới là cửa 2. Giữ: nhánh cần sửa vẫn cửa 1. Lý do: trả sửa hạ trạng thái nên mở nhầm cửa 1.
- * - 2026-10-26T11:14:00+07:00 | 4.9.48 | Thêm: cùng một người chỉ gọi full-set một lần. Bỏ: lần gọi thứ hai khi mở lại hiệu ứng. Giữ: gán người. Lý do: full-set bị gọi hai lần.\n * - 2026-10-23T14:48:00+07:00 | 4.9.43 | Thêm: gỡ ô rỗng khi đời đã có người. Bỏ: ô rỗng còn sau khi thêm con. Giữ: ô rỗng khi đời chưa có ai. Lý do: đời đã có thành viên vẫn hiện ô rỗng.
- * - 2026-10-24T14:07:00+07:00 | 4.9.45 | Thêm: thứ tự con từ cửa 1, cho sửa. Bỏ: ô khoá và trống. Giữ: số đã khai làm giá trị đầu. Lý do: cửa 2 không nhận và không sửa được thứ tự.
- * - 2026-10-24T15:49:00+07:00 | 4.9.46 | Thêm: lấy số từ delta khi ảnh mất số. Bỏ: lưu đè số thành trống. Giữ: ô cho sửa. Lý do: ảnh chụp bỏ số nên form trống.
  * - 2026-10-18T15:49:00+07:00 | 4.9.38 | Sửa tờ cần sửa không sinh tờ đang soạn mới.
  * - 2026-10-18T14:57:00+07:00 | 4.9.37 | Thu hoặc hiện con trực tiếp của từng ô.
  * - 2026-10-18T14:52:00+07:00 | 4.9.36 | Vừa khung một lần lúc mở. Bấm chấm không vừa khung.
@@ -60,30 +50,12 @@ import { useAuth } from '../context/AuthContext.jsx';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
 import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 import AudioHelpButton from '../features/elder-doctrine/components/AudioHelpButton.jsx';
-import MfoBusyClock from '../features/mfo/components/MfoBusyClock.jsx';
 import FamilyCoupleNode from '../features/genealogy/components/FamilyCoupleNode.jsx';
 import { resolveTenant } from '../lib/resolveTenant.js';
 import { resolveFooterNav } from '../lib/resolveFooterNav.js';
 import { MFO_VOICE_SELF } from '../features/mfo/constants/mfoVoiceHelp.self.js';
 import { toMfoUserMessage, MFO_USER_SUCCESS } from '../features/mfo/constants/mfoUserErrors.js';
 import { saveStaging, submitResult, createPlan, getFullMfoSet, savePlanDraft, getDraftPayload } from '../features/mfo/api/mfoApi.js';
-
-const fullSetCache = new Map();
-function loadFullSetOnce(memberId, depth) {
-  const key = String(memberId);
-  const hit = fullSetCache.get(key);
-  if (hit && hit.data && Date.now() - hit.at < 15000) return Promise.resolve(hit.data);
-  if (hit && hit.job) return hit.job;
-  const job = getFullMfoSet(memberId, depth).then((data) => {
-    fullSetCache.set(key, { at: Date.now(), data, job: null });
-    return data;
-  }).catch((error) => {
-    fullSetCache.delete(key);
-    throw error;
-  });
-  fullSetCache.set(key, { at: Date.now(), data: null, job });
-  return job;
-}
 import { buildMfoGraph } from '../features/mfo/lib/mfoGraphAdapter.js';
 import { fulfillViewFocus5L, getOriginMemberIdForSubmission } from '../shared/services/genealogyViewFocusService.js';
 import { sanitizeLines } from '../features/mfo/lib/sanitizeLines.js';
@@ -224,19 +196,16 @@ export function OpMfoPlanPage() {
   // <2026-10-14T11:10:00+07:00> Bắt cờ gate2 chính xác từ URL searchParams hoặc profileFlags
   // <2026-10-16T07:22:00+07:00> Mục đích: Cửa 2 chỉ khi đã duyệt hoặc địa chỉ có gate=2. Lý do: DRAFT có plan_ok vẫn là cửa 1.
   const urlGate = searchParams.get('gate');
-  // <2026-10-23T11:53:00+07:00> Mục đích: Tờ khai trả sửa vẫn là cửa 2. Lý do: trạng thái đổi thành cần sửa.
-  const isGate2 = urlGate === '2' || ((proposalStatus === 'APPROVED' || proposalStatus === 'NEEDS_REVISION') && profileFlags.plan_ok === true);
+  const isGate2 = urlGate === '2' || (proposalStatus === 'APPROVED' && profileFlags.plan_ok === true);
   
   const profileModeRef = useRef(false);
   profileModeRef.current = isGate2;
   const profileLocked = profileFlags.result_ok === true || ['PENDING','UNDER_REVIEW','REJECTED'].includes(proposalStatus) || (profileFlags.result_submitted === true && proposalStatus !== 'NEEDS_REVISION');
 
-  // <2026-10-23T09:58:00+07:00> Mục đích: Đang soạn không đóng băng. Lý do: result_ok sót làm DRAFT thành chỉ đọc.
   const isReadOnly = useMemo(() => {
     const st = String(proposalStatus || 'DRAFT').toUpperCase();
-    if (st === 'DRAFT' || st === 'NEEDS_REVISION') return false;
-    if (st === 'REJECTED' || st === 'PENDING' || st === 'UNDER_REVIEW') return true;
-    return profileFlags.result_ok === true;
+    if (profileFlags.result_ok || st === 'REJECTED' || st === 'PENDING' || st === 'UNDER_REVIEW') return true;
+    return false;
   }, [proposalStatus, profileFlags.result_ok]);
 
   const [showSpouseOrderModal, setShowSpouseOrderModal] = useState(false);
@@ -281,7 +250,6 @@ export function OpMfoPlanPage() {
     }, 60);
   };
   const fulfilledPickRef = useRef(null);
-  const submitLockRef = useRef(false);
   const requestRef = useRef(0);
 
   const handleOpenActionForm = useCallback(
@@ -359,8 +327,7 @@ export function OpMfoPlanPage() {
       setOriginId(result?.resolvedRootMemberId || result?.originId || null);
       setLines(result?.lines || empty5Lines());
 
-      // <2026-10-26T14:53:00+07:00> Mục đích: Dùng cây vừa lấy. Lý do: gọi thêm một lần làm chậm hơn.
-      const payload = result?.treeData || await loadFullSetOnce(memberId, selected);
+      const payload = await getFullMfoSet(memberId, selected);
       if (sequence === requestRef.current) {
         setFullSet(payload);
         setDraftSet(JSON.parse(JSON.stringify(payload)));
@@ -435,8 +402,7 @@ export function OpMfoPlanPage() {
           
           // <2026-10-14T11:10:00+07:00> Tự động mở Cửa 2 khi plan_ok === true hoặc status === 'APPROVED'
           // <2026-10-16T07:22:00+07:00> Mục đích: Chỉ coi đã duyệt khi trạng thái là APPROVED và plan_ok đúng.
-          const stEarly = String(draftData.status || '').toUpperCase();
-          const isPlanApproved = draftData.plan_ok === true && (stEarly === 'APPROVED' || stEarly === 'NEEDS_REVISION');
+          const isPlanApproved = draftData.plan_ok === true && String(draftData.status || '').toUpperCase() === 'APPROVED';
           setProfileFlags({
             plan_ok: isPlanApproved,
             result_submitted: draftData.result_submitted === true,
@@ -454,7 +420,16 @@ export function OpMfoPlanPage() {
           if (draftData.updated_at) setCurrentDraftUpdatedAt(draftData.updated_at);
           setExpiresAt(draftData.expires_at || draftData.ticket?.expires_at || null);
           setProposalStatus(st);
-          if (draftData.admin_note) setAdminNote(draftData.admin_note);
+
+          // 28-10-2026: Quét đủ tất cả các trường có thể lưu bút phê
+          const noteText =
+            draftData.admin_note ||
+            draftData.payload?.admin_note ||
+            draftData.payload?.revision_request ||
+            draftData.payload?.reject_reason ||
+            '';
+          if (noteText) setAdminNote(noteText);
+
           if (draftData.target_member_id) setTargetMemberId(draftData.target_member_id);
           if (draftData.selected_canvas_depth != null) setK(String(draftData.selected_canvas_depth));
           if (Array.isArray(draftData.lines)) setLines(draftData.lines);
@@ -465,7 +440,6 @@ export function OpMfoPlanPage() {
             draftData.payload?.graph_snapshot ||
             draftData.payload?.ui_render_snapshot_layer?.graph_snapshot;
 
-          const seqById = Object.fromEntries((draftData.canvas_delta?.draft_children || []).map((row) => [row.id, row.sibling_seq]));
           if (snapshot && Array.isArray(snapshot.nodes) && snapshot.nodes.length > 0) {
             setNodes(
               snapshot.nodes.map((n) => ({
@@ -473,7 +447,6 @@ export function OpMfoPlanPage() {
                 style: { width: 240 },
                 data: {
                   ...n.data,
-                  siblingSeq: n.data?.siblingSeq || seqById[n.id] || null,
                   isReadOnly: readOnlyFlag,
                   onOpenActionForm: readOnlyFlag ? () => {} : handleOpenActionForm,
                   onTabChange: (treeId, unionId) =>
@@ -536,7 +509,7 @@ export function OpMfoPlanPage() {
       } else if (targetMemberId && !isUserMutatedRef.current && !fulfilledPickRef.current) {
         // <2026-10-16T09:11:00+07:00> Mục đích: Không gọi lại full-set. Lý do: fulfill đã gọi, gọi thêm làm Alarm xếp nhiều lần.
         const selected = Number(k);
-        loadFullSetOnce(
+        getFullMfoSet(
           targetMemberId,
           Number.isInteger(selected) && selected >= 0 && selected <= 4 ? selected : 0
         )
@@ -614,8 +587,11 @@ export function OpMfoPlanPage() {
       data: { id: newChildId, treeId: newChildId, depth: childDepth, clanName: `Con đời ${childDepth} (Xin tạo)`, partnerName: null, unassignedCount: 0, tabs: [], isAnonymous: false, originSource: 'from_draft_child', parentUnionKey: relationCouple || 'unknown', parentMemberId: parentNode?.data?.clan?.id || null, spouseMemberId: coupleTab?.partner?.id || null, siblingSeq: relationSibling || 1, onOpenActionForm: handleOpenActionForm },
     };
     const sourceHandle = known ? `union:${relationCouple}:children` : 'owner:unassigned';
-    // <2026-10-23T14:48:00+07:00> Mục đích: Đời đã có người thì không còn ô rỗng. Lý do: thêm con vẫn để ô khởi tạo.
-    setNodes((prev) => [...prev.filter((node) => node.id !== `empty-${childDepth}`), newChildNode]);
+    // 2026-10-29: Loại bỏ ô rỗng tại childDepth vì đời này đã có con được thêm vào
+    setNodes((prev) => [
+      ...prev.filter((n) => !(n.type === 'emptyNode' && Number(n.data?.depth) === childDepth)),
+      newChildNode,
+    ]);
     if (targetNodeId) requestAnimationFrame(() => setEdges((prev) => [...prev, { id: `edge-${targetNodeId}-${newChildId}`, type: 'smoothstep', source: targetNodeId, target: newChildId, sourceHandle, style: known ? { stroke: '#6366f1', strokeWidth: 2 } : { stroke: '#f59e0b', strokeWidth: 2, strokeDasharray: '4 4' } }]));
     setShowSpouseOrderModal(false);
     setPendingSpouseNodeInfo(null);
@@ -666,7 +642,11 @@ export function OpMfoPlanPage() {
         const id = `draft-child-${Date.now()}-${index}`;
         return { id, type: 'familyCouple', position: { x: (parent?.position?.x ?? 40) + 30 + index * 40, y: childDepth * 310 }, style: { width: 240 }, data: { id, treeId: id, depth: childDepth, clanName: `Con đời ${childDepth} (Xin tạo)`, partnerName: null, unassignedCount: 0, tabs: [], isAnonymous: false, originSource: 'from_draft_child', parentUnionKey: newUnionId, siblingSeq: index + 1, onOpenActionForm: handleOpenActionForm } };
       });
-      setNodes((prev) => [...prev.filter((node) => node.id !== `empty-${childDepth}`), ...made]);
+      // 2026-10-29: Loại bỏ ô rỗng tại childDepth khi thêm cụm con
+      setNodes((prev) => [
+        ...prev.filter((n) => !(n.type === 'emptyNode' && Number(n.data?.depth) === childDepth)),
+        ...made,
+      ]);
       requestAnimationFrame(() => requestAnimationFrame(() => { setEdges((prev) => [...prev, ...made.map((child) => ({ id: `edge-${targetNodeId}-${child.id}`, type: 'smoothstep', source: targetNodeId, target: child.id, sourceHandle: `union:${newUnionId}:children`, style: { stroke: '#6366f1', strokeWidth: 2 } }))]); remeasure(targetNodeId); }));
     }
     // <2026-10-15T22:24:00+07:00>
@@ -802,14 +782,33 @@ export function OpMfoPlanPage() {
             mfoToast.warning('Hãy huỷ con nháp phía dưới trước.');
             return;
           }
-          const goneDepth = Number(nodes.find((n) => n.id === targetNodeId)?.data?.depth);
+          // 2026-10-29: Hủy con và tự động khôi phục ô rỗng nếu đời đó không còn ai
           setNodes((prev) => {
-            const next = prev.filter((n) => n.id !== targetNodeId);
-            const stillHas = next.some((n) => Number(n.data?.depth) === goneDepth && n.type !== 'emptyNode');
-            if (Number.isInteger(goneDepth) && !stillHas && !next.some((n) => n.id === `empty-${goneDepth}`)) {
-              next.push({ id: `empty-${goneDepth}`, type: 'emptyNode', position: { x: 40, y: goneDepth * 310 }, data: { depth: goneDepth, label: `Đời ${goneDepth}`, onOpenActionForm: handleOpenActionForm } });
+            const nextNodes = prev.filter((n) => n.id !== targetNodeId);
+            const remainingAtDepth = nextNodes.filter(
+              (n) => n.type !== 'emptyNode' && Number(n.data?.depth) === targetDepth
+            );
+            if (remainingAtDepth.length === 0) {
+              const rootDepth = Number(
+                fullSet?.resolved_root?.root_canvas_depth ?? fullSet?.origin?.root_canvas_depth
+              );
+              nextNodes.push({
+                id: `empty-${targetDepth}`,
+                type: 'emptyNode',
+                position: { x: 40, y: targetDepth * 310 },
+                style: { width: 180, height: 80 },
+                data: {
+                  depth: targetDepth,
+                  isReadOnly: false,
+                  onOpenActionForm: handleOpenActionForm,
+                  label:
+                    Number.isInteger(rootDepth) && targetDepth < rootDepth
+                      ? 'Chưa có tổ tiên'
+                      : `Đời ${targetDepth}`,
+                },
+              });
             }
-            return next;
+            return nextNodes;
           });
           setEdges((prev) => prev.filter((e) => e.source !== targetNodeId && e.target !== targetNodeId));
           mfoToast.success('Đã huỷ con nháp và gỡ cạnh.');
@@ -960,7 +959,13 @@ export function OpMfoPlanPage() {
           parent_union_key: n.data?.parentUnionKey || null,
           parent_member_id: n.data?.parentMemberId || null,
           spouse_member_id: n.data?.spouseMemberId || null,
-          sibling_seq: n.data?.siblingSeq || profileDelta?.draft_children?.find((row) => row.id === n.id)?.sibling_seq || null,
+          // 🌟 Giữ thứ tự cũ nếu node tạm thời chưa có
+          sibling_seq: 
+            n.data?.siblingSeq || 
+            (profileDelta.draft_children || []).find(c => c.id === n.id)?.sibling_seq || 
+            profileStaging[n.id]?.sibling_seq || 
+            profileStaging[n.id]?.child_order || 
+            null,
         };
       });
 
@@ -1003,8 +1008,9 @@ export function OpMfoPlanPage() {
           isTarget: n.data?.isTarget,
           isAnonymous: n.data?.isAnonymous,
           originSource: n.data?.originSource,
-          siblingSeq: n.data?.siblingSeq || null,
           tabs: n.data?.tabs,
+          // 🌟 BỔ SUNG DÒNG NÀY: Để khi tải lại từ snapshot không bị mất thứ tự con
+          siblingSeq: n.data?.siblingSeq || null,
         },
       })),
       edges: edges.map((e) => ({
@@ -1113,9 +1119,6 @@ export function OpMfoPlanPage() {
 
   // <2026-10-14T11:20:00+07:00> CHỐT CHẶN BẢO VỆ CỬA 1 & CỬA 2 TẬN GỐC
   async function handleSubmitPlan() {
-    if (submitLockRef.current) return;
-    submitLockRef.current = true;
-
     const isAlreadyApprovedGate1 = profileFlags.plan_ok === true || String(proposalStatus).toUpperCase() === 'APPROVED';
     
     // Nếu là Cửa 2 (isGate2 = true) hoặc Tờ trình đã được phê duyệt ở Cửa 1, ÉP BUỘC 100% gọi handleSubmitProfiles() (API submitResult Cửa 2)
@@ -1182,7 +1185,6 @@ export function OpMfoPlanPage() {
       setErr(message);
       mfoToast.error(message);
     } finally {
-      submitLockRef.current = false;
       setBusy(false);
     }
   }
@@ -1190,17 +1192,57 @@ export function OpMfoPlanPage() {
   const profileItems = useMemo(() => getProfileItems(profileDelta), [profileDelta]);
 
   profileOpenRef.current = (payload) => {
+    // 🌟 PHÒNG THỦ ĐA TẦNG ĐỂ LẤY BẰNG ĐƯỢC THỨ TỰ ANH EM:
+    // 1. Lấy từ smp_staging_data đã lưu
+    // 2. Lấy từ canvas_delta.draft_children
+    // 3. Lấy từ data của node trên Canvas
+    // 4. Nếu là hồ sơ cũ tạo trước đây chưa có: Tự động tính theo thứ tự xuất hiện của con cùng bố/mẹ
+    const childId = payload.nodeId;
+    const parentEdge = edges.find((e) => e.target === childId);
+    const siblingsOfSameParent = edges
+      .filter((e) => e.source === parentEdge?.source && String(e.target).startsWith('draft-child-'))
+      .map((e) => e.target);
+    const autoIndex = siblingsOfSameParent.indexOf(childId);
+
+    const calculatedSeq =
+      profileStaging[childId]?.sibling_seq ||
+      profileStaging[childId]?.child_order ||
+      (profileDelta.draft_children || []).find((c) => String(c.id) === String(childId))?.sibling_seq ||
+      payload.siblingSeq ||
+      nodes.find((n) => n.id === childId)?.data?.siblingSeq ||
+      (autoIndex >= 0 ? autoIndex + 1 : 1); // Fallback: con thứ mấy trong nhánh
+
     const choices = profileItems.filter((item) => String(item.nodeId) === String(payload.nodeId));
-    const seed = (item) => {
-      if (!item || item.kind !== 'child') return;
-      const fromNode = nodes.find((node) => node.id === item.nodeId)?.data?.siblingSeq;
-      const seq = item.siblingSeq || fromNode || null;
-      if (seq == null) return;
-      setProfileStaging((old) => old[item.key]?.sibling_seq != null ? old : { ...old, [item.key]: { ...(old[item.key] || {}), sibling_seq: seq } });
-    };
-    if (choices.length === 1) { seed(choices[0]); setSelectedProfile(choices[0]); }
-    else if (choices.length > 1) setProfileChoices(choices.map((item) => ({ ...item, label: profileStaging[item.key]?.full_name || item.label })));
-    else if (payload.isAnonymous) setProfileAlarm(toMfoUserMessage({ code: 'MFO_SMP_INCOMPLETE' }));
+    if (choices.length === 1) {
+      const activeChoice = { 
+        ...choices[0], 
+        siblingSeq: choices[0].siblingSeq || calculatedSeq 
+      };
+      
+      // Đồng bộ ngay vào staging nếu trong staging chưa có
+      if (!profileStaging[childId]?.sibling_seq && !profileStaging[childId]?.child_order) {
+        setProfileStaging((old) => ({
+          ...old,
+          [childId]: {
+            ...(old[childId] || {}),
+            sibling_seq: calculatedSeq,
+            child_order: calculatedSeq,
+          },
+        }));
+      }
+
+      setSelectedProfile(activeChoice);
+    } else if (choices.length > 1) {
+      setProfileChoices(
+        choices.map((item) => ({
+          ...item,
+          siblingSeq: item.siblingSeq || calculatedSeq,
+          label: profileStaging[item.key]?.full_name || item.label,
+        }))
+      );
+    } else if (payload.isAnonymous) {
+      setProfileAlarm(toMfoUserMessage({ code: 'MFO_SMP_INCOMPLETE' }));
+    }
   };
 
   // <2026-10-15T22:03:00+07:00>
@@ -1253,20 +1295,15 @@ export function OpMfoPlanPage() {
     remeasure();
   }, [edges, activeUnionByTreeId, isGate2]);
 
-  // <2026-10-23T11:27:00+07:00> Mục đích: Cửa 2 giữ kéo, chấm và nút cộng trừ. Lý do: bản cũ tắt các thao tác này.
   const profileDisplayNodes = useMemo(() => {
     if (!isGate2) return nodes;
-    return projectProfiles(nodes, profileStaging).map((node) => ({ ...node, data: {
+    return projectProfiles(nodes, profileStaging).map((node) => ({ ...node, draggable: false, data: {
       ...node.data,
       isReadOnly: node.type === 'emptyNode',
       activeUnionId: activeUnionByTreeId[node.data?.treeId] || node.data?.activeUnionId,
-      onTabChange: (treeId, unionId) => { setActiveUnionByTreeId((old) => old[treeId] === unionId ? old : { ...old, [treeId]: unionId }); remeasure(treeId); },
-      hasChildren: edges.some((edge) => edge.source === node.id),
-      collapsed: Boolean(collapsedIds[node.id]),
-      onToggleChildren: (nodeId) => setCollapsedIds((old) => ({ ...old, [nodeId]: !old[nodeId] })),
       onOpenActionForm: handleOpenActionForm,
     } }));
-  }, [isGate2, nodes, edges, profileStaging, activeUnionByTreeId, collapsedIds, handleOpenActionForm]);
+  }, [isGate2, nodes, profileStaging, activeUnionByTreeId, handleOpenActionForm]);
 
   async function persistProfiles(items) {
     const incoming = Object.fromEntries(items.map((item) => [item.key, cleanProfile(profileStaging[item.key] || {}, item.kind)]));
@@ -1346,8 +1383,6 @@ export function OpMfoPlanPage() {
   };
 
   return (
-    <>
-    <MfoBusyClock show={busy} />
     <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col bg-slate-50">
       <TenantHeader tenant={tenant} subtitle={isGate2 ? profileLabel : "Tạo nhánh phả hệ"} />
       {!targetMemberId ? (
@@ -1367,7 +1402,7 @@ export function OpMfoPlanPage() {
         <div className="mx-3 mt-3 flex flex-col gap-1 rounded-2xl border-2 border-rose-300 bg-rose-50 px-4 py-3 text-xs font-black text-rose-950 shadow-sm">
           <div className="flex items-center gap-2">
             <XOctagon className="h-4 w-4 shrink-0 text-rose-600" />
-            <span className="uppercase text-[11px] tracking-wider text-rose-900">🛑 TỜ KHAI ĐÃ BỊ BÁC BỎ VĨNH VIỄN</span>
+            <span className="uppercase text-[11px] tracking-wider text-rose-900">Nhánh phả hệ không được duyệt</span>
           </div>
           <p className="font-semibold text-slate-700 mt-0.5">
             Lý do: <span className="text-rose-900 italic">"{adminNote || 'Hồ sơ không hợp lệ.'}"</span>
@@ -1376,24 +1411,31 @@ export function OpMfoPlanPage() {
       ) : isReadOnly ? (
         <div className="mx-3 mt-3 flex items-center gap-2 rounded-2xl border border-amber-300 bg-amber-50 px-4 py-3 text-xs font-black text-amber-950 shadow-sm">
           <Lock className="h-4 w-4 shrink-0 text-amber-600" />
-          {/* <2026-10-23T09:58:00+07:00> Mục đích: Không hiện mã DRAFT. Lý do: đang soạn không phải đóng băng. */}
-          <span>Hồ sơ đang chờ duyệt. Chưa sửa được.</span>
+          <span>Nhánh phả hệ đang chờ phê duyệt - Giao diện chỉ xem.</span>
         </div>
       ) : proposalStatus === 'NEEDS_REVISION' && (
-        <div className="mx-3 mt-3 flex items-center gap-2 rounded-2xl border border-indigo-300 bg-indigo-50 px-4 py-3 text-xs font-black text-indigo-950 shadow-sm">
-          <Save className="h-4 w-4 shrink-0 text-indigo-600" />
-          <span>Bút phê: {adminNote || 'Chưa có ý kiến.'}</span>
+        <div className="mx-3 mt-3 flex flex-col gap-1.5 rounded-2xl border border-rose-300 bg-rose-50/90 p-3.5 text-xs shadow-sm">
+          <div className="flex items-center gap-2 text-rose-900 font-black">
+            <Save className="h-4 w-4 shrink-0 text-rose-600" />
+            <span className="uppercase text-[11px] tracking-wider">Bút phê của Ban Quản trị:</span>
+          </div>
+          <p className="rounded-xl border border-rose-200 bg-white/90 p-2.5 font-medium text-slate-800 italic">
+            "{adminNote || 'Yêu cầu hiệu chỉnh lại nhánh phả hệ theo ý kiến của ban quản trị.'}"
+          </p>
+          <p className="text-[11px] font-semibold text-rose-800/80">
+            Bác hãy sửa lại thông tin các ô trên sơ đồ theo bút phê rồi bấm Trình lại.
+          </p>
         </div>
       )}
 
       </>)}
+
       {isGate2 && adminNote ? <p className="mx-3 mt-3 rounded-2xl border bg-white p-3 text-sm text-slate-700">{adminNote}</p> : null}
       <main className="flex flex-1 flex-col gap-3 px-3 py-3 pb-28">
         <section className="rounded-3xl border border-slate-200 bg-white p-3.5 shadow-sm">
-          {/* <2026-10-23T11:27:00+07:00> Mục đích: Cửa 2 nói bấm XT. Lý do: câu năm ô là của cửa 1. */}
-          <p className="text-sm font-medium text-slate-800">{isGate2 ? 'Bấm vào biểu tượng "XT" (tức là Xin tạo) để khai chi tiết thông tin.' : MFO_VOICE_SELF.whyFive}</p>
+          <p className="text-sm font-medium text-slate-800">{MFO_VOICE_SELF.whyFive}</p>
           <div className="mt-2">
-            <AudioHelpButton text={isGate2 ? 'Bấm vào biểu tượng XT, tức là Xin tạo, để khai chi tiết thông tin.' : MFO_VOICE_SELF.whyFive} label="Nghe" />
+            <AudioHelpButton text={MFO_VOICE_SELF.whyFive} label="Nghe" />
           </div>
         </section>
 
@@ -1425,10 +1467,10 @@ export function OpMfoPlanPage() {
             fitViewOptions={{ padding: 0.08, includeHiddenNodes: true }}
             minZoom={0.1}
             maxZoom={2.5}
-            nodesDraggable={!isReadOnly}
+            nodesDraggable={!isGate2 && !isReadOnly}
             nodesConnectable={false}
             elementsSelectable={isGate2 || !isReadOnly}
-            panOnDrag={true}
+            panOnDrag={!isGate2}
             noPanClassName="nopan"
             panOnScroll={true}
             zoomOnScroll={true}
@@ -1456,7 +1498,7 @@ export function OpMfoPlanPage() {
             onClick={handleSaveDraft}
           >
             <Save className="h-4 w-4 text-indigo-600" />
-            <span>{isGate2 ? 'Lưu tờ khai' : isReadOnly ? 'Đã đóng băng' : 'Lưu nháp'}</span>
+            <span>{isGate2 ? 'Lưu tờ khai' : isReadOnly ? 'Đã đóng băng' : 'Lưu nhánh phả hệ'}</span>
           </button>
 
           <button
@@ -1465,7 +1507,7 @@ export function OpMfoPlanPage() {
             className="min-h-12 flex-1 rounded-2xl bg-indigo-600 px-3 text-sm font-black text-white shadow-sm hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.98]"
             onClick={handleSubmitPlan}
           >
-            {isGate2 ? 'Trình tờ khai' : isReadOnly ? 'Đã trình' : 'Trình'}
+            {busy ? 'Đang gửi...' : isGate2 ? 'Trình tờ khai' : isReadOnly ? 'Đã trình' : 'Trình'}
           </button>
         </div>
       </main>
@@ -1625,16 +1667,22 @@ export function OpMfoPlanPage() {
         );
       })()}
 
-      <MfoPersonProfileSheet item={isGate2 ? selectedProfile : null} choices={isGate2 ? profileChoices : []}
-        value={selectedProfile ? profileStaging[selectedProfile.key] || {} : {}} busy={busy} readOnly={profileLocked}
+      <MfoPersonProfileSheet 
+        item={isGate2 ? selectedProfile : null} 
+        choices={isGate2 ? profileChoices : []}
+        value={selectedProfile ? profileStaging[selectedProfile.key] || {} : {}} 
+        busy={busy} 
+        readOnly={profileLocked}
+        siblingSeq={selectedProfile?.siblingSeq} // 🌟 BỔ SUNG DÒNG NÀY (lấy từ item của getProfileItems)
         dirty={selectedProfile ? JSON.stringify(cleanProfile(profileStaging[selectedProfile.key] || {}, selectedProfile.kind)) !== JSON.stringify(cleanProfile(savedProfileStaging[selectedProfile.key] || {}, selectedProfile.kind)) : false}
         onPick={(item) => { setSelectedProfile(item); setProfileChoices([]); }}
         onChange={(value) => setProfileStaging((old) => ({ ...old, [selectedProfile.key]: value }))}
-        siblingSeq={selectedProfile?.siblingSeq || nodes.find((node) => node.id === selectedProfile?.nodeId)?.data?.siblingSeq || ''} onSave={handleSaveProfile} onClose={closeProfile} />
+        onSave={handleSaveProfile} 
+        onClose={closeProfile} 
+      />
       <MfoAlarmOverlay open={Boolean(profileAlarm)} message={profileAlarm} onClose={() => setProfileAlarm('')} />
       <AppFooterNav {...footerNav} />
     </div>
-    </>
   );
 }
 

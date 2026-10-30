@@ -1,0 +1,164 @@
+FILE: tests/member_api_test.http
+
+VERSION: 1.5.0
+
+DATE: 02-04-2026
+
+DESCRIPTION: Kiểm tra nghiệp vụ Member phức tạp (Tạo Full Member, Cây gia phả, Focal Tree)
+
+@baseUrl = https://gia-pha-backend.onrender.com/api
+@tenantSlug = NHTB01
+
+==========================================================
+
+BƯỚC 0: ĐĂNG NHẬP (Lấy Token & Định danh người thực hiện)
+
+==========================================================
+
+@name login
+
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+"identifier": "nguyenthanhq@gmail.com",
+"password": "France1989"
+}
+
+@authToken = {{login.response.body.token}}
+@adminId = {{login.response.body.user.id}}
+
+Giả sử bạn đã có một chi họ ID từ bước test branch trước đó
+
+@branchId = 9696e208-89f7-4cb3-804c-cef4fbba34b0
+
+==========================================================
+
+BƯỚC 1: TẠO THÀNH VIÊN ĐẦY ĐỦ (BR1 - CreateFullMember)
+
+Kiểm tra: Transaction nạp dữ liệu vào 5 bảng đồng thời
+
+==========================================================
+
+@name createMember
+
+POST {{baseUrl}}/members
+Authorization: Bearer {{authToken}}
+x-tenant-slug: {{tenantSlug}}
+Content-Type: application/json
+
+{
+"memberData": {
+"full_name": "Nguyễn Đình Quang",
+"gender": "NAM",
+"is_clan": true,
+"generation": 5,
+"branch_id": "{{branchId}}",
+"birth_day": 15,
+"birth_month": 5,
+"birth_year": 1989,
+"phone_number": "0912345678"
+},
+"currentAddr": {
+"full_address": "123 Đường ABC, Phường X, Quận Y, TP. Hồ Chí Minh",
+"province_name": "TP. Hồ Chí Minh"
+},
+"originAddr": {
+"full_address": "Xã Kỳ Anh, Huyện Kỳ Anh, Tỉnh Hà Tĩnh",
+"province_name": "Hà Tĩnh"
+},
+"biographyData": {
+"childhood_summary": "Sinh ra tại vùng quê nghèo hiếu học...",
+"career_history": "Tham gia công tác tại ngành công nghệ thông tin từ năm 2012."
+},
+"mediaList": [
+{
+"file_url": "https://www.google.com/search?q=https://example.com/avatar_quang.jpg",
+"file_type": "image/jpeg",
+"is_primary": true
+}
+],
+"changed_by": "{{adminId}}",
+"change_reason": "Khởi tạo thành viên nòng cốt để dựng cây phả hệ chi họ"
+}
+
+@memberId = {{createMember.response.body.data.id}}
+
+==========================================================
+
+BƯỚC 2: CẬP NHẬT THÀNH VIÊN (BR1 - UpdateFullMember)
+
+Kiểm tra: Upsert địa chỉ và tiểu sử
+
+==========================================================
+
+PUT {{baseUrl}}/members/{{memberId}}
+Authorization: Bearer {{authToken}}
+x-tenant-slug: {{tenantSlug}}
+Content-Type: application/json
+
+{
+"memberData": {
+"full_name": "Nguyễn Đình Quang (Đã hiệu chỉnh)",
+"alias": "Quang France"
+},
+"biographyData": {
+"notable_quotes": "Gia phả là gốc rễ của sự trường tồn."
+},
+"changed_by": "{{adminId}}",
+"change_reason": "Cập nhật thêm bút danh và câu trích dẫn tâm đắc"
+}
+
+==========================================================
+
+BƯỚC 3: LẤY DỮ LIỆU TẬP TRUNG (Focal Tree)
+
+Kiểm tra: Lấy 3 đời xoay quanh memberId (Cha mẹ - Bản thân - Con cái)
+
+==========================================================
+
+GET {{baseUrl}}/members/focal-tree/{{memberId}}
+Authorization: Bearer {{authToken}}
+x-tenant-slug: {{tenantSlug}}
+
+==========================================================
+
+BƯỚC 4: DỰNG CÂY PHẢ HỆ CHI HỌ (BR2 - Member Tree)
+
+Kiểm tra: Logic suy luận đời (Generation) và lọc theo Branch
+
+==========================================================
+
+GET {{baseUrl}}/members/tree/{{branchId}}
+Authorization: Bearer {{authToken}}
+x-tenant-slug: {{tenantSlug}}
+
+==========================================================
+
+BƯỚC 5: TÌM KIẾM THÀNH VIÊN
+
+Kiểm tra: Phân quyền Multi-tenancy (Chỉ tìm thấy người trong dòng họ)
+
+==========================================================
+
+GET {{baseUrl}}/members/search?q=Quang
+Authorization: Bearer {{authToken}}
+x-tenant-slug: {{tenantSlug}}
+
+==========================================================
+
+BƯỚC 6: XÓA MỀM THÀNH VIÊN
+
+Kiểm tra: deleted_at được gán giá trị
+
+==========================================================
+
+DELETE {{baseUrl}}/members/{{memberId}}
+Authorization: Bearer {{authToken}}
+x-tenant-slug: {{tenantSlug}}
+Content-Type: application/json
+
+{
+"userId": "{{adminId}}",
+"reason": "Nhập liệu sai thông tin cơ bản, cần tạo lại bản ghi mới"
+}

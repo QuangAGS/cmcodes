@@ -45,7 +45,7 @@ export function profileError(smp = {}, kind) {
  */
 export function cleanProfile(smp = {}, kind) {
   const keys = ['full_name', 'gender', 'is_alive', 'is_clan', 'birth_day', 'birth_month', 'birth_year', 'death_day', 'death_month', 'death_year', 'is_birth_lunar', 'is_death_lunar', 'death_note', 'note', 'is_anonymous'];
-  if (kind === 'child') keys.push('child_type', 'sibling_seq');
+  if (kind === 'child') keys.push('child_type', 'sibling_seq', 'child_order'); // 🌟 Thêm child_order
   const out = Object.fromEntries(keys.filter(key => smp[key] !== undefined).map(key => [key, smp[key]]));
   out.full_name = String(out.full_name || '').trim();
   return out;

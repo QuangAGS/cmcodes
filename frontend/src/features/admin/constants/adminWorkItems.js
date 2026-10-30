@@ -1,10 +1,10 @@
 /**
  * PATH       : src/features/admin/constants/adminWorkItems.js
- * DATETIME   : 2026-09-24T16:20:00+07:00
+ * DATETIME   : 2026-10-30T07:40:00+07:00
  * VERSION    : 1.3.1-MFO-PLAN
- * DESCRIPTION:
+ * DESCRIPTION: Thay «Đóng dấu tờ khai 5 đời» bằng "Xét duyệt thay đổi nhánh phả hệ"
  * - Work items Admin.
- * - Thêm «Đóng dấu tờ khai 5 đời».
+ * - Thay «Xét duyệt thay đổi nhánh phả hệ».
  */
 
 export const SYSTEM_ADMIN_WORK_ITEMS = [
@@ -24,8 +24,8 @@ export const SYSTEM_ADMIN_WORK_ITEMS = [
   },
   {
     id: 'mfo-plan',
-    title: 'Đóng dấu tờ khai 5 đời',
-    description: 'Tem PLAN — cho phép khai người trên sổ',
+    title: 'Xét duyệt thay đổi nhánh phả hệ',
+    description: 'Kiểm soát tạo mới, thay đổi các nhánh phả hệ.',
     path: '/admin/mfo/plans',
     icon: 'UserCheck',
   },
@@ -69,10 +69,9 @@ export const SYSTEM_ADMIN_WORK_ITEMS = [
 export const CLAN_ADMIN_WORK_ITEMS = [
   {
     id: 'mfo-plan',
-    title: 'Đóng dấu tờ khai 5 đời',
-    description: 'Tem PLAN — cho phép khai người trên sổ',
+    title: 'Xét duyệt thay đổi nhánh phả hệ',
+    description: 'Kiểm soát tạo mới, thay đổi các nhánh phả hệ.',
     path: '/admin/mfo/plans',
-    icon: 'UserCheck',
     when: ['HOAT_DONG'],
     primary: true,
   },
