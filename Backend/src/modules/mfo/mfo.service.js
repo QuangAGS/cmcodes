@@ -1,7 +1,7 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-29T21:15:00+07:00
- * VERSION    : 4.7.30-FIX-BUG16-POPULATE-SIBLING-SEQ
+ * DATETIME   : 2026-10-30T14:40:00+07:00
+ * VERSION    : 4.7.31-DUAL-WRITE-PARENTAGES
  * DESCRIPTION:
  * - Vá dứt điểm Bug 16: Populate chính xác sibling_seq vào bảng members khi Admin duyệt ghi sổ Cửa 2.
  * - Cơ chế fallback an toàn: lấy từ smp_staging_data, nếu thiếu tự động fallback sang draft_children.sibling_seq.
@@ -42,6 +42,77 @@ const { expiresAtFor } = require('./mfo.ttl.js');
 const { normalizeStaging } = require('./mfo.smp.js');
 
 const OPEN = ['DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION'];
+
+
+// =============================================================================
+// HELPER — Mapping child_type → parentage_type (FTDI / GAP-ANALYSIS v1.1.0)
+// =============================================================================
+/**
+ * Ánh xạ child_type từ form Staging / members sang parentage_type chuẩn FTDI.
+ * Lưu ý: CON_DAU, CON_RE không tạo liên kết parentages (thuộc quan hệ hôn nhân).
+ */
+function mapChildTypeToParentageType(childType) {
+  switch (childType) {
+    case 'CON_NUOI':
+      return 'ADOPTIVE';
+    case 'CON_DO_DAU':
+      return 'FOSTER';
+    case 'CON_RIENG':
+      return 'STEPCHILD';
+    case 'KHAC':
+      return 'OTHER';
+    case 'CON_DE':
+    default:
+      return 'BIOLOGICAL';
+  }
+}
+
+/**
+ * Tạo hoặc cập nhật một bản ghi parentages (idempotent).
+ */
+async function upsertParentage(tx, { tenantId, parentId, childId, relationshipType, unionId, actorId, ticketId }) {
+  if (!parentId || !childId) return null;
+
+  const existing = await tx.parentages.findFirst({
+    where: {
+      tenant_id: tenantId,
+      parent_id: parentId,
+      child_id: childId,
+      relationship_type: relationshipType,
+      review_status: 'ACCEPTED',
+      deleted_at: null,
+    },
+    select: { id: true },
+  });
+
+  if (existing) {
+    return tx.parentages.update({
+      where: { id: existing.id },
+      data: {
+        union_id: unionId || null,
+        is_selected_for_lineage: true,
+        changed_by: actorId,
+        deleted_at: null,
+        note: `Cập nhật từ duyệt MFO Gate 2 (Ticket: ${ticketId || 'N/A'})`,
+      },
+    });
+  }
+
+  return tx.parentages.create({
+    data: {
+      tenant_id: tenantId,
+      parent_id: parentId,
+      child_id: childId,
+      relationship_type: relationshipType,
+      union_id: unionId || null,
+      review_status: 'ACCEPTED',
+      is_selected_for_lineage: true,
+      note: `Ghi nhận từ duyệt MFO Gate 2 (Ticket: ${ticketId || 'N/A'})`,
+      changed_by: actorId,
+    },
+  });
+}
+
 
 /** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý actorIdOf; phần thay đổi giới hạn lịch sử lát 4. */
 function actorIdOf(user) {
@@ -257,10 +328,9 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal, granted
     const depth = Number(child.depth ?? 0);
     const calculatedGen = grantedGeneration != null ? grantedGeneration + depth : null;
 
-    // 🌟 LẤY THỨ TỰ CON ĐA TẦNG: smp_staging_data -> draft_children
     const rawSeq = smp.sibling_seq ?? smp.child_order ?? child.sibling_seq;
-    const finalSiblingSeq = (rawSeq != null && rawSeq !== '' && !isNaN(Number(rawSeq))) 
-      ? Number(rawSeq) 
+    const finalSiblingSeq = (rawSeq != null && rawSeq !== '' && !isNaN(Number(rawSeq)))
+      ? Number(rawSeq)
       : null;
 
     const createdMember = await tx.members.create({
@@ -271,7 +341,7 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal, granted
         generation: calculatedGen,
         is_clan: true,
         birth_year: smp.birth_year ? Number(smp.birth_year) : null,
-        sibling_seq: finalSiblingSeq, // 🌟 GHI CHÍNH XÁC VÀO DB
+        sibling_seq: finalSiblingSeq,
         note: smp.is_anonymous ? '[UM] Khuyết danh tạo bởi MFO 5L' : null,
         changed_by: actorId,
       },
@@ -340,6 +410,9 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal, granted
     const realChildId = draftToRealMemberMap.get(child.id);
     if (!realChildId) continue;
 
+    const smp = stagingData[child.id] || {};
+    const childType = smp.child_type || 'CON_DE';
+
     const link = child.link || '';
     let targetUnionId = null;
 
@@ -382,9 +455,39 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal, granted
         parent_union_id: targetUnionId,
         father_id: fatherId,
         mother_id: motherId,
+        child_type: childType,
         changed_by: actorId,
       },
     });
+
+    if (!['CON_DAU', 'CON_RE'].includes(childType)) {
+      const parentageType = mapChildTypeToParentageType(childType);
+      const ticketId = proposal?.id || null;
+
+      if (fatherId) {
+        await upsertParentage(tx, {
+          tenantId,
+          parentId: fatherId,
+          childId: realChildId,
+          relationshipType: parentageType,
+          unionId: targetUnionId,
+          actorId,
+          ticketId,
+        });
+      }
+
+      if (motherId) {
+        await upsertParentage(tx, {
+          tenantId,
+          parentId: motherId,
+          childId: realChildId,
+          relationshipType: parentageType,
+          unionId: targetUnionId,
+          actorId,
+          ticketId,
+        });
+      }
+    }
   }
 
   return {
