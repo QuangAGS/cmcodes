@@ -166,12 +166,12 @@ const mfoController = {
         body,
       });
 
+      // Tinh giản payload: Chỉ truyền các trường cần thiết, KHÔNG truyền lồng prepared_payload
       const srpfResult = await executeAction({
         processType: 'MFO_PLAN',
         instanceId: ticketId,
         action: SRPF_ACTIONS.APPROVE,
         payload: {
-          prepared_payload: serviceResult.ticket && serviceResult.ticket.payload,
           granted_generation: body.granted_generation || body.generation,
           granted_branch_id: body.granted_branch_id || null,
           review_scs: body.review_scs || null,
@@ -181,11 +181,18 @@ const mfoController = {
         actorContext,
       });
 
+      // Trả về response tóm tắt gọn gàng, tránh serialize khối payload nặng
       res.status(200).json({
         status: 'success',
         message: 'Đã phê duyệt Khung 5L và cấp tem mở xưởng Workbench thành công.',
         correlation_id: srpfResult.correlationId,
-        data: serviceResult,
+        data: {
+          ticket_id: ticketId,
+          status: 'APPROVED',
+          plan_ok: true,
+          granted_generation: body.granted_generation || body.generation,
+          updated_at: new Date().toISOString(),
+        },
       });
     } catch (error) {
       sendError(res, error);
