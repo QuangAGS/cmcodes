@@ -34,7 +34,21 @@ async function loadHubBundle() {
     } catch {
       op = null;
     }
-    const res = await apiClient.get('/me/profile');
+
+    // Gọi song song address + bio
+    const [addrRes, bioRes] = await Promise.all([
+      apiClient.get('/me/profile', { params: { section: 'address' } }),
+      apiClient.get('/me/profile', { params: { section: 'bio' } }),
+    ]);
+
+    const addrData = addrRes.data?.data || {};
+    const bioData = bioRes.data?.data || {};
+
+    const profile = {
+      ...addrData,
+      biography: bioData.biography || null,
+    };
+
     let achievements = [];
     try {
       const ach = await apiClient.get('/me/achievements');
@@ -42,7 +56,8 @@ async function loadHubBundle() {
     } catch {
       achievements = [];
     }
-    const data = { op, profile: res.data?.data || {}, achievements };
+
+    const data = { op, profile, achievements };
     hubFlight.set('bundle', { at: Date.now(), data, job: null });
     return data;
   })().catch((error) => {

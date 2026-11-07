@@ -1,9 +1,9 @@
-const { creatorStamp } = require('../members/profileAccess.service.js');
 /**
  * PATH       : src/modules/onboarding/onboarding.service.js
- * DATETIME: 2026-08-22T14:10:00+07:00
- * VERSION: 1.5.3-FE-OP-B3
+ * DATETIME   : 2026-11-02T15:30:00+07:00
+ * VERSION    : 1.6.0-FTDI-STEP3-DUAL-WRITE
  * DESCRIPTION:
+ * - Tích hợp Dual-write FTDI Bước 3: Đồng bộ quan hệ phụ mẫu vào bảng parentages qua parentage.mapper.js tại mergeProvisionalBranch.
  * - FE-OP-B1-UI2: Cho phép DRAFT member cũng có thể update profile.
  * - TRÁI TIM NGHIỆP VỤ Onboarding theo EGAL-25.x OPD v1.2.0 (SEC-compliant) + EGAL-SEC v1.1.0.
  * - onboarding_cases = Aggregate Root (L5). SEC L2/L3 guards trên Heavy path; tenant isolation.
@@ -14,6 +14,7 @@ const { creatorStamp } = require('../members/profileAccess.service.js');
  * - Q2: Header chuẩn.
  *
  * CHANGELOG:
+ * - 2026-11-02T15:30:00+07:00 | 1.6.0 | FTDI Step 3 dual-write parentages khi mergeProvisionalBranch.
  * - 1.0.0–1.3.0: Phase 1–3 / OPD v1.1.0.
  * - 1.4.0 (2026-07-21): OPD v1.2.0 + SEC A–E alignment.
  * - 1.5.0-W3 function BusinessError local, chỉ cần wrapper Q1
@@ -30,6 +31,12 @@ const { creatorStamp } = require('../members/profileAccess.service.js');
  * FE-OP-B3 — policy admin trên case MEMBER_PROMOTE (approve/revision/reject).
  * CLAN_SETUP: chỉ SYSTEM_ADMIN. CLAN_ADMIN: chỉ MEMBER_JOIN cùng tenant.
  */
+
+'use strict';
+
+const { creatorStamp } = require('../members/profileAccess.service.js');
+const { syncMemberParentages, flushParentageAudit } = require('../genealogy/parentage.mapper.js');
+
 function _assertOpAdminPolicy(onboardingCase, reviewer) {
   const caseType = onboardingCase.case_type;
   const processKind = onboardingCase.process_kind;
@@ -63,7 +70,7 @@ function _requireNote(note, fieldLabel = 'Ghi chú') {
   return v;
 }
 
-'use strict';
+
 
 const { prisma, basePrisma } = require('../../lib/prisma.js');
 //1.5.0-W3
@@ -2838,22 +2845,39 @@ async function mergeProvisionalBranch({
       if (branchMembers.length === 0) {
         throw new Error('NO_MEMBERS_TO_MERGE');
       }
+      // 2026-11-02T15:30:00+07:00:
+      // ─── Bước 3: Gắn quan hệ root → targetParent (FTDI DUAL-WRITE) ───
+      // targetParent: phân định cha/mẹ theo giới tính thực tế của đích ghép
+      const isMother = targetParent.gender === 'NU';
+      const fatherId = isMother ? null : targetParent.id;
+      const motherId = isMother ? targetParent.id : null;
 
-      // ─── Bước 3: Gắn quan hệ root → targetParent ───────────
-      // Tùy schema: có thể dùng parent_id, hoặc bảng relationships/edges.
-      // Best-effort: set parent_id trên root member nếu field tồn tại.
-      try {
-        await tx.members.update({
-          where: { id: rootMemberId },
-          data: {
-            parent_id: targetParentMemberId,
-            // hoặc father_id / mother_id tùy gender target — để controller quyết định
-            changed_by: adminId,
-          },
-        });
-      } catch (_) {
-        // Schema không có parent_id — quan hệ sẽ được tạo ở tầng khác (genealogy service)
-      }
+      // 3.1. Cập nhật bảng members theo đúng cột schema (father_id / mother_id)
+      await tx.members.update({
+        where: { id: rootMemberId },
+        data: {
+          ...(fatherId ? { father_id: fatherId } : {}),
+          ...(motherId ? { mother_id: motherId } : {}),
+          changed_by: adminId,
+        },
+      });
+
+      // 3.2. Dual-write sang parentages qua mapper tập trung
+      const parentageAuditQueue = [];
+      await syncMemberParentages(tx, {
+        tenantId: onboardingCase.tenant_id,
+        childId: rootMemberId,
+        fatherId,
+        motherId,
+        unionId: null,
+        childType: targetRelation === 'ADOPTED' ? 'CON_NUOI' : 'CON_DE',
+        actorId: adminId,
+        correlationId,
+        isNewChild: false, // Thành viên đã tồn tại, kiểm tra cycle chặt chẽ
+        auditQueue: parentageAuditQueue,
+        ticketId: `OP_MERGE_${caseId}`,
+      });
+      await flushParentageAudit(tx, parentageAuditQueue);
 
       // ─── Bước 4: Đổi status toàn bộ members → CHINH_THUC ───
       const mergedMemberIds = [];

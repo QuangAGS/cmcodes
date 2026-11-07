@@ -1,19 +1,17 @@
 /**
  * PATH: src/modules/members/member.service.js
- * DATETIME: 2026-08-17T19:00:00+07:00
- * VERSION: 1.8.0-FE-OP-B1-UI2
- * DESCRIPTION: UPDATE FULL MEMBER (đơn giản) — OP Base Profile + admin chỉnh sửa.
- *              Chỉ whitelist field an toàn; không đụng tree relation phức tạp.
- * - Rà soát và loại bỏ/comment toàn bộ việc sinh khóa chính (PK) thủ công `id: uuidv4()` ở tầng Backend.
- * - Nhường hoàn toàn quyền sinh mã UUID tự động cho tầng Database PostgreSQL (Supabase).
- * - Bảo tồn 100% logic nghiệp vụ tạo thành viên phức hợp và kiểm tra Data Integrity (Q1).
- * - Tuân thủ cấu trúc format tài liệu hệ thống (Q2).
+ * DATETIME: 2026-11-02T15:30:00+07:00
+ * VERSION: 1.9.0-FTDI-STEP3-DUAL-WRITE
+ * DESCRIPTION:
+ * - Tích hợp Dual-write FTDI Bước 3: Đồng bộ quan hệ phụ mẫu vào bảng parentages qua parentage.mapper.js khi tạo thành viên.
+ * - Tự động bảo vệ bằng Advisory Lock và Cycle Check (isNewChild: true) không gây nghẽn hiệu năng.
+ * - Bảo tồn 100% logic tạo Address, Member, Biographies và Audit Log hiện có.
  */
 
 const { prisma } = require('../../lib/prisma.js');
-// const { v4: uuidv4 } = require('uuid'); 🚫 KHÔNG DÙNG: Khóa chính PK đã được cấu hình tự sinh tự động ở tầng DB
 const auditService = require('../../services/audit.service');
 const dataIntegrityService = require('../../services/dataIntegrity.service');
+const { syncMemberParentages, flushParentageAudit } = require('../genealogy/parentage.mapper.js');
 
 const memberService = {
   /**
@@ -22,35 +20,28 @@ const memberService = {
    * @param {String} tenantId - ID dòng họ lấy từ Context.
    */
   createFullMember: async (payload, tenantId, actor = null) => {
-  const { memberData, currentAddr, biographyData, changed_by, change_reason } = payload;
+    const { memberData, currentAddr, biographyData, changed_by, change_reason } = payload;
 
     return await prisma.$transaction(async (tx) => {
       /**
        * -------------------------------------------------------------------
        * 🏛️ STEP 1: Tạo bản ghi Address (Địa chỉ hiện tại)
        * -------------------------------------------------------------------
-       * @dateTime 2026-06-16T21:16:00+07:00
-       * Loại bỏ hoàn toàn id vật lý ở code để Database tự động cấp phát UUID mới.
        */
-      // 1. Tạo Address trước (Bóc tách metadata)
       let curId = null;
       if (currentAddr?.full_address) {
         const addr = await tx.addresses.create({
-          // data: { ...currentAddr, id: uuidv4(), tenant_id: tenantId, changed_by }. // ◄ CŨ: Gây thừa mã sinh
-          data: { ...currentAddr, tenant_id: tenantId, changed_by }
+          data: { ...currentAddr, tenant_id: tenantId, changed_by },
         });
         curId = addr.id;
-        // Ghi log riêng cho địa chỉ
         await auditService.logAction('THEM_MOI', 'addresses', addr.id, null, addr, changed_by, 'Đi kèm tạo mới thành viên', tenantId);
       }
+
       /**
        * -------------------------------------------------------------------
        * 👤 STEP 2: Tạo bản ghi cốt lõi trong bảng Members
        * -------------------------------------------------------------------
-       * @dateTime 2026-06-16T21:18:15+07:00
-       * Thực hiện comment rõ ràng dòng `id` cũ để đội ngũ làm tài liệu dễ đối chiếu.
        */
-      // M12a: JWT thường không có member_id — đọc users.member_id.
       const {
         created_by: _ignoreCreatedBy,
         created_by_member_id: _ignoreCreatedByMember,
@@ -81,15 +72,40 @@ const memberService = {
 
       /**
        * -------------------------------------------------------------------
+       * 🌿 STEP 2.5: FTDI DUAL-WRITE — ĐỒNG BỘ VÀO BẢNG PARENTAGES (BƯỚC 3)
+       * -------------------------------------------------------------------
+       */
+      const fatherId = safeMemberData.father_id || null;
+      const motherId = safeMemberData.mother_id || null;
+      const parentUnionId = safeMemberData.parent_union_id || null;
+      const childType = safeMemberData.child_type || 'CON_DE';
+
+      if (fatherId || motherId) {
+        const auditQueue = [];
+        await syncMemberParentages(tx, {
+          tenantId,
+          childId: member.id,
+          fatherId,
+          motherId,
+          unionId: parentUnionId,
+          childType,
+          actorId: changed_by,
+          correlationId: payload.correlationId || null,
+          isNewChild: true,
+          auditQueue,
+          ticketId: 'OP_MEMBER_CREATE',
+        });
+        await flushParentageAudit(tx, auditQueue);
+      }
+
+      /**
+       * -------------------------------------------------------------------
        * 📖 STEP 3: Tạo bản ghi Tiểu sử (Biographies) đi kèm nếu có
        * -------------------------------------------------------------------
-       * @dateTime 2026-06-16T21:19:30+07:00
        */
-      // 3. Tạo Tiểu sử (Biographies)
       if (biographyData) {
         const bio = await tx.biographies.create({
-          //data: { ...biographyData, id: uuidv4(), member_id: member.id, tenant_id: tenantId, changed_by }. // ◄ CŨ: Gây thừa mã sinh
-          data: { ...biographyData, member_id: member.id, tenant_id: tenantId, changed_by }
+          data: { ...biographyData, member_id: member.id, tenant_id: tenantId, changed_by },
         });
         await auditService.logAction('THEM_MOI', 'biographies', bio.id, null, bio, changed_by, 'Đi kèm tạo mới thành viên', tenantId);
       }
@@ -98,10 +114,7 @@ const memberService = {
        * -------------------------------------------------------------------
        * 🔬 STEP 4: Nhật ký kiểm toán (Audit Logs) & Kiểm tra tính toàn vẹn
        * -------------------------------------------------------------------
-       * @dateTime 2026-06-16T21:21:00+07:00
        */
-      // Ghi Sổ cái biến động dữ liệu chi tiết cho hành động THEM_MOI
-      // 4. Log hành động chính
       await auditService.logAction('THEM_MOI', 'members', member.id, null, member, changed_by, change_reason, tenantId);
 
       return member;
@@ -109,15 +122,10 @@ const memberService = {
   },
 
   // =========================================================================
-  // KHỐI TIẾN TRÌNH: KIỂM TRA SỨC KHỎE DỮ LIỆU & DỰNG CÂY
+  // KHỐI TIẾN TRÌNH: KIỂM TRA SỨC KHỎE DỮ LIỆU & DỰNG CÂY (GIỮ NGUYÊN 100%)
   // =========================================================================
 
-  /**
-   * LẤY DỮ LIỆU CÂY: Bao gồm suy luận đời và kiểm tra sức khỏe dữ liệu.
-   * @param {String} branchId - ID chi họ.
-   */
   getMemberTreeData: async (branchId) => {
-    // 1. Lấy tất cả thành viên trong chi họ (Prisma tự lọc tenant_id)
     const all = await prisma.members.findMany({
       where: { 
         branch_id: branchId,
@@ -133,7 +141,6 @@ const memberService = {
       }
     });
 
-    // 2. SUY LUẬN PHẢ HỆ: Tự động tính toán generation (đời) nếu bị thiếu
     let changed = true;
     while (changed) {
       changed = false;
@@ -146,10 +153,7 @@ const memberService = {
       });
     }
 
-    // 3. KIỂM TRA SỨC KHỎE DỮ LIỆU (Data Integrity)
     const healthIssues = dataIntegrityService.checkBranchHealth(all);
-
-    // 4. DỰNG CẤU TRÚC CÂY (Tree Logic)
     const tree = memberService.buildTreeLogic(all);
 
     return {
@@ -162,22 +166,16 @@ const memberService = {
     };
   },
 
-  /**
-   * DỰNG CÂY: Chuyển danh sách phẳng thành cấu trúc lồng nhau (Nested).
-   */
   buildTreeLogic: (members) => {
     if (members.length === 0) return [];
     
-    // Sắp xếp theo đời để dựng từ gốc lên
     const sortedMembers = [...members].sort((a, b) => (a.generation || 0) - (b.generation || 0));
     const map = {};
     
-    // Tạo map và khởi tạo mảng con/phối ngẫu
     sortedMembers.forEach(m => { 
       map[m.id] = { ...m, children: [], partners: [] }; 
     });
 
-    // Xử lý quan hệ phối ngẫu (Marriages)
     sortedMembers.forEach(m => {
       const marriages = [...(m.marriages_as_husband || []), ...(m.marriages_as_wife || [])];
       marriages.forEach(rel => {
@@ -192,7 +190,6 @@ const memberService = {
       });
     });
 
-    // Xây dựng quan hệ cha-con
     const roots = [];
     sortedMembers.forEach(m => {
       const pId = m.father_id || m.mother_id;
@@ -261,8 +258,6 @@ const memberService = {
     if (!Number.isInteger(take) || take < 1) take = 20;
     if (take > 50) take = 50;
 
-    console.log('[getAllMembers]', JSON.stringify({ tenantId, where, filters, take }));
-
     return prisma.members.findMany({
       where,
       orderBy: [{ full_name: 'asc' }],
@@ -270,11 +265,6 @@ const memberService = {
     });
   },
 
-    /**
-   * GET BY ID — chi tiết 1 member trong tenant.
-   * DATETIME: 2026-08-17T19:00:00+07:00
-   * VERSION: 1.8.0-FE-OP-B1-UI2
-   */
   getMemberById: async (id, tenantId) => {
     const where = { id, deleted_at: null };
     if (tenantId) where.tenant_id = tenantId;
@@ -289,12 +279,6 @@ const memberService = {
     return member;
   },
 
-  /**
-   * UPDATE FULL MEMBER (đơn giản) — OP Base Profile + admin chỉnh sửa.
-   * Chỉ whitelist field an toàn; không đụng tree relation phức tạp.
-   * DATETIME: 2026-08-17T19:00:00+07:00
-   * VERSION: 1.8.0-FE-OP-B1-UI2
-   */
   updateFullMember: async (id, body, tenantId) => {
     const existing = await memberService.getMemberById(id, tenantId);
 
@@ -323,7 +307,6 @@ const memberService = {
       }
     }
 
-    // Chuẩn hoá số nullable
     for (const numKey of ['birth_year', 'birth_month', 'birth_day', 'generation']) {
       if (data[numKey] === '' || data[numKey] === undefined) {
         // không đụng nếu client không gửi
@@ -351,30 +334,25 @@ const memberService = {
 
     data.updated_at = new Date();
 
-      const result = await prisma.members.updateMany({
-        where: {
-          id: existing.id,
-          tenant_id: tenantId || existing.tenant_id,
-          deleted_at: null,
-        },
-        data,
-      });
+    const result = await prisma.members.updateMany({
+      where: {
+        id: existing.id,
+        tenant_id: tenantId || existing.tenant_id,
+        deleted_at: null,
+      },
+      data,
+    });
 
-      if (result.count !== 1) {
-        const err = new Error('Không cập nhật được thành viên.');
-        err.statusCode = 404;
-        err.code = 'MEMBER_NOT_FOUND';
-        throw err;
-      }
+    if (result.count !== 1) {
+      const err = new Error('Không cập nhật được thành viên.');
+      err.statusCode = 404;
+      err.code = 'MEMBER_NOT_FOUND';
+      throw err;
+    }
 
-      return memberService.getMemberById(existing.id, tenantId || existing.tenant_id);
+    return memberService.getMemberById(existing.id, tenantId || existing.tenant_id);
   },
 
-  /**
-   * DATETIME: 2026-10-27T08:39:00+07:00
-   * VERSION: 1.9.0-TEN-NHOM
-   * Lấy tên một nhóm mã. Không đổi getAll.
-   */
   getMemberNames: async (tenantId, ids) => {
     const started = Date.now();
     const list = [...new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 40);
@@ -383,14 +361,8 @@ const memberService = {
       where: { tenant_id: tenantId, deleted_at: null, id: { in: list } },
       select: { id: true, full_name: true },
     });
-    console.info('[MEMBER_NAMES_TIMING]', {
-      count: list.length,
-      found: rows.length,
-      service_ms: Date.now() - started,
-    });
     return rows;
   },
-
 };
 
 module.exports = memberService;
