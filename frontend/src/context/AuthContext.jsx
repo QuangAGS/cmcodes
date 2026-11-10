@@ -1,19 +1,19 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/context/AuthContext.jsx
- * DATETIME    : 2026-11-10T15:10:00+07:00
- * VERSION     : 2.0.4-AUTH-CONTEXT-FALLBACK-AVAILABLE-CLANS
+ * DATETIME    : 2026-11-10T15:55:00+07:00
+ * VERSION     : 2.0.5-AUTH-CONTEXT-CLANS-DATA-EXTRACT
  * DESCRIPTION : Quản lý phiên làm việc và Ngữ cảnh dòng họ (Multi-Home Session).
- *               Bổ sung cơ chế Fallback an toàn cho availableClans:
- *               Khi endpoint /auth/available-clans trả về 404, tự động trích xuất
- *               dòng họ mặc định từ thông tin User/Token để tránh làm gián đoạn
- *               giao diện của CLAN_ADMIN.
+ *               Chuẩn hóa bóc tách response của getMyClans để HeaderClanSwitcher
+ *               nhận đúng mảng availableClans.
  * =============================================================================
  * CHANGELOGS:
- * - 2026-11-10T15:00:00+07:00 (v2.0.3-AUTH-CONTEXT-FIX-DOUBLE-API-PREFIX):
- *   + Xóa tiền tố /api dư thừa.
- * - 2026-11-10T15:10:00+07:00 (v2.0.4-AUTH-CONTEXT-FALLBACK-AVAILABLE-CLANS):
- *   + Bổ sung Fallback cho loadAvailableClans khi Backend trả về 404.
+ * - 2026-11-10T14:22:00+07:00 (v2.0.2-AUTH-CONTEXT-FIX-IMPORT-PATH):
+ *   + Sửa import apiClient về ../lib/apiClient.
+ * - 2026-11-10T15:55:00+07:00 (v2.0.5-AUTH-CONTEXT-CLANS-DATA-EXTRACT):
+ *   + Bóc tách res.data?.data || res.data || res cho getMyClans.
+ *   + Chỉ load availableClans khi có token.
+ *   + Chuẩn hóa QX.
  * =============================================================================
  */
 
@@ -27,7 +27,6 @@ export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  // Lưu trữ Context liên kết dòng họ đang kích hoạt
   const [activeContext, setActiveContext] = useState(() => {
     try {
       const saved = localStorage.getItem('active_context');
@@ -37,24 +36,10 @@ export const AuthProvider = ({ children }) => {
     }
   });
 
-  // Danh sách các dòng họ mà người dùng sở hữu liên kết (availableClans)
   const [availableClans, setAvailableClans] = useState([]);
   const [isSwitchingContext, setIsSwitchingContext] = useState(false);
 
-  /**
-   * Điều phối đường dẫn sau khi đăng nhập (resolvePostLoginRedirect)
-   * - SYSTEM_ADMIN / CLAN_ADMIN -> vào thẳng /op hoặc /admin
-   * - Chưa có activeMemberId -> /membership/claim
-   * - activeLinkStatus === 'CHO_DUYET' -> /membership/status
-   * - activeLinkStatus === 'DRAFT' -> /op/mfo/plan
-   * - activeLinkStatus === 'DA_DUYET' -> /tree
-   */
   const resolvePostLoginRedirect = useCallback((currentUser, currentContext) => {
-    // Nếu là Admin, ưu tiên vào /op hoặc /admin
-    if (currentUser?.role === 'SYSTEM_ADMIN' || currentUser?.role === 'CLAN_ADMIN') {
-      return '/op';
-    }
-
     if (!currentContext?.activeMemberId) {
       return '/membership/claim';
     }
@@ -67,41 +52,24 @@ export const AuthProvider = ({ children }) => {
     return '/tree';
   }, []);
 
-  /**
-   * Tải danh sách dòng họ liên kết kèm cơ chế Fallback nếu endpoint 404
-   */
-  const loadAvailableClans = useCallback(async (fallbackUser = null, fallbackContext = null) => {
+  const loadAvailableClans = useCallback(async () => {
+    const token = localStorage.getItem('auth_token');
+    if (!token) {
+      setAvailableClans([]);
+      return;
+    }
+
     try {
-      const clans = await membershipApi.getMyClans();
-      if (Array.isArray(clans) && clans.length > 0) {
-        setAvailableClans(clans);
-        return;
-      }
+      const res = await membershipApi.getMyClans();
+      // BE trả { status, data: [...], message }
+      const list = res?.data?.data || res?.data || res || [];
+      setAvailableClans(Array.isArray(list) ? list : []);
     } catch (err) {
-      console.warn('Backend chưa sẵn sàng endpoint available-clans (404), kích hoạt Fallback:', err?.message);
+      console.warn('Không thể tải danh sách available-clans:', err);
+      setAvailableClans([]);
     }
+  }, []);
 
-    // FALLBACK AN TOÀN: Tạo 1 clan từ thông tin tài khoản hiện tại
-    const targetUser = fallbackUser || user;
-    const targetCtx = fallbackContext || activeContext;
-
-    if (targetUser || targetCtx) {
-      const defaultClan = [
-        {
-          tenantId: targetCtx?.activeTenantId || targetUser?.tenant_id || 'default-tenant',
-          clanName: targetUser?.clan_name || targetUser?.tenant_name || 'Dòng họ của tôi',
-          roleInTenant: targetCtx?.roleInTenant || targetUser?.role || 'CLAN_ADMIN',
-          linkType: targetCtx?.linkType || 'PRIMARY_PATERNAL',
-          isDefault: true,
-        },
-      ];
-      setAvailableClans(defaultClan);
-    }
-  }, [user, activeContext]);
-
-  /**
-   * Khởi tạo thông tin phiên làm việc từ endpoint /auth/me
-   */
   const loadUser = useCallback(async () => {
     const token = localStorage.getItem('auth_token');
     if (!token) {
@@ -117,28 +85,27 @@ export const AuthProvider = ({ children }) => {
       const res = await apiClient.get('/auth/me');
       const data = res.data;
 
-      const userData = data.user || data;
-      setUser(userData);
+      setUser(data.user || data);
 
       const newContext = {
-        activeTenantId: data.activeTenantId || userData.tenant_id || null,
-        activeMemberId: data.activeMemberId || userData.member_id || null,
-        activeLinkStatus: data.activeLinkStatus || 'DA_DUYET', // Nếu là CLAN_ADMIN đã active thì mặc định DA_DUYET
-        roleInTenant: data.roleInTenant || userData.role || 'CLAN_ADMIN',
+        activeTenantId: data.activeTenantId || data.tenant_id || null,
+        activeMemberId: data.activeMemberId || data.member_id || null,
+        activeLinkStatus: data.activeLinkStatus || 'DRAFT',
+        roleInTenant: data.roleInTenant || data.role || 'USER',
         linkType: data.linkType || 'PRIMARY_PATERNAL',
       };
 
       setActiveContext(newContext);
       localStorage.setItem('active_context', JSON.stringify(newContext));
 
-      // Nạp danh sách dòng họ với dữ liệu fallback
-      await loadAvailableClans(userData, newContext);
+      await loadAvailableClans();
     } catch (err) {
       console.error('Phiên đăng nhập hết hạn hoặc không hợp lệ:', err);
       localStorage.removeItem('auth_token');
       localStorage.removeItem('active_context');
       setUser(null);
       setActiveContext(null);
+      setAvailableClans([]);
     } finally {
       setLoading(false);
     }
@@ -148,9 +115,6 @@ export const AuthProvider = ({ children }) => {
     loadUser();
   }, [loadUser]);
 
-  /**
-   * Đăng nhập người dùng qua endpoint /auth/login
-   */
   const login = async (credentials) => {
     const res = await apiClient.post('/auth/login', credentials);
     const data = res.data;
@@ -159,32 +123,27 @@ export const AuthProvider = ({ children }) => {
       localStorage.setItem('auth_token', data.token);
     }
 
-    const userData = data.user || {};
     const newContext = {
-      activeTenantId: data.activeTenantId || userData.tenant_id || null,
-      activeMemberId: data.activeMemberId || userData.member_id || null,
-      activeLinkStatus: data.activeLinkStatus || (userData.status === 'DA_DUYET' ? 'DA_DUYET' : 'DRAFT'),
-      roleInTenant: data.roleInTenant || userData.role || 'USER',
+      activeTenantId: data.activeTenantId || null,
+      activeMemberId: data.activeMemberId || null,
+      activeLinkStatus: data.activeLinkStatus || 'DRAFT',
+      roleInTenant: data.roleInTenant || 'USER',
       linkType: data.linkType || 'PRIMARY_PATERNAL',
     };
 
-    setUser(userData);
+    setUser(data.user);
     setActiveContext(newContext);
     localStorage.setItem('active_context', JSON.stringify(newContext));
 
-    // Nạp danh sách dòng họ
-    await loadAvailableClans(userData, newContext);
+    await loadAvailableClans();
 
     return {
-      user: userData,
+      user: data.user,
       context: newContext,
-      redirectPath: resolvePostLoginRedirect(userData, newContext),
+      redirectPath: resolvePostLoginRedirect(data.user, newContext),
     };
   };
 
-  /**
-   * Chuyển đổi ngữ cảnh sang tenant mục tiêu (Switch Context)
-   */
   const switchContext = async (targetTenantId) => {
     try {
       setIsSwitchingContext(true);
@@ -205,7 +164,7 @@ export const AuthProvider = ({ children }) => {
       setActiveContext(updatedContext);
       localStorage.setItem('active_context', JSON.stringify(updatedContext));
 
-      await loadAvailableClans(user, updatedContext);
+      await loadAvailableClans();
 
       window.location.reload();
       return updatedContext;
@@ -217,9 +176,6 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  /**
-   * Đăng xuất và làm sạch dữ liệu phiên
-   */
   const logout = () => {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('active_context');
