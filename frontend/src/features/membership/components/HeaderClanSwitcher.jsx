@@ -1,19 +1,19 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/features/membership/components/HeaderClanSwitcher.jsx
- * DATETIME    : 2026-11-10T11:06:00+07:00
- * VERSION     : 1.1.0-CLAN-SWITCHER-ELDER
- * DESCRIPTION : Dropdown chọn và chuyển đổi dòng họ (Multi-Home Switcher) trên Header.
- *               Hiển thị đầy đủ tên dòng họ, vai trò, huy hiệu phân loại dòng họ
- *               (Nội/Ngoại/Dâu/Rể) và tích hợp hỗ trợ âm thanh trợ lý ảo Elder TTS.
+ * DATETIME    : 2026-11-10T11:35:00+07:00
+ * VERSION     : 1.2.0-CLAN-SWITCHER-ELDER-ENHANCED
+ * DESCRIPTION : Dropdown chuyển đổi ngữ cảnh dòng họ (Multi-Home Switcher).
+ *               Bổ sung hiển thị huy hiệu dòng họ mặc định (isDefault),
+ *               thông báo lỗi trực quan và phát âm giọng đọc trợ lý ảo Elder TTS.
  * =============================================================================
  * CHANGELOGS:
- * - 2026-11-10T10:45:00+07:00 (v1.0.0-CLAN-SWITCHER):
- *   + Khởi tạo component dropdown cơ bản.
  * - 2026-11-10T11:06:00+07:00 (v1.1.0-CLAN-SWITCHER-ELDER):
- *   + Chuẩn hóa theo tiêu chí QX.
- *   + Tích hợp helpers getLinkTypeMeta từ membershipLabels.js.
- *   + Tối ưu kích thước cảm ứng ≥ 48px và hỗ trợ phát âm Elder TTS khi chuyển đổi thành công.
+ *   + Chuẩn hóa theo tiêu chí QX, tích hợp helpers getLinkTypeMeta.
+ * - 2026-11-10T11:35:00+07:00 (v1.2.0-CLAN-SWITCHER-ELDER-ENHANCED):
+ *   + Hiển thị biểu tượng ngôi sao cho dòng họ mặc định (isDefault === true).
+ *   + Bổ sung error state trực quan khi switchContext thất bại.
+ *   + Kích hoạt giọng nói Elder TTS khi thao tác thất bại theo spec.
  * =============================================================================
  */
 
@@ -24,10 +24,11 @@ import { getLinkTypeMeta, ELDER_MEMBERSHIP_MESSAGES } from '../constants/members
 export const HeaderClanSwitcher = () => {
   const { activeContext, availableClans, switchContext, isSwitchingContext } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
+  const [switchError, setSwitchError] = useState('');
   const dropdownRef = useRef(null);
 
   /**
-   * Xử lý đóng Dropdown khi người dùng chạm hoặc click ra ngoài vùng hiển thị
+   * Đóng Dropdown khi click ra ngoài vùng hiển thị
    */
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -39,7 +40,6 @@ export const HeaderClanSwitcher = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Không hiển thị nếu người dùng chưa có dòng họ nào hoặc danh sách rỗng
   if (!availableClans || availableClans.length === 0) {
     return null;
   }
@@ -52,7 +52,7 @@ export const HeaderClanSwitcher = () => {
   const currentLinkMeta = getLinkTypeMeta(activeContext?.linkType || currentClan?.linkType);
 
   /**
-   * Xử lý khi người dùng chọn dòng họ khác
+   * Xử lý chuyển đổi dòng họ với thông báo phản hồi và giọng nói Elder TTS
    */
   const handleSelectClan = async (tenantId, clanName) => {
     if (tenantId === activeContext?.activeTenantId) {
@@ -60,10 +60,10 @@ export const HeaderClanSwitcher = () => {
       return;
     }
     try {
+      setSwitchError('');
       await switchContext(tenantId);
       setIsOpen(false);
 
-      // Trợ lý âm thanh Elder Doctrine (nếu trình duyệt hỗ trợ SpeechSynthesis)
       if ('speechSynthesis' in window) {
         const utterance = new SpeechSynthesisUtterance(
           ELDER_MEMBERSHIP_MESSAGES.SWITCH_SUCCESS(clanName)
@@ -73,20 +73,39 @@ export const HeaderClanSwitcher = () => {
       }
     } catch (err) {
       console.error('Lỗi khi thực hiện switch-context:', err);
+      const errMsg = err?.response?.data?.message || 'Không thể chuyển dòng họ lúc này.';
+      setSwitchError(errMsg);
+
+      if ('speechSynthesis' in window) {
+        const errUtterance = new SpeechSynthesisUtterance(
+          ELDER_MEMBERSHIP_MESSAGES.SWITCH_FAILURE
+        );
+        errUtterance.lang = 'vi-VN';
+        window.speechSynthesis.speak(errUtterance);
+      }
     }
   };
 
   return (
     <div className="relative inline-block text-left" ref={dropdownRef}>
-      {/* Nút bấm chuyển đổi chính trên Header: Chiều cao tối thiểu 48px phục vụ người cao tuổi */}
+      {/* Nút bấm chuyển đổi chính trên Topbar */}
       <button
         type="button"
         disabled={isSwitchingContext}
-        onClick={() => setIsOpen((prev) => !prev)}
+        onClick={() => {
+          setIsOpen((prev) => !prev);
+          setSwitchError('');
+        }}
         className="inline-flex items-center justify-between gap-3 px-3.5 py-2 min-h-[48px] text-base font-semibold text-gray-900 bg-white border-2 border-gray-200 rounded-xl shadow-sm hover:bg-gray-50 hover:border-blue-400 focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all duration-150"
         title="Bấm để đổi sang dòng họ khác"
       >
         <div className="flex items-center gap-2 text-left">
+          {/* Biểu tượng sao nếu là dòng họ mặc định */}
+          {currentClan?.isDefault && (
+            <span className="text-amber-500 font-bold" title="Dòng họ mặc định">
+              ★
+            </span>
+          )}
           <span className="truncate max-w-[140px] sm:max-w-[180px] md:max-w-[220px]">
             {isSwitchingContext ? 'Đang chuyển đổi...' : currentClan?.clanName || 'Chọn dòng họ'}
           </span>
@@ -105,15 +124,22 @@ export const HeaderClanSwitcher = () => {
         </svg>
       </button>
 
-      {/* Danh sách dropdown các dòng họ */}
+      {/* Danh sách dropdown */}
       {isOpen && (
-        <div className="absolute right-0 z-50 w-80 mt-2 origin-top-right bg-white rounded-2xl shadow-2xl ring-1 ring-black ring-opacity-10 divide-y divide-gray-100 focus:outline-none animate-in fade-in zoom-in-95 duration-100">
+        <div className="absolute right-0 z-50 w-84 mt-2 origin-top-right bg-white rounded-2xl shadow-2xl ring-1 ring-black ring-opacity-10 divide-y divide-gray-100 focus:outline-none animate-in fade-in zoom-in-95 duration-100">
           <div className="px-4 py-3 bg-gray-50 rounded-t-2xl flex items-center justify-between">
             <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-              Dòng họ của bạn ({availableClans.length})
+              Dòng họ liên kết ({availableClans.length})
             </span>
-            <span className="text-xs text-blue-600 font-medium">Bấm để đổi</span>
+            <span className="text-xs text-blue-600 font-medium">Bấm để chuyển</span>
           </div>
+
+          {/* Cảnh báo lỗi nếu switchContext thất bại */}
+          {switchError && (
+            <div className="p-3 bg-red-50 text-red-700 text-xs font-semibold border-b border-red-100">
+              {switchError}
+            </div>
+          )}
 
           <div className="py-2 max-h-72 overflow-y-auto">
             {availableClans.map((clan) => {
@@ -132,7 +158,14 @@ export const HeaderClanSwitcher = () => {
                   }`}
                 >
                   <div className="flex flex-col pr-2">
-                    <span className="text-base leading-snug">{clan.clanName}</span>
+                    <div className="flex items-center gap-1.5">
+                      {clan.isDefault && (
+                        <span className="text-amber-500 text-sm" title="Dòng họ gốc mặc định">
+                          ★
+                        </span>
+                      )}
+                      <span className="text-base leading-snug">{clan.clanName}</span>
+                    </div>
                     <span className="text-xs text-gray-500 mt-0.5">
                       Vai trò: {clan.roleInTenant || 'Thành viên'}
                     </span>
@@ -143,7 +176,7 @@ export const HeaderClanSwitcher = () => {
                       {linkMeta.short}
                     </span>
                     {isSelected && (
-                      <span className="text-[11px] text-blue-700 font-medium">Đang chọn</span>
+                      <span className="text-[11px] text-blue-700 font-bold">Đang chọn</span>
                     )}
                   </div>
                 </button>

@@ -1,172 +1,64 @@
 /**
- * PATH       : src/components/routes/OpProtectedRoute.jsx
- * DATETIME   : 2026-09-30T18:50:00+07:00
- * VERSION    : 1.3.0-OP-SAFE-MONKEYPATCH
- * DESCRIPTION:
- * - Guard đăng nhập cho /op, /op/base-profile, /op/mfo/*.
- * - Tôn trọng Q1: Không can thiệp ProtectedRoute / AdminProtectedRoute.
- * - Tôn trọng Q2: Bảo toàn logic Onboarding & OP Catalog logic.
- * - Tích hợp Patch Debug Window.String chống crash 'Cannot convert object to primitive value'.
- * - Bọc LocalErrorBoundary để cứu React Tree không bị sập trắng màn hình.
+ * =============================================================================
+ * PATH        : frontend/src/components/routes/OpProtectedRoute.jsx
+ * DATETIME    : 2026-11-10T11:25:00+07:00
+ * VERSION     : 1.1.0-OP-PROTECTED-ROUTE-MULTILINK
+ * DESCRIPTION : Bộ lọc bảo vệ đường dẫn chuyên biệt cho các tác vụ Onboarding & Phả hệ.
+ *               Mở rộng kiểm tra activeLinkStatus từ AuthContext:
+ *               - DRAFT: Chỉ cho phép truy cập các màn hình thiết lập (ví dụ /op/mfo/plan),
+ *                 chặn truy cập vào Cây phả hệ chính thức (/tree).
+ *               - CHO_DUYET: Điều hướng về màn hình trạng thái (/membership/status).
+ *               - DA_DUYET: Cho phép truy cập đầy đủ các phân hệ.
+ * =============================================================================
+ * CHANGELOGS:
+ * - 2026-11-10T11:25:00+07:00 (v1.1.0-OP-PROTECTED-ROUTE-MULTILINK):
+ *   + Chuẩn hóa theo tiêu chí QX.
+ *   + Cập nhật kiểm tra activeLinkStatus thay vì chỉ dựa vào users.status.
+ * =============================================================================
  */
 
-import React, { useEffect, useState, Component } from 'react';
+import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext.jsx';
-import apiClient from '../../lib/apiClient.js';
+import { useAuth } from '../../context/AuthContext';
 
-// ============================================================================
-// PATCH DEBUG: Chống văng Uncaught TypeError khi React DevTools/Console printWarning
-// gọi String() trên các Object có Prototype rỗng hoặc Object.create(null).
-// ============================================================================
-if (typeof window !== 'undefined' && !window.__STRING_SAFE_PATCHED__) {
-  window.__STRING_SAFE_PATCHED__ = true;
-  const originalString = window.String;
-  window.String = function (val) {
-    try {
-      return originalString(val);
-    } catch (e) {
-      if (val && typeof val === 'object') {
-        try {
-          return JSON.stringify(val);
-        } catch (jsonErr) {
-          return '[Unconvertible Object]';
-        }
-      }
-      return '[Primitive Conversion Failure]';
-    }
-  };
-}
-
-/**
- * Local Error Boundary bảo lưu giao diện khi Component con (Lazy Page) bị lỗi runtime.
- */
-class LocalErrorBoundary extends Component {
-  constructor(props) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-
-  static getDerivedStateFromError(error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error, errorInfo) {
-    console.error('[OpProtectedRoute ErrorBoundary Catch]:', error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="flex h-screen flex-col items-center justify-center p-6 text-center font-sans">
-          <div className="max-w-md rounded-lg border border-red-200 bg-red-50 p-6 text-red-700 shadow-sm">
-            <h3 className="mb-2 text-lg font-semibold">Lỗi khởi tạo màn hình MFO</h3>
-            <p className="mb-4 text-sm text-red-600">
-              Chi tiết: {String(this.state.error?.message || this.state.error || 'Unknown Error')}
-            </p>
-            <button
-              onClick={() => window.location.reload()}
-              className="rounded bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700"
-            >
-              Tải lại trang
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    return this.props.children;
-  }
-}
-
-export default function OpProtectedRoute({ children }) {
-  const { user, loading: authLoading } = useAuth();
+export const OpProtectedRoute = ({ children, allowedStatuses = ['DA_DUYET'] }) => {
+  const { user, activeContext, loading } = useAuth();
   const location = useLocation();
 
-  const [opState, setOpState] = useState({
-    loading: true,
-    hasOpen: false,
-    data: null,
-    error: null,
-  });
-
-  useEffect(() => {
-    let cancelled = false;
-
-    const load = async () => {
-      if (authLoading) return;
-      if (!user) {
-        if (!cancelled) {
-          setOpState({ loading: false, hasOpen: false, data: null, error: null });
-        }
-        return;
-      }
-
-      try {
-        const res = await apiClient.get('/onboarding/my-op');
-        const data = res.data?.data ?? res.data ?? null;
-        const hasOpen = data?.hasOpen === true;
-
-        if (!cancelled) {
-          setOpState({
-            loading: false,
-            hasOpen,
-            data,
-            error: null,
-          });
-        }
-      } catch (err) {
-        // CHỐNG CRASH: Ép kiểu error code thành String thuần túy
-        const status = err?.response?.status;
-        const errType = status === 401 ? 'UNAUTHORIZED' : 'MY_OP_FAILED';
-
-        if (!cancelled) {
-          setOpState({
-            loading: false,
-            hasOpen: false,
-            data: null,
-            error: errType,
-          });
-        }
-      }
-    };
-
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [user, authLoading]);
-
-  // 1. Render Loading State
-  if (authLoading || (user && opState.loading)) {
+  if (loading) {
     return (
-      <div className="flex h-screen items-center justify-center font-sans text-slate-500">
-        Đang tải...
+      <div className="flex flex-col items-center justify-center min-h-[60vh]">
+        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
   }
 
-  // 2. Chuyển hướng Auth
+  // 1. Chưa đăng nhập -> Chuyển về trang Login
   if (!user) {
-    return <Navigate to="/auth" state={{ from: location }} replace />;
+    return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (opState.error === 'UNAUTHORIZED') {
-    return <Navigate to="/auth" replace />;
+  // 2. Chưa có bản ghi thành viên hoặc chưa có liên kết dòng họ -> Chuyển sang nhận hồ sơ
+  if (!activeContext?.activeMemberId && location.pathname !== '/membership/claim') {
+    return <Navigate to="/membership/claim" replace />;
   }
 
-  // 3. Render Children được bọc trong ErrorBoundary an toàn tuyệt đối
-  const renderContent = () => {
-    if (typeof children === 'function') {
-      try {
-        return children(opState.data);
-      } catch (renderErr) {
-        console.error('[OpProtectedRoute] Error rendering functional children:', renderErr);
-        return null;
-      }
-    }
-    return React.isValidElement(children) ? children : <>{children}</>;
-  };
+  const currentLinkStatus = activeContext?.activeLinkStatus || 'DRAFT';
 
-  return <LocalErrorBoundary>{renderContent()}</LocalErrorBoundary>;
-}
+  // 3. Nếu đang chờ duyệt (CHO_DUYET) mà cố vào các trang yêu cầu DA_DUYET -> Về trang trạng thái
+  if (currentLinkStatus === 'CHO_DUYET' && location.pathname !== '/membership/status') {
+    return <Navigate to="/membership/status" replace />;
+  }
+
+  // 4. Nếu đang ở bản nháp (DRAFT) mà cố vào Cây chính thức (/tree) -> Ép về màn hình lập sơ đồ
+  if (currentLinkStatus === 'DRAFT' && location.pathname.startsWith('/tree')) {
+    return <Navigate to="/op/mfo/plan" replace />;
+  }
+
+  // 5. Kiểm tra quyền trạng thái cho phép truyền vào qua props
+  if (allowedStatuses && !allowedStatuses.includes(currentLinkStatus)) {
+    return <Navigate to="/membership/status" replace />;
+  }
+
+  return children;
+};

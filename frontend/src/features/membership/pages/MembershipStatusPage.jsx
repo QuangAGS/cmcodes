@@ -1,26 +1,25 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/features/membership/pages/MembershipStatusPage.jsx
- * DATETIME    : 2026-11-10T11:07:00+07:00
- * VERSION     : 1.0.0-MEMBERSHIP-STATUS-CYCLIC
+ * DATETIME    : 2026-11-10T11:38:00+07:00
+ * VERSION     : 1.1.0-MEMBERSHIP-STATUS-ELDER-TTS
  * DESCRIPTION : Màn hình hiển thị trạng thái duyệt hồ sơ Onboarding / Membership.
- *               Hiện thực hóa toàn diện Cyclic State Machine theo chuẩn AMEND-RP-OP-2026-01-V1.1:
- *               - CHO_DUYET: Đang chờ Hội đồng gia tộc đối soát.
- *               - NEEDS_REVISION: Cho phép bấm nút "Bổ sung thông tin" chuyển sang form sửa.
- *               - TU_CHOI (Soft Rejection): Thông báo từ chối kèm nút "Nộp lại hồ sơ mới".
- *               - TU_CHOI_LAN_CUOI (Terminal Hard-lock): Khóa vĩnh viễn, chặn mọi tương tác.
+ *               Bổ sung trợ lý âm thanh đọc lời nhắn Ban quản trị khi NEEDS_REVISION,
+ *               và điều hướng chuẩn mực theo route của hệ thống.
  * =============================================================================
  * CHANGELOGS:
  * - 2026-11-10T11:07:00+07:00 (v1.0.0-MEMBERSHIP-STATUS-CYCLIC):
  *   + Khởi tạo mới theo quy chuẩn QX.
- *   + Đáp ứng đầy đủ các ca kiểm thử tích hợp Backend SMOKE-3.1 đến SMOKE-3.4.
+ * - 2026-11-10T11:38:00+07:00 (v1.1.0-MEMBERSHIP-STATUS-ELDER-TTS):
+ *   + Tích hợp Elder TTS tự động phát âm thông điệp khi hồ sơ cần bổ sung (NEEDS_REVISION).
+ *   + Cập nhật route quay lại '/op' thay vì hardcode '/profile'.
  * =============================================================================
  */
 
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { membershipApi } from '../api/membershipApi';
-import { getLinkStatusMeta } from '../constants/membershipLabels';
+import { getLinkStatusMeta, ELDER_MEMBERSHIP_MESSAGES } from '../constants/membershipLabels';
 
 export const MembershipStatusPage = () => {
   const navigate = useNavigate();
@@ -30,7 +29,7 @@ export const MembershipStatusPage = () => {
   const [isReopening, setIsReopening] = useState(false);
 
   /**
-   * Tải thông tin trạng thái hồ sơ hiện tại từ Backend
+   * Tải trạng thái và kích hoạt giọng nói Elder TTS nếu cần
    */
   const loadStatus = async () => {
     try {
@@ -38,6 +37,15 @@ export const MembershipStatusPage = () => {
       setError(null);
       const data = await membershipApi.getMembershipStatus();
       setStatusData(data);
+
+      // Kích hoạt giọng nói hỗ trợ nếu trạng thái là NEEDS_REVISION
+      if (data?.status === 'NEEDS_REVISION' && 'speechSynthesis' in window) {
+        const utterance = new SpeechSynthesisUtterance(
+          ELDER_MEMBERSHIP_MESSAGES.REVISION_PROMPT
+        );
+        utterance.lang = 'vi-VN';
+        window.speechSynthesis.speak(utterance);
+      }
     } catch (err) {
       console.error('Lỗi khi tải trạng thái hồ sơ:', err);
       setError(err?.response?.data?.message || 'Không thể tải thông tin trạng thái hồ sơ.');
@@ -50,9 +58,6 @@ export const MembershipStatusPage = () => {
     loadStatus();
   }, []);
 
-  /**
-   * Xử lý trường hợp mở lại hồ sơ khi bị từ chối mềm (Soft Rejection)
-   */
   const handleReopen = async () => {
     if (!statusData?.userId) return;
     try {
@@ -96,7 +101,6 @@ export const MembershipStatusPage = () => {
     );
   }
 
-  // Xác định mã trạng thái chuẩn: Nếu có cờ isFinalRejection = true -> Ép về TU_CHOI_LAN_CUOI
   const currentStatusCode = statusData?.isFinalRejection
     ? 'TU_CHOI_LAN_CUOI'
     : statusData?.status || 'CHO_DUYET';
@@ -105,7 +109,6 @@ export const MembershipStatusPage = () => {
 
   return (
     <div className="max-w-2xl mx-auto my-10 p-6 sm:p-8 bg-white border border-gray-200 rounded-3xl shadow-lg">
-      {/* Header trạng thái */}
       <div className="text-center pb-6 border-b border-gray-100">
         <span className="text-sm font-semibold uppercase tracking-wider text-gray-500">
           Tiến trình hồ sơ gia nhập dòng họ
@@ -120,13 +123,11 @@ export const MembershipStatusPage = () => {
         </div>
       </div>
 
-      {/* Nội dung chi tiết trạng thái */}
       <div className="py-6 space-y-4">
         <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100 text-base text-gray-700 leading-relaxed">
           {statusMeta.message}
         </div>
 
-        {/* Khối hiển thị lý do / Lời nhắn yêu cầu bổ sung (NEEDS_REVISION) */}
         {currentStatusCode === 'NEEDS_REVISION' && statusData?.revisionRequest && (
           <div className="p-5 bg-amber-50 border-2 border-amber-300 rounded-2xl">
             <h3 className="text-base font-bold text-amber-900 flex items-center gap-2">
@@ -141,7 +142,6 @@ export const MembershipStatusPage = () => {
           </div>
         )}
 
-        {/* Khối hiển thị lý do từ chối (TU_CHOI hoặc TU_CHOI_LAN_CUOI) */}
         {(currentStatusCode === 'TU_CHOI' || currentStatusCode === 'TU_CHOI_LAN_CUOI') && statusData?.reviewNote && (
           <div className="p-5 bg-red-50 border border-red-200 rounded-2xl">
             <h3 className="text-base font-bold text-red-900">Lý do từ chối:</h3>
@@ -149,15 +149,13 @@ export const MembershipStatusPage = () => {
           </div>
         )}
 
-        {/* Thông tin mốc thời gian */}
         <div className="text-xs text-gray-500 text-center pt-2">
           Hồ sơ nộp ngày: {statusData?.submittedAt ? new Date(statusData.submittedAt).toLocaleDateString('vi-VN') : 'Mới cập nhật'}
         </div>
       </div>
 
-      {/* Khu vực nút hành động (Action Buttons) theo State Machine */}
       <div className="pt-6 border-t border-gray-100 flex flex-col gap-3">
-        {/* 1. Nhánh NEEDS_REVISION: Mở form chỉnh sửa bổ sung thông tin */}
+        {/* Điều hướng sang form Revision truyền kèm caseId */}
         {currentStatusCode === 'NEEDS_REVISION' && (
           <button
             type="button"
@@ -168,7 +166,6 @@ export const MembershipStatusPage = () => {
           </button>
         )}
 
-        {/* 2. Nhánh TU_CHOI mềm: Cho phép Reopen nộp hồ sơ mới */}
         {currentStatusCode === 'TU_CHOI' && (
           <button
             type="button"
@@ -180,20 +177,18 @@ export const MembershipStatusPage = () => {
           </button>
         )}
 
-        {/* 3. Nhánh TU_CHOI_LAN_CUOI (Terminal Hard-lock): Khóa cứng */}
         {currentStatusCode === 'TU_CHOI_LAN_CUOI' && (
           <div className="p-4 bg-gray-100 rounded-2xl text-center text-sm font-semibold text-gray-700">
             Hồ sơ đã đóng vĩnh viễn. Vui lòng liên hệ trực tiếp Ban liên lạc dòng họ nếu có thắc mắc.
           </div>
         )}
 
-        {/* Nút quay lại trang cá nhân */}
         <button
           type="button"
-          onClick={() => navigate('/profile')}
+          onClick={() => navigate('/op')}
           className="w-full py-3 px-6 min-h-[48px] bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold rounded-2xl transition-all"
         >
-          Về trang cá nhân
+          Về Cổng tác nghiệp (/op)
         </button>
       </div>
     </div>
