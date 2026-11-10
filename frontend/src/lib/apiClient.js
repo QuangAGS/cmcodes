@@ -25,13 +25,14 @@ const apiClient = axios.create({
 
 apiClient.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem('token');
+    const token =
+      localStorage.getItem('auth_token') ||
+      localStorage.getItem('token');
 
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
 
-    /* Logo tenant + avatar /me: không ép application/json lên multipart */
     if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
       if (config.headers && typeof config.headers.delete === 'function') {
         config.headers.delete('Content-Type');
@@ -56,12 +57,15 @@ apiClient.interceptors.response.use(
   (error) => {
     const status = error.response?.status;
     if (status === 401) {
-      // Dọn dẹp phiên làm việc hết hạn
+      localStorage.removeItem('auth_token');
       localStorage.removeItem('token');
+      localStorage.removeItem('active_context');
       localStorage.removeItem('tenantId');
-      
-      // Chuyển hướng người dùng về màn hình xác thực nếu không ở trang login
-      if (!window.location.pathname.includes('/auth') && !window.location.pathname.includes('/login')) {
+
+      if (
+        !window.location.pathname.includes('/auth') &&
+        !window.location.pathname.includes('/login')
+      ) {
         window.location.href = '/auth?mode=login';
       }
     }

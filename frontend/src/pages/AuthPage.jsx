@@ -129,6 +129,11 @@ export default function AuthPage() {
       const user = result?.user || result;
       const redirectPath = result?.redirectPath;
 
+      // ===== LOG TẠM ĐỂ XÁC NHẬN =====
+      console.log('[LOGIN RESULT]', result);
+      console.log('[REDIRECT TO]', redirectPath || '(fallback)');
+      // ================================
+
       if (user) {
         if (user.status === 'CHO_DUYET' && !redirectPath) {
           const pendingMessage = 'Hồ sơ của bác đang chờ Ban Quản trị phê duyệt.';

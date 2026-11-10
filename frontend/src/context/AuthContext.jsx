@@ -1,18 +1,19 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/context/AuthContext.jsx
- * DATETIME    : 2026-11-10T15:55:00+07:00
- * VERSION     : 2.0.5-AUTH-CONTEXT-CLANS-DATA-EXTRACT
+ * DATETIME    : 2026-11-10T19:55:00+07:00
+ * VERSION     : 2.0.7-AUTH-CONTEXT-LOGIN-PAYLOAD-AND-OP-REDIRECT
  * DESCRIPTION : Quản lý phiên làm việc và Ngữ cảnh dòng họ (Multi-Home Session).
- *               Chuẩn hóa bóc tách response của getMyClans để HeaderClanSwitcher
- *               nhận đúng mảng availableClans.
+ *               Bóc đúng tầng response login của BE (data.data.user).
+ *               DA_DUYET redirect về /op.
  * =============================================================================
  * CHANGELOGS:
- * - 2026-11-10T14:22:00+07:00 (v2.0.2-AUTH-CONTEXT-FIX-IMPORT-PATH):
- *   + Sửa import apiClient về ../lib/apiClient.
- * - 2026-11-10T15:55:00+07:00 (v2.0.5-AUTH-CONTEXT-CLANS-DATA-EXTRACT):
- *   + Bóc tách res.data?.data || res.data || res cho getMyClans.
- *   + Chỉ load availableClans khi có token.
+ * - 2026-11-10T19:45:00+07:00 (v2.0.6-AUTH-CONTEXT-USER-SHAPE-SAFE):
+ *   + setUser an toàn với shape phẳng.
+ * - 2026-11-10T19:55:00+07:00 (v2.0.7-AUTH-CONTEXT-LOGIN-PAYLOAD-AND-OP-REDIRECT):
+ *   + login: bóc payload = res.data?.data || res.data; user = payload.user.
+ *   + Context lấy activeMemberId / activeLinkStatus từ user.
+ *   + DA_DUYET → /op (thay vì /tree).
  *   + Chuẩn hóa QX.
  * =============================================================================
  */
@@ -39,6 +40,13 @@ export const AuthProvider = ({ children }) => {
   const [availableClans, setAvailableClans] = useState([]);
   const [isSwitchingContext, setIsSwitchingContext] = useState(false);
 
+  /**
+   * Điều phối đường dẫn sau login.
+   * - Không có activeMemberId → /membership/claim
+   * - CHO_DUYET → /membership/status
+   * - DRAFT → /op/mfo/plan
+   * - DA_DUYET → /op
+   */
   const resolvePostLoginRedirect = useCallback((currentUser, currentContext) => {
     if (!currentContext?.activeMemberId) {
       return '/membership/claim';
@@ -49,7 +57,8 @@ export const AuthProvider = ({ children }) => {
     if (currentContext?.activeLinkStatus === 'DRAFT') {
       return '/op/mfo/plan';
     }
-    return '/tree';
+    // DA_DUYET (và các trạng thái đã gắn member khác)
+    return '/op';
   }, []);
 
   const loadAvailableClans = useCallback(async () => {
@@ -61,7 +70,6 @@ export const AuthProvider = ({ children }) => {
 
     try {
       const res = await membershipApi.getMyClans();
-      // BE trả { status, data: [...], message }
       const list = res?.data?.data || res?.data || res || [];
       setAvailableClans(Array.isArray(list) ? list : []);
     } catch (err) {
@@ -83,16 +91,18 @@ export const AuthProvider = ({ children }) => {
     try {
       setLoading(true);
       const res = await apiClient.get('/auth/me');
-      const data = res.data;
+      const data = res.data?.data || res.data;
+      const userObj = data.user || data;
 
-      setUser(data.user || data);
+      setUser(userObj);
 
       const newContext = {
-        activeTenantId: data.activeTenantId || data.tenant_id || null,
-        activeMemberId: data.activeMemberId || data.member_id || null,
-        activeLinkStatus: data.activeLinkStatus || 'DRAFT',
-        roleInTenant: data.roleInTenant || data.role || 'USER',
-        linkType: data.linkType || 'PRIMARY_PATERNAL',
+        activeTenantId: userObj.activeTenantId || userObj.tenantId || userObj.tenant_id || null,
+        activeMemberId: userObj.activeMemberId || userObj.member_id || null,
+        activeLinkStatus: userObj.activeLinkStatus
+          || (userObj.status === 'DA_DUYET' ? 'DA_DUYET' : 'DRAFT'),
+        roleInTenant: userObj.role || 'USER',
+        linkType: userObj.linkType || 'PRIMARY_PATERNAL',
       };
 
       setActiveContext(newContext);
@@ -117,30 +127,34 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (credentials) => {
     const res = await apiClient.post('/auth/login', credentials);
-    const data = res.data;
 
-    if (data.token) {
-      localStorage.setItem('auth_token', data.token);
+    // BE: { status, data: { token, user: { activeMemberId, activeLinkStatus, ... } } }
+    const payload = res.data?.data || res.data;
+    const userObj = payload.user || payload;
+
+    if (payload.token) {
+      localStorage.setItem('auth_token', payload.token);
     }
 
     const newContext = {
-      activeTenantId: data.activeTenantId || null,
-      activeMemberId: data.activeMemberId || null,
-      activeLinkStatus: data.activeLinkStatus || 'DRAFT',
-      roleInTenant: data.roleInTenant || 'USER',
-      linkType: data.linkType || 'PRIMARY_PATERNAL',
+      activeTenantId: userObj.activeTenantId || userObj.tenantId || userObj.tenant_id || null,
+      activeMemberId: userObj.activeMemberId || userObj.member_id || null,
+      activeLinkStatus: userObj.activeLinkStatus
+        || (userObj.status === 'DA_DUYET' ? 'DA_DUYET' : 'DRAFT'),
+      roleInTenant: userObj.role || 'USER',
+      linkType: userObj.linkType || 'PRIMARY_PATERNAL',
     };
 
-    setUser(data.user);
+    setUser(userObj);
     setActiveContext(newContext);
     localStorage.setItem('active_context', JSON.stringify(newContext));
 
     await loadAvailableClans();
 
     return {
-      user: data.user,
+      user: userObj,
       context: newContext,
-      redirectPath: resolvePostLoginRedirect(data.user, newContext),
+      redirectPath: resolvePostLoginRedirect(userObj, newContext),
     };
   };
 
@@ -148,17 +162,18 @@ export const AuthProvider = ({ children }) => {
     try {
       setIsSwitchingContext(true);
       const data = await membershipApi.switchContext(targetTenantId);
+      const payload = data?.data || data;
 
-      if (data.token) {
-        localStorage.setItem('auth_token', data.token);
+      if (payload.token) {
+        localStorage.setItem('auth_token', payload.token);
       }
 
       const updatedContext = {
-        activeTenantId: data.activeTenantId,
-        activeMemberId: data.activeMemberId,
-        activeLinkStatus: data.activeLinkStatus,
-        roleInTenant: data.roleInTenant,
-        linkType: data.linkType,
+        activeTenantId: payload.activeTenantId,
+        activeMemberId: payload.activeMemberId,
+        activeLinkStatus: payload.activeLinkStatus,
+        roleInTenant: payload.roleInTenant,
+        linkType: payload.linkType,
       };
 
       setActiveContext(updatedContext);

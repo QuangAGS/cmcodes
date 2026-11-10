@@ -1,18 +1,19 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/components/routes/OpProtectedRoute.jsx
- * DATETIME    : 2026-11-10T14:35:00+07:00
- * VERSION     : 1.2.1-OP-PROTECTED-ROUTE-DUAL-EXPORT
- * DESCRIPTION : Bộ lọc bảo vệ đường dẫn kiểm soát ngữ cảnh Multi-Home (activeLinkStatus).
- *               Bổ sung cả Named Export và Default Export nhằm triệt tiêu hoàn toàn
- *               lỗi "Element type is invalid: expected a string or function but got undefined"
- *               khi import từ App.jsx.
+ * DATETIME    : 2026-11-10T19:45:00+07:00
+ * VERSION     : 1.2.2-OP-PROTECTED-ROUTE-DRAFT-MEMBERSHIP-SAFE
+ * DESCRIPTION : Bộ lọc bảo vệ đường dẫn theo activeLinkStatus (Multi-Home).
+ *               Đảm bảo DRAFT được vào /membership/claim và các path whitelist
+ *               mà không bị đẩy ngược về /auth khi user vừa login.
  * =============================================================================
  * CHANGELOGS:
- * - 2026-11-10T11:50:00+07:00 (v1.2.0-OP-PROTECTED-ROUTE-WHITELIST-HARDENED):
- *   + Whitelist an toàn cho DRAFT và chặn các route /tree chính thức.
  * - 2026-11-10T14:35:00+07:00 (v1.2.1-OP-PROTECTED-ROUTE-DUAL-EXPORT):
- *   + Thêm export default OpProtectedRoute để tương thích với cú pháp import trong App.jsx.
+ *   + Dual export (named + default).
+ * - 2026-11-10T19:45:00+07:00 (v1.2.2-OP-PROTECTED-ROUTE-DRAFT-MEMBERSHIP-SAFE):
+ *   + Không chặn DRAFT trên /membership/* và whitelist.
+ *   + Chỉ áp dụng allowedStatuses khi được truyền tường minh.
+ *   + Chuẩn hóa QX.
  * =============================================================================
  */
 
@@ -21,12 +22,12 @@ import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 
 const DRAFT_WHITELIST_PATHS = [
+  '/op',
   '/op/mfo',
   '/op/mfo/plan',
   '/op/base-profile',
   '/membership/claim',
   '/membership/status',
-  '/op',
   '/me',
   '/profile',
 ];
@@ -45,30 +46,25 @@ export const OpProtectedRoute = ({ children, allowedStatuses }) => {
   if (loading) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
-        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+        <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
         <span className="sr-only">Đang xác thực quyền truy cập...</span>
       </div>
     );
   }
 
-  // 1. Chưa đăng nhập -> Chuyển về Auth/Login
+  // 1. Chưa đăng nhập
   if (!user) {
     return <Navigate to="/auth" state={{ from: location }} replace />;
   }
 
-  // 2. Chưa có bản ghi thành viên hoặc liên kết dòng họ -> Chuyển sang nhận hồ sơ
+  // 2. Chưa có member → chỉ ép về claim nếu không đang ở claim
   if (!activeContext?.activeMemberId && location.pathname !== '/membership/claim') {
     return <Navigate to="/membership/claim" replace />;
   }
 
-  const currentLinkStatus = activeContext?.activeLinkStatus;
+  const currentLinkStatus = activeContext?.activeLinkStatus || 'DRAFT';
 
-  // 3. Nếu không xác định được trạng thái liên kết -> Chuyển về Status
-  if (!currentLinkStatus) {
-    return <Navigate to="/membership/status" replace />;
-  }
-
-  // 4. Trạng thái CHO_DUYET: Hồ sơ đang chờ duyệt
+  // 3. CHO_DUYET → chỉ cho vào status
   if (currentLinkStatus === 'CHO_DUYET') {
     if (location.pathname !== '/membership/status') {
       return <Navigate to="/membership/status" replace />;
@@ -76,7 +72,7 @@ export const OpProtectedRoute = ({ children, allowedStatuses }) => {
     return children;
   }
 
-  // 5. Trạng thái DRAFT (Chế độ nháp khởi tạo)
+  // 4. DRAFT → whitelist + chặn tree
   if (currentLinkStatus === 'DRAFT') {
     const isAccessingTree = RESTRICTED_TREE_PATHS.some((path) =>
       location.pathname.startsWith(path)
@@ -91,9 +87,12 @@ export const OpProtectedRoute = ({ children, allowedStatuses }) => {
     if (!isWhitelisted) {
       return <Navigate to="/op/mfo/plan" replace />;
     }
+
+    // DRAFT + whitelist → cho qua, không áp dụng allowedStatuses mặc định
+    return children;
   }
 
-  // 6. Kiểm tra allowedStatuses truyền từ props
+  // 5. allowedStatuses chỉ áp dụng khi được truyền tường minh
   if (Array.isArray(allowedStatuses) && allowedStatuses.length > 0) {
     if (!allowedStatuses.includes(currentLinkStatus)) {
       return <Navigate to="/membership/status" replace />;
@@ -103,5 +102,4 @@ export const OpProtectedRoute = ({ children, allowedStatuses }) => {
   return children;
 };
 
-// Hỗ trợ Default Export cho App.jsx
 export default OpProtectedRoute;
