@@ -52,6 +52,11 @@ const verifyToken = (req, res, next) => {
       tenantId: decoded.tenantId,
       status: decoded.status,
       tenantStatus: decoded.tenantStatus || null,
+      // Phase 2 — Multi-Home
+      activeTenantId: decoded.activeTenantId || decoded.tenantId,
+      activeMemberId: decoded.activeMemberId || null,
+      activeLinkStatus: decoded.activeLinkStatus || null,
+      linkType: decoded.linkType || null,
     };
 
     userData.id = userData.userId;
@@ -80,7 +85,10 @@ const verifyToken = (req, res, next) => {
     const isSys = userData.role === 'SYSTEM_ADMIN';
     tenantContext.run(
       {
-        tenantId: isSys ? null : userData.tenantId,
+        tenantId: isSys ? null : userData.activeTenantId,
+        activeTenantId: isSys ? null : userData.activeTenantId,
+        activeMemberId: userData.activeMemberId,
+        activeLinkStatus: userData.activeLinkStatus,
         allowUnscoped: isSys,
         userId: userData.userId,
         actorRole: userData.role,

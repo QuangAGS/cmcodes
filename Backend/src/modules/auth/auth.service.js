@@ -1,97 +1,53 @@
 const { creatorStamp } = require('../members/profileAccess.service.js');
 /**
  * PATH       : src/modules/auth/auth.service.js
- * DATETIME   : 2026-08-15T18:30:00+07:00
- * VERSION    : 20.2.5-PR-2: BPL USER_APPROVAL semantic (schema + revision submit không dùng USER_REGISTER).
- * DESCRIPTION: Revision submit: đổi USER_REGISTER → USER_APPROVAL + action: REVISION_SUBMIT
- * (+ PR-1) process_kind REGISTER khi createCaseFromRegister; findOpenCaseByUser chỉ RP (process_kind REGISTER).
- * - Promote member after Register Approved. 
- * - PR-OP-4-Enhancement: Cờ từ chối lần cuối (UI list/form) — không đổi users.status
- * - Admin trả về sửa: giữ CHO_DUYET; case → NEEDS_REVISION + review_note.
- * - B1: isRevision không JWT; xác thực phone/password.
- * - PR-OP-3:getMyOnboardingCase + revision submit
- * - Bước 2: TU_CHOI → CHO_DUYET + case mới (correlation mới).
- * - [20.2.2-sysadmi-PR-OP-1b] PR-OP-1b: tạo member dự bị, bổ sung các trường tạm thời vào snapshot hồ sơ (temp_birth_year, temp_note, member_id, role) phục vụ Notification Orchestrator.
- * - SỬA LỖI ĐÓNG BĂNG ATTEMPT: Tự động tính toán luỹ tiến attempt_no dựa trên số lần xử lý thực tế của một user_id.
- * - Đồng bộ nạp biến attempt_no động vào cả Business Ledger (businessLogger) và Communication Ledger (notificationBuilder).
- *
- * - Vá lỗ hổng cấp phát Token tự động cho tài khoản chưa qua phê duyệt.
- * - Kiểm tra đồng bộ Trạng thái vòng đời của User (`users.status`) và Dòng họ (`tenants.status`).
- * - Vá lỗ hổng Communication Ledger bằng cách tích hợp NotificationBuilder chuẩn hóa.
- *  Đảm bảo tuân thủ cấu trúc Schema, thực hiện cơ chế Silent Emit (Phase 6B).
- * - Rà soát và loại bỏ/comment toàn bộ việc sinh khóa chính (PK) thủ công `id: uuidv4()` ở tầng Backend.
- * 
- * - Tích hợp trọn vẹn quy trình 7 bước (Flow 7 Steps) cho tiến trình phê duyệt/từ chối hồ sơ (processUserApproval).
- * - Kết hợp bộ ba Log: authLogService (Hạ tầng/Anti-bot), businessLogger (Tổng quan/Snapshot), và auditService (Chi tiết/Details).
- * - Sử dụng đồng bộ mã liên vết correlation_id và đóng băng dữ liệu lịch sử target_name.
- * - Bảo tồn 100% các logic cũ liên quan đến Login, Register, và chuỗi khôi phục mật khẩu 3 bước (Q1).
- * - Tuân thủ nghiêm ngặt chuẩn định dạng tài liệu hệ thống (Q2).
- * CHANGE LOGS:
- * - PR-OP-1b: Approve/Reject user (DA_DUYET | TU_CHOI).
-   * - C = correlation factory tập trung (prisma.correlation.create).
-   * - Member DU_BI (gender KHAC) + users.member_id khi DA_DUYET và chưa có.
-   * - Case open → APPROVED / REJECTED (onboardingService + tx).
-   * - BPL USER_APPROVAL + audit trong TX; notif post-TX.
-   * - Authz: no self-approve, SYSTEM-only CreateClan, actor CLAN_ADMIN phải DA_DUYET.
-   * - Q1: không đụng flow Register / 1a; return object đầy đủ status + member_id.
- * - PR-OP-1b Bước 2: TU_CHOI → CHO_DUYET + case mới (correlation mới).
-   * - Case cũ giữ REJECTED; case mới: create SUBMITTED rồi update NEEDS_REVISION + review_note.
-   * - BPL USER_APPROVAL + payload.action = REOPEN_REJECTED; audit; notif orchestrator (C mới).
-   * - Không tạo member, không đổi tenant status. Q1: không đụng processUserApproval.
- *  PR-OP-1b Bước 3: getMyOnboardingCase + revision submit
- * - 1) GET my-onboarding-case (hoặc tương đương):
- *    User đang CHO_DUYET lấy case hiện tại + review_note + temp_* (prefill).
- * - 2) updateRegistrationDraft / revision submit:
- *    Applicant gửi lại hồ sơ đã sửa; giữ CHO_DUYET; case có thể SUBMITTED hoặc giữ NEEDS_REVISION (chốt khi design).
- * - 20.2.5-PR-OP-3B1
-   * - B1: isRevision không JWT; xác thực phone/password.
-   * - Chỉ CHO_DUYET; khóa phone/email; cập nhật temp_*.
-   * - Case NEEDS_REVISION → SUBMITTED. Không tạo user/tenant/member.
- * 20.2.5-PR-OP-4-R1:
-   * - Admin trả về sửa: giữ CHO_DUYET; case → NEEDS_REVISION + review_note.
-   * - Không tạo member, không đổi tenant, không đổi users.status.
- * 20.2.5-PR-OP-4-Enhancement:
-   * - Trong enrichedData, với mỗi user, trước return { ... }: cờ từ chối lần cuối (UI list/form) — không đổi users.status
- * 20.2.5 - C3:
-   * - 2026-08-13: processUserApproval DA_DUYET → openMemberPromoteInstance (OP DRAFT, C mới).
-   * - SSOT: Register-to-OP-Handoff-Contract-2026-08-13 v1.0. Q1: không đổi luồng Approve/Reject cốt lõi.
-*/
+ * DATETIME   : 2026-11-09T11:35:00+07:00
+ * VERSION    : 20.4.0:MULTIHOME-PHASE3-[RP-OP-JSON]-[SMOKE-3.x]
+ * DESCRIPTION:
+ * - 20.4.0: Phase 2 (Multi-Home) + Phase 3 (RP-OP JSON) + Smoke Test 3.x:
+ *    - Import helper validateRegistrationProfile.
+ *    - Vị trí 1: registerUser – Hỗ trợ nhận và validate registration_profile (JSON metadata).   
+ *    - Vị trí 2: submitRegistrationRevision – Validate và cập nhật registration_profile dạng JSON.   
+ *    - Vị trí 3: processUserApproval – Xử lý Case 1 (EM), Case 2 (No EM) từ JSON và đồng bộ user_member_links.   
+ *    - Vị trí 4: reopenRejectedUser – Phục hồi trạng thái user_member_links.   
+ *    - Vị trí 5: markFinalRejection – Đánh dấu từ chối liên kết user_member_links.   
+ *    - Vị trí 6: queryReviewableUsers – Nạp trọn vẹn 21 trường gia phả từ JSON metadata trả ra UI.
+ * - [Phase 2][SM-U-02] syncUserStatusWithLinks: Đồng bộ users.status theo liên kết user_member_links.
+ * - [Phase 2][SEC-02] switchContext: Chuyển đổi ngữ cảnh dòng họ đa thành viên (Multi-Home), cấp Context Token.
+ * - [Phase 2][SEC-03] loginUser: Cấp phát Context Token chứa activeTenantId, activeMemberId, activeLinkStatus.
+ * - Tuân thủ nghiêm ngặt Q1 (bảo tồn 100% flow cũ) và Q2 (chuẩn tài liệu hệ thống).
+ */
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { v4: uuidv4 } = require('uuid');
 
-//const { basePrisma } = require('../lib/prisma');
 const { basePrisma, prisma, PRISMA_SELECTS } = require('../../lib/prisma.js');
 const authLogService = require('./authLog.service');
 const { cleanInput, formatNumericSlug } = require('../../shared/utils/slug.utils');
 const securityConfig = require('../../config/securityConfig');
 
 const onboardingService = require('../../services/onboarding.service');
-//20.2.5 -C3
 const { openMemberPromoteInstance } = require('../onboarding/srpf');
-// 🚀 ĐÃ SỬA CHUẨN XÁC: Nạp Class dịch vụ và khởi tạo đối tượng instance thực tế bằng từ khóa `new`
 const businessLogger = require('../../services/ledger.service'); 
-// const businessLogger = new BusinessLoggerService();
-
 const auditService = require('../../services/audit.service'); 
 const emailService = require('../../services/email.service');
 
 const {
   propagateFromRegistration, 
-} = require('../notifications/services/communicationPropagation.service'); // Tên tệp vật lý thực tế trên đĩa của bác
-
+} = require('../notifications/services/communicationPropagation.service');
 
 const notificationOrchestrator = require(
   '../notifications/orchestrator/notificationOrchestrator'
 ); 
-//const { sendOTP } = require('../notifications/services/notification-builder'); // Tên tệp vật lý thực tế trên đĩa của bác
 
 const notificationBuilder = require('../notifications/services/notification-builder');
+
+const { validateRegistrationProfile } = require('./registrationValidator');
+
 /**
  * <2026-05-13T00:00:00+07:00>
  * Helper hash cho password reset session security.
- * - Config lấy từ centralized securityConfig.
  */
 const hashResetSecret = (value) => {
   return crypto
@@ -176,32 +132,34 @@ const authService = {
   },
 
   /**
-   * @dateTime 2026-06-18T16:52:00+07:00
-   * @description Tiến trình xác thực thông tin đăng nhập, thẩm định trạng thái vòng đời và cấp phát JWT Token.
-   * @param {string} identifier - Email hoặc Số điện thoại người dùng gửi lên
-   * @param {string} password - Mật khẩu thô chưa mã hóa
-   * @param {Object} extraData - Dữ liệu bổ sung (thiết bị, IP, anti-bot...) phục vụ phân tích log
-   */
-  /**
    * @dateTime 2026-07-22T11:10:00+07:00
    * @description Tiến trình xác thực đăng nhập + Assert Order (SEC Wave 2).
-   * Thứ tự bắt buộc:
-   *   1. Credential (password)
-   *   2. User status / Lock (checkLockStatus)
-   *   3. Tenant status / activation
-   *   4. Cấp token
-   * @param {string} identifier - Email hoặc SĐT
-   * @param {string} password
-   * @param {Object} extraData
    */
   loginUser: async (identifier, password, extraData) => {
-    // ─── Bước 0: Tìm user ─────────────────────────────────────
+    // ─── Bước 0: Tìm user (Nạp danh sách user_member_links) ───────────
     const user = await basePrisma.users.findFirst({
       where: {
         OR: [{ email: identifier }, { phone: identifier }],
         deleted_at: null,
       },
-      include: { tenants: true },
+      include: { 
+        tenants: true,
+        user_member_links: {
+          where: { deleted_at: null },
+          include: {
+            tenant: {
+              select: { id: true, name: true, slug: true, status: true, logo_url: true, slogan: true }
+            },
+            member: {
+              select: { id: true, full_name: true, generation: true, status: true, role: true }
+            }
+          },
+          orderBy: [
+            { is_default: 'desc' },
+            { created_at: 'asc' }
+          ]
+        }
+      },
     });
 
     if (!user) {
@@ -211,7 +169,7 @@ const authService = {
       throw error;
     }
 
-    // ─── Bước 1: Credential (Assert Order — PHẢI làm trước status/lock) ───
+    // ─── Bước 1: Credential (Assert Order) ────────────────────────────
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       const error = new Error('Thông tin tài khoản đăng nhập hoặc mật khẩu không chính xác.');
@@ -220,8 +178,7 @@ const authService = {
       throw error;
     }
 
-    // ─── Bước 2: User status / Lock ───────────────────────────
-    // 2a. Permanent / temporary lock (BI_CAM, BI_KHOA)
+    // ─── Bước 2: User status / Lock ──────────────────────────────────
     const lockInfo = await authService.checkLockStatus(user);
     if (lockInfo.isLocked) {
       const error = new Error(
@@ -238,25 +195,12 @@ const authService = {
       throw error;
     }
 
-    // 2b. Lifecycle status (CHO_DUYET, TAM_NGUNG, TU_CHOI…)
-    /* ********************
-    if (user.status === 'CHO_DUYET') {
-      const error = new Error('Hồ sơ của bác đang chờ Ban Quản trị phê duyệt. Vui lòng quay lại sau.');
-      error.status = 423;
-      error.code = 'ACCOUNT_CHO_DUYET';
-      throw error;
-    }
-    ************ */
-    /**
-     * <2026-06-18T17:00:00+07:00>: PR-OP-3A: 423 kèm reviewNote + canEdit + tempSnapshot (fail-open nếu không có case) 
-     */
-    // PR-OP-3A: 423 kèm reviewNote + canEdit + tempSnapshot (fail-open nếu không có case)
-        // 2b. Lifecycle — CHO_DUYET
-    // PR-OP-3A / PR-OP-4:
-    // - Luôn 423, không cấp JWT.
-    // - canEdit = true chỉ khi case NEEDS_REVISION và có review_note (QTV trả về sửa).
-    // - Đăng ký lần đầu (SUBMITTED, chưa bút phê) → canEdit = false (chỉ chờ duyệt).
-    if (user.status === 'CHO_DUYET') {
+    // 2b. Lifecycle — CHO_DUYET
+    // Nếu user có liên kết DRAFT (Onboarding Sandbox), cho phép cấp token Sandbox
+    const draftLink = user.user_member_links?.find(l => l.status === 'DRAFT');
+    const isSandboxAllowed = Boolean(draftLink);
+
+    if (user.status === 'CHO_DUYET' && !isSandboxAllowed) {
       let reviewNote = null;
       let caseStatus = null;
       let caseId = null;
@@ -266,7 +210,7 @@ const authService = {
           where: {
             user_id: user.id,
             deleted_at: null,
-            process_kind: 'REGISTER', // PR-1
+            process_kind: 'REGISTER',
             status: {
               in: [
                 'SUBMITTED',
@@ -291,10 +235,7 @@ const authService = {
         console.error('[LOGIN][CHO_DUYET][CASE]', caseErr.message || caseErr);
       }
 
-      // Chỉ cho sửa hồ sơ khi QTV đã trả về sửa (có bút phê trên case NEEDS_REVISION)
-      const canEdit =
-        caseStatus === 'NEEDS_REVISION' &&
-        !!reviewNote;
+      const canEdit = caseStatus === 'NEEDS_REVISION' && !!reviewNote;
 
       const error = new Error(
         canEdit
@@ -317,7 +258,6 @@ const authService = {
         temp_branch_name: user.temp_branch_name || null,
         temp_note: user.temp_note || null,
         temp_social_profiles: user.temp_social_profiles || {},
-        // PR-OP-4: identity + tenant để prefill revision
         phone: user.phone || null,
         email: user.email || null,
         tenant_id: user.tenant_id || null,
@@ -325,7 +265,6 @@ const authService = {
         clanName: user.tenants?.name || null,
         tenantSlug: user.tenants?.slug || null,
         description: user.tenants?.description || null,
-        // Phân luồng Join vs Create (PR-OP-4 CLAN_SETUP)
         role: user.role || null,
         isNewClan: user.role === 'CLAN_ADMIN',
       };
@@ -340,14 +279,10 @@ const authService = {
     }
 
     // ─── Bước 3: Tenant status / activation ───────────────────
-    // SYSTEM_ADMIN bypass tenant check
-    // TAM_NGUNG: CHO PHÉP login (CLAN_ADMIN cần vào để hoàn thiện tenant/profile)
-    // Chỉ chặn tenant bị khóa nặng (BI_KHOA) hoặc tương đương
     if (user.role !== 'SYSTEM_ADMIN' && user.tenants) {
       const tenantStatus = user.tenants.status;
 
       if (tenantStatus === 'CHO_DUYET') {
-        // Edge case hiếm (data lệch) — vẫn giữ defensive
         const error = new Error(
           'Dòng họ của bác hiện đang chờ Hệ thống Trung tâm phê duyệt kích hoạt dịch vụ.'
         );
@@ -356,8 +291,6 @@ const authService = {
         throw error;
       }
 
-      // TAM_NGUNG → cho phép login (không chặn)
-      // BI_KHOA tenant → chặn
       if (tenantStatus === 'BI_KHOA') {
         const error = new Error(
           'Dòng họ hiện đang bị khóa. Vui lòng liên hệ Ban quản trị.'
@@ -368,28 +301,83 @@ const authService = {
       }
     }
 
-    // ─── Bước 4: Cấp token (chỉ khi đã pass toàn bộ) ─────────
-    const secret = process.env.JWT_SECRET;
+    // ─── Bước 4: Cấp token (Nạp đầy đủ Context Token cho Phase 2) ─────
+    const secret = process.env.JWT_SECRET || securityConfig.JWT_SECRET;
     if (!secret) {
       throw new Error('Cấu hình thiếu JWT_SECRET tại tệp môi trường .env.');
     }
 
-    const tenantStatus = user.tenants ? user.tenants.status : null;
+    // ─── [PHASE 3][SEC-ROOT] RẼ NHÁNH CHO SYSTEM_ADMIN (ROOT PLATFORM) ─────────
+    if (user.role === 'SYSTEM_ADMIN') {
+      const rootTenantId = user.tenant_id || '00000000-0000-0000-0000-000000000000';
+
+      const token = jwt.sign(
+        {
+          userId: user.id,
+          email: user.email,
+          role: 'SYSTEM_ADMIN',
+          tenantId: rootTenantId,
+          activeTenantId: rootTenantId,
+          activeMemberId: null,
+          activeLinkStatus: 'DA_DUYET',
+          linkType: 'SYSTEM',
+          status: user.status,
+          tenantStatus: 'HOAT_DONG',
+        },
+        secret,
+        { expiresIn: '24h' }
+      );
+
+      return {
+        token,
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          phone: user.phone || null,
+          role: 'SYSTEM_ADMIN',
+          tenant_id: rootTenantId,
+          tenantId: rootTenantId,
+          activeTenantId: rootTenantId,
+          activeMemberId: null,
+          activeLinkStatus: 'DA_DUYET',
+          status: user.status,
+          tenantStatus: 'HOAT_DONG',
+          tenant: null,
+          clanName: 'Hệ Thống Trung Tâm',
+          availableClans: [],
+        },
+      };
+    }
+
+    const activeLink = user.user_member_links?.find(l => l.is_default && l.status === 'DA_DUYET')
+      || user.user_member_links?.find(l => l.status === 'DA_DUYET')
+      || draftLink
+      || user.user_member_links?.[0]
+      || null;
+
+    const activeTenantId = activeLink ? activeLink.tenant_id : user.tenant_id;
+    const activeMemberId = activeLink ? activeLink.member_id : user.member_id;
+    const activeLinkStatus = activeLink ? activeLink.status : (user.status === 'DA_DUYET' ? 'DA_DUYET' : 'CHO_DUYET');
+    const tenantStatus = activeLink?.tenant ? activeLink.tenant.status : (user.tenants ? user.tenants.status : null);
 
     const token = jwt.sign(
       {
         userId: user.id,
         email: user.email,
-        role: user.role,
-        tenantId: user.tenant_id,
+        role: activeLink?.role_in_tenant || user.role,
+        tenantId: activeTenantId, // tương thích backward
+        activeTenantId,
+        activeMemberId,
+        activeLinkStatus,
+        linkType: activeLink?.link_type || null,
         status: user.status,
-        tenantStatus, // [20.3.0-W2] phục vụ requireActiveTenant + FE routing
+        tenantStatus,
       },
       secret,
       { expiresIn: '24h' }
     );
 
-    // SSOT tenant display cho FE header (mọi page sau login)
     const sc =
       user.tenants?.social_configs &&
       typeof user.tenants.social_configs === 'object'
@@ -415,6 +403,18 @@ const authService = {
           }
         : null;
 
+    const availableClans = (user.user_member_links || []).map(link => ({
+      tenantId: link.tenant_id,
+      clanName: link.tenant?.name || 'Dòng họ',
+      clanSlug: link.tenant?.slug || '',
+      linkType: link.link_type,
+      status: link.status,
+      isDefault: link.is_default,
+      roleInTenant: link.role_in_tenant,
+      memberId: link.member_id,
+      memberName: link.member?.full_name || null,
+    }));
+
     return {
       token,
       user: {
@@ -422,15 +422,17 @@ const authService = {
         name: user.name,
         email: user.email,
         phone: user.phone || null,
-        role: user.role,
-        tenant_id: user.tenant_id,
-        tenantId: user.tenant_id,
+        role: activeLink?.role_in_tenant || user.role,
+        tenant_id: activeTenantId,
+        tenantId: activeTenantId,
+        activeTenantId,
+        activeMemberId,
+        activeLinkStatus,
         status: user.status,
-        tenantStatus, // FE routing (giữ flat)
-        // Chuẩn hóa header multi-tenant
-        tenant: tenantDto,
-        // Tương thích ngược (OpHub resolveTenant / RP cũ)
-        clanName: tenantDto?.name || null,
+        tenantStatus,
+        tenant: activeLink?.tenant || tenantDto,
+        clanName: activeLink?.tenant?.name || tenantDto?.name || null,
+        availableClans,
       },
     };
   },
@@ -454,29 +456,39 @@ const authService = {
     );
   },
 
+  // 20.4.0:MULTIHOME-PHASE3-[RP-OP-JSON]-[SMOKE-3.x]
   registerUser: async (payload, extraData = {}) => {
-    //PR-OP-3B: Nếu isRevision = true, gọi submitRegistrationRevision
     if (payload.isRevision === true) {
       return authService.submitRegistrationRevision(payload, extraData);
     }
     
-    const { isNewClan, clanName, description, tenantId, ...userData } = payload;
-    //PR-OP-1a.1 M1: Lấy correlationId từ extraData để dùng cho tracking
+    const { isNewClan, clanName, description, tenantId, registration_profile, ...userData } = payload;
     const { ip_address, user_agent, correlationId: incomingCorrelationId } = extraData;
     const logIdentifier = cleanInput(userData.phone, 'phone');
     let transactionResult = null;
 
-    /**
-     * <2026-06-04T16:10:00+07:00>
-     * Purpose:
-     * - Pre-compute password hash before opening Prisma transaction.
-     *
-     * Notes:
-     * - bcrypt is CPU-bound and should not hold interactive transaction open.
-     * - Prevents "Transaction already closed" in CreateClan flow.
-     * - Q1-safe:
-     *   No business behavior change.
-     */
+    // Chuẩn hóa và validate registration_profile nếu có truyền vào
+    let validatedProfile = {};
+    if (registration_profile && typeof registration_profile === 'object') {
+      validatedProfile = validateRegistrationProfile(registration_profile);
+    } else {
+      // Tự động map từ các trường phẳng cũ sang JSON profile (bảo tồn Q1)
+      validatedProfile = validateRegistrationProfile({
+        full_name: userData.temp_full_name || userData.name || 'Thành viên mới',
+        gender: userData.gender || 'NAM',
+        birth_year: userData.temp_birth_year ? parseInt(userData.temp_birth_year, 10) : undefined,
+        father_name: userData.temp_father_name,
+        grandfather_name: userData.temp_grandfather_name,
+        branch_name: userData.temp_branch_name,
+        address: userData.temp_address,
+        note: userData.temp_note,
+        claimed_member_id: userData.claimed_member_id,
+        phone: logIdentifier,
+        email: userData.email,
+        social_profiles: userData.temp_social_profiles || {},
+      });
+    }
+
     const hashedPassword = await bcrypt.hash(
       userData.password,
       10
@@ -516,14 +528,12 @@ const authService = {
 
             tenantSlug = tenant?.slug || 'SYSTEM_GENERATE';
           }
-          //Sinh slug = year_[random number]
+
           const shortId = crypto.randomBytes(4).toString('hex');
           const technicalName = `${tenantSlug}_${shortId}`;
 
-          //Create a new user.
           const newUser = await tx.users.create({
             data: {
-              //id: crypto.randomUUID(), //PK do DB tự sinh.
               name: technicalName,
               email: userData.email
                 ? cleanInput(userData.email, 'email')
@@ -533,31 +543,23 @@ const authService = {
               tenant_id: tid,
               role: isNewClan ? 'CLAN_ADMIN' : 'VIEWER',
               status: 'CHO_DUYET',
-              temp_full_name:
-                userData.temp_full_name || userData.name || 'Thành viên mới',
-              temp_father_name: userData.temp_father_name,
-              temp_grandfather_name: userData.temp_grandfather_name,
-              temp_birth_year: userData.temp_birth_year
-                ? parseInt(userData.temp_birth_year, 10)
-                : null,
+              // Lưu vào các cột cũ để tương thích ngược
+              temp_full_name: validatedProfile.full_name,
+              temp_father_name: validatedProfile.father_name || userData.temp_father_name,
+              temp_grandfather_name: validatedProfile.grandfather_name || userData.temp_grandfather_name,
+              temp_birth_year: validatedProfile.birth_year || (userData.temp_birth_year ? parseInt(userData.temp_birth_year, 10) : null),
               temp_relationship: userData.temp_relationship || 'CON_DE',
-              temp_address: userData.temp_address,
-              temp_branch_name: userData.temp_branch_name,
-              temp_note: userData.temp_note,
-              temp_social_profiles: userData.temp_social_profiles || {},
+              temp_address: validatedProfile.address || userData.temp_address,
+              temp_branch_name: validatedProfile.branch_name || userData.temp_branch_name,
+              temp_note: validatedProfile.note || userData.temp_note,
+              // Lưu toàn bộ JSON metadata sạch vào temp_social_profiles
+              temp_social_profiles: {
+                ...(userData.temp_social_profiles || {}),
+                registration_profile: validatedProfile,
+              },
             },
           });
 
-          /**
-           * <2026-06-05T11:20:00+07:00>
-           * Purpose:
-           * - Propagate Register capture data into canonical communication tables.
-           *
-           * Notes:
-           * - Must stay inside the same transaction as user creation.
-           * - This is data propagation, not notification delivery.
-           * - If propagation fails, registration must rollback.
-           */
           await propagateFromRegistration({
             tx,
             user: {
@@ -584,11 +586,9 @@ const authService = {
           timeout: 20000,
         },
       );
-
-// ========== POST-TX (M1): case + BPL + audit + notif — ngoài TX, cùng C ==========
-      const C =
-        incomingCorrelationId ||
-        crypto.randomUUID();
+      
+      // ========== POST-TX (M1): case + BPL + audit + notif — CÙNG CORRELATION C ==========
+      const C = incomingCorrelationId || crypto.randomUUID();
 
       await authLogService.logAttempt({
         identifier: logIdentifier,
@@ -610,7 +610,7 @@ const authService = {
 
       let caseRow = null;
 
-      // 1) Onboarding case SUBMITTED
+      // 1) Tạo Onboarding Case (vẫn giữ nguyên helper)
       try {
         caseRow = await onboardingService.createCaseFromRegister({
           correlationId: C,
@@ -627,110 +627,153 @@ const authService = {
         console.error('[REGISTER_LEDGER][CASE]', err.message || err);
       }
 
-      // 2) BPL USER_REGISTER (attempt 1)
+      // =======================================================================
+      // [FIX S0.1 & BFA DOCTRINE]: Bọc BPL & Audit trong withTransaction
+      // Đảm bảo có tx hợp lệ và nạp đúng tenantId vào ALS context
+      // =======================================================================
       try {
-        await businessLogger.createLog({
-          correlation_id: C,
-          attempt_no: 1,
-          process_type: 'USER_REGISTER',
-          actor_type: 'USER',
-          actor_id: userId,
-          tenant_id: tid,
-          process_status: 'SUCCESS',
-          context: {
-            target_id: userId,
-            target_name: displayName,
-          },
-          payload: {
-            email: userData.email
-              ? cleanInput(userData.email, 'email')
-              : null,
-            phone: logIdentifier || null,
-            registered_via: 'WEB',
-            temp_full_name: userData.temp_full_name || null,
-          },
-        });
-      } catch (err) {
-        console.error('[REGISTER_LEDGER][BPL_USER_REGISTER]', err.message || err);
-      }
+        const { withTransaction } = require('../../lib/prisma.js');
 
-      // 3) BPL ONBOARDING_CASE_CREATE (attempt 2)
-      try {
-        await businessLogger.createLog({
-          correlation_id: C,
-          attempt_no: 2,
-          process_type: 'ONBOARDING_CASE_CREATE',
-          actor_type: 'USER',
-          actor_id: userId,
-          tenant_id: tid,
-          process_status: 'SUCCESS',
-          context: {
-            target_id: caseRow?.id || userId,
-            target_name: caseType,
-          },
-          payload: {
-            case_type: caseType,
-            initial_step: 'REGISTER',
-            user_id: userId,
-            member_id: null,
-            branch_id: null,
-          },
-        });
-      } catch (err) {
-        console.error('[REGISTER_LEDGER][BPL_CASE]', err.message || err);
-      }
-
-      // 4) Audit users (+ tenants nếu CreateClan)
-      try {
-        await auditService.logAction(
-          'THEM_MOI',
-          'users',
-          userId,
-          null,
+        await withTransaction(
           {
-            status: 'CHO_DUYET',
-            role: isNewClan ? 'CLAN_ADMIN' : 'VIEWER',
-            tenant_id: tid,
-          },
-          userId,
-          isNewClan ? 'REGISTER_CREATE_CLAN' : 'REGISTER_JOIN_CLAN',
-          tid,
-          C
-        );
-
-        if (isNewClan && tid) {
-          await auditService.logAction(
-            'THEM_MOI',
-            'tenants',
-            tid,
-            null,
-            { status: 'CHO_DUYET', name: clanName || null },
-            userId,
-            'REGISTER_CREATE_CLAN',
-            tid,
-            C
-          );
-        }
-      } catch (err) {
-        console.error('[REGISTER_LEDGER][AUDIT]', err.message || err);
-      }
-
-      // 5) Notif — tạm giữ orchestrator (đã vá correlation) HOẶC đổi notification.create sau
-      try {
-        await notificationOrchestrator.emit(
-          'USER_REGISTERED',
-          {
-            userId,
             correlationId: C,
-            metadata: {
-              tenantId: tid,
-              registrationType,
-              status: transactionResult.status,
-              caseId: caseRow?.id || null,
-            },
-            executeImmediately: false,
+            actorId: userId,
+            actorType: 'USER',
+            tenantId: tid,
+            activeTenantId: tid,
           },
-          null
+          async (tx, ctx) => {
+            // 2) BPL USER_REGISTER (attempt 1) - TRUYỀN tx HỢP LỆ
+            try {
+              await businessLogger.createLog(
+                {
+                  correlation_id: C,
+                  attempt_no: 1,
+                  process_type: 'USER_REGISTER',
+                  actor_type: 'USER',
+                  actor_id: userId,
+                  tenant_id: tid,
+                  process_status: 'SUCCESS',
+                  context: {
+                    target_id: userId,
+                    target_name: displayName,
+                  },
+                  payload: {
+                    email: userData.email
+                      ? cleanInput(userData.email, 'email')
+                      : null,
+                    phone: logIdentifier || null,
+                    registered_via: 'WEB',
+                    temp_full_name: userData.temp_full_name || null,
+                  },
+                },
+                tx
+              );
+            } catch (err) {
+              console.error('[REGISTER_LEDGER][BPL_USER_REGISTER]', err.message || err);
+            }
+
+            // 3) BPL ONBOARDING_CASE_CREATE (attempt 2) - TRUYỀN tx HỢP LỆ
+            try {
+              await businessLogger.createLog(
+                {
+                  correlation_id: C,
+                  attempt_no: 2,
+                  process_type: 'ONBOARDING_CASE_CREATE',
+                  actor_type: 'USER',
+                  actor_id: userId,
+                  tenant_id: tid,
+                  process_status: 'SUCCESS',
+                  context: {
+                    target_id: caseRow?.id || userId,
+                    target_name: caseType,
+                  },
+                  payload: {
+                    case_type: caseType,
+                    initial_step: 'REGISTER',
+                    user_id: userId,
+                    member_id: null,
+                    branch_id: null,
+                  },
+                },
+                tx
+              );
+            } catch (err) {
+              console.error('[REGISTER_LEDGER][BPL_CASE]', err.message || err);
+            }
+
+            // 4) Audit users (+ tenants nếu CreateClan) - DÙNG tx
+            try {
+              await auditService.logAction(
+                'THEM_MOI',
+                'users',
+                userId,
+                null,
+                {
+                  status: 'CHO_DUYET',
+                  role: isNewClan ? 'CLAN_ADMIN' : 'VIEWER',
+                  tenant_id: tid,
+                },
+                userId,
+                isNewClan ? 'REGISTER_CREATE_CLAN' : 'REGISTER_JOIN_CLAN',
+                tid,
+                C,
+                tx
+              );
+
+              if (isNewClan && tid) {
+                await auditService.logAction(
+                  'THEM_MOI',
+                  'tenants',
+                  tid,
+                  null,
+                  { status: 'CHO_DUYET', name: clanName || null },
+                  userId,
+                  'REGISTER_CREATE_CLAN',
+                  tid,
+                  C,
+                  tx
+                );
+              }
+            } catch (err) {
+              console.error('[REGISTER_LEDGER][AUDIT]', err.message || err);
+            }
+          }
+        );
+      } catch (ledgerTxErr) {
+        console.error('[REGISTER_LEDGER][TX_WRAPPER_ERROR]', ledgerTxErr.message || ledgerTxErr);
+      }
+
+      // =======================================================================
+      // 5) [FIX S0.1 TENANT CONTEXT MISSING CHO NOTIFICATIONS]:
+      // Bọc notificationOrchestrator trong runWithTenantContext
+      // =======================================================================
+      try {
+        const { runWithTenantContext } = require('../../lib/prisma.js');
+
+        await runWithTenantContext(
+          {
+            tenantId: tid,
+            activeTenantId: tid,
+            userId,
+          },
+          async () => {
+            await notificationOrchestrator.emit(
+              'USER_REGISTERED',
+              {
+                userId,
+                correlationId: C,
+                metadata: {
+                  tenantId: tid,
+                  registrationType,
+                  status: transactionResult.status,
+                  caseId: caseRow?.id || null,
+                },
+                executeImmediately: false,
+              },
+              null
+            );
+          }
         );
       } catch (emitError) {
         console.error('[EGAL-25][SilentEmit][USER_REGISTERED]', emitError);
@@ -750,7 +793,6 @@ const authService = {
     }
   },
 
-  //UAT PR-OP-4:Đổi findUnique → findFirst + deleted_at: null cho khớp login/register.
   checkIdentity: async (type, value) => {
     const cleanedValue = cleanInput(value, type);
 
@@ -798,16 +840,6 @@ const authService = {
     };
   },
   
-  /**
-   * <2026-05-13T00:00:00+07:00>
-   * Forgot Password Flow v3: REQUEST RESET CODE
-   * - Dùng bảng password_reset_sessions.
-   * - Không dùng users.reset_token/reset_expires.
-   * - Kiểm tra identifier tồn tại.
-   * - Enforce resend cooldown.
-   * - Enforce max request/window.
-   * - OTP được hash trước khi lưu DB.
-   */
   forgotPassword: async (identifier, extraData = {}) => {
     const { ip_address, user_agent } = extraData;
 
@@ -1002,10 +1034,6 @@ const authService = {
     };
   },
 
-  /**
-   * <2026-05-13T00:00:00+07:00>
-   * Forgot Password Flow v3: VERIFY RESET CODE
-   */
   verifyResetCode: async (identifier, otp, extraData = {}) => {
     const { ip_address, user_agent } = extraData;
 
@@ -1178,10 +1206,6 @@ const authService = {
     };
   },
 
-  /**
-   * <2026-05-13T00:00:00+07:00>
-   * Forgot Password Flow v3: CHANGE PASSWORD AFTER RESET
-   */
   changePasswordAfterReset: async (identifier, resetToken, newPassword) => {
     const rawIdentifier = cleanInput(
       identifier,
@@ -1321,12 +1345,6 @@ const authService = {
     };
   },
 
-  /**
-   * <2026-05-12T00:00:00+07:00>
-   * Legacy compatibility.
-   * - Giữ tương thích cho route /auth/reset-password cũ.
-   * - Không dùng cho flow mới 3 bước.
-   */
   resetPassword: async (email, otp, newPassword) => {
     const user = await authService.verifyOTP(email, otp);
 
@@ -1382,107 +1400,6 @@ const authService = {
     });
   },
 
-
-  /* ****************************************************************************
-   * Lấy danh sách user đang chờ duyệt (có thông tin tenant)
-  
-   *   Phương pháp cũ - Cách 1
-  getPendingUsers: async (actorRole, actorTenantId) => {
-    try {
-      const users = await basePrisma.users.findMany({
-        where: {
-          status: 'CHO_DUYET',
-          deleted_at: null,                    // ← Soft delete
-          ...(actorRole !== 'SYSTEM_ADMIN' && actorTenantId 
-            ? { tenant_id: actorTenantId } 
-            : {}),
-        },
-        orderBy: {
-          created_at: 'desc',
-        },
-      });
-
-      if (users.length === 0) return users;
-
-      // Lấy thông tin tenant
-      const tenantIds = [...new Set(users.map(u => u.tenant_id).filter(Boolean))];
-
-      let tenantMap = {};
-      if (tenantIds.length > 0) {
-        const tenants = await basePrisma.tenants.findMany({
-          where: { 
-            id: { in: tenantIds },
-            deleted_at: null,                 // ← Soft delete cho tenant
-          },
-          select: { 
-            id: true, 
-            name: true, 
-            description: true,
-            slug: true 
-          }
-        });
-
-        tenantMap = tenants.reduce((acc, tenant) => {
-          acc[tenant.id] = tenant;
-          return acc;
-        }, {});
-      }
-
-      // Gắn tenant vào từng user
-      return users.map(user => ({
-        ...user,
-        tenant: tenantMap[user.tenant_id] || null,
-      }));
-    } catch (error) {
-      console.error('[getPendingUsers Error]:', error);
-      throw error;
-    }
-  },
-   * Phương pháp mới - Cách 2 dùng include
-    getPendingUsers: async (actorRole, actorTenantId) => {
-      try {
-        // Thực hiện 1 câu query duy nhất xuống Database để lấy cả User và Tenant
-        const users = await basePrisma.users.findMany({
-          where: {
-            status: 'CHO_DUYET',
-            deleted_at: null, // Chỉ lấy người dùng chưa bị xóa mềm
-            
-            // Phân quyền động: Nếu không phải SYSTEM_ADMIN, ép điều kiện chỉ xem tenant của chính mình
-            ...(actorRole !== 'SYSTEM_ADMIN' && actorTenantId 
-              ? { tenant_id: actorTenantId } 
-              : {}),
-          },
-          orderBy: {
-            created_at: 'desc', // Sắp xếp người dùng mới đăng ký lên đầu
-          },
-          // Eager Loading: Tự động kết hợp dữ liệu bảng tenants dựa trên Foreign Key (tenant_id)
-          include: {
-            tenants: {
-              where: {
-                deleted_at: null, // Lọc trực tiếp: Chỉ lấy thông tin nếu Tenant chưa bị xóa mềm
-              },
-              select: {
-                id: true,
-                name: true,
-                description: true,
-                slug: true,
-              },
-            },
-          },
-        });
-
-        // Nếu không có user nào, Prisma tự động trả về mảng rỗng [].
-        // Toàn bộ logic gom ID, map thủ công và dòng check `if (users.length === 0)` rườm rà đã được loại bỏ.
-        return users;
-
-      } catch (error) {
-        console.error('[getPendingUsers Error]:', error);
-        throw error;
-      }
-    },
-  ****************************************************************************** */
-  
-  // Lấy danh sách users kèm tenant theo phương pháp mới: dùng select
   getPendingUsers: async (actorRole, actorTenantId) => {
     try {
       const users = await basePrisma.users.findMany({
@@ -1514,7 +1431,6 @@ const authService = {
           temp_note: true,
           temp_social_profiles: true,
           created_at: true,
-          // Prisma bắt buộc dùng đúng tên relation trong schema
           tenants: {
             where: {
               deleted_at: null,
@@ -1530,10 +1446,9 @@ const authService = {
         },
       });
 
-      // 🚀 SỬA LỖI TẠI ĐÂY: Map lại tên trường từ 'tenants' thành 'tenant' để tương thích với Frontend
       return users.map(({ tenants, ...user }) => ({
         ...user,
-        tenant: tenants || null, // Đổi sang số ít cho đúng contract của UserApprovalForm.jsx
+        tenant: tenants || null,
       }));
 
     } catch (error) {
@@ -1542,42 +1457,32 @@ const authService = {
     }
   },
 
-  /**
-   * @dateTime 2026-06-18T11:45:00+07:00
-   * @description SERVICE QUERY ĐỘNG NÂNG CAO: Hợp nhất dữ liệu Users, Tenants và Members.
-   * Giúp Approver theo dõi toàn diện vòng đời tài khoản (Chờ duyệt, Từ chối, Đã Duyệt, Bị Khóa).
-   */
+  // 20.4.0:MULTIHOME-PHASE3-[RP-OP-JSON]-[SMOKE-3.x] - Vị trí 6: nạp 21 trường
   queryReviewableUsers: async (filters, actorRole, actorTenantId) => {
     try {
       const { status, role, searchKeyword, fromDate, toDate, page = 1, limit = 20 } = filters;
       
-      // 1. Điều kiện gốc: An toàn Multi-tenant và chống lấy bản ghi đã xóa mềm
       const whereClause = {
         deleted_at: null,
         ...(actorRole !== 'SYSTEM_ADMIN' ? { tenant_id: actorTenantId } : {})
       };
 
-      // 2. Tích hợp bộ lọc Trạng thái động ('CHO_DUYET', 'TU_CHOI', 'DA_DUYET', 'BI_KHOA', 'BI_CAM', 'TAM_NGUNG')
       if (status) {
         whereClause.status = status;
       } else {
-        // Mặc định hiển thị các trạng thái cần quan tâm quản trị
         whereClause.status = { in: ['CHO_DUYET', 'TU_CHOI', 'DA_DUYET', 'BI_KHOA', 'BI_CAM', 'TAM_NGUNG'] };
       }
 
-      // 3. Tích hợp bộ lọc Vai trò (Role)
       if (role) {
         whereClause.role = role;
       }
 
-      // 4. Lọc theo khoảng thời gian biến động (created_at hoặc updated_at)
       if (fromDate || toDate) {
         whereClause.updated_at = {};
         if (fromDate) whereClause.updated_at.gte = new Date(fromDate);
         if (toDate) whereClause.updated_at.lte = new Date(toDate);
       }
 
-      // 5. Tìm kiếm nâng cao đa biểu thức (Tên tài khoản, Tên Snapshot, Email, SĐT)
       if (searchKeyword && searchKeyword.trim() !== '') {
         const keyword = searchKeyword.trim();
         whereClause.OR = [
@@ -1591,29 +1496,13 @@ const authService = {
       const skip = (parseInt(page, 10) - 1) * parseInt(limit, 10);
       const take = parseInt(limit, 10);
 
-      // 6. Thực thi truy vấn kết hợp (JOIN mềm qua Prisma) giữa 3 thực thể: users, tenants, members
       const [totalRecords, users] = await Promise.all([
         basePrisma.users.count({ where: whereClause }),
-        /* ------------------------------------
         basePrisma.users.findMany({
           where: whereClause,
           skip,
           take,
           orderBy: { updated_at: 'desc' },
-          include: {
-            // Lấy thông tin Dòng họ context
-            tenants: {
-              select: { id: true, name: true, status: true, slug: true, description: true }
-            },
-          ---------------------------------------- */
-        
-        // Sử dụng từ điển prisma.js
-        basePrisma.users.findMany({
-          where: whereClause,
-          skip,
-          take,
-          orderBy: { updated_at: 'desc' },
-          // Gọi trực tiếp hằng số tập trung: Hệ thống tự động JOIN sạch và ép deleted_at = null ở tầng dưới!
           select: {
             ...PRISMA_SELECTS.USER_REGISTRATION,
             tenants: {
@@ -1623,18 +1512,14 @@ const authService = {
         }),
       ]);
 
-      /** Không cần giả lập quan hệ mà luôn có FK (1-[0..n]) từ members -> user
-       * Giả lập bổ sung: Nếu database chưa tạo quan hệ trực tiếp trong schema giữa User và Member, 
-       * ta sẽ lấy danh sách member tương ứng dựa trên tenant_id hoặc cơ chế map thủ công để đảm bảo an toàn tuyệt đối
       const enrichedData = await Promise.all(users.map(async (user) => {
-        // Tìm hồ sơ member chính thức trên cây gia phả có tên trùng với snapshot hoặc có liên kết tài khoản
         let linkedMember = null;
-        //if (user.status === 'DA_DUYET' || user.status === 'BI_KHOA') {
-        if (user.status != 'CHO_DUYET') {
+
+        if (user.member_id !== null && user.member_id !== undefined) {
           linkedMember = await basePrisma.members.findFirst({
             where: {
+              id: user.member_id,
               tenant_id: user.tenant_id,
-              full_name: user.temp_full_name || user.name,
               deleted_at: null
             },
             select: {
@@ -1642,69 +1527,20 @@ const authService = {
               full_name: true,
               generation: true,
               gender: true,
-              is_alive: true
+              is_alive: true,
+              branch_id: true,
+              status: true,
+              role: true,
+              branch: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
             }
           });
         }
-
-        return {
-          id: user.id,
-          name: user.name,
-          email: user.email,
-          phone: user.phone,
-          status: user.status, // CHO_DUYET, DA_DUYET, TU_CHOI, BI_KHOA
-          role: user.role,
-          created_at: user.created_at,
-          updated_at: user.updated_at,
-          temp_snapshot: {
-            full_name: user.temp_full_name,
-            birth_year: user.temp_birth_year,
-            branch_name: user.temp_branch_name,
-            registration_reason: user.registration_reason
-          },
-          tenant: user.tenants || null,
-          member_profile: linkedMember // Đính kèm hồ sơ cây gia phả vật lý
-        };
-      }));
-      ******************************************************* */
-      
-      /* 
-       * PATH       : src/services/authService.js (Hàm queryReviewableUsers - Đoạn enrichedData)
-       * DATETIME   : 2026-06-20T16:45:00+07:00
-       * DESCRIPTION: Tối ưu hóa truy vấn dựa trên bản chất Khóa ngoại (FK) member_id.
-       * Loại bỏ hoàn toàn việc dò tìm bằng text (full_name) chậm chạp và thiếu chính xác.
-      */
-      const enrichedData = await Promise.all(users.map(async (user) => {
-        let linkedMember = null;
-
-        // 🎯 ĐÚNG BẢN CHẤT: Chỉ truy vấn include thông tin cây phả hệ khi tài khoản thực sự giữ mối liên kết FK
-        if (user.member_id !== null && user.member_id !== undefined) {
-          linkedMember = await basePrisma.members.findFirst({
-            where: {
-              id: user.member_id, // Truy vấn trực tiếp bằng Khóa chính/Khóa ngoại (Index tốc độ cao)
-              tenant_id: user.tenant_id,
-              deleted_at: null
-            },
-            select: {
-            id: true,
-            full_name: true,
-            generation: true,
-            gender: true,
-            is_alive: true,
-            branch_id: true,
-            status: true,
-            role: true,
-            branch: {
-              select: {
-                id: true,
-                name: true,
-              },
-            },
-          }
-          });
-        }
        
-        // PR-OP-4-Enhancement: cờ từ chối lần cuối (UI list/form) — không đổi users.status
         let isFinalRejection = false;
         if (user.status === 'TU_CHOI') {
           try {
@@ -1713,7 +1549,7 @@ const authService = {
                 user_id: user.id,
                 status: 'REJECTED',
                 deleted_at: null,
-                process_kind: 'REGISTER', // PR-1
+                process_kind: 'REGISTER',
               },
             });
             const meta =
@@ -1727,6 +1563,11 @@ const authService = {
           }
         }
 
+        const meta = (user.temp_social_profiles && typeof user.temp_social_profiles === 'object')
+          ? user.temp_social_profiles
+          : {};
+        const profile = meta.registration_profile || {};
+
         return {
           id: user.id,
           name: user.name,
@@ -1734,26 +1575,38 @@ const authService = {
           phone: user.phone,
           status: user.status, 
           role: user.role,
-          isFinalRejection, // ← thêm cờ từ chối lần cuối (UI list/form) — không đổi users.status
+          isFinalRejection,
           created_at: user.created_at,
           updated_at: user.updated_at,
           temp_snapshot: {
-            full_name: user.temp_full_name || user.name || 'Chưa khai báo',
-            birth_year: user.temp_birth_year || 'Chưa khai báo',
-            branch_name: user.temp_branch_name || 'Chưa khai báo',
-            father_name: user.temp_father_name || 'Chưa khai báo',
-            grandfather_name: user.temp_grandfather_name || 'Chưa khai báo',
-            address: user.temp_address || 'Chưa khai báo',
+            full_name: profile.full_name || user.temp_full_name || user.name || 'Chưa khai báo',
+            alias: profile.alias || null,
+            gender: profile.gender || 'NAM',
+            birth_year: profile.birth_year || user.temp_birth_year || 'Chưa khai báo',
+            birth_month: profile.birth_month || null,
+            birth_day: profile.birth_day || null,
+            birth_place: profile.birth_place || null,
+            death_year: profile.death_year || null,
+            is_alive: profile.is_alive !== undefined ? profile.is_alive : true,
+            generation: profile.generation || null,
+            member_role: profile.member_role || 'THANH_VIEN',
+            branch_name: profile.branch_name || user.temp_branch_name || 'Chưa khai báo',
+            father_name: profile.father_name || user.temp_father_name || 'Chưa khai báo',
+            mother_name: profile.mother_name || null,
+            grandfather_name: profile.grandfather_name || user.temp_grandfather_name || 'Chưa khai báo',
+            grandmother_name: profile.grandmother_name || null,
+            address: profile.address || user.temp_address || 'Chưa khai báo',
             relationship: user.temp_relationship || 'CON_DE',
-            note: user.temp_note || 'Không có ghi chú',
-            social_profiles: user.temp_social_profiles || {},
+            note: profile.note || user.temp_note || 'Không có ghi chú',
+            claimed_member_id: profile.claimed_member_id || null,
+            proof_documents: profile.proof_documents || [],
+            social_profiles: profile.social_profiles || meta.social_profiles || {},
             registration_reason: user.registration_reason || 'Nộp đơn gia nhập tộc hệ'
           },
           tenant: user.tenants || null,
           member_profile: linkedMember 
         };
-      }
-    ));
+      }));
 
       return {
         pagination: {
@@ -1771,28 +1624,7 @@ const authService = {
     }
   },
 
-  /** 
-   * Cách xử lý gộp: Approve or Reject 
-  // =========================================================================
-  // CORE PROCESS: TIẾN TRÌNH DUYỆT ĐƠN (HỢP NHẤT 3 SỔ CÁI)
-  // =========================================================================
-   * @dateTime 2026-06-17T11:32:00+07:00
-   * @description Thực thi luồng xử lý quyết định phê duyệt tộc viên từ UI Admin gửi lên.
-    * VERSION    : 20.2.2-DYNAMIC-ATTEMPT-LEDGER
-    * DESCRIPTION:
-    * - SỬA LỖI ĐÓNG BĂNG ATTEMPT: Tự động tính toán luỹ tiến attempt_no dựa trên số lần xử lý thực tế của một user_id.
-    * - Đồng bộ nạp biến attempt_no động vào cả Business Ledger (businessLogger) và Communication Ledger (notificationBuilder).
-  */
-
-  /**
-   * - PR-OP-1b: Approve/Reject user (DA_DUYET | TU_CHOI).
-   * - C = correlation factory tập trung (prisma.correlation.create).
-   * - Member DU_BI (gender KHAC) + users.member_id khi DA_DUYET và chưa có.
-   * - Case open → APPROVED / REJECTED (onboardingService + tx).
-   * - BPL USER_APPROVAL + audit trong TX; notif post-TX.
-   * - Authz: no self-approve, SYSTEM-only CreateClan, actor CLAN_ADMIN phải DA_DUYET.
-   * - Q1: không đụng flow Register / 1a; return object đầy đủ status + member_id.
-   */
+  // 20.4.0:MULTIHOME-PHASE3-[RP-OP-JSON]-[SMOKE-3.x] - Vị trí 3: Case 1 (EM), Case 2 (No EM), sync user_member_links
   processUserApproval: async (payload) => {
     const {
       userId,
@@ -1804,24 +1636,21 @@ const authService = {
       actorStatus,
       correlation_id,
       correlationId: correlationIdCamel,
-      isFinalRejection, // PR-OP-4R2
+      isFinalRejection,
+      targetMemberId,
     } = payload;
 
-    //const finalRejection = isFinalRejection === true;
     const finalRejection =
       isFinalRejection === true ||
       isFinalRejection === 'true' ||
       isFinalRejection === 1;
 
-    // --- Validate input ---
-    
     if (!adminNote || adminNote.trim() === '') {
       const error = new Error('Tiến trình bị hủy. Ghi chú phê duyệt không được phép để trống.');
       error.status = 400;
       throw error;
     }
 
-    // Bridge: TU_CHOI → CHO_DUYET = reopen (không vào TX approve)
     const sourceUser = await basePrisma.users.findUnique({
       where: { id: userId },
       select: { id: true, status: true },
@@ -1841,19 +1670,10 @@ const authService = {
       });
     }
 
-    // DEBUG tạm (xóa sau)
-    console.log('[processUserApproval bridge]', {
-      sourceStatus: sourceUser.status,
-      newStatus,
-      isFinalRejection,
-      finalRejection,
-    });
-
-    // Bridge: TU_CHOI → TU_CHOI + final = chỉ gắn cờ final (không đổi status user)
     if (
       sourceUser.status === 'TU_CHOI' &&
       newStatus === 'TU_CHOI' &&
-      finalRejection // đã = isFinalRejection === true
+      finalRejection
     ) {
       return authService.markFinalRejection({
         userId,
@@ -1866,7 +1686,6 @@ const authService = {
       });
     }
 
-    // --- Attempt No (ngoài TX, đọc-only) ---
     const pastAttemptsCount = await basePrisma.business_process_logs.count({
       where: {
         process_type: 'USER_APPROVAL',
@@ -1875,8 +1694,6 @@ const authService = {
     });
     const currentAttemptNo = pastAttemptsCount + 1;
 
-    // --- Correlation factory tập trung (prisma.js) ---
-    // Không dùng crypto.randomUUID() trực tiếp; không gọi tách rời.
     const C =
       correlation_id ||
       correlationIdCamel ||
@@ -1885,7 +1702,6 @@ const authService = {
     let securityLogIdentifier = 'unknown';
     let resultUser = null;
 
-    // ====================== TRANSACTION ======================
     resultUser = await basePrisma.$transaction(
       async (tx) => {
         const targetUser = await tx.users.findUnique({
@@ -1902,6 +1718,7 @@ const authService = {
             temp_birth_year: true,
             temp_note: true,
             role: true,
+            temp_social_profiles: true,
             tenants: { select: { id: true, status: true } },
           },
         });
@@ -1910,14 +1727,6 @@ const authService = {
           throw new Error('Không tìm thấy tài khoản yêu cầu phê duyệt.');
         }
 
-        // ---------- PR-OP-1b Bước 1: siết nguồn status ----------
-        // Chỉ CHO_DUYET → DA_DUYET | TU_CHOI trong processUserApproval.
-        // DA_DUYET = terminal (không flip qua service này; reverse tay ≤24h SYSTEM_ADMIN).
-        // TU_CHOI → CHO_DUYET + case mới = API/flow riêng (bước 2).
-        // Trả về sửa (giữ CHO_DUYET + NEEDS_REVISION) = API/flag riêng.
-        // Terminal + nguồn: chỉ CHO_DUYET → DA_DUYET | TU_CHOI trong service này
-
-       // 1) Nguồn trước
         if (targetUser.status === 'DA_DUYET') {
           throw new Error('DENIED');
         }
@@ -1926,23 +1735,18 @@ const authService = {
           throw new Error('DENIED');
         }
 
-        // 2) newStatus chỉ khi nguồn = CHO_DUYET
         if (!['DA_DUYET', 'TU_CHOI'].includes(newStatus)) {
           const error = new Error('newStatus chỉ nhận DA_DUYET hoặc TU_CHOI.');
           error.status = 400;
           throw error;
         }
 
-        // ---------- Authz (PR-OP-1b) ----------
-        // 1. Cấm tự duyệt
         if (actorId === userId) {
           throw new Error('DENIED');
         }
-        // 2. Actor CLAN_ADMIN phải đã DA_DUYET
         if (role === 'CLAN_ADMIN' && actorStatus !== 'DA_DUYET') {
           throw new Error('DENIED');
         }
-        // 3. CreateClan (target CLAN_ADMIN + CHO_DUYET) → chỉ SYSTEM_ADMIN
         if (
           targetUser.role === 'CLAN_ADMIN' &&
           targetUser.status === 'CHO_DUYET' &&
@@ -1950,12 +1754,9 @@ const authService = {
         ) {
           throw new Error('DENIED');
         }
-        // 4. Tenant isolation (giữ nguyên)
         if (role !== 'SYSTEM_ADMIN' && targetUser.tenant_id !== actorTenantId) {
           throw new Error('DENIED');
         }
-
-
 
         securityLogIdentifier = targetUser.phone || targetUser.email || 'unknown';
 
@@ -1965,23 +1766,33 @@ const authService = {
         const finalReason =
           adminNote || `Xử lý thay đổi trạng thái thành ${newStatus}`;
 
-        // --- Member DU_BI (chỉ khi DA_DUYET và chưa có member_id) ---
-        let newMemberId = targetUser.member_id || null;
+        // Trích xuất registration_profile từ JSON metadata
+        const userMeta = (targetUser.temp_social_profiles && typeof targetUser.temp_social_profiles === 'object')
+          ? targetUser.temp_social_profiles
+          : {};
+        const profile = userMeta.registration_profile || {};
 
-        if (newStatus === 'DA_DUYET' && !targetUser.member_id) {
+        let newMemberId = targetMemberId || profile.claimed_member_id || targetUser.member_id || null;
+
+        // CASE 2 & CLAN-SETUP: Nếu duyệt DA_DUYET mà chưa có member nào được gán -> Tạo Member mới từ JSON
+        if (newStatus === 'DA_DUYET' && !newMemberId) {
           const member = await tx.members.create({
             data: {
-              full_name:
-                targetUser.temp_full_name ||
-                targetUser.name ||
-                'Thành viên mới',
+              full_name: profile.full_name || targetUser.temp_full_name || targetUser.name || 'Thành viên mới',
               tenant_id: targetUser.tenant_id,
-              gender: 'KHAC',
+              gender: profile.gender || 'NAM',
+              generation: profile.generation || null,
+              birth_year: profile.birth_year || targetUser.temp_birth_year || null,
+              birth_month: profile.birth_month || null,
+              birth_day: profile.birth_day || null,
+              //birth_place: profile.birth_place || null,
+              death_year: profile.death_year || null,
+              is_alive: profile.is_alive !== undefined ? profile.is_alive : true,
+              role: profile.member_role || 'THANH_VIEN',
+              phone_number: profile.phone || targetUser.phone || null,
+              email: profile.email || targetUser.email || null,
+              note: profile.note || targetUser.temp_note || null,
               status: 'DU_BI',
-              phone_number: targetUser.phone || null,
-              email: targetUser.email || null,
-              birth_year: targetUser.temp_birth_year || null,
-              note: targetUser.temp_note || null,
               changed_by: actorId,
               ...creatorStamp({ id: actorId, member_id: null }),
             },
@@ -1989,8 +1800,6 @@ const authService = {
           newMemberId = member.id;
         }
 
-        // --- Update users (status + member_id nếu có) ---
-        /*
         await tx.users.update({
           where: { id: userId },
           data: {
@@ -1999,25 +1808,41 @@ const authService = {
             ...(newStatus === 'DA_DUYET' && newMemberId
               ? { member_id: newMemberId }
               : {}),
-          },
-        });
-        */
-        await tx.users.update({
-          where: { id: userId },
-          data: {
-            status: newStatus,
-            changed_by: actorId,
-            ...(newStatus === 'DA_DUYET' && newMemberId
-              ? { member_id: newMemberId }
-              : {}),
-            // CLAN_SETUP: RP xong vẫn VIEWER — CLAN_ADMIN chỉ sau OP approve
             ...(newStatus === 'DA_DUYET' && targetUser.role === 'CLAN_ADMIN'
               ? { role: 'VIEWER' }
               : {}),
           },
         });
 
-        // --- Tenant CHO_DUYET → TAM_NGUNG (CreateClan) ---
+        // Đồng bộ user_member_links
+        if (newStatus === 'DA_DUYET') {
+          await tx.user_member_links.updateMany({
+            where: {
+              user_id: userId,
+              tenant_id: targetUser.tenant_id,
+              deleted_at: null,
+            },
+            data: {
+              status: 'DA_DUYET',
+              member_id: newMemberId,
+              role_in_tenant: targetUser.role === 'CLAN_ADMIN' ? 'CLAN_ADMIN' : 'USER',
+              updated_at: new Date(),
+            },
+          });
+        } else if (newStatus === 'TU_CHOI') {
+          await tx.user_member_links.updateMany({
+            where: {
+              user_id: userId,
+              tenant_id: targetUser.tenant_id,
+              deleted_at: null,
+            },
+            data: {
+              status: 'TU_CHOI',
+              updated_at: new Date(),
+            },
+          });
+        }
+
         let updatedTenantData = null;
         if (
           targetUser.tenants &&
@@ -2030,9 +1855,6 @@ const authService = {
           });
         }
 
-        // --- CLAN_SETUP: Reject → tenant TU_CHOI ---
-        // Chỉ founder CLAN_ADMIN; tenant còn trong vòng onboarding (CHO_DUYET).
-        // Final / không final: cùng status tenant TU_CHOI.
         if (
           newStatus === 'TU_CHOI' &&
           targetUser.role === 'CLAN_ADMIN' &&
@@ -2049,8 +1871,6 @@ const authService = {
           });
         }
 
-        // --- Case open → APPROVED | REJECTED ---
-        // PR-2.1: giữ case_id để BPL USER_APPROVAL tham chiếu case RP vừa đóng
         let affectedCaseId = null;
         let caseStatusAfter = null;
 
@@ -2059,7 +1879,7 @@ const authService = {
             where: {
               user_id: userId,
               deleted_at: null,
-              process_kind: 'REGISTER', // PR-1 (nếu chưa có thì thêm)
+              process_kind: 'REGISTER',
               status: {
                 in: [
                   'SUBMITTED',
@@ -2088,7 +1908,6 @@ const authService = {
                 client: tx,
               });
             } else {
-              // TU_CHOI
               caseStatusAfter = 'REJECTED';
               await onboardingService.updateCaseStatus({
                 caseId: openCase.id,
@@ -2099,7 +1918,6 @@ const authService = {
                 client: tx,
               });
 
-              // R2: cờ từ chối lần cuối trên metadata case
               const prevMeta =
                 openCase.metadata && typeof openCase.metadata === 'object'
                   ? openCase.metadata
@@ -2120,12 +1938,9 @@ const authService = {
           }
         } catch (caseErr) {
           console.error('[APPROVAL][CASE]', caseErr.message || caseErr);
-          throw caseErr; // fail-closed trong TX
+          throw caseErr;
         }
-
-        // --- C3: OP handoff — mở MEMBER_PROMOTE DRAFT (Register-to-OP Contract v1.0) ---
-        // Chỉ khi DA_DUYET + đã có member DU_BI. Không đụng case RP APPROVED.
-        // Cùng TX Approve → fail-closed nếu open OP lỗi.
+        /*** 
         if (newStatus === 'DA_DUYET') {
           const promoteMemberId = newMemberId || targetUser.member_id || null;
           if (promoteMemberId && targetUser.tenant_id) {
@@ -2134,13 +1949,12 @@ const authService = {
             let opCaseType = 'MEMBER_JOIN';
 
             try {
-              // openCase có thể đã đóng trong block trên; đọc lại case vừa APPROVED (nếu có)
               const rpCase = await tx.onboarding_cases.findFirst({
                 where: {
                   user_id: userId,
                   deleted_at: null,
                   status: 'APPROVED',
-                  process_kind: 'REGISTER', // PR-1: nguồn RP
+                  process_kind: 'REGISTER',
                 },
                 orderBy: { approved_at: 'desc' },
                 select: {
@@ -2156,7 +1970,6 @@ const authService = {
                   opCaseType = rpCase.case_type;
                 }
               } else if (targetUser.role === 'CLAN_ADMIN') {
-                // Fallback: founder CreateClan thường là CLAN_SETUP
                 opCaseType = 'CLAN_SETUP';
               }
             } catch (lookupErr) {
@@ -2173,16 +1986,70 @@ const authService = {
               actorId,
               tx,
             });
-          } else {
-            console.warn('[APPROVAL][OP-HANDOFF] skip — missing memberId or tenant_id', {
-              userId,
-              promoteMemberId,
-              tenantId: targetUser.tenant_id,
+          }
+        }
+        ***/
+
+        if (newStatus === 'DA_DUYET') {
+          const promoteMemberId = newMemberId || targetUser.member_id || null;
+          if (promoteMemberId && targetUser.tenant_id) {
+            
+            // Kiểm tra trạng thái hiện tại của member
+            const memberToCheck = await tx.members.findUnique({
+              where: { id: promoteMemberId },
+              select: { id: true, status: true },
             });
+
+            // CHỈ mở tiến trình thăng hạng (OP) nếu member đang là DỰ BỊ (DU_BI)
+            if (memberToCheck && memberToCheck.status === 'DU_BI') {
+              let sourceRegisterCaseId = null;
+              let sourceRegisterCorrelationId = null;
+              let opCaseType = 'MEMBER_JOIN';
+
+              try {
+                const rpCase = await tx.onboarding_cases.findFirst({
+                  where: {
+                    user_id: userId,
+                    deleted_at: null,
+                    status: 'APPROVED',
+                    process_kind: 'REGISTER',
+                  },
+                  orderBy: { approved_at: 'desc' },
+                  select: {
+                    id: true,
+                    correlation_id: true,
+                    case_type: true,
+                  },
+                });
+                if (rpCase) {
+                  sourceRegisterCaseId = rpCase.id;
+                  sourceRegisterCorrelationId = rpCase.correlation_id || C || null;
+                  if (rpCase.case_type === 'CLAN_SETUP' || rpCase.case_type === 'MEMBER_JOIN') {
+                    opCaseType = rpCase.case_type;
+                  }
+                } else if (targetUser.role === 'CLAN_ADMIN') {
+                  opCaseType = 'CLAN_SETUP';
+                }
+              } catch (lookupErr) {
+                console.warn('[APPROVAL][OP-HANDOFF][LOOKUP]', lookupErr.message || lookupErr);
+              }
+
+              await openMemberPromoteInstance({
+                userId,
+                memberId: promoteMemberId,
+                tenantId: targetUser.tenant_id,
+                caseType: opCaseType,
+                sourceRegisterCaseId,
+                sourceRegisterCorrelationId: sourceRegisterCorrelationId || C || null,
+                actorId,
+                tx,
+              });
+            } else {
+              console.log(`[APPROVAL][OP-BYPASS] Member ${promoteMemberId} status is ${memberToCheck?.status}, skipping SRPF promotion.`);
+            }
           }
         }
 
-        // --- BPL (correlation_id: C, tx) ---
         await businessLogger.createLog(
           {
             correlation_id: C,
@@ -2197,7 +2064,6 @@ const authService = {
               target_name: snapshotName,
               attempt_no: currentAttemptNo,
             },
-            //20.2.5-PR-2
             payload: {
               action:
                 newStatus === 'DA_DUYET'
@@ -2212,7 +2078,6 @@ const authService = {
               attempt_no: currentAttemptNo,
               is_final: newStatus === 'TU_CHOI' ? finalRejection : false,
               approved_role: 'USER',
-              // PR-2.1
               case_id: affectedCaseId,
               case_status_after: caseStatusAfter,
             },
@@ -2220,7 +2085,6 @@ const authService = {
           tx
         );
 
-        // --- Audit users ---
         await auditService.logAction(
           'CAP_NHAT',
           'users',
@@ -2240,8 +2104,6 @@ const authService = {
           tx
         );
 
-        // --- Audit tenant (nếu có) ---
-        // PR-OP-4 CLAN_SETUP: DA_DUYET → TAM_NGUNG | TU_CHOI → TU_CHOI
         if (updatedTenantData) {
           const statusBefore =
             targetUser.tenants?.status ||
@@ -2261,7 +2123,6 @@ const authService = {
           );
         }
 
-        // ★ Return object đầy đủ từ trong TX (tránh out-of-scope)
         return {
           ...targetUser,
           status: newStatus,
@@ -2271,7 +2132,6 @@ const authService = {
       { maxWait: 5000, timeout: 15000 }
     );
 
-    // ====================== SAU TRANSACTION ======================
     authLogService
       .logAttempt({
         identifier: securityLogIdentifier,
@@ -2282,7 +2142,6 @@ const authService = {
       })
       .catch((err) => console.error('⚠️ [AuthLog Error]:', err.message));
 
-    // Notification (post-TX, fail-open)
     try {
       const eventType =
         newStatus === 'DA_DUYET' ? 'USER_APPROVED' : 'USER_REJECTED';
@@ -2343,7 +2202,7 @@ const authService = {
     return resultUser;
   },
 
-  //PR-OP-1b - Bước 2: Reject → CHO_DUYET + note (tách riêng, không dùng chung processUserApproval)
+  // 20.4.0:MULTIHOME-PHASE3-[RP-OP-JSON]-[SMOKE-3.x] - Vị trí 4: Reopen phục hồi user_member_links
   reopenRejectedUser: async (payload) => {
     const {
       userId,
@@ -2401,12 +2260,10 @@ const authService = {
           throw new Error('Không tìm thấy tài khoản.');
         }
 
-        // Nguồn chỉ TU_CHOI
         if (targetUser.status !== 'TU_CHOI') {
           throw new Error('DENIED');
         }
 
-        // Authz
         if (actorId === userId) {
           throw new Error('DENIED');
         }
@@ -2425,7 +2282,6 @@ const authService = {
         const oldUserStatus = targetUser.status;
         const finalReason = adminNote.trim();
 
-        // Case REJECTED gần nhất + metadata (TRƯỚC khi check final)
         let caseType =
           targetUser.role === 'CLAN_ADMIN' ? 'CLAN_SETUP' : 'MEMBER_JOIN';
 
@@ -2434,7 +2290,7 @@ const authService = {
             user_id: userId,
             status: 'REJECTED',
             deleted_at: null,
-            process_kind: 'REGISTER', // PR-1
+            process_kind: 'REGISTER',
           },
           orderBy: { created_at: 'desc' },
           select: {
@@ -2463,7 +2319,6 @@ const authService = {
           throw error;
         }
 
-        // users → CHO_DUYET
         await tx.users.update({
           where: { id: userId },
           data: {
@@ -2472,7 +2327,19 @@ const authService = {
           },
         });
 
-        // CLAN_SETUP: tenant TU_CHOI → CHO_DUYET
+        // Phục hồi liên kết user_member_links về CHO_DUYET
+        await tx.user_member_links.updateMany({
+          where: {
+            user_id: userId,
+            tenant_id: targetUser.tenant_id,
+            deleted_at: null,
+          },
+          data: {
+            status: 'CHO_DUYET',
+            updated_at: new Date(),
+          },
+        });
+
         if (targetUser.role === 'CLAN_ADMIN' && targetUser.tenant_id) {
           const tenantRow = await tx.tenants.findUnique({
             where: { id: targetUser.tenant_id },
@@ -2510,7 +2377,6 @@ const authService = {
           }
         }
 
-        // Case mới
         const newCase = await onboardingService.createCaseFromRegister({
           correlationId: C,
           caseType,
@@ -2582,7 +2448,6 @@ const authService = {
       { maxWait: 5000, timeout: 15000 }
     );
 
-    // Notif orchestrator (fail-open)
     try {
       await notificationOrchestrator.emit(
         'ONBOARDING_REVISION_REQUESTED',
@@ -2610,10 +2475,7 @@ const authService = {
     return result;
   },
 
-  /**
-   * PR-OP-4: User đã TU_CHOI → gắn từ chối lần cuối (không đổi users.status).
-   * Không cho reopen sau đó.
-   */
+  // 20.4.0:MULTIHOME-PHASE3-[RP-OP-JSON]-[SMOKE-3.x] - Vị trí 5: markFinalRejection cập nhật liên kết
   markFinalRejection: async (payload) => {
     const {
       userId,
@@ -2670,12 +2532,10 @@ const authService = {
           throw new Error('Không tìm thấy tài khoản.');
         }
 
-        // Chỉ user đang TU_CHOI
         if (targetUser.status !== 'TU_CHOI') {
           throw new Error('DENIED');
         }
 
-        // Authz (cùng reopen)
         if (actorId === userId) {
           throw new Error('DENIED');
         }
@@ -2693,13 +2553,12 @@ const authService = {
         const snapshotName =
           targetUser.temp_full_name || targetUser.name || 'Thành viên ẩn danh';
 
-        // Case REJECTED gần nhất
         const rejectedCase = await tx.onboarding_cases.findFirst({
           where: {
             user_id: userId,
             status: 'REJECTED',
             deleted_at: null,
-            process_kind: 'REGISTER', // PR-1
+            process_kind: 'REGISTER',
           },
           orderBy: { created_at: 'desc' },
         });
@@ -2741,9 +2600,19 @@ const authService = {
           },
         });
 
-        // users.status GIỮ TU_CHOI — không update status
+        // Đánh dấu liên kết user_member_links sang TU_CHOI
+        await tx.user_member_links.updateMany({
+          where: {
+            user_id: userId,
+            tenant_id: targetUser.tenant_id,
+            deleted_at: null,
+          },
+          data: {
+            status: 'TU_CHOI',
+            updated_at: new Date(),
+          },
+        });
 
-        // CLAN_SETUP: tenant onboarding → TU_CHOI (nếu còn CHO_DUYET)
         if (targetUser.role === 'CLAN_ADMIN' && targetUser.tenant_id) {
           const tenantRow = await tx.tenants.findUnique({
             where: { id: targetUser.tenant_id },
@@ -2811,12 +2680,6 @@ const authService = {
     return result;
   },
 
-  /**
-   * DATETIME   : 2026-08-04 PR-OP-4-R1
-   * DESCRIPTION:
-   * - Admin trả về sửa: giữ CHO_DUYET; case → NEEDS_REVISION + review_note.
-   * - Không tạo member, không đổi tenant, không đổi users.status.
-   */
   returnForRevision: async (payload) => {
     const {
       userId,
@@ -2873,12 +2736,10 @@ const authService = {
           throw new Error('Không tìm thấy tài khoản.');
         }
 
-        // Chỉ CHO_DUYET mới trả về sửa
         if (targetUser.status !== 'CHO_DUYET') {
           throw new Error('DENIED');
         }
 
-        // Authz (cùng approve)
         if (actorId === userId) {
           throw new Error('DENIED');
         }
@@ -2896,12 +2757,11 @@ const authService = {
         const snapshotName =
           targetUser.temp_full_name || targetUser.name || 'Thành viên ẩn danh';
 
-        // Case open → NEEDS_REVISION
         const openCase = await tx.onboarding_cases.findFirst({
           where: {
             user_id: userId,
             deleted_at: null,
-            process_kind: 'REGISTER', // PR-1
+            process_kind: 'REGISTER',
             status: {
               in: [
                 'SUBMITTED',
@@ -2933,8 +2793,6 @@ const authService = {
           client: tx,
         });
 
-        // users.status GIỮ CHO_DUYET — không update status
-        // (optional: chỉ changed_by)
         await tx.users.update({
           where: { id: userId },
           data: { changed_by: actorId },
@@ -2991,7 +2849,6 @@ const authService = {
       { maxWait: 5000, timeout: 15000 }
     );
 
-    // Notif fail-open
     try {
       await notificationOrchestrator.emit(
         'ONBOARDING_REVISION_REQUESTED',
@@ -3018,18 +2875,13 @@ const authService = {
     return result;
   },
 
-  /**
-   * DATETIME   : 2026-08-02
-   * VERSION    : 20.2.5-PR-OP-3B
-   * - B1: isRevision không JWT; xác thực phone/password.
-   * - Chỉ CHO_DUYET; khóa phone/email; cập nhật temp_*.
-   * - Case NEEDS_REVISION → SUBMITTED. Không tạo user/tenant/member.
-   */
+  // 20.4.0:MULTIHOME-PHASE3-[RP-OP-JSON]-[SMOKE-3.x] - Vị trí 2: submitRegistrationRevision
   submitRegistrationRevision: async (payload, extraData = {}) => {
     const {
       phone,
       email,
       password,
+      registration_profile,
       temp_full_name,
       temp_father_name,
       temp_grandfather_name,
@@ -3039,7 +2891,6 @@ const authService = {
       temp_branch_name,
       temp_note,
       temp_social_profiles,
-      // PR-OP-4 2.2 CLAN_SETUP revision
       description,
       clanName,
     } = payload;
@@ -3098,7 +2949,6 @@ const authService = {
       throw error;
     }
 
-    // Khóa phone/email: nếu client gửi khác DB → 400
     if (logIdentifier && user.phone && logIdentifier !== user.phone) {
       const error = new Error('Không được thay đổi số điện thoại khi bổ sung hồ sơ.');
       error.status = 400;
@@ -3112,33 +2962,54 @@ const authService = {
       throw error;
     }
 
-    const C =
-      incomingCorrelationId ||
-      prisma.correlation.create();
+    const C = incomingCorrelationId || prisma.correlation.create();
 
     const displayName =
       temp_full_name || user.temp_full_name || user.name || logIdentifier || 'user';
 
     const updated = await basePrisma.$transaction(async (tx) => {
+      // Validate profile mới nếu có truyền, hoặc merge từ các trường phẳng
+      let cleanProfile = null;
+      if (registration_profile && typeof registration_profile === 'object') {
+        cleanProfile = validateRegistrationProfile(registration_profile);
+      } else if (temp_full_name || temp_father_name || temp_birth_year) {
+        cleanProfile = validateRegistrationProfile({
+          full_name: temp_full_name || user.temp_full_name,
+          gender: payload.gender || 'NAM',
+          birth_year: temp_birth_year ? parseInt(temp_birth_year, 10) : user.temp_birth_year,
+          father_name: temp_father_name !== undefined ? temp_father_name : user.temp_father_name,
+          grandfather_name: temp_grandfather_name !== undefined ? temp_grandfather_name : user.temp_grandfather_name,
+          address: temp_address !== undefined ? temp_address : user.temp_address,
+          branch_name: temp_branch_name !== undefined ? temp_branch_name : user.temp_branch_name,
+          note: temp_note !== undefined ? temp_note : user.temp_note,
+        });
+      }
+
+      const existingMeta = typeof user.temp_social_profiles === 'object' && user.temp_social_profiles !== null 
+        ? user.temp_social_profiles 
+        : {};
+
       const data = {
         changed_by: user.id,
-        ...(temp_full_name !== undefined ? { temp_full_name } : {}),
-        ...(temp_father_name !== undefined ? { temp_father_name } : {}),
-        ...(temp_grandfather_name !== undefined ? { temp_grandfather_name } : {}),
+        ...(temp_full_name !== undefined ? { temp_full_name } : (cleanProfile?.full_name ? { temp_full_name: cleanProfile.full_name } : {})),
+        ...(temp_father_name !== undefined ? { temp_father_name } : (cleanProfile?.father_name ? { temp_father_name: cleanProfile.father_name } : {})),
+        ...(temp_grandfather_name !== undefined ? { temp_grandfather_name } : (cleanProfile?.grandfather_name ? { temp_grandfather_name: cleanProfile.grandfather_name } : {})),
         ...(temp_birth_year !== undefined
           ? {
               temp_birth_year: temp_birth_year
                 ? parseInt(temp_birth_year, 10)
                 : null,
             }
-          : {}),
+          : (cleanProfile?.birth_year ? { temp_birth_year: cleanProfile.birth_year } : {})),
         ...(temp_relationship !== undefined ? { temp_relationship } : {}),
-        ...(temp_address !== undefined ? { temp_address } : {}),
-        ...(temp_branch_name !== undefined ? { temp_branch_name } : {}),
-        ...(temp_note !== undefined ? { temp_note } : {}),
-        ...(temp_social_profiles !== undefined
-          ? { temp_social_profiles: temp_social_profiles || {} }
-          : {}),
+        ...(temp_address !== undefined ? { temp_address } : (cleanProfile?.address ? { temp_address: cleanProfile.address } : {})),
+        ...(temp_branch_name !== undefined ? { temp_branch_name } : (cleanProfile?.branch_name ? { temp_branch_name: cleanProfile.branch_name } : {})),
+        ...(temp_note !== undefined ? { temp_note } : (cleanProfile?.note ? { temp_note: cleanProfile.note } : {})),
+        temp_social_profiles: {
+          ...existingMeta,
+          ...(temp_social_profiles || {}),
+          ...(cleanProfile ? { registration_profile: cleanProfile } : {}),
+        },
       };
 
       const u = await tx.users.update({
@@ -3155,7 +3026,6 @@ const authService = {
         },
       });
 
-      // PR-OP-4 2.2: CLAN_SETUP — cập nhật mô tả (và tên nếu gửi) khi tenant còn onboarding
       if (
         user.role === 'CLAN_ADMIN' &&
         user.tenant_id &&
@@ -3169,18 +3039,16 @@ const authService = {
           select: { id: true, status: true, name: true, description: true },
         });
 
-        // Chỉ khi tenant chưa kích hoạt dịch vụ
         const onboardingTenant =
           tenantRow &&
           ['CHO_DUYET', 'TU_CHOI', 'TAM_NGUNG'].includes(tenantRow.status);
 
-          if (onboardingTenant) {
+        if (onboardingTenant) {
           const tenantData = {
             changed_by: user.id,
             ...(description !== undefined
               ? { description: String(description || '').trim() || null }
               : {}),
-            // Tên dòng họ: chỉ update nếu client gửi chuỗi không rỗng
             ...(clanName !== undefined &&
             String(clanName || '').trim() !== ''
               ? { name: String(clanName).trim() }
@@ -3188,7 +3056,6 @@ const authService = {
           };
 
           if (Object.keys(tenantData).length > 1) {
-            // >1 vì luôn có changed_by
             await tx.tenants.update({
               where: { id: tenantRow.id },
               data: tenantData,
@@ -3224,17 +3091,15 @@ const authService = {
               );
             }
           }
-          }
+        }
       }
-
-
 
       let caseId = null;
       const openCase = await tx.onboarding_cases.findFirst({
         where: {
           user_id: user.id,
           deleted_at: null,
-          process_kind: 'REGISTER', // PR-1
+          process_kind: 'REGISTER',
           status: {
             in: [
               'SUBMITTED',
@@ -3260,7 +3125,7 @@ const authService = {
           });
         }
       }
-      //20.2.5-PR-2
+
       try {
         await businessLogger.createLog(
           {
@@ -3331,6 +3196,145 @@ const authService = {
       status: updated.status,
       caseId: updated.caseId,
       correlationId: updated.correlationId,
+    };
+  },
+
+  // =========================================================================
+  // [PHASE 2][SM-U-02] ĐỒNG BỘ TRẠNG THÁI USER DỰA TRÊN USER_MEMBER_LINKS
+  // =========================================================================
+  /**
+   * Nguyên tắc: users.status chỉ là DA_DUYET nếu có ít nhất 1 link DA_DUYET.
+   * Ngược lại, nếu chưa có link DA_DUYET nào thì giữ nguyên CHO_DUYET.
+   */
+  syncUserStatusWithLinks: async (userId, tx = basePrisma) => {
+    const activeLink = await tx.user_member_links.findFirst({
+      where: {
+        user_id: userId,
+        status: 'DA_DUYET',
+        deleted_at: null,
+      },
+    });
+
+    const targetStatus = activeLink ? 'DA_DUYET' : 'CHO_DUYET';
+
+    await tx.users.updateMany({
+      where: {
+        id: userId,
+        status: { notIn: ['BI_KHOA', 'BI_CAM', targetStatus] },
+        deleted_at: null,
+      },
+      data: {
+        status: targetStatus,
+        updated_at: new Date(),
+      },
+    });
+
+    return targetStatus;
+  },
+
+  // =========================================================================
+  // [PHASE 2][SEC-02] CHUYỂN ĐỔI NGỮ CẢNH DÒNG HỌ (SWITCH CONTEXT API)
+  // =========================================================================
+  /**
+   * Cấp phát Context Token mới dựa trên dòng họ đích mà user lựa chọn
+   */
+  switchContext: async (userId, targetTenantId) => {
+    if (!targetTenantId) {
+      const error = new Error('Thiếu mã định danh dòng họ (targetTenantId).');
+      error.status = 400;
+      error.code = 'TENANT_REQUIRED';
+      throw error;
+    }
+
+    const link = await basePrisma.user_member_links.findFirst({
+      where: {
+        user_id: userId,
+        tenant_id: targetTenantId,
+        deleted_at: null,
+      },
+      include: {
+        tenant: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            status: true,
+            logo_url: true,
+            slogan: true,
+          },
+        },
+        member: {
+          select: {
+            id: true,
+            full_name: true,
+            gender: true,
+            generation: true,
+            status: true,
+            role: true,
+            branch_id: true,
+          },
+        },
+      },
+    });
+
+    if (!link) {
+      const error = new Error('Bạn không có quyền truy cập hoặc chưa liên kết với dòng họ này.');
+      error.status = 403;
+      error.code = 'NO_TENANT_ACCESS';
+      throw error;
+    }
+
+    if (link.status === 'TU_CHOI' || link.status === 'HUY_LIEN_KET') {
+      const error = new Error('Tư cách thành viên của bạn tại dòng họ này đã bị hủy bỏ hoặc từ chối.');
+      error.status = 403;
+      error.code = 'LINK_INACTIVE';
+      throw error;
+    }
+
+    const user = await basePrisma.users.findUnique({
+      where: { id: userId, deleted_at: null },
+      select: { id: true, email: true, phone: true, name: true, role: true, status: true },
+    });
+
+    if (!user) {
+      const error = new Error('Tài khoản không tồn tại.');
+      error.status = 404;
+      error.code = 'USER_NOT_FOUND';
+      throw error;
+    }
+
+    const secret = process.env.JWT_SECRET || securityConfig.JWT_SECRET;
+    if (!secret) {
+      throw new Error('Cấu hình thiếu JWT_SECRET tại tệp môi trường .env.');
+    }
+
+    const contextToken = jwt.sign(
+      {
+        userId: user.id,
+        email: user.email,
+        role: link.role_in_tenant || user.role,
+        tenantId: link.tenant_id,
+        activeTenantId: link.tenant_id,
+        activeMemberId: link.member_id,
+        activeLinkStatus: link.status,
+        linkType: link.link_type,
+        tenantStatus: link.tenant?.status || null,
+      },
+      secret,
+      { expiresIn: '24h' }
+    );
+
+    return {
+      token: contextToken,
+      activeContext: {
+        activeTenantId: link.tenant_id,
+        activeMemberId: link.member_id,
+        activeLinkStatus: link.status,
+        linkType: link.link_type,
+        roleInTenant: link.role_in_tenant,
+        tenant: link.tenant,
+        member: link.member,
+      },
     };
   },
 };

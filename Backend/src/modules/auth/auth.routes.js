@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/auth/auth.routes.js
- * DATETIME   : 2026-07-25T15:45:00+07:00
- * VERSION    : 21.9.1-TENANT-DTO
+ * DATETIME   : 2026-11-07T22:30:00+07:00
+ * VERSION    : 21.10.0 - MULTIHOME - PHASE2-[SEC-02]
  * DESCRIPTION:
  * - [21.9.0-W4] PR-W4-1: rate limit login/register/reset + securityGuard.
  * - Lưới lọc bảo an chủ động (restrictSuspiciousActivity).
@@ -36,6 +36,8 @@ const {
   checkIdentityRateLimiter,
 } = require('../../middlewares/rateLimit.middleware');
 
+const { tenantGate } = require('../../middlewares/tenantGate.middleware');
+
 // ==================== PUBLIC ROUTES ====================
 //router.get('/check-identity', authController.checkIdentity);
 //21.9.0-W4
@@ -57,6 +59,9 @@ router.post(
   }),
   authController.changePasswordAfterReset
 );
+
+//21.10.0 - MULTIHOME - PHASE2-[SEC-02]
+router.post('/switch-context', verifyToken, authController.switchContext);
 
 // ==================== DEBUG ====================
 if (process.env.NODE_ENV !== 'production') {
@@ -141,13 +146,26 @@ router.get(
   })
 );
 
+// [SMOKE-2.2 TEST ROUTE]
+router.get(
+  '/test-sandbox',
+  verifyToken,
+  tenantGate,
+  (req, res) => {
+    res.status(200).json({ status: 'success', message: 'Vượt qua Sandbox thành công' });
+  }
+);
+
 router.get(
   '/pending-users',
   verifyToken,
+  tenantGate, // <--- THÊM CHỐT CHẶN VÀO ĐÂY
   checkRole('CLAN_ADMIN', 'SYSTEM_ADMIN'),
   requireActiveTenant,
   authController.getPendingUsers
 );
+
+
 
 router.post(
   '/query-reviewable-users',
@@ -205,4 +223,5 @@ router.post(
   correlationMiddleware,
   authController.reopenRejectedUser
 );
+
 module.exports = router;

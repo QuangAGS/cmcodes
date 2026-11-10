@@ -91,6 +91,7 @@ model tenants {
   sources                        sources[]
   citations                      citations[]
   evidence_links                 evidence_links[]
+  user_member_links              user_member_links[]
 
   @@index([origin_address_id], map: "idx_tenant_origin_addr")
   @@index([name(ops: raw("gin_trgm_ops"))], map: "trgm_idx_tenants_name", type: Gin)
@@ -694,6 +695,7 @@ model members {
   /// Đợt 2
   member_privacy_rules member_privacy_rules[]
   residences           member_residences[]
+  user_member_links    user_member_links[]
 
   marriages_as_husband               marriages[]        @relation("marriages_husband_idTomembers")
   marriages_as_wife                  marriages[]        @relation("marriages_wife_idTomembers")
@@ -806,6 +808,16 @@ model users {
   proposals_reviewed                                                  proposals[]                      @relation("ProposalReviewer")
   member_residences                                                   member_residences[]
   parentages                                                          parentages[]
+
+  // =========================================================================
+  // MULTI-HOME RELATIONS
+  // =========================================================================
+  /// Danh sách liên kết dòng họ mà người dùng này sở hữu (Member memberships)
+  user_member_links     user_member_links[] @relation("user_owned_member_links")
+  /// Danh sách liên kết dòng họ do người này phê duyệt với vai trò Admin
+  approved_member_links user_member_links[] @relation("user_approved_member_links")
+  /// Danh sách liên kết dòng họ do người này thực hiện chỉnh sửa / kiểm toán
+  changed_member_links  user_member_links[] @relation("user_changed_member_links")
 
   @@unique([member_id], map: "uq_users_member_id")
   @@index([tenant_id], map: "idx_users_tenant")
@@ -1286,6 +1298,8 @@ model proposals {
   hold_member_ids        String[]             @default([])
   expires_at             DateTime?            @db.Timestamptz(6)
 
+  user_member_links user_member_links[]
+
   tenants   tenants @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_proposals_tenant")
   requester users   @relation("ProposalRequester", fields: [requester_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_proposals_requester")
   reviewer  users?  @relation("ProposalReviewer", fields: [reviewed_by], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_proposals_reviewer")
@@ -1516,7 +1530,72 @@ model evidence_links {
   @@map("evidence_links")
 }
 
-/// Enums list
+/// Bảng cầu nối quản lý quan hệ đa dòng họ (Multi-Home) giữa User và Member
+model user_member_links {
+  id             String                  @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  user_id        String                  @db.VarChar(36)
+  tenant_id      String                  @db.VarChar(36)
+  member_id      String                  @db.VarChar(36)
+  link_type      member_link_type        @default(PRIMARY_PATERNAL)
+  status         user_member_link_status @default(CHO_DUYET)
+  role_in_tenant String                  @default("USER") @db.VarChar(20)
+  is_default     Boolean                 @default(false)
+  claim_reason   String?                 @db.Text
+
+  // Khóa ngoại truy vết nguồn gốc đề xuất Claim / Onboarding
+  proposal_id String? @db.VarChar(36)
+
+  // Audit fields
+  approved_by String?   @db.VarChar(36)
+  approved_at DateTime? @db.Timestamptz(6)
+  created_at  DateTime  @default(now()) @db.Timestamptz(6)
+  updated_at  DateTime  @default(now()) @updatedAt @db.Timestamptz(6)
+  changed_by  String?   @db.VarChar(36)
+  deleted_at  DateTime? @db.Timestamptz(6)
+
+  // Named relations đồng bộ với model users
+  user     users  @relation("user_owned_member_links", fields: [user_id], references: [id], onDelete: Cascade, map: "fk_uml_user")
+  approver users? @relation("user_approved_member_links", fields: [approved_by], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_uml_approver")
+  modifier users? @relation("user_changed_member_links", fields: [changed_by], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_uml_changed_by")
+
+  // Core domain relations
+  tenant   tenants    @relation(fields: [tenant_id], references: [id], onDelete: Cascade, map: "fk_uml_tenant")
+  member   members    @relation(fields: [member_id], references: [id], onDelete: Cascade, map: "fk_uml_member")
+  proposal proposals? @relation(fields: [proposal_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_uml_proposal")
+
+  // Chỉ mục tra cứu tiêu chuẩn của Prisma
+  @@index([user_id], map: "idx_uml_user")
+  @@index([tenant_id], map: "idx_uml_tenant")
+  @@index([member_id], map: "idx_uml_member")
+  @@index([tenant_id, member_id], map: "idx_uml_tenant_member")
+  @@index([proposal_id], map: "idx_uml_proposal")
+  @@index([approved_by], map: "idx_uml_approved_by")
+  @@index([changed_by], map: "idx_uml_changed_by")
+  @@index([user_id, is_default, deleted_at], map: "idx_uml_user_default")
+  @@index([tenant_id, member_id, status], map: "idx_uml_tenant_member_status")
+  @@index([tenant_id, status], map: "idx_uml_tenant_status")
+  @@map("user_member_links")
+}
+
+/// Enums list ==========================================================
+
+enum user_member_link_status {
+  DRAFT /// Chế độ Onboarding Sandbox (chỉ truy cập MFO 5L và Profile)
+  CHO_DUYET /// Chờ Hội đồng gia tộc duyệt Claim hoặc gia nhập
+  DA_DUYET /// Thành viên hoạt động chính thức trong dòng họ
+  TU_CHOI /// Yêu cầu bị Admin từ chối (lưu vết lịch sử)
+  HUY_LIEN_KET /// Rút lui hoặc bị hủy tư cách
+}
+
+enum member_link_type {
+  PRIMARY_PATERNAL /// Họ nội / Họ cha (dòng họ chính)
+  MATERNAL /// Họ ngoại / Họ mẹ
+  SPOUSE_FAMILY /// Nhà dâu / rể (gia đình vợ/chồng)
+  DESCENDANT_FAMILY /// Dòng dõi hậu duệ
+  GUARDIAN /// Người giám hộ / khai hộ hồ sơ
+  OTHER /// Khác
+}
+
 enum member_residences_kind {
   ORIGIN
   RESIDENCE
@@ -1977,6 +2056,7 @@ enum proposal_status {
   APPLIED
   WITHDRAWN
   FAILED_TO_APPLY
+  DISPUTED /// BỔ SUNG: Trạng thái tranh chấp khi có nhiều Claim trùng nút member
 }
 
 enum proposal_ticket_type {
@@ -1985,6 +2065,7 @@ enum proposal_ticket_type {
   FUND_CONTRIBUTION
   BRANCH_REVIEW
   MFO_REVIEW
+  MEMBER_CLAIM /// BỔ SUNG: Loại đề xuất nhận hồ sơ thành viên đã có trong sổ họ
 }
 
 enum privacy_field_group {

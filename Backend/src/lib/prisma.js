@@ -1,9 +1,12 @@
 /**
  * ============================================================================
  * PATH       : src/lib/prisma.js
- * DATETIME   : 2026-10-18T22:45:00+07:00
- * VERSION    : 23.1.1-BUG11-TX-TIMEOUT-FIX
+ * DATETIME   : 2026-11-07T22:30:00+07:00
+ * VERSION    : 23.2.0-V250-PHASE2-ALS
  * DESCRIPTION:
+ * - [Phase 2][SEC-03][SEC-ALS] Mở rộng ALS Context hỗ trợ Multi-Home:
+ *   activeTenantId, activeMemberId, activeLinkStatus ('DRAFT' | 'CHO_DUYET' | 'DA_DUYET').
+ * - [Phase 2] Bổ sung user_member_links vào STRICT_TENANT_MODELS và SOFT_DELETE_MODELS.
  * - [23.1.1-BUG11] Cấu hình maxWait (10s) và timeout (30s) trực tiếp trên basePrisma.$transaction
  *   cho withTransaction, triệt tiêu triệt để lỗi P2028 Transaction expired khi duyệt Cửa 2.
  * - [23.1.0-S0] Đợt 1 S0.1–S0.5: fail-closed tenant guardrail + ALS bind
@@ -117,12 +120,12 @@ const exactMatchFields = [
     'founder_id','fund_id','grave_address_id','headquarters_address_id','husband_id','id',
     'manager_id','member_id','mother_id','notification_id','notification_recipient_id',
     'onboarding_case_id','organizer_id','origin_address_id','parent_id','primary_branch_id',
-    'primary_member_id','record_id','target_id','tenant_id','transaction_id','user_id',
+    'primary_member_id','proposal_id','record_id','target_id','tenant_id','transaction_id','user_id',
     'wife_id','worship_id',
 
     // 2. Các trường Enum (Quan trọng: Phải dùng equals) 
     'action','actor_type','asset_type','binding_state','case_type','category','channel',
-    'child_type','condition_status','event_type','gender','level','pre_lock_status',
+    'child_type','condition_status','event_type','gender','level','link_type','pre_lock_status',
     'process_status','process_type','provider','reliability','role','status',
     'temp_relationship','transaction_type',
 
@@ -169,7 +172,8 @@ const STRICT_TENANT_MODELS = new Set([
   'cemetery', 'data_suggestions', 'event_funds', 'events', 'fund_transactions',
   'funds', 'graves', 'inbound_messages', 'marriages', 'media', 'members',
   'notifications', 'onboarding_cases', 'tenant_communication_providers',
-  'tenant_social_spaces', 'worships', 'clan_profiles', 'generation_naming_rules', 'proposals','member_privacy_rules',
+  'tenant_social_spaces', 'worships', 'clan_profiles', 'generation_naming_rules', 
+  'proposals', 'member_privacy_rules', 'user_member_links',
 ]);
 
 const OPTIONAL_TENANT_MODELS = new Set([
@@ -181,8 +185,8 @@ const SOFT_DELETE_MODELS = new Set([
   'business_process_logs', 'cemetery', 'data_suggestions', 'event_funds', 'events',
   'fund_transactions', 'funds', 'graves', 'inbound_messages', 'marriages', 'media',
   'members', 'notifications', 'onboarding_cases', 'tenants', 'users', 'worships', 
-  'clan_profiles', 'generation_naming_rules', 'proposals','member_privacy_rules',
-  'member_residences',
+  'clan_profiles', 'generation_naming_rules', 'proposals', 'member_privacy_rules',
+  'member_residences', 'user_member_links',
 ]);
 
 const APPEND_ONLY_MODELS = new Set([
@@ -211,7 +215,7 @@ const prisma = basePrisma.$extends({
       async $allOperations({ model, operation, args, query }) {
         const modelName = String(model || '').toLowerCase();
         const store = tenantContext.getStore();
-        const tenantId = store?.tenantId || null;
+        const tenantId = store?.tenantId || store?.activeTenantId || null;
         const allowUnscoped = store?.allowUnscoped === true;
         args = args || {};
 
@@ -339,7 +343,10 @@ function createExecutionContext(input = {}) {
     correlationId,
     actorId: input.actorId || null,
     actorType: input.actorType || 'USER',
-    tenantId: input.tenantId || null,
+    tenantId: input.activeTenantId || input.tenantId || null,
+    activeTenantId: input.activeTenantId || input.tenantId || null,
+    activeMemberId: input.activeMemberId || input.memberId || null,
+    activeLinkStatus: input.activeLinkStatus || null,
     requestId: input.requestId || null,
     ipAddress: input.ipAddress || null,
     userAgent: input.userAgent || null,
@@ -357,7 +364,9 @@ function tenantScope(context, where = {}, options = {}) {
   const required =
     typeof options.required === 'boolean' ? options.required : true;
 
-  if (!context || !context.tenantId) {
+  const resolvedTenantId = context?.activeTenantId || context?.tenantId;
+
+  if (!context || !resolvedTenantId) {
     if (required) {
       throw new Error(
         'Tenant scope is required but context.tenantId is missing.'
@@ -369,7 +378,7 @@ function tenantScope(context, where = {}, options = {}) {
 
   return {
     ...where,
-    tenant_id: context.tenantId
+    tenant_id: resolvedTenantId
   };
 }
 
@@ -451,7 +460,7 @@ async function createBusinessProcessLog(client, input = {}) {
       process_type: input.processType,
       actor_type: input.actorType || 'USER',
       actor_id: input.actorId,
-      tenant_id: input.tenantId || null,
+      tenant_id: input.activeTenantId || input.tenantId || null,
       process_status: input.processStatus || 'SUCCESS',
       metadata: normalizeJsonObject(input.metadata)
     }
@@ -477,7 +486,9 @@ async function createAuditLog(client, input = {}) {
     throw new Error('createAuditLog requires action.');
   }
 
-  if (!input.tenantId) {
+  const resolvedTenantId = input.activeTenantId || input.tenantId;
+
+  if (!resolvedTenantId) {
     throw new Error('createAuditLog requires tenantId.');
   }
 
@@ -488,7 +499,7 @@ async function createAuditLog(client, input = {}) {
       action: input.action,
       old_data: input.oldData || null,
       new_data: input.newData || null,
-      tenant_id: input.tenantId,
+      tenant_id: resolvedTenantId,
       change_reason: input.changeReason || null,
       changed_by: input.changedBy || null,
       correlation_id: input.correlationId || null
@@ -514,7 +525,7 @@ async function createNotification(client, input = {}) {
   return client.notifications.create({
     data: {
       user_id: input.userId,
-      tenant_id: input.tenantId || null,
+      tenant_id: input.activeTenantId || input.tenantId || null,
       correlation_id: input.correlationId,
       event_type: input.eventType || null,
       type: input.type || 'HE_THONG',
@@ -640,7 +651,7 @@ async function createOnboardingCase(client, input = {}) {
       correlation_id: input.correlationId,
       case_type: input.caseType,
       user_id: input.userId,
-      tenant_id: input.tenantId || null,
+      tenant_id: input.activeTenantId || input.tenantId || null,
       primary_member_id: input.primaryMemberId || null,
       primary_branch_id: input.primaryBranchId || null,
       metadata: normalizeJsonObject(input.metadata),
@@ -758,7 +769,7 @@ async function updateBranchStatus(client, input = {}) {
 
 /**
  * ============================================================================
- * TRANSACTION WRAPPER
+ * TRANSACTION WRAPPER & ALS CONTEXT [SEC-03, SEC-ALS]
  * ============================================================================
  */
 
@@ -779,7 +790,10 @@ async function withTransaction(contextInput, callback, options = {}) {
   const context = createExecutionContext(contextInput);
 
   const store = {
-    tenantId: context.tenantId || null,
+    tenantId: context.activeTenantId || context.tenantId || null,
+    activeTenantId: context.activeTenantId || context.tenantId || null,
+    activeMemberId: context.activeMemberId || null,
+    activeLinkStatus: context.activeLinkStatus || null,
     userId: context.actorId || null,
     requestId: context.requestId || null,
     correlationId: context.correlationId || null,
@@ -800,20 +814,28 @@ async function withTransaction(contextInput, callback, options = {}) {
   );
 }
 
+/**
+ * [Phase 2][SEC-ALS] Chạy callback trong ngữ cảnh AsyncLocalStorage đa dòng họ
+ * @param {TenantContext|Object} store
+ * @param {Function} callback
+ */
 function runWithTenantContext(store = {}, callback) {
   if (typeof callback !== 'function') {
     throw new TypeError('runWithTenantContext requires callback');
   }
-  return tenantContext.run(
-    {
-      tenantId: store.tenantId || null,
-      userId: store.userId || store.actorId || null,
-      allowUnscoped: store.allowUnscoped === true,
-      requestId: store.requestId || null,
-      correlationId: store.correlationId || null,
-    },
-    callback
-  );
+
+  const normalizedStore = {
+    tenantId: store.activeTenantId || store.tenantId || null,
+    activeTenantId: store.activeTenantId || store.tenantId || null,
+    activeMemberId: store.activeMemberId || store.memberId || null,
+    activeLinkStatus: store.activeLinkStatus || null,
+    userId: store.userId || store.actorId || null,
+    allowUnscoped: store.allowUnscoped === true,
+    requestId: store.requestId || null,
+    correlationId: store.correlationId || null,
+  };
+
+  return tenantContext.run(normalizedStore, callback);
 }
 
 /**

@@ -1,8 +1,9 @@
 /**
  * PATH       : src/modules/auth/auth.controller.js
- * DATETIME   : 2026-07-29T10:50:00+07:00
- * VERSION    : 23.3.1-OP1a
+ * DATETIME   : 2026-11-07T22:20:00+07:00
+ * VERSION    : 23.4.0 - MULTIHOME - PHASE2-[SEC-02]
  * DESCRIPTION:
+ * - 23.4.0 - MULTIHOME - PHASE2-[SEC-02]**: Bổ sung API `POST /api/auth/switch-context
  * - [23.3.1-OP1a] Register: truyền correlationId vào extraData (CED / notifications).
  * - [23.3.0-W4] Turnstile theo TURNSTILE_REQUIRED; Q1 honeypot, Assert Order login.
  */
@@ -846,6 +847,37 @@ const authController = {
       res.status(error.status || 500).json({
         status: 'error',
         message: error.message || 'Lỗi mở lại hồ sơ bị từ chối.',
+      });
+    }
+  },
+
+  //23.4.0 - MULTIHOME - PHASE2-[SEC-02] Bổ sung API `POST /api/auth/switch-context`
+  switchContext: async (req, res) => {
+    try {
+      const userId = req.user?.userId || req.user?.id;
+      const { targetTenantId } = req.body;
+
+      if (!userId) {
+        return res.status(401).json({
+          status: 'error',
+          code: 'UNAUTHORIZED',
+          message: 'Phiên làm việc không hợp lệ.',
+        });
+      }
+
+      const result = await authService.switchContext(userId, targetTenantId);
+
+      return res.status(200).json({
+        status: 'success',
+        data: result,
+        message: 'Chuyển đổi ngữ cảnh dòng họ thành công.',
+      });
+    } catch (error) {
+      console.error('[switchContext Error]:', error);
+      return res.status(error.status || 500).json({
+        status: 'error',
+        code: error.code || 'SWITCH_CONTEXT_FAILED',
+        message: error.message || 'Không thể chuyển đổi dòng họ.',
       });
     }
   },

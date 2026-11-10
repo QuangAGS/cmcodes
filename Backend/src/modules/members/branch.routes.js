@@ -12,12 +12,15 @@ const baseController = require('../../shared/controllers/base.controller');
 const branchController = require('./branch.controller');
 const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
 
+const { tenantGate } = require('../../middlewares/tenantGate.middleware');
+
+
 const branchCtrl = baseController('branches');
 
 router.get('/tree', verifyToken, branchController.getBranchTree);
 
 router.get('/search', verifyToken, branchCtrl.search);
-router.get('/', verifyToken, branchCtrl.getAll);
+router.get('/', verifyToken, tenantGate, branchCtrl.getAll);
 
 router.patch(
   '/:id/founder',
