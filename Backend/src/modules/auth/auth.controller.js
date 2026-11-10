@@ -1,9 +1,10 @@
 /**
  * PATH       : src/modules/auth/auth.controller.js
- * DATETIME   : 2026-11-07T22:20:00+07:00
- * VERSION    : 23.4.0 - MULTIHOME - PHASE2-[SEC-02]
+ * DATETIME   : 2026-11-10T15:15:00+07:00
+ * VERSION    : 23.5.0 - MULTIHOME - AVAILABLE-CLANS-FIX
  * DESCRIPTION:
- * - 23.4.0 - MULTIHOME - PHASE2-[SEC-02]**: Bổ sung API `POST /api/auth/switch-context
+ * - 23.5.0: Bổ sung API `GET /api/auth/available-clans` (SMOKE-4.2) bị thiếu trong controller.
+ * - 23.4.0 - MULTIHOME - PHASE2-[SEC-02]: Bổ sung API `POST /api/auth/switch-context`.
  * - [23.3.1-OP1a] Register: truyền correlationId vào extraData (CED / notifications).
  * - [23.3.0-W4] Turnstile theo TURNSTILE_REQUIRED; Q1 honeypot, Assert Order login.
  */
@@ -850,8 +851,40 @@ const authController = {
       });
     }
   },
+  // =========================================================================
+  // 23.5.0 - MULTIHOME - PHASE2-[SEC-02] Bổ sung API GET /api/auth/available-clans
+  // =========================================================================
+  getAvailableClans: async (req, res) => {
+    try {
+      const userId = req.user?.userId || req.user?.id || req.user?.sub;
 
-  //23.4.0 - MULTIHOME - PHASE2-[SEC-02] Bổ sung API `POST /api/auth/switch-context`
+      if (!userId) {
+        return res.status(401).json({
+          status: 'error',
+          code: 'UNAUTHORIZED',
+          message: 'Phiên làm việc không hợp lệ.',
+        });
+      }
+
+      // Gọi service lấy danh sách các dòng họ liên kết của user
+      const result = await authService.getAvailableClans(userId);
+
+      return res.status(200).json({
+        status: 'success',
+        data: result,
+        message: 'Lấy danh sách dòng họ liên kết thành công.',
+      });
+    } catch (error) {
+      console.error('[getAvailableClans Error]:', error);
+      return res.status(error.status || 500).json({
+        status: 'error',
+        code: error.code || 'GET_AVAILABLE_CLANS_FAILED',
+        message: error.message || 'Không thể lấy danh sách dòng họ.',
+      });
+    }
+  },
+
+  // 23.4.0 - MULTIHOME - PHASE2-[SEC-02] Bổ sung API POST /api/auth/switch-context
   switchContext: async (req, res) => {
     try {
       const userId = req.user?.userId || req.user?.id;

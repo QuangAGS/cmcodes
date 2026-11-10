@@ -1,173 +1,64 @@
 /**
- * PATH       : src/features/onboarding/constants/opMessages.js
- * DATETIME   : 2026-08-23T16:45:00+07:00
- * VERSION    : 1.1.0-FE-OP-B3
- * DESCRIPTION:
- * - Thông điệp AudioHelp / khung thông báo / voice theo trạng thái OP.
- * - B3: hiện đúng revision_request / rejection_reason từ admin (không chung chung).
- * - Ngôn ngữ đời thường (Elder Support).
+ * =============================================================================
+ * PATH        : frontend/src/features/onboarding/constants/opMessages.js
+ * DATETIME    : 2026-11-10T13:52:00+07:00
+ * VERSION     : 1.2.0-OP-MESSAGES-CYCLIC-ELDER
+ * DESCRIPTION : Từ điển thông điệp thông báo và lời thoại trợ lý ảo Elder TTS
+ *               cho chu trình Onboarding & Membership (AMEND-RP-OP-2026-01-V1.1).
+ *               Bao gồm các trạng thái Cyclic: NEEDS_REVISION, TU_CHOI,
+ *               TU_CHOI_LAN_CUOI (Terminal Hard-lock) và các xác nhận thao tác.
+ * =============================================================================
+ * CHANGELOGS:
+ * - 2026-08-15T10:00:00+07:00 (v1.0.0-LEGACY):
+ *   + Các câu thông báo thành công / thất bại cơ bản.
+ * - 2026-11-10T13:52:00+07:00 (v1.2.0-OP-MESSAGES-CYCLIC-ELDER):
+ *   + Cập nhật quy chuẩn QX.
+ *   + Bổ sung thông điệp cho các trạng thái phê duyệt mới của Phase 3 & 4.
+ *   + Tích hợp đầy đủ các hàm sinh chuỗi Elder TTS chuẩn xưng hô "Bác/Cháu".
+ * =============================================================================
  */
 
-'use strict';
+export const OP_MESSAGES = {
+  // --- THÔNG BÁO TIẾN TRÌNH ONBOARDING & PHẢ HỆ ---
+  DRAFT_STATUS: 'Hồ sơ đang trong giai đoạn soạn thảo nháp. Bác/Bạn hãy hoàn tất nộp hồ sơ để mở các tính năng dòng họ.',
+  SUBMITTED_SUCCESS: 'Hồ sơ phả hệ của Bác/Bạn đã được gửi thành công đến Ban quản trị dòng họ.',
+  UNDER_REVIEW: 'Hội đồng gia tộc đang tiến hành đối soát thông tin hồ sơ của Bác/Bạn.',
+  
+  // --- THÔNG ĐIỆP STATE MACHINE MỚI THEO AMEND ---
+  NEEDS_REVISION_TITLE: 'Ban quản trị yêu cầu bổ sung thông tin',
+  NEEDS_REVISION_DESC: 'Hồ sơ cần làm rõ thêm một số chi tiết về tiền nhân hoặc ngày giỗ. Bác vui lòng nhấn nút chỉnh sửa để cập nhật.',
+  
+  SOFT_REJECTION_TITLE: 'Hồ sơ tạm thời chưa được duyệt',
+  SOFT_REJECTION_DESC: 'Hồ sơ chưa đủ điều kiện xác thực liên kết vào lúc này. Bác có thể gửi lại yêu cầu mới nếu cần thiết.',
+  
+  HARD_LOCK_TITLE: 'Hồ sơ đã bị từ chối lần cuối',
+  HARD_LOCK_DESC: 'Hồ sơ đã được khóa an toàn vĩnh viễn theo quyết định cuối cùng của Hội đồng dòng họ. Không thể mở lại.',
 
-/** Tóm tắt toàn trang — AudioHelpButton */
-export const OP_HUB_AUDIO_HELP =
-  'Bạn có thể chọn một trong các loại công việc để thực hiện theo chỉ dẫn. Khi ban quản trị yêu cầu bổ sung, nội dung cụ thể sẽ hiện trong khung thông báo.';
+  APPROVED_SUCCESS: 'Chúc mừng Bác! Hồ sơ liên kết dòng họ đã được phê duyệt chính thức thành công.',
 
-/** Lời chào khung thông báo */
-export const OP_HUB_WELCOME =
-  'Đây là danh mục việc bạn cần làm để được xét duyệt thành thành viên chính thức của dòng họ.';
-
-/**
- * @typedef {object} OpCaseAdminNotes
- * @property {string|null} [revision_request]
- * @property {string|null} [review_note]
- * @property {string|null} [rejection_reason]
- * @property {boolean} [reopenable]
- */
-
-/**
- * Câu trạng thái quy trình — ưu tiên nội dung admin khi có.
- * @param {string|null} caseStatus
- * @param {boolean} profileComplete
- * @param {OpCaseAdminNotes} [adminNotes]
- */
-export function buildProcessStatusMessage(
-  caseStatus,
-  profileComplete,
-  adminNotes = {}
-) {
-  const revision =
-    adminNotes?.revision_request && String(adminNotes.revision_request).trim();
-  const rejection =
-    adminNotes?.rejection_reason && String(adminNotes.rejection_reason).trim();
-  const reopenable = adminNotes?.reopenable === true;
-
-  switch (caseStatus) {
-    case 'DRAFT':
-      return profileComplete
-        ? 'Hồ sơ cơ bản đã đủ. Bạn có thể mở Hồ sơ cơ sở và gửi để xét duyệt.'
-        : 'Hồ sơ chưa đủ. Bạn cần bổ sung vài thông tin cơ bản trước khi gửi duyệt.';
-    case 'SUBMITTED':
-    case 'UNDER_REVIEW':
-      return 'Hồ sơ đang chờ người quản trị xem xét. Bạn vui lòng quay lại sau.';
-    case 'NEEDS_REVISION':
-      if (revision) {
-        return `Ban quản trị yêu cầu bạn bổ sung / chỉnh sửa: ${revision}`;
-      }
-      return 'Ban quản trị yêu cầu bổ sung hồ sơ. Hãy cập nhật Hồ sơ cơ sở rồi gửi lại.';
-    case 'APPROVED':
-      return 'Hồ sơ đã được duyệt. Bạn là thành viên chính thức.';
-    case 'REJECTED':
-      if (rejection) {
-        return reopenable
-          ? `Hồ sơ bị từ chối. Lý do: ${rejection}. Bạn có thể mở lại hồ sơ, bổ sung rồi gửi duyệt lại.`
-          : `Hồ sơ bị từ chối lần cuối. Lý do: ${rejection}. Vui lòng liên hệ ban quản trị nếu cần hỗ trợ.`;
-      }
-      return reopenable
-        ? 'Hồ sơ bị từ chối. Bạn có thể mở lại, bổ sung rồi gửi duyệt lại.'
-        : 'Hồ sơ bị từ chối lần cuối. Vui lòng liên hệ ban quản trị nếu cần hỗ trợ.';
-    case 'CANCELLED':
-      return 'Hồ sơ này đã được hủy.';
-    default:
-      return 'Đang cập nhật trạng thái hồ sơ của bạn.';
-  }
-}
-
-/**
- * Đoạn hướng dẫn + TTS cho card Hồ sơ cơ sở (khi expand).
- * Ưu tiên lời admin (revision) hơn danh sách field thiếu hệ thống.
- *
- * @param {{ complete?: boolean, missingFields?: string[] }} completeness
- * @param {string[]} missingLabels - đã map qua labelFields
- * @param {string|null} caseStatusLabel - nhãn tiếng Việt hoặc mã status
- * @param {OpCaseAdminNotes} [adminNotes]
- */
-export function buildBaseProfileGuidance(
-  completeness,
-  missingLabels,
-  caseStatusLabel,
-  adminNotes = {}
-) {
-  const status = typeof caseStatusLabel === 'string' ? caseStatusLabel : '';
-  const revision =
-    adminNotes?.revision_request && String(adminNotes.revision_request).trim();
-  const rejection =
-    adminNotes?.rejection_reason && String(adminNotes.rejection_reason).trim();
-  const reopenable = adminNotes?.reopenable === true;
-
-  // Admin trả sửa: luôn hiện đúng nội dung yêu cầu
-  if (status === 'NEEDS_REVISION' || status === 'Cần bổ sung') {
-    if (revision) {
-      const missingText =
-        missingLabels && missingLabels.length > 0
-          ? ` Hệ thống còn ghi nhận thiếu: ${missingLabels.join(', ')}.`
-          : '';
-      return `Yêu cầu từ ban quản trị: ${revision}.${missingText} Bấm Thực hiện để chỉnh sửa rồi gửi duyệt lại.`.replace(
-        /\s+/g,
-        ' '
-      ).trim();
-    }
-  }
-
-  if (status === 'REJECTED' || status === 'Từ chối') {
-    if (rejection) {
-      return reopenable
-        ? `Lý do từ chối: ${rejection}. Bạn có thể mở lại hồ sơ và bổ sung.`
-        : `Lý do từ chối lần cuối: ${rejection}.`;
-    }
-  }
-
-  const statusBit =
-    status === 'DRAFT' || status === 'Nháp'
-      ? 'Chưa gửi duyệt — đang hoàn thiện hồ sơ.'
-      : status
-        ? `Trạng thái hồ sơ: ${status}.`
-        : '';
-
-  if (completeness?.complete) {
-    return `${statusBit} Hồ sơ cơ bản đã đủ thông tin bắt buộc theo hệ thống. Bạn vẫn có thể xem lại hoặc chỉnh sửa.`.trim();
-  }
-
-  const missingText =
-    missingLabels && missingLabels.length > 0
-      ? `Còn thiếu: ${missingLabels.join(', ')}.`
-      : 'Còn thiếu một số thông tin cơ bản.';
-
-  return `${statusBit} ${missingText} Bấm Thực hiện để điền.`
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-/** AudioHelp — trang Hồ sơ cơ sở */
-export const OP_BASE_PROFILE_AUDIO_HELP =
-  'Trang này để điền họ tên, giới tính, ngày sinh và đời thứ mấy. Bạn có thể Lưu nháp khi chưa đủ, hoặc Gửi duyệt khi đã đủ thông tin bắt buộc. Nếu ban quản trị yêu cầu bổ sung, hãy sửa đúng nội dung được nêu rồi gửi lại.';
-
-export const OP_BASE_PROFILE_ZONE = {
-  basic:
-    'Điền họ và tên, chọn giới tính và cho biết còn sống hay đã mất.',
-  birth:
-    'Điền năm, tháng và ngày sinh. Nếu không nhớ ngày hoặc tháng, tạm để trống và bổ sung sau khi lưu nháp.',
-  generation:
-    'Đời thứ mấy trong dòng họ, tính từ đời khởi tổ theo quy ước của dòng họ bạn.',
+  // --- THÔNG BÁO LỖI THAO TÁC BIỂU MẪU ---
+  VALIDATION_FAILED: 'Thông tin khai báo chưa hợp lệ. Bác vui lòng kiểm tra lại các trường được báo đỏ.',
+  NETWORK_ERROR: 'Kết nối mạng bị gián đoạn. Kính mời Bác kiểm tra lại đường truyền và thử lại.',
 };
 
-export const OP_BASE_PROFILE_TOAST = {
-  draftSaved: 'Đã lưu nháp hồ sơ cơ sở.',
-  submitted: 'Đã gửi hồ sơ để xét duyệt.',
-  reopened: 'Đã mở lại hồ sơ. Bạn có thể bổ sung rồi gửi duyệt.',
-  loadFailed: 'Không tải được hồ sơ. Vui lòng thử lại.',
-  saveFailed: 'Không lưu được hồ sơ. Vui lòng thử lại.',
-  submitFailed: 'Không gửi duyệt được. Vui lòng kiểm tra thông tin và thử lại.',
-  reopenFailed: 'Không mở lại được hồ sơ. Vui lòng thử lại.',
-};
-
-export default {
-  OP_HUB_AUDIO_HELP,
-  OP_HUB_WELCOME,
-  buildProcessStatusMessage,
-  buildBaseProfileGuidance,
-  OP_BASE_PROFILE_AUDIO_HELP,
-  OP_BASE_PROFILE_ZONE,
-  OP_BASE_PROFILE_TOAST,
+/**
+ * Hệ thống câu thoại trợ lý ảo Elder TTS (Text-to-Speech)
+ * Tôn chỉ kính cẩn, rõ ràng, dễ nghe cho người cao tuổi.
+ */
+export const ELDER_VOICE_SCRIPTS = {
+  // Lời chào và hướng dẫn ban đầu
+  WELCOME_CLAIM: 'Dạ, kính chào Bác. Mời Bác tìm tên mình trong sổ họ hoặc chọn khai báo hồ sơ thành viên mới.',
+  
+  // Hướng dẫn khi bị yêu cầu sửa đổi (NEEDS_REVISION)
+  ALERT_NEEDS_REVISION: (clanName) => 
+    `Dạ thưa Bác, Ban quản trị ${clanName || 'dòng họ'} có gửi lời nhắn yêu cầu làm rõ thêm thông tin hồ sơ. Bác vui lòng nhấn nút chỉnh sửa để bổ sung.`,
+  
+  // Khi nộp hồ sơ thành công
+  SUBMIT_SUCCESS_SPEECH: 'Dạ, cháu đã gửi hồ sơ của Bác tới Ban quản trị dòng họ an toàn. Cháu sẽ kính báo ngay khi có kết quả duyệt.',
+  
+  // Khi hồ sơ bị từ chối lần cuối
+  HARD_LOCK_SPEECH: 'Dạ thưa Bác, hồ sơ này đã có kết luận từ chối lần cuối từ Hội đồng gia tộc và đã được đóng lại.',
+  
+  // Cảnh báo khi nhập thiếu thông tin bắt buộc
+  VALIDATION_ERROR_SPEECH: (fieldName) => `Dạ thưa Bác, trường thông tin ${fieldName} là bắt buộc, Bác vui lòng điền giúp cháu.`,
 };

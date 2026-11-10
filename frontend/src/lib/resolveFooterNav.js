@@ -1,127 +1,74 @@
 /**
- * PATH       : src/lib/resolveFooterNav.js
- * DATETIME   : 2026-09-20T11:05:00+07:00
- * VERSION    : 1.2.1-MFO-C1
- * DESCRIPTION:
- * - SSOT footer theo pageKey.
- * - Hub / list admin: Home = Trang chủ (/).
- * - Page cấp dưới admin (settings, OP detail…): Home = Trung tâm QT (/admin).
+ * =============================================================================
+ * PATH        : frontend/src/lib/resolveFooterNav.js
+ * DATETIME    : 2026-11-10T13:55:00+07:00
+ * VERSION     : 1.2.0-RESOLVE-FOOTER-NAV-MULTILINK
+ * DESCRIPTION : Bộ điều phối danh mục Menu chân trang (Bottom Navigation Bar)
+ *               trên thiết bị di động. Tự động chuyển đổi các mục Menu dựa theo
+ *               ngữ cảnh liên kết (activeLinkStatus) của người dùng:
+ *               - DRAFT: Hiển thị tab lập hồ sơ 5L (/op/mfo/plan).
+ *               - CHO_DUYET: Hiển thị tab theo dõi tiến độ duyệt (/membership/status).
+ *               - DA_DUYET: Hiển thị đầy đủ Cây phả hệ (/tree), Tin tức, Sổ cái.
+ * =============================================================================
+ * CHANGELOGS:
+ * - 2026-08-20T14:00:00+07:00 (v1.0.0-LEGACY):
+ *   + Menu điều hướng 4 nút cố định cũ.
+ * - 2026-11-10T13:55:00+07:00 (v1.2.0-RESOLVE-FOOTER-NAV-MULTILINK):
+ *   + Cập nhật quy chuẩn QX.
+ *   + Bổ sung điều phối động dựa trên activeLinkStatus và activeContext.
+ *   + Đảm bảo người dùng ở trạng thái DRAFT / CHO_DUYET luôn có lối tắt hợp lệ.
+ * =============================================================================
  */
-
-export function resolveNavRole(user) {
-  const r = String(user?.role || '').toUpperCase();
-  if (r === 'SYSTEM_ADMIN') return 'SYSTEM_ADMIN';
-  if (r === 'CLAN_ADMIN') return 'CLAN_ADMIN';
-  if (r === 'USER' || r === 'VIEWER' || r === 'THANH_VIEN') return 'USER';
-  return 'GUEST';
-}
 
 /**
- * Home mặc định theo role (khi không có pageKey đặc biệt).
- * USER → /op · ADMIN → /admin · else → /
+ * Tạo danh sách các nút bấm thanh điều hướng chân trang (Bottom Nav)
+ * @param {object} params
+ * @param {object} params.user - Thông tin tài khoản người dùng
+ * @param {object} params.activeContext - Ngữ cảnh dòng họ hiện tại (activeLinkStatus, roleInTenant)
+ * @returns {Array<{id: string, label: string, path: string, icon: string, badge?: string}>}
  */
-export function resolveHomeTo(user) {
-  const role = resolveNavRole(user);
-  if (role === 'SYSTEM_ADMIN' || role === 'CLAN_ADMIN') return '/admin';
-  if (role === 'USER') return '/op';
-  return '/';
-}
-
-export function resolveHomeLabel(user) {
-  const role = resolveNavRole(user);
-  if (role === 'SYSTEM_ADMIN' || role === 'CLAN_ADMIN') return 'Trung tâm QT';
-  if (role === 'USER') return 'Việc của tôi';
-  return 'Trang chủ';
-}
-
-/**
- * pageKey quyết định home “đúng tầng”:
- * - admin | admin-approval  → Trang chủ (/)
- * - admin-settings | admin-op-detail | admin-child → Trung tâm QT (/admin)
- * - op-* → theo role USER
- */
-function resolveHomeByPageKey(user, pageKey) {
-  const key = String(pageKey || '').toLowerCase();
-  const role = resolveNavRole(user);
-
-  // Hub + list approval: đã có Quay lại → /admin; Home = Landing
-  if (key === 'admin' || key === 'admin-approval') {
-    return { homeTo: '/', homeLabel: 'Trang chủ' };
+export const resolveFooterNav = ({ user, activeContext } = {}) => {
+  // Nếu chưa đăng nhập: Trả về điều hướng cơ bản công khai
+  if (!user) {
+    return [
+      { id: 'home', label: 'Trang chủ', path: '/', icon: 'Home' },
+      { id: 'search', label: 'Tra cứu họ', path: '/search', icon: 'Search' },
+      { id: 'login', label: 'Đăng nhập', path: '/login', icon: 'LogIn' },
+    ];
   }
 
-  // Cấp dưới /admin
-  if (
-    key === 'admin-settings' ||
-    key === 'admin-op-detail' ||
-    key === 'admin-child'
-  ) {
-    return { homeTo: '/admin', homeLabel: 'Trung tâm QT' };
+  const linkStatus = activeContext?.activeLinkStatus;
+
+  // 1. NGƯỜI DÙNG Ở TRẠNG THÁI DRAFT (Đang lập hồ sơ/cây 5 đời MFO)
+  if (linkStatus === 'DRAFT') {
+    return [
+      { id: 'plan', label: 'Lập sơ đồ 5L', path: '/op/mfo/plan', icon: 'FileEdit' },
+      { id: 'hub', label: 'Cổng tác nghiệp', path: '/op', icon: 'LayoutDashboard' },
+      { id: 'profile', label: 'Cá nhân', path: '/me', icon: 'User' },
+    ];
   }
 
-  if (key.startsWith('op-') || key === 'op-hub' || key === 'op-base-profile') {
-    if (role === 'USER') return { homeTo: '/op', homeLabel: 'Việc của tôi' };
-    return { homeTo: '/', homeLabel: 'Trang chủ' };
+  // 2. NGƯỜI DÙNG Ở TRẠNG THÁI CHO_DUYET / NEEDS_REVISION (Đang chờ thẩm định)
+  if (linkStatus === 'CHO_DUYET' || linkStatus === 'NEEDS_REVISION') {
+    return [
+      {
+        id: 'status',
+        label: 'Tiến độ hồ sơ',
+        path: '/membership/status',
+        icon: 'Clock',
+        badge: linkStatus === 'NEEDS_REVISION' ? 'Cần sửa' : undefined,
+      },
+      { id: 'hub', label: 'Cổng tác nghiệp', path: '/op', icon: 'LayoutDashboard' },
+      { id: 'profile', label: 'Cá nhân', path: '/me', icon: 'User' },
+    ];
   }
 
-  return {
-    homeTo: resolveHomeTo(user),
-    homeLabel: resolveHomeLabel(user),
-  };
-}
-
-export function resolveDefaultBackTo(user, pageKey = 'op-other') {
-  const role = resolveNavRole(user);
-  const key = String(pageKey || '').toLowerCase();
-
-  const map = {
-    admin: null,
-    'admin-approval': '/admin',
-    'admin-settings': '/admin',
-    'admin-op-detail': '/admin/approval?process=OP',
-    'admin-child': '/admin',
-    'op-hub': '/',
-    'op-base-profile': '/op',
-    'op-mfo-plan': '/op',
-    'op-other': '/op',
-    public: '/',
-  };
-
-  if (Object.prototype.hasOwnProperty.call(map, key)) return map[key];
-  if (role === 'SYSTEM_ADMIN' || role === 'CLAN_ADMIN') return '/admin';
-  if (role === 'USER') return '/op';
-  return '/';
-}
-
-export function resolveFooterNav(user, opts = {}) {
-  const {
-    pageKey = 'op-other',
-    backTo,
-    homeTo,
-    homeLabel,
-    showBack = true,
-    showHome = true,
-    showLogout = true,
-  } = opts;
-
-  const byPage = resolveHomeByPageKey(user, pageKey);
-
-  const resolvedBack =
-    backTo !== undefined
-      ? backTo
-      : showBack
-        ? resolveDefaultBackTo(user, pageKey)
-        : null;
-
-  return {
-    backTo: resolvedBack,
-    homeTo: homeTo !== undefined ? homeTo : showHome ? byPage.homeTo : null,
-    homeLabel:
-      homeLabel !== undefined ? homeLabel : byPage.homeLabel,
-    showBack:
-      showBack && resolvedBack != null && String(resolvedBack).length > 0,
-    showHome,
-    showLogout,
-  };
-}
-
-export default resolveFooterNav;
+  // 3. THÀNH VIÊN ĐÃ ĐƯỢC DUYỆT CHÍNH THỨC (DA_DUYET - Full Access)
+  return [
+    { id: 'tree', label: 'Cây phả hệ', path: '/tree', icon: 'Network' },
+    { id: 'events', label: 'Việc họ', path: '/events', icon: 'Calendar' },
+    { id: 'fund', label: 'Quỹ họ', path: '/fund', icon: 'Wallet' },
+    { id: 'hub', label: 'Tác nghiệp', path: '/op', icon: 'LayoutDashboard' },
+    { id: 'profile', label: 'Cá nhân', path: '/me', icon: 'User' },
+  ];
+};

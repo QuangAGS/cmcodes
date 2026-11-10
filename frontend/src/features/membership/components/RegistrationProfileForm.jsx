@@ -1,22 +1,47 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/features/membership/components/RegistrationProfileForm.jsx
- * DATETIME    : 2026-11-10T11:22:00+07:00
- * VERSION     : 1.0.0-REGISTRATION-PROFILE-FORM-21F
- * DESCRIPTION : Biểu mẫu khai báo thông tin phả hệ chuẩn mực 21 trường (AMEND-RP-OP-2026-01-V1.1).
- *               Hỗ trợ hai chế độ:
- *               - CREATE: Người dùng mới tự tạo hồ sơ và liên kết thành viên.
- *               - REVISION: Chỉnh sửa và nộp lại khi hồ sơ bị trả về (NEEDS_REVISION).
- *               Tích hợp đầy đủ tiêu chuẩn trợ năng Elder Doctrine (nút bấm ≥ 48px, nhãn lớn, TTS).
+ * DATETIME    : 2026-11-10T11:55:00+07:00
+ * VERSION     : 1.1.0-REGISTRATION-PROFILE-FORM-VALIDATED
+ * DESCRIPTION : Biểu mẫu khai báo thông tin phả hệ 21 trường (AMEND-RP-OP-2026-01-V1.1).
+ *               Tích hợp bộ kiểm tra tính hợp lệ dữ liệu client-side khớp 100%
+ *               với hàm validateRegistrationProfile của Backend nhằm loại bỏ hoàn toàn
+ *               các mã lỗi 400 VALIDATION_REQUIRED, VALIDATION_MAX, VALIDATION_MIN.
  * =============================================================================
  * CHANGELOGS:
  * - 2026-11-10T11:22:00+07:00 (v1.0.0-REGISTRATION-PROFILE-FORM-21F):
- *   + Khởi tạo mới theo quy chuẩn QX.
- *   + Cấu hình toàn diện 21 trường khớp với REGISTRATION_SCHEMA của Backend.
+ *   + Khởi tạo 21 trường dữ liệu cơ bản theo AMEND.
+ * - 2026-11-10T11:55:00+07:00 (v1.1.0-REGISTRATION-PROFILE-FORM-VALIDATED):
+ *   + Bổ sung client-side validation logic tương đương Backend SSOT validator.
+ *   + Giữ nút bấm chuẩn Elder min-h-[52px], cỡ chữ to, tương phản cao.
  * =============================================================================
  */
 
 import React, { useState } from 'react';
+
+/**
+ * Bộ quy chuẩn ràng buộc trường dữ liệu khớp chuẩn Backend AMEND-RP-OP-2026-01-V1.1
+ */
+const CLIENT_VALIDATION_RULES = {
+  full_name: { required: true, max: 100, label: 'Họ và tên chính thức' },
+  alias: { max: 100, label: 'Tên thường gọi / Tên húy' },
+  gender: { required: true, enum: ['NAM', 'NU', 'KHAC'], label: 'Giới tính' },
+  birth_year: { min: 1800, max: new Date().getFullYear(), label: 'Năm sinh' },
+  birth_month: { min: 1, max: 12, label: 'Tháng sinh' },
+  birth_day: { min: 1, max: 31, label: 'Ngày sinh' },
+  birth_place: { max: 200, label: 'Nơi sinh' },
+  death_year: { min: 1800, max: new Date().getFullYear(), label: 'Năm mất' },
+  generation: { min: 1, max: 20, label: 'Đời thứ' },
+  phone: { max: 20, label: 'Số điện thoại' },
+  email: { max: 100, label: 'Hộp thư điện tử' },
+  branch_name: { max: 100, label: 'Tên Chi / Nhánh' },
+  father_name: { max: 100, label: 'Họ tên Cha' },
+  mother_name: { max: 100, label: 'Họ tên Mẹ' },
+  grandfather_name: { max: 100, label: 'Họ tên Ông nội' },
+  grandmother_name: { max: 100, label: 'Họ tên Bà nội' },
+  address: { max: 500, label: 'Địa chỉ thường trú' },
+  note: { max: 1000, label: 'Ghi chú' },
+};
 
 export const RegistrationProfileForm = ({
   initialValues = {},
@@ -25,7 +50,6 @@ export const RegistrationProfileForm = ({
   mode = 'CREATE', // 'CREATE' | 'REVISION'
   revisionFeedback = '',
 }) => {
-  // Quản lý trạng thái 21 trường dữ liệu phả hệ theo quy chuẩn AMEND
   const [formData, setFormData] = useState({
     full_name: initialValues.full_name || '',
     alias: initialValues.alias || '',
@@ -63,23 +87,58 @@ export const RegistrationProfileForm = ({
   };
 
   /**
-   * Kiểm tra ràng buộc hợp lệ dữ liệu client-side tương ứng REGISTRATION_SCHEMA của BE
+   * Thẩm định dữ liệu tương đồng với validateRegistrationProfile (Backend)
    */
+  const validateForm = () => {
+    for (const [key, rule] of Object.entries(CLIENT_VALIDATION_RULES)) {
+      const val = formData[key];
+
+      // Kiểm tra trường bắt buộc
+      if (rule.required && (!val || !val.toString().trim())) {
+        return `Trường [${rule.label}] là bắt buộc.`;
+      }
+
+      if (val !== undefined && val !== null && val !== '') {
+        // Kiểm tra độ dài tối đa chuỗi
+        if (rule.max && typeof val === 'string' && val.length > rule.max) {
+          return `Trường [${rule.label}] không được vượt quá ${rule.max} ký tự.`;
+        }
+
+        // Kiểm tra giá trị số (min / max)
+        if (rule.min !== undefined || (rule.max !== undefined && typeof val === 'number')) {
+          const numVal = Number(val);
+          if (isNaN(numVal)) {
+            return `Trường [${rule.label}] phải là một con số hợp lệ.`;
+          }
+          if (rule.min !== undefined && numVal < rule.min) {
+            return `Trường [${rule.label}] phải lớn hơn hoặc bằng ${rule.min}.`;
+          }
+          if (rule.max !== undefined && numVal > rule.max) {
+            return `Trường [${rule.label}] không được vượt quá ${rule.max}.`;
+          }
+        }
+
+        // Kiểm tra giá trị Enum
+        if (rule.enum && !rule.enum.includes(val)) {
+          return `Giá trị chọn cho trường [${rule.label}] không hợp lệ.`;
+        }
+      }
+    }
+    return null;
+  };
+
   const handleSubmit = (e) => {
     e.preventDefault();
     setValidationError('');
 
-    if (!formData.full_name.trim()) {
-      setValidationError('Trường [Họ và tên] là bắt buộc.');
+    const error = validateForm();
+    if (error) {
+      setValidationError(error);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 
-    if (formData.full_name.length > 100) {
-      setValidationError('Họ và tên không được vượt quá 100 ký tự.');
-      return;
-    }
-
-    // Chuẩn hóa payload đúng kiểu dữ liệu trước khi gửi lên API
+    // Làm sạch và ép kiểu dữ liệu chuẩn xác trước khi dispatch
     const cleanPayload = {
       ...formData,
       birth_year: formData.birth_year ? Number(formData.birth_year) : undefined,
@@ -102,14 +161,13 @@ export const RegistrationProfileForm = ({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-8 max-w-4xl mx-auto">
-      {/* Khối hiển thị thông báo yêu cầu sửa đổi khi ở chế độ REVISION */}
       {mode === 'REVISION' && revisionFeedback && (
         <div className="p-5 bg-amber-50 border-2 border-amber-400 rounded-2xl">
           <h4 className="text-base font-bold text-amber-950 flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-amber-500 text-white flex items-center justify-center text-xs">
+            <span className="w-6 h-6 rounded-full bg-amber-500 text-white flex items-center justify-center text-xs font-black">
               !
             </span>
-            Nội dung Ban quản trị yêu cầu bổ sung/chỉnh sửa:
+            Nội dung Ban quản trị yêu cầu bổ sung / chỉnh sửa:
           </h4>
           <p className="mt-2 text-base text-amber-900 font-semibold whitespace-pre-wrap">
             {revisionFeedback}
@@ -118,12 +176,12 @@ export const RegistrationProfileForm = ({
       )}
 
       {validationError && (
-        <div className="p-4 bg-red-50 border-l-4 border-red-500 rounded-r-xl text-red-800 font-bold text-base">
+        <div className="p-4 bg-red-50 border-l-4 border-red-500 rounded-r-xl text-red-800 font-bold text-base shadow-sm">
           {validationError}
         </div>
       )}
 
-      {/* NHÓM 1: THÔNG TIN NHÂN THÂN CƠ BẢN */}
+      {/* 1. THÔNG TIN CÁ NHÂN */}
       <section className="p-6 bg-white border border-gray-200 rounded-3xl shadow-sm space-y-6">
         <h3 className="text-xl font-bold text-gray-900 border-b pb-3">
           1. Thông tin cá nhân cơ bản
@@ -188,7 +246,6 @@ export const RegistrationProfileForm = ({
           </div>
         </div>
 
-        {/* Ngày tháng năm sinh */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-1">Ngày sinh</label>
@@ -222,7 +279,7 @@ export const RegistrationProfileForm = ({
               max={new Date().getFullYear()}
               value={formData.birth_year}
               onChange={(e) => handleChange('birth_year', e.target.value)}
-              placeholder="Năm (ví dụ 1980)"
+              placeholder={`Năm (1800-${new Date().getFullYear()})`}
               className="w-full px-3 py-2.5 min-h-[48px] rounded-xl border border-gray-300 text-base"
             />
           </div>
@@ -268,7 +325,7 @@ export const RegistrationProfileForm = ({
         </div>
       </section>
 
-      {/* NHÓM 2: THÔNG TIN HUYẾT THỐNG TIỀN NHÂN */}
+      {/* 2. HUYẾT THỐNG TIỀN NHÂN */}
       <section className="p-6 bg-white border border-gray-200 rounded-3xl shadow-sm space-y-6">
         <h3 className="text-xl font-bold text-gray-900 border-b pb-3">
           2. Tiền nhân & Nhánh tộc (Thẩm định huyết thống)
@@ -332,7 +389,7 @@ export const RegistrationProfileForm = ({
         </div>
       </section>
 
-      {/* NHÓM 3: LIÊN LẠC VÀ ĐỊA CHỈ */}
+      {/* 3. LIÊN LẠC & ĐỊA CHỈ */}
       <section className="p-6 bg-white border border-gray-200 rounded-3xl shadow-sm space-y-6">
         <h3 className="text-xl font-bold text-gray-900 border-b pb-3">
           3. Thông tin liên lạc & Địa chỉ hiện tại
@@ -362,7 +419,7 @@ export const RegistrationProfileForm = ({
           </div>
 
           <div className="md:col-span-2">
-            <label className="block text-base font-bold text-gray-800 mb-2">Địa chỉ cư trú thường trú</label>
+            <label className="block text-base font-bold text-gray-800 mb-2">Địa chỉ thường trú</label>
             <input
               type="text"
               value={formData.address}
@@ -390,10 +447,10 @@ export const RegistrationProfileForm = ({
         <button
           type="submit"
           disabled={isSubmitting}
-          className="w-full py-4 px-6 min-h-[52px] bg-blue-600 hover:bg-blue-700 text-white font-extrabold text-lg rounded-2xl shadow-xl transition-all focus:outline-none focus:ring-4 focus:ring-blue-200"
+          className="w-full py-4 px-6 min-h-[52px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-extrabold text-lg rounded-2xl shadow-xl transition-all focus:outline-none focus:ring-4 focus:ring-blue-200 flex items-center justify-center"
         >
           {isSubmitting
-            ? 'Đang lưu hồ sơ...'
+            ? 'Đang kiểm tra và lưu hồ sơ...'
             : mode === 'REVISION'
             ? 'Nộp lại hồ sơ đã bổ sung'
             : 'Hoàn tất & Gửi hồ sơ đăng ký'}

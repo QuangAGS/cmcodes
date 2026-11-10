@@ -1,24 +1,40 @@
 /**
- * PATH       : frontend/src/App.jsx
- * DATETIME   : 2026-10-13T19:41:00+07:00
- * VERSION    : 3.2.0-REUSE-REACT-ALARM
- * DESCRIPTION: Thêm duy nhất host alarm bên ngoài routes, giữ toàn bộ routing/Auth/Toaster.
- * RULE       : Q1 giữ UI/API ngoài alarm; Q2 metadata và chú thích thời gian.
- */
-import MfoAlarmHost from './features/mfo/components/MfoAlarmHost.jsx';
-/**
- * PATH       : src/App.jsx
- * DATETIME   : 2026-09-24T10:50:00+07:00
- * VERSION    : 13.2.9-MFO-W0
- * DESCRIPTION: Routes FE. W0 thêm /op/mfo/plans/:id chờ tem.
+ * =============================================================================
+ * PATH        : frontend/src/App.jsx
+ * DATETIME    : 2026-11-10T14:30:00+07:00
+ * VERSION     : 3.3.0-APP-MEMBERSHIP-MERGED
+ * DESCRIPTION : Merge bản routing cũ (OP / Admin / Profile / Tree) với phân hệ
+ *               Membership mới (AMEND-RP-OP-2026-01-V1.1).
+ *               - Giữ toàn bộ routes cũ.
+ *               - Thêm /membership/claim và /membership/status.
+ *               - Mount SandboxModeBanner + HeaderClanSwitcher trên layout chính.
+ *               - Bảo vệ /tree và các trang nghiệp vụ bằng OpProtectedRoute
+ *                 (dựa trên activeLinkStatus).
+ * =============================================================================
+ * CHANGELOGS:
+ * - 2026-10-13T19:41:00+07:00 (v3.2.0-REUSE-REACT-ALARM): Bản cũ đầy đủ routes.
+ * - 2026-11-10T14:30:00+07:00 (v3.3.0-APP-MEMBERSHIP-MERGED):
+ *   + Merge membership (P0/P1) vào bản cũ.
+ *   + Mount SandboxModeBanner + HeaderClanSwitcher.
+ *   + Thêm routes /membership/*.
+ *   + Chuẩn hóa QX.
+ * =============================================================================
  */
 
-import { Toaster } from 'sonner';
-import { Suspense, lazy } from 'react';
+import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import OpProtectedRoute from './components/routes/OpProtectedRoute.jsx';
+import { OpProtectedRoute } from './components/routes/OpProtectedRoute.jsx';
+import { SandboxModeBanner } from './components/common/SandboxModeBanner';
+import { HeaderClanSwitcher } from './features/membership/components/HeaderClanSwitcher';
+import MfoAlarmHost from './features/mfo/components/MfoAlarmHost.jsx';
 
+// --- Membership (P0) ---
+import { ClaimMemberPage } from './features/membership/pages/ClaimMemberPage';
+import { MembershipStatusPage } from './features/membership/pages/MembershipStatusPage';
+
+// --- Lazy pages (giữ nguyên từ bản cũ) ---
 const HomePage = lazy(() => import('./pages/HomePage.jsx'));
 const AuthPage = lazy(() => import('./pages/AuthPage.jsx'));
 const TreePage = lazy(() => import('./pages/TreePage.jsx'));
@@ -47,10 +63,16 @@ const BioFileUploadPage = lazy(() => import('./pages/BioFileUploadPage.jsx'));
 const AdminMemberVitalPage = lazy(() => import('./pages/AdminMemberVitalPage.jsx'));
 const AdminBranchesPage = lazy(() => import('./pages/AdminBranchesPage.jsx'));
 
+/**
+ * ProtectedRoute cũ (dựa trên user.status) — giữ cho các trang không thuộc OP/Membership.
+ * Các trang OP / Tree / Membership nên dùng OpProtectedRoute.
+ */
 const ProtectedRoute = ({ children, allowedStatus = 'DA_DUYET' }) => {
   const { user, loading } = useAuth();
 
-  if (loading) return <div className="flex h-screen items-center justify-center font-sans">Đang tải...</div>;
+  if (loading) {
+    return <div className="flex h-screen items-center justify-center font-sans">Đang tải...</div>;
+  }
   if (!user) return <Navigate to="/auth" replace />;
 
   if (user.status !== allowedStatus) {
@@ -64,7 +86,9 @@ const AdminProtectedRoute = ({ children }) => {
   const { user, loading } = useAuth();
   const location = useLocation();
 
-  if (loading) return <div className="flex h-screen items-center justify-center font-sans">Đang tải...</div>;
+  if (loading) {
+    return <div className="flex h-screen items-center justify-center font-sans">Đang tải...</div>;
+  }
   if (!user) {
     return <Navigate to="/auth" state={{ from: location }} replace />;
   }
@@ -76,22 +100,75 @@ const AdminProtectedRoute = ({ children }) => {
   return children;
 };
 
+/**
+ * Layout chính: Banner DRAFT + Header (có Clan Switcher)
+ */
+const AppLayout = ({ children }) => {
+  return (
+    <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
+      {/* Banner Sandbox khi activeLinkStatus === 'DRAFT' */}
+      <SandboxModeBanner />
+
+      {/* Header */}
+      <header className="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-sm">
+        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <span className="text-lg font-bold text-slate-800">Gia Phả Số</span>
+          </div>
+
+          {/* Multi-clan switcher */}
+          <HeaderClanSwitcher />
+        </div>
+      </header>
+
+      <main className="flex-1">{children}</main>
+    </div>
+  );
+};
+
 const AppRouter = () => {
   return (
-    <Suspense fallback={<div className="flex h-screen items-center justify-center font-sans text-slate-400 font-bold uppercase tracking-widest animate-pulse">Khởi động hệ thống...</div>}>
+    <Suspense
+      fallback={
+        <div className="flex h-screen items-center justify-center font-sans text-slate-400 font-bold uppercase tracking-widest animate-pulse">
+          Khởi động hệ thống...
+        </div>
+      }
+    >
       <Routes>
+        {/* ===== Public ===== */}
         <Route path="/" element={<HomePage />} />
         <Route path="/auth" element={<AuthPage />} />
 
+        {/* ===== Membership (P0) ===== */}
         <Route
-          path="/tree"
+          path="/membership/claim"
           element={
-            <ProtectedRoute allowedStatus="DA_DUYET">
-              <TreePage />
-            </ProtectedRoute>
+            <OpProtectedRoute>
+              <ClaimMemberPage />
+            </OpProtectedRoute>
+          }
+        />
+        <Route
+          path="/membership/status"
+          element={
+            <OpProtectedRoute>
+              <MembershipStatusPage />
+            </OpProtectedRoute>
           }
         />
 
+        {/* ===== Tree (chỉ DA_DUYET) ===== */}
+        <Route
+          path="/tree"
+          element={
+            <OpProtectedRoute allowedStatuses={['DA_DUYET']}>
+              <TreePage />
+            </OpProtectedRoute>
+          }
+        />
+
+        {/* ===== Profile & Media (giữ ProtectedRoute cũ hoặc chuyển dần sang OpProtectedRoute) ===== */}
         <Route
           path="/members/:id/profile"
           element={
@@ -100,7 +177,6 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/me/profile"
           element={
@@ -109,7 +185,6 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/me/profile/address"
           element={
@@ -118,7 +193,6 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
         <Route
           path="/me/profile/achievement/:id/proof"
           element={
@@ -127,28 +201,14 @@ const AppRouter = () => {
             </ProtectedRoute>
           }
         />
-
         <Route
-          path="/admin/members/vital"
+          path="/me/profile/document"
           element={
-            <AdminProtectedRoute>
-              <AdminMemberVitalPage />
-            </AdminProtectedRoute>
+            <ProtectedRoute allowedStatus="DA_DUYET">
+              <DocumentUploadPage />
+            </ProtectedRoute>
           }
         />
-        <Route
-          path="/admin/members/:id/vital"
-          element={
-            <AdminProtectedRoute>
-              <AdminMemberVitalPage />
-            </AdminProtectedRoute>
-          }
-        />
-
-        <Route path="/me/profile/document" element={
-          <ProtectedRoute allowedStatus="DA_DUYET"><DocumentUploadPage /></ProtectedRoute>
-        } />
-
         <Route
           path="/me/profile/biography/:topic/file"
           element={
@@ -158,6 +218,7 @@ const AppRouter = () => {
           }
         />
 
+        {/* ===== Waiting (legacy) ===== */}
         <Route
           path="/waiting"
           element={
@@ -167,50 +228,7 @@ const AppRouter = () => {
           }
         />
 
-        <Route
-          path="/admin"
-          element={
-            <AdminProtectedRoute>
-              <AdminWorkSelectorPage />
-            </AdminProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/admin/tenant/activate"
-          element={
-            <AdminProtectedRoute>
-              <AdminTenantActivatePage />
-            </AdminProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/admin/mfo/plans"
-          element={
-            <AdminProtectedRoute>
-              <AdminMfoPlanPage />
-            </AdminProtectedRoute>
-          }
-        />
-        <Route
-          path="/admin/approval"
-          element={
-            <AdminProtectedRoute>
-              <AdminUserApprovalPage />
-            </AdminProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/admin/approval/op/:caseId"
-          element={
-            <AdminProtectedRoute>
-              <OpCaseDetailPage />
-            </AdminProtectedRoute>
-          }
-        />
-
+        {/* ===== OP / MFO ===== */}
         <Route
           path="/op"
           element={
@@ -229,6 +247,14 @@ const AppRouter = () => {
         />
         <Route
           path="/op/mfo/plans/new"
+          element={
+            <OpProtectedRoute>
+              <OpMfoPlanPage />
+            </OpProtectedRoute>
+          }
+        />
+        <Route
+          path="/op/mfo/plan"
           element={
             <OpProtectedRoute>
               <OpMfoPlanPage />
@@ -276,7 +302,48 @@ const AppRouter = () => {
           }
         />
 
-      <Route
+        {/* ===== Admin ===== */}
+        <Route
+          path="/admin"
+          element={
+            <AdminProtectedRoute>
+              <AdminWorkSelectorPage />
+            </AdminProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/tenant/activate"
+          element={
+            <AdminProtectedRoute>
+              <AdminTenantActivatePage />
+            </AdminProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/mfo/plans"
+          element={
+            <AdminProtectedRoute>
+              <AdminMfoPlanPage />
+            </AdminProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/approval"
+          element={
+            <AdminProtectedRoute>
+              <AdminUserApprovalPage />
+            </AdminProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/approval/op/:caseId"
+          element={
+            <AdminProtectedRoute>
+              <OpCaseDetailPage />
+            </AdminProtectedRoute>
+          }
+        />
+        <Route
           path="/admin/tenant/origin"
           element={
             <AdminProtectedRoute>
@@ -284,7 +351,6 @@ const AppRouter = () => {
             </AdminProtectedRoute>
           }
         />
-
         <Route
           path="/admin/tenant/settings"
           element={
@@ -293,7 +359,6 @@ const AppRouter = () => {
             </AdminProtectedRoute>
           }
         />
-
         <Route
           path="/admin/tenants"
           element={
@@ -302,7 +367,6 @@ const AppRouter = () => {
             </AdminProtectedRoute>
           }
         />
-
         <Route
           path="/admin/branches"
           element={
@@ -311,14 +375,30 @@ const AppRouter = () => {
             </AdminProtectedRoute>
           }
         />
+        <Route
+          path="/admin/members/vital"
+          element={
+            <AdminProtectedRoute>
+              <AdminMemberVitalPage />
+            </AdminProtectedRoute>
+          }
+        />
+        <Route
+          path="/admin/members/:id/vital"
+          element={
+            <AdminProtectedRoute>
+              <AdminMemberVitalPage />
+            </AdminProtectedRoute>
+          }
+        />
 
+        {/* ===== Fallback ===== */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
   );
 };
 
-/** <2026-10-13T19:41:00+07:00> Mục đích: Giữ App/Auth/routing; mount host một lần, không mất queue khi navigate. */
 export default function App() {
   return (
     <AuthProvider>
@@ -330,7 +410,9 @@ export default function App() {
         toastOptions={{ style: { borderRadius: '20px', padding: '16px' } }}
       />
       <BrowserRouter>
-        <AppRouter />
+        <AppLayout>
+          <AppRouter />
+        </AppLayout>
       </BrowserRouter>
     </AuthProvider>
   );

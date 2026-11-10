@@ -63,6 +63,7 @@ router.post(
 //21.10.0 - MULTIHOME - PHASE2-[SEC-02]
 router.post('/switch-context', verifyToken, authController.switchContext);
 
+
 // ==================== DEBUG ====================
 if (process.env.NODE_ENV !== 'production') {
   console.log('🧪 [DEBUG] Route /api/auth/debug/unblock-all đã được kích hoạt');
@@ -165,7 +166,11 @@ router.get(
   authController.getPendingUsers
 );
 
-
+router.get(
+  '/available-clans',
+  verifyToken,
+  authController.getAvailableClans
+);
 
 router.post(
   '/query-reviewable-users',
