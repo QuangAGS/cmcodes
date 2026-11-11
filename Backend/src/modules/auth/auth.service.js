@@ -437,6 +437,45 @@ const authService = {
     };
   },
 
+  /**
+   * Lấy danh sách dòng họ liên kết của user (Multi-Home).
+   * Role lấy từ role_in_tenant của user_member_links.
+   * @param {string} userId
+   * @returns {Promise<Array>}
+   */
+  getAvailableClans: async (userId) => {
+    const links = await basePrisma.user_member_links.findMany({
+      where: {
+        user_id: userId,
+        deleted_at: null,
+      },
+      include: {
+        tenant: {
+          select: { id: true, name: true, slug: true, status: true },
+        },
+        member: {
+          select: { id: true, full_name: true },
+        },
+      },
+      orderBy: [
+        { is_default: 'desc' },
+        { created_at: 'asc' },
+      ],
+    });
+
+    return links.map((link) => ({
+      tenantId: link.tenant_id,
+      clanName: link.tenant?.name || 'Dòng họ',
+      clanSlug: link.tenant?.slug || '',
+      linkType: link.link_type,
+      status: link.status,
+      isDefault: link.is_default,
+      roleInTenant: link.role_in_tenant, // SSOT: role_in_tenant, không dùng users.role
+      memberId: link.member_id,
+      memberName: link.member?.full_name || null,
+    }));
+  },
+
   generateToken: (user) => {
     const secret = securityConfig.JWT_SECRET;
 

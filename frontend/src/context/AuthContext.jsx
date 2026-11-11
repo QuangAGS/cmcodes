@@ -1,19 +1,21 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/context/AuthContext.jsx
- * DATETIME    : 2026-11-10T19:55:00+07:00
- * VERSION     : 2.0.7-AUTH-CONTEXT-LOGIN-PAYLOAD-AND-OP-REDIRECT
+ * DATETIME    : 2026-11-10T21:40:00+07:00
+ * VERSION     : 2.0.8-AUTH-CONTEXT-SELECT-TENANT-REDIRECT
  * DESCRIPTION : Quản lý phiên làm việc và Ngữ cảnh dòng họ (Multi-Home Session).
- *               Bóc đúng tầng response login của BE (data.data.user).
- *               DA_DUYET redirect về /op.
+ *               Seed availableClans từ login payload.
+ *               Redirect /membership/select-tenant khi ≥ 2 clan DA_DUYET
+ *               hoặc khi có role_in_tenant là admin (để chọn vai trò).
+ *               Role SSOT: role_in_tenant của user_member_links.
  * =============================================================================
  * CHANGELOGS:
- * - 2026-11-10T19:45:00+07:00 (v2.0.6-AUTH-CONTEXT-USER-SHAPE-SAFE):
- *   + setUser an toàn với shape phẳng.
  * - 2026-11-10T19:55:00+07:00 (v2.0.7-AUTH-CONTEXT-LOGIN-PAYLOAD-AND-OP-REDIRECT):
- *   + login: bóc payload = res.data?.data || res.data; user = payload.user.
- *   + Context lấy activeMemberId / activeLinkStatus từ user.
- *   + DA_DUYET → /op (thay vì /tree).
+ *   + Bóc payload login; DA_DUYET → /op.
+ * - 2026-11-10T21:40:00+07:00 (v2.0.8-AUTH-CONTEXT-SELECT-TENANT-REDIRECT):
+ *   + Seed availableClans từ user.availableClans, không gọi API trong login.
+ *   + ≥ 2 clan DA_DUYET hoặc có admin role_in_tenant → /membership/select-tenant.
+ *   + roleInTenant lấy từ link (roleInTenant / role_in_tenant), không dùng users.role.
  *   + Chuẩn hóa QX.
  * =============================================================================
  */
@@ -23,6 +25,18 @@ import apiClient from '../lib/apiClient';
 import { membershipApi } from '../features/membership/api/membershipApi';
 
 const AuthContext = createContext(null);
+
+const ADMIN_ROLES = new Set([
+  'SYSTEM_ADMIN',
+  'CLAN_ADMIN',
+  'TRUONG_HO',
+  'TRUONG_TOC',
+  'TRUONG_NGANH',
+  'TRUONG_CHI',
+]);
+
+const getLinkRole = (clan) =>
+  String(clan?.roleInTenant || clan?.role_in_tenant || '').toUpperCase();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -45,7 +59,8 @@ export const AuthProvider = ({ children }) => {
    * - Không có activeMemberId → /membership/claim
    * - CHO_DUYET → /membership/status
    * - DRAFT → /op/mfo/plan
-   * - DA_DUYET → /op
+   * - ≥ 2 clan DA_DUYET hoặc có role_in_tenant admin → /membership/select-tenant
+   * - Còn lại (1 clan USER) → /op
    */
   const resolvePostLoginRedirect = useCallback((currentUser, currentContext) => {
     if (!currentContext?.activeMemberId) {
@@ -57,12 +72,21 @@ export const AuthProvider = ({ children }) => {
     if (currentContext?.activeLinkStatus === 'DRAFT') {
       return '/op/mfo/plan';
     }
-    // DA_DUYET (và các trạng thái đã gắn member khác)
+
+    const approved = (currentUser?.availableClans || []).filter(
+      (c) => (c.status || 'DA_DUYET') === 'DA_DUYET'
+    );
+    const hasAdmin = approved.some((c) => ADMIN_ROLES.has(getLinkRole(c)));
+
+    if (approved.length >= 2 || hasAdmin) {
+      return '/membership/select-tenant';
+    }
+
     return '/op';
   }, []);
 
   const loadAvailableClans = useCallback(async () => {
-    const token = localStorage.getItem('auth_token');
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('token');
     if (!token) {
       setAvailableClans([]);
       return;
@@ -74,12 +98,11 @@ export const AuthProvider = ({ children }) => {
       setAvailableClans(Array.isArray(list) ? list : []);
     } catch (err) {
       console.warn('Không thể tải danh sách available-clans:', err);
-      setAvailableClans([]);
     }
   }, []);
 
   const loadUser = useCallback(async () => {
-    const token = localStorage.getItem('auth_token');
+    const token = localStorage.getItem('auth_token') || localStorage.getItem('token');
     if (!token) {
       setUser(null);
       setActiveContext(null);
@@ -96,22 +119,33 @@ export const AuthProvider = ({ children }) => {
 
       setUser(userObj);
 
+      const activeLinkRole =
+        userObj.roleInTenant ||
+        userObj.role_in_tenant ||
+        userObj.role ||
+        'USER';
+
       const newContext = {
         activeTenantId: userObj.activeTenantId || userObj.tenantId || userObj.tenant_id || null,
         activeMemberId: userObj.activeMemberId || userObj.member_id || null,
         activeLinkStatus: userObj.activeLinkStatus
           || (userObj.status === 'DA_DUYET' ? 'DA_DUYET' : 'DRAFT'),
-        roleInTenant: userObj.role || 'USER',
+        roleInTenant: activeLinkRole,
         linkType: userObj.linkType || 'PRIMARY_PATERNAL',
       };
 
       setActiveContext(newContext);
       localStorage.setItem('active_context', JSON.stringify(newContext));
 
-      await loadAvailableClans();
+      if (Array.isArray(userObj.availableClans) && userObj.availableClans.length > 0) {
+        setAvailableClans(userObj.availableClans);
+      } else {
+        await loadAvailableClans();
+      }
     } catch (err) {
       console.error('Phiên đăng nhập hết hạn hoặc không hợp lệ:', err);
       localStorage.removeItem('auth_token');
+      localStorage.removeItem('token');
       localStorage.removeItem('active_context');
       setUser(null);
       setActiveContext(null);
@@ -128,28 +162,40 @@ export const AuthProvider = ({ children }) => {
   const login = async (credentials) => {
     const res = await apiClient.post('/auth/login', credentials);
 
-    // BE: { status, data: { token, user: { activeMemberId, activeLinkStatus, ... } } }
     const payload = res.data?.data || res.data;
     const userObj = payload.user || payload;
 
     if (payload.token) {
       localStorage.setItem('auth_token', payload.token);
+      localStorage.setItem('token', payload.token);
     }
+
+    const clans = Array.isArray(userObj.availableClans) ? userObj.availableClans : [];
+    const activeLink =
+      clans.find((c) => c.tenantId === (userObj.activeTenantId || userObj.tenantId)) ||
+      clans.find((c) => c.isDefault) ||
+      clans[0];
+
+    const activeLinkRole =
+      activeLink?.roleInTenant ||
+      activeLink?.role_in_tenant ||
+      userObj.roleInTenant ||
+      userObj.role_in_tenant ||
+      'USER';
 
     const newContext = {
       activeTenantId: userObj.activeTenantId || userObj.tenantId || userObj.tenant_id || null,
       activeMemberId: userObj.activeMemberId || userObj.member_id || null,
       activeLinkStatus: userObj.activeLinkStatus
         || (userObj.status === 'DA_DUYET' ? 'DA_DUYET' : 'DRAFT'),
-      roleInTenant: userObj.role || 'USER',
-      linkType: userObj.linkType || 'PRIMARY_PATERNAL',
+      roleInTenant: activeLinkRole,
+      linkType: userObj.linkType || activeLink?.linkType || 'PRIMARY_PATERNAL',
     };
 
     setUser(userObj);
     setActiveContext(newContext);
+    setAvailableClans(clans);
     localStorage.setItem('active_context', JSON.stringify(newContext));
-
-    await loadAvailableClans();
 
     return {
       user: userObj,
@@ -166,20 +212,19 @@ export const AuthProvider = ({ children }) => {
 
       if (payload.token) {
         localStorage.setItem('auth_token', payload.token);
+        localStorage.setItem('token', payload.token);
       }
 
       const updatedContext = {
         activeTenantId: payload.activeTenantId,
         activeMemberId: payload.activeMemberId,
         activeLinkStatus: payload.activeLinkStatus,
-        roleInTenant: payload.roleInTenant,
+        roleInTenant: payload.roleInTenant || payload.role_in_tenant,
         linkType: payload.linkType,
       };
 
       setActiveContext(updatedContext);
       localStorage.setItem('active_context', JSON.stringify(updatedContext));
-
-      await loadAvailableClans();
 
       window.location.reload();
       return updatedContext;
@@ -193,6 +238,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = () => {
     localStorage.removeItem('auth_token');
+    localStorage.removeItem('token');
     localStorage.removeItem('active_context');
     setUser(null);
     setActiveContext(null);

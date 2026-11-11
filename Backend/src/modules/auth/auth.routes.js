@@ -18,7 +18,8 @@
 const express = require('express');
 const router = express.Router();
 const { asyncHandler, createError } = require('../../shared/errors');
-const { prisma } = require('../../lib/prisma.js');
+const { basePrisma, prisma } = require('../../lib/prisma.js');
+//const { basePrisma } = require('../../lib/prisma.js');
 
 const authController = require('./auth.controller');
 const {
@@ -71,6 +72,7 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // ==================== PROTECTED ROUTES ====================
+/** =========== 
 router.get(
   '/me',
   verifyToken,
@@ -146,6 +148,76 @@ router.get(
     });
   })
 );
+* ================ */
+
+router.get('/me', verifyToken, asyncHandler(async (req, res) => {
+  const userId = req.user.userId || req.user.id || req.user.sub;
+  if (!userId) {
+    throw createError('UNAUTHORIZED', 'Thiếu thông tin xác thực.');
+  }
+
+  const row = await basePrisma.users.findFirst({
+    where: { id: userId, deleted_at: null },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      phone: true,
+      role: true,
+      status: true,
+      tenant_id: true,
+      member_id: true,
+    },
+  });
+
+  if (!row) {
+    throw createError('UNAUTHORIZED', 'Không tìm thấy tài khoản.');
+  }
+
+  const activeTenantId = req.user.activeTenantId || req.user.tenantId || row.tenant_id;
+  const activeMemberId = req.user.activeMemberId || row.member_id;
+  const activeLinkStatus = req.user.activeLinkStatus || null;
+  const linkType = req.user.linkType || null;
+  const roleInTenant = req.user.role || row.role;
+
+  let tenant = null;
+  let tenantStatus = null;
+  if (activeTenantId) {
+    const t = await basePrisma.tenants.findFirst({
+      where: { id: activeTenantId, deleted_at: null },
+      select: { id: true, name: true, logo_url: true, slogan: true, status: true, social_configs: true },
+    });
+    if (t) {
+      tenantStatus = t.status ?? null;
+      const cfg = t.social_configs && typeof t.social_configs === 'object' ? t.social_configs : {};
+      tenant = {
+        id: t.id,
+        name: t.name || null,
+        logo_url: t.logo_url || null,
+        slogan: t.slogan || null,
+        logo_icon: cfg.logo_icon || null,
+        status: t.status || null,
+      };
+    }
+  }
+
+  res.status(200).json({
+    status: 'success',
+    user: {
+      ...row,
+      userId: row.id,
+      tenantId: activeTenantId,
+      activeTenantId,
+      activeMemberId,
+      activeLinkStatus,
+      linkType,
+      roleInTenant,
+      tenantStatus,
+      tenant,
+      clanName: tenant?.name || null,
+    },
+  });
+}));
 
 // [SMOKE-2.2 TEST ROUTE]
 router.get(

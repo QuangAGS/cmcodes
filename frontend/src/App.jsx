@@ -62,6 +62,7 @@ const DocumentUploadPage = lazy(() => import('./pages/DocumentUploadPage.jsx'));
 const BioFileUploadPage = lazy(() => import('./pages/BioFileUploadPage.jsx'));
 const AdminMemberVitalPage = lazy(() => import('./pages/AdminMemberVitalPage.jsx'));
 const AdminBranchesPage = lazy(() => import('./pages/AdminBranchesPage.jsx'));
+import { SelectTenantPage } from './features/membership/pages/SelectTenantPage';
 
 /**
  * ProtectedRoute cũ (dựa trên user.status) — giữ cho các trang không thuộc OP/Membership.
@@ -389,6 +390,14 @@ const AppRouter = () => {
             <AdminProtectedRoute>
               <AdminMemberVitalPage />
             </AdminProtectedRoute>
+          }
+        />
+        <Route
+          path="/membership/select-tenant"
+          element={
+            <OpProtectedRoute>
+              <SelectTenantPage />
+            </OpProtectedRoute>
           }
         />
 

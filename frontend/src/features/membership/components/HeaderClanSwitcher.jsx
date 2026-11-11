@@ -1,35 +1,57 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/features/membership/components/HeaderClanSwitcher.jsx
- * DATETIME    : 2026-11-10T11:35:00+07:00
- * VERSION     : 1.2.0-CLAN-SWITCHER-ELDER-ENHANCED
- * DESCRIPTION : Dropdown chuyển đổi ngữ cảnh dòng họ (Multi-Home Switcher).
- *               Bổ sung hiển thị huy hiệu dòng họ mặc định (isDefault),
- *               thông báo lỗi trực quan và phát âm giọng đọc trợ lý ảo Elder TTS.
+ * DATETIME    : 2026-11-10T22:00:00+07:00
+ * VERSION     : 1.3.0-CLAN-SWITCHER-TENANT-AND-ROLE
+ * DESCRIPTION : Dropdown Multi-Home trên header.
+ *               - Chọn dòng họ (tenant) → switch-context.
+ *               - Với dòng họ có role_in_tenant admin: chọn Thành viên (/op)
+ *                 hoặc Quản trị (/admin) mà không cần logout.
+ *               Role SSOT: role_in_tenant của user_member_links.
  * =============================================================================
  * CHANGELOGS:
  * - 2026-11-10T11:06:00+07:00 (v1.1.0-CLAN-SWITCHER-ELDER):
- *   + Chuẩn hóa theo tiêu chí QX, tích hợp helpers getLinkTypeMeta.
- * - 2026-11-10T11:35:00+07:00 (v1.2.0-CLAN-SWITCHER-ELDER-ENHANCED):
- *   + Hiển thị biểu tượng ngôi sao cho dòng họ mặc định (isDefault === true).
- *   + Bổ sung error state trực quan khi switchContext thất bại.
- *   + Kích hoạt giọng nói Elder TTS khi thao tác thất bại theo spec.
+ *   + Dropdown + TTS cơ bản.
+ * - 2026-11-10T22:00:00+07:00 (v1.3.0-CLAN-SWITCHER-TENANT-AND-ROLE):
+ *   + Chọn tenant và vai trò (Thành viên / Quản trị) trong cùng dropdown.
+ *   + Cùng tenant chỉ navigate; khác tenant thì switchContext rồi vào path.
+ *   + Chuẩn hóa QX.
  * =============================================================================
  */
 
 import React, { useState, useRef, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
-import { getLinkTypeMeta, ELDER_MEMBERSHIP_MESSAGES } from '../constants/membershipLabels';
+import { getLinkTypeMeta } from '../constants/membershipLabels';
+
+const ADMIN_ROLES = new Set([
+  'SYSTEM_ADMIN',
+  'CLAN_ADMIN',
+  'TRUONG_HO',
+  'TRUONG_TOC',
+  'TRUONG_NGANH',
+  'TRUONG_CHI',
+]);
+
+const getRoleInTenant = (clan) =>
+  String(clan?.roleInTenant || clan?.role_in_tenant || 'USER').toUpperCase();
+
+const isAdminRole = (role) => ADMIN_ROLES.has(role);
 
 export const HeaderClanSwitcher = () => {
-  const { activeContext, availableClans, switchContext, isSwitchingContext } = useAuth();
+  const navigate = useNavigate();
+  const {
+    user,
+    activeContext,
+    availableClans,
+    switchContext,
+    isSwitchingContext,
+  } = useAuth();
+
   const [isOpen, setIsOpen] = useState(false);
-  const [switchError, setSwitchError] = useState('');
+  const [error, setError] = useState('');
   const dropdownRef = useRef(null);
 
-  /**
-   * Đóng Dropdown khi click ra ngoài vùng hiển thị
-   */
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
@@ -40,82 +62,54 @@ export const HeaderClanSwitcher = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  if (!availableClans || availableClans.length === 0) {
+  if (!user || !availableClans || availableClans.length === 0) {
     return null;
   }
 
-  // Tìm dòng họ hiện đang hoạt động theo activeTenantId
-  const currentClan = availableClans.find(
-    (clan) => clan.tenantId === activeContext?.activeTenantId
-  ) || availableClans[0];
+  const currentClan =
+    availableClans.find((c) => c.tenantId === activeContext?.activeTenantId) ||
+    availableClans[0];
 
+  const currentRole = getRoleInTenant(currentClan);
   const currentLinkMeta = getLinkTypeMeta(activeContext?.linkType || currentClan?.linkType);
+  const currentIsAdmin = isAdminRole(currentRole);
 
-  /**
-   * Xử lý chuyển đổi dòng họ với thông báo phản hồi và giọng nói Elder TTS
-   */
-  const handleSelectClan = async (tenantId, clanName) => {
-    if (tenantId === activeContext?.activeTenantId) {
-      setIsOpen(false);
-      return;
-    }
+  const enterClanAs = async (clan, path) => {
     try {
-      setSwitchError('');
-      await switchContext(tenantId);
+      setError('');
+      const sameTenant = clan.tenantId === activeContext?.activeTenantId;
+
+      if (!sameTenant) {
+        await switchContext(clan.tenantId);
+      }
+
       setIsOpen(false);
-
-      if ('speechSynthesis' in window) {
-        const utterance = new SpeechSynthesisUtterance(
-          ELDER_MEMBERSHIP_MESSAGES.SWITCH_SUCCESS(clanName)
-        );
-        utterance.lang = 'vi-VN';
-        window.speechSynthesis.speak(utterance);
-      }
+      navigate(path, { replace: true });
     } catch (err) {
-      console.error('Lỗi khi thực hiện switch-context:', err);
-      const errMsg = err?.response?.data?.message || 'Không thể chuyển dòng họ lúc này.';
-      setSwitchError(errMsg);
-
-      if ('speechSynthesis' in window) {
-        const errUtterance = new SpeechSynthesisUtterance(
-          ELDER_MEMBERSHIP_MESSAGES.SWITCH_FAILURE
-        );
-        errUtterance.lang = 'vi-VN';
-        window.speechSynthesis.speak(errUtterance);
-      }
+      console.error('Không thể chuyển dòng họ / vai trò:', err);
+      setError(err?.response?.data?.message || 'Không thể chuyển. Vui lòng thử lại.');
     }
   };
 
   return (
     <div className="relative inline-block text-left" ref={dropdownRef}>
-      {/* Nút bấm chuyển đổi chính trên Topbar */}
       <button
         type="button"
         disabled={isSwitchingContext}
-        onClick={() => {
-          setIsOpen((prev) => !prev);
-          setSwitchError('');
-        }}
-        className="inline-flex items-center justify-between gap-3 px-3.5 py-2 min-h-[48px] text-base font-semibold text-gray-900 bg-white border-2 border-gray-200 rounded-xl shadow-sm hover:bg-gray-50 hover:border-blue-400 focus:outline-none focus:ring-4 focus:ring-blue-100 transition-all duration-150"
-        title="Bấm để đổi sang dòng họ khác"
+        onClick={() => setIsOpen((prev) => !prev)}
+        className="inline-flex items-center justify-between gap-3 px-3.5 py-2 min-h-[48px] text-base font-semibold text-gray-900 bg-white border-2 border-gray-200 rounded-xl shadow-sm hover:bg-gray-50 hover:border-blue-400 focus:outline-none focus:ring-4 focus:ring-blue-100"
+        title="Bấm để đổi dòng họ hoặc vai trò"
       >
         <div className="flex items-center gap-2 text-left">
-          {/* Biểu tượng sao nếu là dòng họ mặc định */}
-          {currentClan?.isDefault && (
-            <span className="text-amber-500 font-bold" title="Dòng họ mặc định">
-              ★
-            </span>
-          )}
           <span className="truncate max-w-[140px] sm:max-w-[180px] md:max-w-[220px]">
-            {isSwitchingContext ? 'Đang chuyển đổi...' : currentClan?.clanName || 'Chọn dòng họ'}
+            {isSwitchingContext ? 'Đang chuyển...' : currentClan?.clanName || 'Chọn dòng họ'}
           </span>
           <span className={`text-xs px-2 py-0.5 rounded-md border font-semibold ${currentLinkMeta.color}`}>
             {currentLinkMeta.short}
           </span>
         </div>
-
         <svg
-          className={`w-5 h-5 text-gray-600 transition-transform duration-200 ${isOpen ? 'rotate-180' : ''}`}
+          className={`w-5 h-5 text-gray-600 transition-transform ${isOpen ? 'rotate-180' : ''}`}
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"
@@ -124,67 +118,81 @@ export const HeaderClanSwitcher = () => {
         </svg>
       </button>
 
-      {/* Danh sách dropdown */}
       {isOpen && (
-        <div className="absolute right-0 z-50 w-84 mt-2 origin-top-right bg-white rounded-2xl shadow-2xl ring-1 ring-black ring-opacity-10 divide-y divide-gray-100 focus:outline-none animate-in fade-in zoom-in-95 duration-100">
-          <div className="px-4 py-3 bg-gray-50 rounded-t-2xl flex items-center justify-between">
+        <div className="absolute right-0 z-50 w-80 mt-2 origin-top-right bg-white rounded-2xl shadow-2xl ring-1 ring-black ring-opacity-10 focus:outline-none">
+          <div className="px-4 py-3 bg-gray-50 rounded-t-2xl">
             <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-              Dòng họ liên kết ({availableClans.length})
+              Dòng họ của bạn ({availableClans.length})
             </span>
-            <span className="text-xs text-blue-600 font-medium">Bấm để chuyển</span>
           </div>
 
-          {/* Cảnh báo lỗi nếu switchContext thất bại */}
-          {switchError && (
-            <div className="p-3 bg-red-50 text-red-700 text-xs font-semibold border-b border-red-100">
-              {switchError}
-            </div>
+          {error && (
+            <div className="px-4 py-2 text-sm text-red-700 bg-red-50">{error}</div>
           )}
 
-          <div className="py-2 max-h-72 overflow-y-auto">
+          <div className="py-2 max-h-80 overflow-y-auto">
             {availableClans.map((clan) => {
+              const role = getRoleInTenant(clan);
+              const admin = isAdminRole(role);
               const isSelected = clan.tenantId === activeContext?.activeTenantId;
               const linkMeta = getLinkTypeMeta(clan.linkType);
 
               return (
-                <button
+                <div
                   key={clan.tenantId}
-                  disabled={isSwitchingContext}
-                  onClick={() => handleSelectClan(clan.tenantId, clan.clanName)}
-                  className={`w-full text-left px-4 py-3.5 flex items-center justify-between min-h-[52px] transition-colors border-l-4 ${
-                    isSelected
-                      ? 'bg-blue-50 border-blue-600 text-blue-950 font-bold'
-                      : 'border-transparent text-gray-800 hover:bg-gray-50'
+                  className={`px-4 py-3 border-l-4 ${
+                    isSelected ? 'bg-blue-50 border-blue-600' : 'border-transparent'
                   }`}
                 >
-                  <div className="flex flex-col pr-2">
-                    <div className="flex items-center gap-1.5">
-                      {clan.isDefault && (
-                        <span className="text-amber-500 text-sm" title="Dòng họ gốc mặc định">
-                          ★
-                        </span>
-                      )}
-                      <span className="text-base leading-snug">{clan.clanName}</span>
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <div className="text-base font-semibold text-gray-900">
+                        {clan.clanName}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-0.5">
+                        Vai trò trong họ: {role}
+                        {clan.isDefault ? ' · Mặc định' : ''}
+                      </div>
                     </div>
-                    <span className="text-xs text-gray-500 mt-0.5">
-                      Vai trò: {clan.roleInTenant || 'Thành viên'}
-                    </span>
-                  </div>
-
-                  <div className="flex flex-col items-end gap-1 shrink-0">
                     <span className={`text-xs px-2 py-0.5 rounded border font-medium ${linkMeta.color}`}>
                       {linkMeta.short}
                     </span>
-                    {isSelected && (
-                      <span className="text-[11px] text-blue-700 font-bold">Đang chọn</span>
+                  </div>
+
+                  <div className="mt-2 flex flex-col gap-2">
+                    <button
+                      type="button"
+                      disabled={isSwitchingContext}
+                      onClick={() => enterClanAs(clan, '/op')}
+                      className="w-full text-left px-3 py-2 min-h-[44px] rounded-xl bg-white border border-gray-200 hover:border-blue-400 hover:bg-blue-50 text-sm font-semibold text-gray-800"
+                    >
+                      Vào với tư cách Thành viên
+                    </button>
+                    {admin && (
+                      <button
+                        type="button"
+                        disabled={isSwitchingContext}
+                        onClick={() => enterClanAs(clan, '/admin')}
+                        className="w-full text-left px-3 py-2 min-h-[44px] rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-sm font-semibold"
+                      >
+                        Vào với tư cách Quản trị
+                      </button>
                     )}
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
+
+          {currentIsAdmin && (
+            <div className="px-4 py-2 text-[11px] text-gray-500 border-t border-gray-100">
+              Đang ở: {currentClan?.clanName} · có thể vào Thành viên hoặc Quản trị
+            </div>
+          )}
         </div>
       )}
     </div>
   );
 };
+
+export default HeaderClanSwitcher;

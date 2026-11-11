@@ -28,6 +28,7 @@ const DRAFT_WHITELIST_PATHS = [
   '/op/base-profile',
   '/membership/claim',
   '/membership/status',
+  '/membership/select-tenant',
   '/me',
   '/profile',
 ];
