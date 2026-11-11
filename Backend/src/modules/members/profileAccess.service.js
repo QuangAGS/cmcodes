@@ -1,20 +1,34 @@
 /**
  * PATH       : src/modules/members/profileAccess.service.js
- * DATETIME   : 2026-09-04T22:20:00+07:00
- * VERSION    : 1.0.0-M12AB
- * DESCRIPTION: Stamp creator lúc INSERT member + canEditProfile.
+ * DATETIME   : 2026-11-11T13:10:00+07:00
+ * VERSION    : 1.1.1-MULTIHOME-AUDIT-FALLBACK
+ * DESCRIPTION:
+ * - [AMEND-RP-OP-2026-02 V1.2] Lát 2/7:
+ *   + Thêm console.warn khi rơi vào nhánh fallback users gốc tại resolveActorMemberId
+ *     và canEditProfile để kiểm soát truy vết, không để hệ thống "im lặng" về họ gốc.
+ *   + Ưu tiên roleInTenant và activeMemberId từ Context Multi-Home.
  */
 
 'use strict';
 
-const { prisma } = require('../../lib/prisma.js');
+const { prisma, basePrisma } = require('../../lib/prisma.js');
+
+const ADMIN_ROLES = new Set([
+  'SYSTEM_ADMIN',
+  'CLAN_ADMIN',
+  'TRUONG_HO',
+  'TRUONG_TOC',
+  'TRUONG_NGANH',
+  'TRUONG_CHI',
+]);
 
 function actorOf(user) {
+  const role = user?.roleInTenant || user?.role || null;
   return {
     userId: user?.userId || user?.id || user?.sub || null,
-    tenantId: user?.tenantId || user?.tenant_id || null,
-    role: user?.role || null,
-    memberId: user?.member_id || user?.memberId || null,
+    tenantId: user?.activeTenantId || user?.tenantId || user?.tenant_id || null,
+    role: role ? String(role).toUpperCase() : null,
+    memberId: user?.activeMemberId || user?.member_id || user?.memberId || null,
   };
 }
 
@@ -29,11 +43,31 @@ function creatorStamp(user, extra = {}) {
 async function resolveActorMemberId(actor) {
   if (actor.memberId) return actor.memberId;
   if (!actor.userId) return null;
-  const row = await prisma.users.findFirst({
+
+  // Multi-Home: tra cứu user_member_links trước nếu có tenantId
+  if (actor.tenantId) {
+    const link = await basePrisma.user_member_links.findFirst({
+      where: { user_id: actor.userId, tenant_id: actor.tenantId, deleted_at: null },
+      select: { member_id: true, role_in_tenant: true },
+    });
+    if (link?.member_id) {
+      if (!actor.role && link.role_in_tenant) actor.role = link.role_in_tenant;
+      return link.member_id;
+    }
+  }
+
+  // Fallback sang users qua basePrisma (ghi nhận cảnh báo tránh im lặng về họ gốc)
+  console.warn(`⚠️ [resolveActorMemberId] Fallback về users gốc (không tìm thấy link trong tenant)`, {
+    userId: actor.userId,
+    tenantId: actor.tenantId,
+  });
+
+  const row = await basePrisma.users.findFirst({
     where: { id: actor.userId, deleted_at: null },
-    select: { member_id: true, tenant_id: true },
+    select: { member_id: true, tenant_id: true, role: true },
   });
   if (row?.tenant_id && !actor.tenantId) actor.tenantId = row.tenant_id;
+  if (row?.role && !actor.role) actor.role = row.role;
   return row?.member_id || null;
 }
 
@@ -42,17 +76,35 @@ async function canEditProfile(reqUser, targetMemberId) {
   if (!actor.userId) {
     return { ok: false, code: 'UNAUTHORIZED', reason: 'Thiếu phiên.' };
   }
-  if (!actor.role || !actor.tenantId) {
-    const u = await prisma.users.findFirst({
-      where: { id: actor.userId, deleted_at: null },
-      select: { role: true, tenant_id: true, member_id: true },
-    });
-    if (u) {
-      actor.role = actor.role || u.role;
-      actor.tenantId = actor.tenantId || u.tenant_id;
-      actor.memberId = actor.memberId || u.member_id;
+
+  if (!actor.role || !actor.tenantId || !actor.memberId) {
+    if (actor.tenantId) {
+      const link = await basePrisma.user_member_links.findFirst({
+        where: { user_id: actor.userId, tenant_id: actor.tenantId, deleted_at: null },
+        select: { role_in_tenant: true, member_id: true },
+      });
+      if (link) {
+        actor.role = actor.role || link.role_in_tenant;
+        actor.memberId = actor.memberId || link.member_id;
+      }
+    }
+    if (!actor.role || !actor.tenantId) {
+      console.warn(`⚠️ [canEditProfile] Cảnh báo: Thiếu role/tenantId từ claims và link, fallback về users gốc`, {
+        userId: actor.userId,
+        targetMemberId,
+      });
+      const u = await basePrisma.users.findFirst({
+        where: { id: actor.userId, deleted_at: null },
+        select: { role: true, tenant_id: true, member_id: true },
+      });
+      if (u) {
+        actor.role = actor.role || u.role;
+        actor.tenantId = actor.tenantId || u.tenant_id;
+        actor.memberId = actor.memberId || u.member_id;
+      }
     }
   }
+
   const member = await prisma.members.findFirst({
     where: { id: String(targetMemberId), deleted_at: null },
   });
@@ -63,9 +115,12 @@ async function canEditProfile(reqUser, targetMemberId) {
   if (actor.role === 'SYSTEM_ADMIN') {
     return { ok: true, via: 'SYS', member };
   }
-  if (actor.role === 'CLAN_ADMIN' && actor.tenantId === member.tenant_id) {
+
+  // Hỗ trợ đầy đủ tập vai trò Admin trong dòng họ
+  if (ADMIN_ROLES.has(actor.role) && actor.tenantId === member.tenant_id) {
     return { ok: true, via: 'CLAN_ADMIN', member };
   }
+
   if (actor.tenantId && actor.tenantId !== member.tenant_id) {
     return { ok: false, code: 'FORBIDDEN', reason: 'Khác dòng họ.', member };
   }
@@ -128,7 +183,6 @@ async function canEditProfile(reqUser, targetMemberId) {
 
   return { ok: false, code: 'FORBIDDEN', reason: 'Không có quyền sửa hồ sơ này.', member };
 }
-
 
 async function canViewProfile(reqUser, targetMemberId) {
   const actor = actorOf(reqUser);

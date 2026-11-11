@@ -1,21 +1,19 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/features/membership/components/HeaderClanSwitcher.jsx
- * DATETIME    : 2026-11-10T22:00:00+07:00
- * VERSION     : 1.3.0-CLAN-SWITCHER-TENANT-AND-ROLE
+ * DATETIME    : 2026-11-11T12:05:00+07:00
+ * VERSION     : 1.3.1-CLAN-SWITCHER-ONE-WAY-NAV
  * DESCRIPTION : Dropdown Multi-Home trên header.
- *               - Chọn dòng họ (tenant) → switch-context.
- *               - Với dòng họ có role_in_tenant admin: chọn Thành viên (/op)
- *                 hoặc Quản trị (/admin) mà không cần logout.
- *               Role SSOT: role_in_tenant của user_member_links.
+ *               - Mỗi họ: "Thành viên" -> /op.
+ *               - Nếu roleInTenant là admin (CLAN_ADMIN, SYSTEM_ADMIN, TRUONG_*) -> thêm "Quản trị" -> /admin.
+ *               - Khác tenant: switchContext(tenantId, path) -> window.location.href = path.
+ *               - Cùng tenant: chỉ gọi navigate(path), không gọi switchContext thừa.
  * =============================================================================
  * CHANGELOGS:
- * - 2026-11-10T11:06:00+07:00 (v1.1.0-CLAN-SWITCHER-ELDER):
- *   + Dropdown + TTS cơ bản.
- * - 2026-11-10T22:00:00+07:00 (v1.3.0-CLAN-SWITCHER-TENANT-AND-ROLE):
- *   + Chọn tenant và vai trò (Thành viên / Quản trị) trong cùng dropdown.
- *   + Cùng tenant chỉ navigate; khác tenant thì switchContext rồi vào path.
- *   + Chuẩn hóa QX.
+ * - 2026-11-10T22:00:00+07:00 (v1.3.0): Chọn tenant và vai trò.
+ * - 2026-11-11T12:05:00+07:00 (v1.3.1-CLAN-SWITCHER-ONE-WAY-NAV):
+ *   + Khác họ: switchContext có truyền path để chuyển trang nguyên tử.
+ *   + Cùng họ: chỉ navigate, không trigger reload.
  * =============================================================================
  */
 
@@ -74,15 +72,21 @@ export const HeaderClanSwitcher = () => {
   const currentLinkMeta = getLinkTypeMeta(activeContext?.linkType || currentClan?.linkType);
   const currentIsAdmin = isAdminRole(currentRole);
 
+  /**
+   * Xử lý chuyển đổi ngữ cảnh hoặc đổi vai trò tác nghiệp
+   */
   const enterClanAs = async (clan, path) => {
     try {
       setError('');
       const sameTenant = clan.tenantId === activeContext?.activeTenantId;
 
       if (!sameTenant) {
-        await switchContext(clan.tenantId);
+        // Khác họ: Gọi switchContext kèm path đích (tự động chuyển trang dứt khoát)
+        await switchContext(clan.tenantId, path);
+        return;
       }
 
+      // Cùng họ: Đóng dropdown và dùng client router chuyển trang
       setIsOpen(false);
       navigate(path, { replace: true });
     } catch (err) {
@@ -101,6 +105,11 @@ export const HeaderClanSwitcher = () => {
         title="Bấm để đổi dòng họ hoặc vai trò"
       >
         <div className="flex items-center gap-2 text-left">
+          {currentClan?.isDefault && (
+            <span className="text-amber-500 font-bold" title="Dòng họ mặc định">
+              ★
+            </span>
+          )}
           <span className="truncate max-w-[140px] sm:max-w-[180px] md:max-w-[220px]">
             {isSwitchingContext ? 'Đang chuyển...' : currentClan?.clanName || 'Chọn dòng họ'}
           </span>
@@ -146,12 +155,18 @@ export const HeaderClanSwitcher = () => {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <div className="text-base font-semibold text-gray-900">
-                        {clan.clanName}
+                      <div className="flex items-center gap-1.5">
+                        {clan.isDefault && (
+                          <span className="text-amber-500 text-sm font-bold" title="Dòng họ mặc định">
+                            ★
+                          </span>
+                        )}
+                        <span className="text-base font-semibold text-gray-900 leading-snug">
+                          {clan.clanName}
+                        </span>
                       </div>
                       <div className="text-xs text-gray-500 mt-0.5">
-                        Vai trò trong họ: {role}
-                        {clan.isDefault ? ' · Mặc định' : ''}
+                        Vai trò: {role}
                       </div>
                     </div>
                     <span className={`text-xs px-2 py-0.5 rounded border font-medium ${linkMeta.color}`}>
@@ -159,12 +174,12 @@ export const HeaderClanSwitcher = () => {
                     </span>
                   </div>
 
-                  <div className="mt-2 flex flex-col gap-2">
+                  <div className="mt-2.5 flex flex-col gap-2">
                     <button
                       type="button"
                       disabled={isSwitchingContext}
                       onClick={() => enterClanAs(clan, '/op')}
-                      className="w-full text-left px-3 py-2 min-h-[44px] rounded-xl bg-white border border-gray-200 hover:border-blue-400 hover:bg-blue-50 text-sm font-semibold text-gray-800"
+                      className="w-full text-left px-3 py-2 min-h-[44px] rounded-xl bg-white border border-gray-200 hover:border-blue-400 hover:bg-blue-50 text-sm font-semibold text-gray-800 transition-colors"
                     >
                       Vào với tư cách Thành viên
                     </button>
@@ -173,7 +188,7 @@ export const HeaderClanSwitcher = () => {
                         type="button"
                         disabled={isSwitchingContext}
                         onClick={() => enterClanAs(clan, '/admin')}
-                        className="w-full text-left px-3 py-2 min-h-[44px] rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-sm font-semibold"
+                        className="w-full text-left px-3 py-2 min-h-[44px] rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-sm font-semibold transition-colors"
                       >
                         Vào với tư cách Quản trị
                       </button>
@@ -185,8 +200,8 @@ export const HeaderClanSwitcher = () => {
           </div>
 
           {currentIsAdmin && (
-            <div className="px-4 py-2 text-[11px] text-gray-500 border-t border-gray-100">
-              Đang ở: {currentClan?.clanName} · có thể vào Thành viên hoặc Quản trị
+            <div className="px-4 py-2.5 text-[11px] text-gray-500 border-t border-gray-100 bg-gray-50 rounded-b-2xl">
+              Đang ở: <span className="font-semibold">{currentClan?.clanName}</span> (có thể vào Thành viên hoặc Quản trị)
             </div>
           )}
         </div>

@@ -1,10 +1,10 @@
 /**
  * PATH       : src/lib/apiClient.js
- * DATETIME   : 2026-09-28T08:00:00+07:00
- * VERSION    : 14.2.0-AUTH-INTERCEPTOR
- * DESCRIPTION: Chuẩn hóa axios instance cho frontend auth.
- *              - Bổ sung Response Interceptor tự động xử lý khi gặp lỗi HTTP 401 (UNAUTHORIZED).
- * REFERENCE  : Rule applied to AI_3.md & SSOT BFA
+ * DATETIME   : 2026-11-11T12:12:00+07:00
+ * VERSION    : 14.3.0-MULTIHOME-TOKEN-SYNC
+ * DESCRIPTION: Axios Instance tập trung:
+ *              - Đọc song song auth_token / token.
+ *              - Tự động xóa phiên và đưa về /auth?mode=login khi gặp HTTP 401.
  */
 
 import axios from 'axios';
@@ -12,12 +12,8 @@ import axios from 'axios';
 const API_REQUEST_TIMEOUT = 30000;
 
 const apiClient = axios.create({
-  baseURL:
-    import.meta.env.VITE_API_URL ||
-    'http://localhost:10000/api',
-
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:10000/api',
   timeout: API_REQUEST_TIMEOUT,
-
   headers: {
     'Content-Type': 'application/json',
   },
@@ -47,11 +43,6 @@ apiClient.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-/**
- * <2026-09-28T08:00:00+07:00>
- * Purpose: Bắt lỗi 401 tập trung. Nếu Token hết hạn hoặc thiếu Token, tự động xóa Token
- *          và chuyển hướng về trang đăng nhập để không gửi thêm request rác.
- */
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {

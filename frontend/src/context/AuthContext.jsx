@@ -1,22 +1,19 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/context/AuthContext.jsx
- * DATETIME    : 2026-11-10T21:40:00+07:00
- * VERSION     : 2.0.8-AUTH-CONTEXT-SELECT-TENANT-REDIRECT
+ * DATETIME    : 2026-11-11T12:00:00+07:00
+ * VERSION     : 2.1.0-AUTH-CONTEXT-MULTIHOME-ROLE-SWITCH
  * DESCRIPTION : Quản lý phiên làm việc và Ngữ cảnh dòng họ (Multi-Home Session).
- *               Seed availableClans từ login payload.
- *               Redirect /membership/select-tenant khi ≥ 2 clan DA_DUYET
- *               hoặc khi có role_in_tenant là admin (để chọn vai trò).
- *               Role SSOT: role_in_tenant của user_member_links.
+ *               - Bổ sung redirectUrl cho switchContext: window.location.href = redirectUrl.
+ *               - Seed availableClans trực tiếp từ login payload, không gọi API thừa.
+ *               - Điều hướng sau login: DA_DUYET có member vào thẳng /op.
+ *               - Role SSOT: roleInTenant lấy từ user_member_links.
  * =============================================================================
  * CHANGELOGS:
- * - 2026-11-10T19:55:00+07:00 (v2.0.7-AUTH-CONTEXT-LOGIN-PAYLOAD-AND-OP-REDIRECT):
- *   + Bóc payload login; DA_DUYET → /op.
- * - 2026-11-10T21:40:00+07:00 (v2.0.8-AUTH-CONTEXT-SELECT-TENANT-REDIRECT):
- *   + Seed availableClans từ user.availableClans, không gọi API trong login.
- *   + ≥ 2 clan DA_DUYET hoặc có admin role_in_tenant → /membership/select-tenant.
- *   + roleInTenant lấy từ link (roleInTenant / role_in_tenant), không dùng users.role.
- *   + Chuẩn hóa QX.
+ * - 2026-11-10T21:40:00+07:00 (v2.0.8): Redirect /membership/select-tenant.
+ * - 2026-11-11T12:00:00+07:00 (v2.1.0-AUTH-CONTEXT-MULTIHOME-ROLE-SWITCH):
+ *   + Hỗ trợ switchContext(targetTenantId, redirectUrl = null).
+ *   + DA_DUYET vào thẳng /op (bỏ ép buộc select-tenant vì đã có HeaderClanSwitcher).
  * =============================================================================
  */
 
@@ -25,18 +22,6 @@ import apiClient from '../lib/apiClient';
 import { membershipApi } from '../features/membership/api/membershipApi';
 
 const AuthContext = createContext(null);
-
-const ADMIN_ROLES = new Set([
-  'SYSTEM_ADMIN',
-  'CLAN_ADMIN',
-  'TRUONG_HO',
-  'TRUONG_TOC',
-  'TRUONG_NGANH',
-  'TRUONG_CHI',
-]);
-
-const getLinkRole = (clan) =>
-  String(clan?.roleInTenant || clan?.role_in_tenant || '').toUpperCase();
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -55,12 +40,11 @@ export const AuthProvider = ({ children }) => {
   const [isSwitchingContext, setIsSwitchingContext] = useState(false);
 
   /**
-   * Điều phối đường dẫn sau login.
-   * - Không có activeMemberId → /membership/claim
-   * - CHO_DUYET → /membership/status
-   * - DRAFT → /op/mfo/plan
-   * - ≥ 2 clan DA_DUYET hoặc có role_in_tenant admin → /membership/select-tenant
-   * - Còn lại (1 clan USER) → /op
+   * Điều phối đường dẫn sau đăng nhập:
+   * - Chưa gắn member -> /membership/claim
+   * - Chờ duyệt -> /membership/status
+   * - Nháp Onboarding -> /op/mfo/plan
+   * - Đã duyệt (DA_DUYET) -> /op
    */
   const resolvePostLoginRedirect = useCallback((currentUser, currentContext) => {
     if (!currentContext?.activeMemberId) {
@@ -72,16 +56,6 @@ export const AuthProvider = ({ children }) => {
     if (currentContext?.activeLinkStatus === 'DRAFT') {
       return '/op/mfo/plan';
     }
-
-    const approved = (currentUser?.availableClans || []).filter(
-      (c) => (c.status || 'DA_DUYET') === 'DA_DUYET'
-    );
-    const hasAdmin = approved.some((c) => ADMIN_ROLES.has(getLinkRole(c)));
-
-    if (approved.length >= 2 || hasAdmin) {
-      return '/membership/select-tenant';
-    }
-
     return '/op';
   }, []);
 
@@ -168,6 +142,7 @@ export const AuthProvider = ({ children }) => {
     if (payload.token) {
       localStorage.setItem('auth_token', payload.token);
       localStorage.setItem('token', payload.token);
+      apiClient.defaults.headers.common['Authorization'] = `Bearer ${payload.token}`;
     }
 
     const clans = Array.isArray(userObj.availableClans) ? userObj.availableClans : [];
@@ -204,7 +179,12 @@ export const AuthProvider = ({ children }) => {
     };
   };
 
-  const switchContext = async (targetTenantId) => {
+  /**
+   * Chuyển đổi dòng họ và điều hướng dứt khoát
+   * @param {string} targetTenantId
+   * @param {string|null} redirectUrl - URL đích (ví dụ: '/op' hoặc '/admin')
+   */
+  const switchContext = async (targetTenantId, redirectUrl = null) => {
     try {
       setIsSwitchingContext(true);
       const data = await membershipApi.switchContext(targetTenantId);
@@ -213,18 +193,25 @@ export const AuthProvider = ({ children }) => {
       if (payload.token) {
         localStorage.setItem('auth_token', payload.token);
         localStorage.setItem('token', payload.token);
+        apiClient.defaults.headers.common['Authorization'] = `Bearer ${payload.token}`;
       }
 
       const updatedContext = {
-        activeTenantId: payload.activeTenantId,
-        activeMemberId: payload.activeMemberId,
-        activeLinkStatus: payload.activeLinkStatus,
-        roleInTenant: payload.roleInTenant || payload.role_in_tenant,
-        linkType: payload.linkType,
+        activeTenantId: payload.activeTenantId || targetTenantId,
+        activeMemberId: payload.activeMemberId || null,
+        activeLinkStatus: payload.activeLinkStatus || 'DA_DUYET',
+        roleInTenant: payload.roleInTenant || payload.role_in_tenant || 'USER',
+        linkType: payload.linkType || 'PRIMARY_PATERNAL',
       };
 
       setActiveContext(updatedContext);
       localStorage.setItem('active_context', JSON.stringify(updatedContext));
+
+      // Lát 2: Nếu có redirectUrl thì dùng window.location.href, không reload() rồi navigate()
+      if (redirectUrl) {
+        window.location.href = redirectUrl;
+        return updatedContext;
+      }
 
       window.location.reload();
       return updatedContext;
@@ -240,10 +227,11 @@ export const AuthProvider = ({ children }) => {
     localStorage.removeItem('auth_token');
     localStorage.removeItem('token');
     localStorage.removeItem('active_context');
+    delete apiClient.defaults.headers.common['Authorization'];
     setUser(null);
     setActiveContext(null);
     setAvailableClans([]);
-    window.location.href = '/auth';
+    window.location.href = '/auth?mode=login';
   };
 
   const value = {
@@ -269,3 +257,5 @@ export const useAuth = () => {
   }
   return context;
 };
+
+export default AuthContext;

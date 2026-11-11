@@ -1,23 +1,17 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/App.jsx
- * DATETIME    : 2026-11-10T14:30:00+07:00
- * VERSION     : 3.3.0-APP-MEMBERSHIP-MERGED
- * DESCRIPTION : Merge bản routing cũ (OP / Admin / Profile / Tree) với phân hệ
- *               Membership mới (AMEND-RP-OP-2026-01-V1.1).
- *               - Giữ toàn bộ routes cũ.
- *               - Thêm /membership/claim và /membership/status.
- *               - Mount SandboxModeBanner + HeaderClanSwitcher trên layout chính.
- *               - Bảo vệ /tree và các trang nghiệp vụ bằng OpProtectedRoute
- *                 (dựa trên activeLinkStatus).
+ * DATETIME    : 2026-11-11T12:10:00+07:00
+ * VERSION     : 3.4.0-APP-ADMIN-GUARD-ROLE-IN-TENANT
+ * DESCRIPTION : Định tuyến ứng dụng Gia Phả Số chuẩn AMEND-RP-OP-2026-02 V1.2:
+ *               - AdminProtectedRoute: Thẩm định quyền theo activeContext.roleInTenant
+ *                 (hoặc role trên token của link), không bị trói buộc bởi user.role cũ.
+ *               - Mount HeaderClanSwitcher và SandboxModeBanner trên AppLayout.
  * =============================================================================
  * CHANGELOGS:
- * - 2026-10-13T19:41:00+07:00 (v3.2.0-REUSE-REACT-ALARM): Bản cũ đầy đủ routes.
- * - 2026-11-10T14:30:00+07:00 (v3.3.0-APP-MEMBERSHIP-MERGED):
- *   + Merge membership (P0/P1) vào bản cũ.
- *   + Mount SandboxModeBanner + HeaderClanSwitcher.
- *   + Thêm routes /membership/*.
- *   + Chuẩn hóa QX.
+ * - 2026-11-10T14:30:00+07:00 (v3.3.0): Merge membership.
+ * - 2026-11-11T12:10:00+07:00 (v3.4.0-APP-ADMIN-GUARD-ROLE-IN-TENANT):
+ *   + Nâng cấp AdminProtectedRoute thẩm định theo role_in_tenant.
  * =============================================================================
  */
 
@@ -34,7 +28,7 @@ import MfoAlarmHost from './features/mfo/components/MfoAlarmHost.jsx';
 import { ClaimMemberPage } from './features/membership/pages/ClaimMemberPage';
 import { MembershipStatusPage } from './features/membership/pages/MembershipStatusPage';
 
-// --- Lazy pages (giữ nguyên từ bản cũ) ---
+// --- Lazy pages ---
 const HomePage = lazy(() => import('./pages/HomePage.jsx'));
 const AuthPage = lazy(() => import('./pages/AuthPage.jsx'));
 const TreePage = lazy(() => import('./pages/TreePage.jsx'));
@@ -64,10 +58,15 @@ const AdminMemberVitalPage = lazy(() => import('./pages/AdminMemberVitalPage.jsx
 const AdminBranchesPage = lazy(() => import('./pages/AdminBranchesPage.jsx'));
 import { SelectTenantPage } from './features/membership/pages/SelectTenantPage';
 
-/**
- * ProtectedRoute cũ (dựa trên user.status) — giữ cho các trang không thuộc OP/Membership.
- * Các trang OP / Tree / Membership nên dùng OpProtectedRoute.
- */
+const ADMIN_ROLES = new Set([
+  'SYSTEM_ADMIN',
+  'CLAN_ADMIN',
+  'TRUONG_HO',
+  'TRUONG_TOC',
+  'TRUONG_NGANH',
+  'TRUONG_CHI',
+]);
+
 const ProtectedRoute = ({ children, allowedStatus = 'DA_DUYET' }) => {
   const { user, loading } = useAuth();
 
@@ -83,8 +82,12 @@ const ProtectedRoute = ({ children, allowedStatus = 'DA_DUYET' }) => {
   return children;
 };
 
+/**
+ * Route Guard cho phân hệ Quản trị (/admin):
+ * Thẩm định quyền dựa trên roleInTenant của dòng họ đang chọn
+ */
 const AdminProtectedRoute = ({ children }) => {
-  const { user, loading } = useAuth();
+  const { user, activeContext, loading } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -94,34 +97,32 @@ const AdminProtectedRoute = ({ children }) => {
     return <Navigate to="/auth" state={{ from: location }} replace />;
   }
 
-  if (user.role !== 'SYSTEM_ADMIN' && user.role !== 'CLAN_ADMIN') {
-    return <Navigate to="/" replace />;
+  const effectiveRole = String(
+    activeContext?.roleInTenant ||
+    user?.roleInTenant ||
+    user?.role ||
+    'USER'
+  ).toUpperCase();
+
+  if (!ADMIN_ROLES.has(effectiveRole)) {
+    return <Navigate to="/op" replace />;
   }
 
   return children;
 };
 
-/**
- * Layout chính: Banner DRAFT + Header (có Clan Switcher)
- */
 const AppLayout = ({ children }) => {
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
-      {/* Banner Sandbox khi activeLinkStatus === 'DRAFT' */}
       <SandboxModeBanner />
-
-      {/* Header */}
       <header className="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-sm">
         <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <span className="text-lg font-bold text-slate-800">Gia Phả Số</span>
           </div>
-
-          {/* Multi-clan switcher */}
           <HeaderClanSwitcher />
         </div>
       </header>
-
       <main className="flex-1">{children}</main>
     </div>
   );
@@ -137,11 +138,10 @@ const AppRouter = () => {
       }
     >
       <Routes>
-        {/* ===== Public ===== */}
         <Route path="/" element={<HomePage />} />
         <Route path="/auth" element={<AuthPage />} />
 
-        {/* ===== Membership (P0) ===== */}
+        {/* Membership */}
         <Route
           path="/membership/claim"
           element={
@@ -158,8 +158,16 @@ const AppRouter = () => {
             </OpProtectedRoute>
           }
         />
+        <Route
+          path="/membership/select-tenant"
+          element={
+            <OpProtectedRoute>
+              <SelectTenantPage />
+            </OpProtectedRoute>
+          }
+        />
 
-        {/* ===== Tree (chỉ DA_DUYET) ===== */}
+        {/* Tree */}
         <Route
           path="/tree"
           element={
@@ -169,7 +177,7 @@ const AppRouter = () => {
           }
         />
 
-        {/* ===== Profile & Media (giữ ProtectedRoute cũ hoặc chuyển dần sang OpProtectedRoute) ===== */}
+        {/* Profile & Media */}
         <Route
           path="/members/:id/profile"
           element={
@@ -219,7 +227,7 @@ const AppRouter = () => {
           }
         />
 
-        {/* ===== Waiting (legacy) ===== */}
+        {/* Waiting */}
         <Route
           path="/waiting"
           element={
@@ -229,7 +237,7 @@ const AppRouter = () => {
           }
         />
 
-        {/* ===== OP / MFO ===== */}
+        {/* OP / MFO */}
         <Route
           path="/op"
           element={
@@ -303,7 +311,7 @@ const AppRouter = () => {
           }
         />
 
-        {/* ===== Admin ===== */}
+        {/* Admin */}
         <Route
           path="/admin"
           element={
@@ -392,16 +400,7 @@ const AppRouter = () => {
             </AdminProtectedRoute>
           }
         />
-        <Route
-          path="/membership/select-tenant"
-          element={
-            <OpProtectedRoute>
-              <SelectTenantPage />
-            </OpProtectedRoute>
-          }
-        />
 
-        {/* ===== Fallback ===== */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>

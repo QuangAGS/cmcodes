@@ -1,13 +1,14 @@
 /**
  * ============================================================================
  * PATH       : src/middlewares/auth.middleware.js
- * DATETIME   : 2026-11-11T10:05:00+07:00
- * VERSION    : 20.6.0-MULTIHOME-AMEND02-V12
+ * DATETIME   : 2026-11-11T13:05:00+07:00
+ * VERSION    : 20.7.1-MULTIHOME-STRICT-HEAVY-WRITE
  * DESCRIPTION:
- * - [AMEND-RP-OP-2026-02 V1.2] Lát 1/7 Multi-Home Authentication Middleware:
- *   + Trích xuất toàn vẹn claims: activeTenantId, activeMemberId, roleInTenant.
- *   + Bind ALS context với allowUnscoped = false (không bypass ngầm định).
- *   + Cung cấp Heavy-write Guard: assertActiveLink (tái kiểm tra link DA_DUYET từ DB).
+ * - [AMEND-RP-OP-2026-02 V1.2] Lát 2/7:
+ *   + Siết chặt assertActiveLink: Bỏ hoàn toàn bypass ngầm định của SYSTEM_ADMIN
+ *     khi thao tác trong một dòng họ (bắt buộc phải có link DA_DUYET tại họ đó).
+ *   + Hỗ trợ cả 2 dạng: Express Middleware và helper gọi trực tiếp.
+ *   + Ném 403 LINK_REVOKED ngay khi link không tồn tại hoặc mất hiệu lực.
  * ============================================================================
  */
 
@@ -53,7 +54,7 @@ const verifyToken = (req, res, next) => {
     const userData = {
       userId: decoded.userId || decoded.id || decoded.sub,
       email: decoded.email,
-      role: roleInTenant, // Vai trò hiệu lực tại tenant active
+      role: roleInTenant,
       roleInTenant,
       tenantId: activeTenantId,
       status: decoded.status,
@@ -83,7 +84,6 @@ const verifyToken = (req, res, next) => {
       return next();
     }
 
-    // AMEND-02 V1.2: allowUnscoped luôn là false cho mọi HTTP request thông thường
     tenantContext.run(
       {
         tenantId: userData.activeTenantId,
@@ -110,37 +110,53 @@ const verifyToken = (req, res, next) => {
 };
 
 /**
- * Heavy-write Guard: Tái kiểm tra tính hợp lệ của link trực tiếp từ database
- * Dùng cho duyệt hồ sơ, sửa đồ thị cây phả hệ, quản lý quỹ, đổi vai trò
+ * Heavy-write Guard: Tái kiểm tra link DA_DUYET trực tiếp trong Database
+ * Bỏ hoàn toàn bypass ngầm của SYSTEM_ADMIN khi thao tác trong một dòng họ cụ thể.
  */
-const assertActiveLink = async (req) => {
-  const userId = req.user?.userId;
-  const activeTenantId = req.user?.activeTenantId;
+const assertActiveLink = async (req, res, next) => {
+  const isMiddleware = typeof next === 'function';
+
+  const userId = req.user?.userId || req.user?.id;
+  const activeTenantId = req.user?.activeTenantId || req.user?.tenantId;
 
   if (!userId || !activeTenantId) {
     const err = new Error('Thiếu thông tin nhận diện dòng họ.');
     err.statusCode = 401;
     err.code = 'UNAUTHORIZED';
+    if (isMiddleware) return next(err);
     throw err;
   }
 
-  const link = await basePrisma.user_member_links.findFirst({
-    where: {
-      user_id: userId,
-      tenant_id: activeTenantId,
-      deleted_at: null,
-      status: 'DA_DUYET',
-    },
-  });
-
-  if (!link) {
-    const err = new Error('Tư cách tại dòng họ này không còn hiệu lực.');
-    err.statusCode = 403;
-    err.code = 'LINK_REVOKED';
-    throw err;
+  // Chỉ cho phép bypass nếu là SYSTEM_ADMIN chạy tác vụ nền toàn cục (không gắn tenant cụ thể)
+  if (req.user?.role === 'SYSTEM_ADMIN' && !activeTenantId) {
+    if (isMiddleware) return next();
+    return null;
   }
 
-  return link;
+  try {
+    const link = await basePrisma.user_member_links.findFirst({
+      where: {
+        user_id: userId,
+        tenant_id: activeTenantId,
+        deleted_at: null,
+        status: 'DA_DUYET',
+      },
+    });
+
+    if (!link) {
+      const err = new Error('Tư cách thành viên tại dòng họ này không còn hiệu lực.');
+      err.statusCode = 403;
+      err.code = 'LINK_REVOKED';
+      if (isMiddleware) return next(err);
+      throw err;
+    }
+
+    if (isMiddleware) return next();
+    return link;
+  } catch (err) {
+    if (isMiddleware) return next(err);
+    throw err;
+  }
 };
 
 module.exports = {

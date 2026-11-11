@@ -1,8 +1,12 @@
 /**
  * PATH: src/modules/members/member.service.js
- * DATETIME: 2026-11-02T15:30:00+07:00
- * VERSION: 1.9.0-FTDI-STEP3-DUAL-WRITE
+ * DATETIME: 2026-11-11T12:30:00+07:00
+ * VERSION: 1.10.0-MULTIHOME-ACTOR-RESOLVED
  * DESCRIPTION:
+ * - [AMEND-RP-OP-2026-02 V1.2] Lát 2/7 Member Service:
+ *   + Khắc phục lỗi createdByMemberId: Ưu tiên activeMemberId từ actor/payload.
+ *   + Khi fallback, tra cứu member_id từ user_member_links theo tenant_id active,
+ *     tuyệt đối không đọc users.member_id (tránh gắn nhầm member dòng họ gốc khi ở họ phụ).
  * - Tích hợp Dual-write FTDI Bước 3: Đồng bộ quan hệ phụ mẫu vào bảng parentages qua parentage.mapper.js khi tạo thành viên.
  * - Tự động bảo vệ bằng Advisory Lock và Cycle Check (isNewChild: true) không gây nghẽn hiệu năng.
  * - Bảo tồn 100% logic tạo Address, Member, Biographies và Audit Log hiện có.
@@ -18,6 +22,7 @@ const memberService = {
    * CREATE FULL MEMBER: Lưu đồng thời vào nhiều bảng (Transaction).
    * @param {Object} payload - Dữ liệu từ Controller gửi xuống (bao gồm Metadata).
    * @param {String} tenantId - ID dòng họ lấy từ Context.
+   * @param {Object} [actor] - Thông tin actor phiên làm việc (req.user).
    */
   createFullMember: async (payload, tenantId, actor = null) => {
     const { memberData, currentAddr, biographyData, changed_by, change_reason } = payload;
@@ -50,13 +55,20 @@ const memberService = {
         ...safeMemberData
       } = memberData || {};
 
-      let createdByMemberId = payload.created_by_member_id || null;
-      if (changed_by && !createdByMemberId) {
-        const actorUser = await tx.users.findFirst({
-          where: { id: changed_by, deleted_at: null },
+      // AMEND-02 V1.2: Ưu tiên activeMemberId từ actor / payload
+      let createdByMemberId =
+        payload.created_by_member_id ||
+        actor?.activeMemberId ||
+        actor?.member_id ||
+        null;
+
+      if (changed_by && !createdByMemberId && tenantId) {
+        // Multi-Home: Tra cứu đúng member_id tại dòng họ đang active qua user_member_links
+        const link = await tx.user_member_links.findFirst({
+          where: { user_id: changed_by, tenant_id: tenantId, deleted_at: null },
           select: { member_id: true },
         });
-        createdByMemberId = actorUser?.member_id || null;
+        createdByMemberId = link?.member_id || null;
       }
 
       const member = await tx.members.create({
@@ -354,7 +366,6 @@ const memberService = {
   },
 
   getMemberNames: async (tenantId, ids) => {
-    const started = Date.now();
     const list = [...new Set((ids || []).map((id) => String(id || '').trim()).filter(Boolean))].slice(0, 40);
     if (!tenantId || list.length === 0) return [];
     const rows = await prisma.members.findMany({

@@ -1,13 +1,13 @@
 /**
  * ============================================================================
  * PATH       : src/modules/auth/auth.routes.js
- * DATETIME   : 2026-11-11T10:10:00+07:00
- * VERSION    : 21.11.0-MULTIHOME-AMEND02-V12
+ * DATETIME   : 2026-11-11T12:20:00+07:00
+ * VERSION    : 21.12.0-MULTIHOME-HEAVY-WRITE-GUARD
  * DESCRIPTION:
- * - [AMEND-RP-OP-2026-02 V1.2] Lát 1/7:
- *   + Chuẩn hóa GET /me dùng basePrisma.users.findFirst và basePrisma.tenants.findFirst.
- *   + Phản chiếu chính xác activeTenantId, activeMemberId, roleInTenant từ JWT.
- *   + Trả về đồng thời data.user và user đảm bảo tương thích ngược 100%.
+ * - [AMEND-RP-OP-2026-02 V1.2] Lát 2/7:
+ *   + Gắn assertActiveLink bảo vệ các thao tác duyệt tài khoản:
+ *     /process-approval, /return-for-revision, /reopen-rejected-user.
+ *   + Ngăn chặn hành vi dùng token cũ đã bị thu hồi quyền gửi request phê duyệt.
  * ============================================================================
  */
 
@@ -23,6 +23,7 @@ const {
   verifyToken,
   checkRole,
   requireActiveTenant,
+  assertActiveLink,
 } = require('../../middlewares/auth.middleware');
 const correlationMiddleware = require('../../middlewares/correlation.middleware');
 const { restrictSuspiciousActivity } = require('../../middlewares/securityGuard.middleware');
@@ -62,14 +63,13 @@ if (process.env.NODE_ENV !== 'production') {
   router.post('/debug/unblock-all', authController.debugUnblockAll);
 }
 
-// ==================== PROTECTED /me (CHUẨN HÓA LÁT 1/7) ====================
+// ==================== PROTECTED /me ====================
 router.get('/me', verifyToken, asyncHandler(async (req, res) => {
   const userId = req.user.userId || req.user.id || req.user.sub;
   if (!userId) {
     throw createError('UNAUTHORIZED', 'Thiếu thông tin xác thực.', 401);
   }
 
-  // Luôn dùng basePrisma để đọc users, không bị scope theo tenant_id
   const row = await basePrisma.users.findFirst({
     where: { id: userId, deleted_at: null },
     select: {
@@ -136,7 +136,6 @@ router.get('/me', verifyToken, asyncHandler(async (req, res) => {
   });
 }));
 
-// [SMOKE-2.2 TEST ROUTE]
 router.get('/test-sandbox', verifyToken, tenantGate, (req, res) => {
   res.status(200).json({ status: 'success', message: 'Vượt qua Sandbox thành công' });
 });
@@ -164,11 +163,13 @@ router.post(
   authController.queryReviewableUsers
 );
 
+// ==================== HEAVY-WRITE APPROVAL ROUTES (GẮN assertActiveLink) ====================
 router.post(
   '/process-approval',
   verifyToken,
   checkRole('CLAN_ADMIN', 'SYSTEM_ADMIN'),
   requireActiveTenant,
+  assertActiveLink, // <-- Chốt chặn Heavy-write Guard
   restrictSuspiciousActivity({
     maxThreshold: 50,
     windowMinutes: 5,
@@ -183,6 +184,7 @@ router.post(
   verifyToken,
   checkRole('CLAN_ADMIN', 'SYSTEM_ADMIN'),
   requireActiveTenant,
+  assertActiveLink, // <-- Chốt chặn Heavy-write Guard
   restrictSuspiciousActivity({
     maxThreshold: 50,
     windowMinutes: 5,
@@ -197,6 +199,7 @@ router.post(
   verifyToken,
   checkRole('CLAN_ADMIN', 'SYSTEM_ADMIN'),
   requireActiveTenant,
+  assertActiveLink, // <-- Chốt chặn Heavy-write Guard
   restrictSuspiciousActivity({
     maxThreshold: 50,
     windowMinutes: 5,

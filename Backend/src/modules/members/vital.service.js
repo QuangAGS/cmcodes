@@ -1,15 +1,27 @@
 /**
  * PATH       : src/modules/members/vital.service.js
- * DATETIME   : 2026-09-04T12:40:00+07:00
- * VERSION    : 1.0.0-M11
- * DESCRIPTION: Steward sống/mất. Chỉ SYSTEM_ADMIN / CLAN_ADMIN.
- *              Không mở OP/SM. /me/profile vẫn khóa is_alive.
+ * DATETIME   : 2026-11-11T12:40:00+07:00
+ * VERSION    : 1.1.0-MULTIHOME-AMEND02-V12
+ * DESCRIPTION:
+ * - [AMEND-RP-OP-2026-02 V1.2] Lát 2/7 Vital Service:
+ *   + Hỗ trợ tập vai trò quản trị dòng họ: CLAN_ADMIN, SYSTEM_ADMIN, TRUONG_HO, TRUONG_TOC, TRUONG_NGANH, TRUONG_CHI.
+ *   + role lấy từ roleInTenant || role, tenantId lấy từ activeTenantId || tenantId.
+ *   + Loại bỏ bypass ngầm allowUnscoped: actor.role === 'SYSTEM_ADMIN' -> khóa allowUnscoped: false.
  */
 
 'use strict';
 
 const { prisma, runWithTenantContext } = require('../../lib/prisma.js');
 const { logAction } = require('../../services/audit.service.js');
+
+const ADMIN_ROLES = new Set([
+  'SYSTEM_ADMIN',
+  'CLAN_ADMIN',
+  'TRUONG_HO',
+  'TRUONG_TOC',
+  'TRUONG_NGANH',
+  'TRUONG_CHI',
+]);
 
 function deny(code, message, statusCode = 400) {
   const err = new Error(message);
@@ -20,10 +32,12 @@ function deny(code, message, statusCode = 400) {
 }
 
 function actorOf(user) {
+  const role = user?.roleInTenant || user?.role || null;
   return {
     userId: user?.userId || user?.id || null,
-    tenantId: user?.tenantId || user?.tenant_id || null,
-    role: user?.role || null,
+    tenantId: user?.activeTenantId || user?.tenantId || user?.tenant_id || null,
+    role: role ? String(role).toUpperCase() : null,
+    activeMemberId: user?.activeMemberId || user?.member_id || null,
   };
 }
 
@@ -39,15 +53,18 @@ function toInt(v, name, { min, max } = {}) {
 async function patchVital(reqUser, memberId, body = {}) {
   const actor = actorOf(reqUser);
   if (!actor.userId) deny('UNAUTHORIZED', 'Thiếu phiên đăng nhập.', 401);
-  if (actor.role !== 'SYSTEM_ADMIN' && actor.role !== 'CLAN_ADMIN') {
-    deny('FORBIDDEN', 'Chỉ quản trị được đổi tình trạng sống.', 403);
+
+  // AMEND-02 V1.2: Hỗ trợ tập vai trò Admin trong dòng họ
+  if (!ADMIN_ROLES.has(actor.role)) {
+    deny('FORBIDDEN', 'Chỉ ban quản trị dòng họ được đổi tình trạng sống.', 403);
   }
 
   const row = await prisma.members.findFirst({
     where: { id: String(memberId), deleted_at: null },
   });
   if (!row) deny('NOT_FOUND', 'Không tìm thấy thành viên.', 404);
-  if (actor.role === 'CLAN_ADMIN' && actor.tenantId !== row.tenant_id) {
+
+  if (actor.role !== 'SYSTEM_ADMIN' && actor.tenantId !== row.tenant_id) {
     deny('FORBIDDEN', 'Không sửa thành viên dòng họ khác.', 403);
   }
 
@@ -74,8 +91,9 @@ async function patchVital(reqUser, memberId, body = {}) {
     if (!data.death_year) deny('BAD_REQUEST', 'Người đã mất cần ít nhất năm mất.', 400);
   }
 
+  // AMEND-02 V1.2: allowUnscoped: false (triệt tiêu bypass ngầm định)
   return runWithTenantContext(
-    { tenantId: row.tenant_id, userId: actor.userId, allowUnscoped: actor.role === 'SYSTEM_ADMIN' },
+    { tenantId: row.tenant_id, userId: actor.userId, allowUnscoped: false },
     async () => {
       const upd = await prisma.members.updateMany({
         where: { id: row.id, tenant_id: row.tenant_id, deleted_at: null },

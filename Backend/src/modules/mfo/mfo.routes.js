@@ -1,155 +1,115 @@
 /**
  * PATH       : backend/src/modules/mfo/mfo.routes.js
- * DATETIME   : 2026-10-22T15:23:00+07:00
- * VERSION    : 3.0.4-DOCTRINE-3
+ * DATETIME   : 2026-11-11T12:25:00+07:00
+ * VERSION    : 3.1.0-MFO-HEAVY-WRITE-GUARD
  * DESCRIPTION:
- * - Khai báo danh mục Endpoint REST API cho Phân hệ MFO 5L.
- * - Phân định rõ nhóm API Canvas, Nháp DRAFT, Gate 1 (MFO_PLAN), Workbench và Gate 2 (MFO_RESULT).
- * - Middleware Auth & CheckRole đảm bảo an toàn truy cập chặt chẽ.
- * REFERENCE  : MFO-DOCTRINE-3.0-20261013
- *
- * CHANGE LOG:
- * - 2026-10-09T12:25:00+07:00 | 3.0.0 | Đường canvas, nháp, cửa 1 và cửa 2.
- * - 2026-10-17T10:56:00+07:00 | 3.0.1 | Thêm /result/return cho nút Trả sửa cửa 2.
- * - 2026-10-18T17:35:00+07:00 | 3.0.2 | Bổ sung PUT /plans/:id ghi đè trực tiếp ticketId (BUG10 FIX).
- * - 2026-10-22T11:41:00+07:00 | 3.0.3 | Thêm: /result/reject gọi REJECT. Bỏ: /result/terminate. Giữ: /result/return là trả sửa. Lý do: doctrine không có đường terminate riêng.
- * - 2026-10-22T15:23:00+07:00 | 3.0.4 | Bỏ: tham chiếu Lifecycle 2.0. Giữ: đường đã vá. Lý do: Doctrine 3.0 đã thay.
+ * - [AMEND-RP-OP-2026-02 V1.2] Lát 2/7:
+ *   + Gắn assertActiveLink vào các thao tác trình, duyệt, trả sửa, bác bỏ Cửa 1 & Cửa 2.
+ *   + Bảo vệ toàn vẹn tiến trình phả đồ MFO không bị thao túng bởi phiên bị thu hồi quyền.
  */
+
+'use strict';
 
 const express = require('express');
 const router = express.Router();
 const mfoController = require('./mfo.controller');
-const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
+const {
+  verifyToken,
+  checkRole,
+  assertActiveLink,
+} = require('../../middlewares/auth.middleware');
 
 const READ = ['USER', 'VIEWER', 'CLAN_ADMIN', 'SYSTEM_ADMIN'];
 const WRITE = ['USER', 'CLAN_ADMIN', 'SYSTEM_ADMIN'];
 const ADMIN = ['CLAN_ADMIN', 'SYSTEM_ADMIN'];
 
 // =============================================================================
-// 1. NHÓM API TRUY VẤN CÂY PHẢ HỆ & FULL-SET (CANVAS 5L)
+// 1. NHÓM API TRUY VẤN CÂY PHẢ HỆ & FULL-SET (CANVAS 5L) - READ-ONLY
 // =============================================================================
-router.get(
-  '/origins/:originId/tree',
-  verifyToken,
-  checkRole(READ),
-  mfoController.getOriginTree
-);
-
-router.get(
-  '/origins/:originId/full-set',
-  verifyToken,
-  checkRole(READ),
-  mfoController.getFullMfoSet
-);
+router.get('/origins/:originId/tree', verifyToken, checkRole(READ), mfoController.getOriginTree);
+router.get('/origins/:originId/full-set', verifyToken, checkRole(READ), mfoController.getFullMfoSet);
 
 // =============================================================================
 // 2. NHÓM API DANH SÁCH & BẢN NHÁP (DRAFT - STAGING)
 // =============================================================================
 router.get('/plans/can-create', verifyToken, checkRole(READ), mfoController.canCreate);
 router.get('/plans', verifyToken, checkRole(READ), mfoController.listPlans);
-
-// Lưu nháp Khung 5L
-router.post('/plans/draft', verifyToken, checkRole(WRITE), mfoController.saveDraft);
-
-// Cập nhật đè trực tiếp Tờ trình/Nháp theo ticketId (MFO_PLAN / DRAFT / NEEDS_REVISION)
-router.put(
-  '/plans/:id',
-  verifyToken,
-  checkRole(WRITE),
-  mfoController.updatePlan
-);
-
-// Xóa mềm nháp / Tờ trình ở trạng thái DRAFT, NEEDS_REVISION, REJECTED
-router.delete('/plans/:id/draft', verifyToken, checkRole(WRITE), mfoController.deleteDraft);
-
-// Đọc trọn vẹn Payload Lớp Đôi để Hydrate Canvas
-router.get(
-  '/plans/:id/draft-payload',
-  verifyToken,
-  checkRole(READ),
-  mfoController.getDraftPayload
-);
-
-// =============================================================================
-// 3. NHÓM API TRÌNH & THẨM ĐỊNH KHUNG 5L (GATE 1 - MFO_PLAN)
-// =============================================================================
-// Trình Khung 5L chính thức (DRAFT -> PENDING)
-router.post('/plans', verifyToken, checkRole(WRITE), mfoController.createPlan);
-
-// Chi tiết Tờ trình Khung
+router.get('/plans/:id/draft-payload', verifyToken, checkRole(READ), mfoController.getDraftPayload);
 router.get('/plans/:id', verifyToken, checkRole(READ), mfoController.getPlan);
 
-// Admin Phê duyệt Khung 5L (Cấp tem plan_ok = true & chốt granted_generation)
+router.post('/plans/draft', verifyToken, checkRole(WRITE), mfoController.saveDraft);
+router.put('/plans/:id', verifyToken, checkRole(WRITE), mfoController.updatePlan);
+router.delete('/plans/:id/draft', verifyToken, checkRole(WRITE), mfoController.deleteDraft);
+router.post('/plans/:id/staging', verifyToken, checkRole(WRITE), mfoController.saveStaging);
+router.post('/plans/:id/abort', verifyToken, checkRole(WRITE), mfoController.abortPlan);
+
+// =============================================================================
+// 3. NHÓM API TRÌNH & THẨM ĐỊNH KHUNG 5L (GATE 1) - HEAVY WRITE
+// =============================================================================
+router.post(
+  '/plans',
+  verifyToken,
+  checkRole(WRITE),
+  assertActiveLink, // <-- Heavy-write
+  mfoController.createPlan
+);
+
 router.post(
   '/plans/:id/approve',
   verifyToken,
   checkRole(ADMIN),
+  assertActiveLink, // <-- Heavy-write
   mfoController.approvePlan
 );
 
-// Admin Trả về yêu cầu hiệu chỉnh (Itemized Return -> NEEDS_REVISION)
 router.post(
   '/plans/:id/return',
   verifyToken,
   checkRole(ADMIN),
+  assertActiveLink, // <-- Heavy-write
   mfoController.returnPlanForRevision
 );
 
-// Admin Bác bỏ vĩnh viễn Khung 5L (REJECTED)
 router.post(
   '/plans/:id/reject',
   verifyToken,
   checkRole(ADMIN),
+  assertActiveLink, // <-- Heavy-write
   mfoController.rejectPlan
 );
 
-// Người trình chủ động rút hồ sơ (WITHDRAWN)
-router.post(
-  '/plans/:id/abort',
-  verifyToken,
-  checkRole(WRITE),
-  mfoController.abortPlan
-);
-
 // =============================================================================
-// 4. NHÓM API TRÌNH & NGHIỆM THU TỜ KHAI (GATE 2 - MFO_RESULT)
+// 4. NHÓM API TRÌNH & NGHIỆM THU TỜ KHAI (GATE 2) - HEAVY WRITE
 // =============================================================================
-router.post(
-  '/plans/:id/staging',
-  verifyToken,
-  checkRole(WRITE),
-  mfoController.saveStaging
-);
-
-// Người trình nộp Tờ khai Nghiệm thu Kết quả Xưởng
 router.post(
   '/plans/:id/result',
   verifyToken,
   checkRole(WRITE),
+  assertActiveLink, // <-- Heavy-write
   mfoController.submitResult
 );
 
-// Admin Phê duyệt Nghiệm thu & Chốt Sổ thật (APPROVE Gate 2 -> result_ok = true)
 router.post(
   '/plans/:id/result/approve',
   verifyToken,
   checkRole(ADMIN),
+  assertActiveLink, // <-- Heavy-write
   mfoController.approveResult
 );
 
-// <2026-10-22T11:41:00+07:00> Mục đích: Không duyệt cửa 2 là REJECT. Lý do: doctrine không có đường terminate riêng. Bỏ /result/terminate.
 router.post(
   '/plans/:id/result/reject',
   verifyToken,
   checkRole(ADMIN),
+  assertActiveLink, // <-- Heavy-write
   mfoController.terminateResult
 );
 
-// <2026-10-22T11:41:00+07:00> Mục đích: Trả sửa cửa 2 giữ NEEDS_REVISION. Lý do: không trộn với không duyệt.
 router.post(
   '/plans/:id/result/return',
   verifyToken,
   checkRole(ADMIN),
+  assertActiveLink, // <-- Heavy-write
   mfoController.rejectResult
 );
 
