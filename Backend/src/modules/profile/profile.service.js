@@ -1,12 +1,19 @@
 /**
  * PATH       : src/modules/profile/profile.service.js
- * DATETIME   : 2026-09-01T17:10:00+07:00
- * VERSION    : 1.7.5-KIND-RESTING
- * DESCRIPTION: Actor select is_alive. Không strip death_* khi đã mất.
+ * DATETIME   : 2026-11-11T11:35:00+07:00
+ * VERSION    : 1.8.1-MULTIHOME-AMEND02-V12-FINAL
+ * DESCRIPTION:
+ * - [AMEND-RP-OP-2026-02 V1.2] Lát 1/7 Profile Service hoàn chỉnh:
+ *   + resolveMemberActor: Dùng basePrisma.users, nạp member & tenant theo claims JWT.
+ *   + Log warning khi buộc phải fallback về users.tenant_id / users.member_id.
+ *   + getMyProfile: Lọc tenant_id và deleted_at tường minh cho mảng relation (graves).
+ *   + getMyProfile tenantOrigin đọc từ basePrisma.tenants.
+ *   + patchMyProfile: Thực thi trong prisma.$transaction (client đã extend).
+ * - Actor select is_alive. Không strip death_* khi đã mất.
  */
 
 'use strict';
-const { prisma, correlation } = require('../../lib/prisma.js');
+const { prisma, basePrisma, correlation } = require('../../lib/prisma.js');
 const { writeBpl } = require('../../services/bpl.service.js');
 const { logAction } = require('../../services/audit.service.js');
 const { a01Log } = require('./a01Debug.js');
@@ -193,11 +200,15 @@ function unwrapBody(raw) {
   return src;
 }
 
+/**
+ * RESOLVE MEMBER ACTOR (CHUẨN HÓA AMEND-02 V1.2)
+ */
 async function resolveMemberActor(reqUser) {
   const userId = reqUser?.userId || reqUser?.id;
   if (!userId) deny('UNAUTHORIZED', 'Thiếu phiên đăng nhập.', 401);
 
-  const user = await prisma.users.findFirst({
+  // 1. Luôn dùng basePrisma để đọc users, không bị scope theo tenant_id
+  const user = await basePrisma.users.findFirst({
     where: { id: userId, deleted_at: null },
     select: {
       id: true,
@@ -212,8 +223,22 @@ async function resolveMemberActor(reqUser) {
     deny('FORBIDDEN', 'Tài khoản chưa được duyệt.', 403);
   }
 
+  // 2. Lấy Context dòng họ đang active từ JWT Claims (Cảnh báo chi tiết nếu fallback)
+  let activeTenantId = reqUser?.activeTenantId || reqUser?.tenantId;
+  let activeMemberId = reqUser?.activeMemberId;
+
+  if (!activeTenantId && user.tenant_id) {
+    console.warn(`⚠️ [resolveMemberActor] Cảnh báo: Token thiếu activeTenantId, fallback về users.tenant_id (${user.tenant_id})`, { userId });
+    activeTenantId = user.tenant_id;
+  }
+
+  if (!activeMemberId && user.member_id) {
+    console.warn(`⚠️ [resolveMemberActor] Cảnh báo: Token thiếu activeMemberId, fallback về users.member_id (${user.member_id})`, { userId });
+    activeMemberId = user.member_id;
+  }
+
   const targetId = String(reqUser?.targetMemberId || '').trim();
-  if (targetId && targetId !== user.member_id) {
+  if (targetId && targetId !== activeMemberId) {
     const checker = reqUser.viewOnly ? canViewProfile : canEditProfile;
     const access = await checker(reqUser, targetId);
     if (!access.ok || !access.member) {
@@ -232,20 +257,21 @@ async function resolveMemberActor(reqUser) {
     };
   }
 
-  if (!user.member_id || !user.tenant_id) {
+  if (!activeMemberId || !activeTenantId) {
     deny('NOT_MEMBER_ACTOR', 'Tài khoản chưa gắn thành viên dòng họ.', 403);
   }
 
-  const member = await prisma.members.findFirst({
-    where: { id: user.member_id, tenant_id: user.tenant_id, deleted_at: null },
+  // 3. Đọc Member thuộc activeTenantId qua basePrisma
+  const member = await basePrisma.members.findFirst({
+    where: { id: activeMemberId, tenant_id: activeTenantId, deleted_at: null },
     select: { id: true, tenant_id: true, status: true, is_alive: true },
   });
   if (!member || member.status !== 'CHINH_THUC') {
     deny('NOT_MEMBER_ACTOR', 'Thành viên chưa chính thức.', 403);
   }
 
-  const tenant = await prisma.tenants.findFirst({
-    where: { id: user.tenant_id, deleted_at: null },
+  const tenant = await basePrisma.tenants.findFirst({
+    where: { id: activeTenantId, deleted_at: null },
     select: { id: true, status: true },
   });
   if (!tenant || tenant.status !== 'HOAT_DONG') {
@@ -445,13 +471,17 @@ async function getMyProfile(reqUser, section = '') {
   const needBio = sec === 'bio' || sec === 'bio_read';
   const needAddr = sec === 'address';
 
+  // Lọc tường minh tenant_id cho mảng quan hệ graves (AMEND-02 V1.2)
   const row = await prisma.members.findFirst({
     where: { id: member.id, tenant_id: member.tenant_id, deleted_at: null },
     include: needAddr
       ? {
           currentAddress: true,
           originAddress: true,
-          graves: { include: { addresses: true, cemetery: true } },
+          graves: {
+            where: { tenant_id: member.tenant_id, deleted_at: null },
+            include: { addresses: true, cemetery: true },
+          },
         }
       : undefined,
   });
@@ -471,7 +501,7 @@ async function getMyProfile(reqUser, section = '') {
 
   let tenantOrigin = null;
   if (needAddr) {
-    const ten = await prisma.tenants.findFirst({
+    const ten = await basePrisma.tenants.findFirst({
       where: { id: member.tenant_id, deleted_at: null },
       select: {
         origin_address_id: true,
@@ -630,6 +660,7 @@ async function patchMyProfile(reqUser, rawBody = {}) {
     deny('EMPTY_PATCH', 'Không nhận được trường hồ sơ. Kiểm tra Request Payload (Network).', 400);
   }
 
+  // AMEND-02 V1.2: Transaction đi qua prisma.$transaction (client đã extend)
   return prisma.$transaction(async (tx) => {
     const correlationId = correlation.create();
     const actorCtx = {
@@ -753,7 +784,6 @@ async function patchMyProfile(reqUser, rawBody = {}) {
       }
     }
 
-    
     if (body.resting_address) {
       const addr = await upsertAddress(tx, tenantId, actorId, body.resting_address);
       if (addr) {
@@ -786,7 +816,7 @@ async function patchMyProfile(reqUser, rawBody = {}) {
       }
     }
 
-if (Array.isArray(body.privacy)) {
+    if (Array.isArray(body.privacy)) {
       for (const rule of body.privacy) {
         if (!PRIVACY_GROUPS.has(rule.field_group) || !PRIVACY_VIS.has(rule.visibility)) {
           deny('BAD_REQUEST', 'privacy rule không hợp lệ.', 400);
@@ -1023,7 +1053,6 @@ async function searchMyAddresses(reqUser, query = {}) {
 
   return { items, total: items.length };
 }
-
 
 async function getMemberProfile(reqUser, memberId, section = '') {
   if (!memberId) deny('BAD_REQUEST', 'Thiếu member_id.', 400);

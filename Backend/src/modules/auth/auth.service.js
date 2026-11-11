@@ -1,9 +1,13 @@
 const { creatorStamp } = require('../members/profileAccess.service.js');
 /**
  * PATH       : src/modules/auth/auth.service.js
- * DATETIME   : 2026-11-09T11:35:00+07:00
- * VERSION    : 20.4.0:MULTIHOME-PHASE3-[RP-OP-JSON]-[SMOKE-3.x]
+ * DATETIME   : 2026-11-11T11:45:00+07:00
+ * VERSION    : 20.5.0-MULTIHOME-AMEND02-V12-FINAL
  * DESCRIPTION:
+ * - [AMEND-RP-OP-2026-02 V1.2] Lát 1/7 Multi-Home Service hoàn chỉnh:
+ *   + Tích hợp resolveSwitchExpiresIn kế thừa exp token gốc, trần tối đa 12h, chống gia hạn vô tận.
+ *   + switchContext gán roleInTenant chuẩn xác từ user_member_links vào claims JWT.
+ *   + Truy vấn danh tính users và liên kết user_member_links qua basePrisma.
  * - 20.4.0: Phase 2 (Multi-Home) + Phase 3 (RP-OP JSON) + Smoke Test 3.x:
  *    - Import helper validateRegistrationProfile.
  *    - Vị trí 1: registerUser – Hỗ trợ nhận và validate registration_profile (JSON metadata).   
@@ -55,6 +59,22 @@ const hashResetSecret = (value) => {
     .update(String(value))
     .digest('hex');
 };
+
+/**
+ * Helper tính toán thời hạn sống (expiresIn) của Token mới khi switch context.
+ * AMEND-RP-OP-2026-02 V1.2: Kế thừa exp của token gốc, trần tối đa 12h, tối thiểu 60s, fallback 8h.
+ */
+function resolveSwitchExpiresIn(authHeader) {
+  const raw = (authHeader || '').replace(/^Bearer\s+/i, '').trim();
+  const decoded = raw ? jwt.decode(raw) : null;
+  const now = Math.floor(Date.now() / 1000);
+  const ceiling = now + 12 * 3600; // Trần tối đa 12 giờ
+
+  if (decoded?.exp && decoded.exp > now) {
+    return Math.max(60, Math.min(decoded.exp, ceiling) - now);
+  }
+  return 8 * 3600; // Fallback an toàn 8 giờ
+}
 
 const authService = {
   checkLockStatus: async (user) => {
@@ -3272,12 +3292,9 @@ const authService = {
   },
 
   // =========================================================================
-  // [PHASE 2][SEC-02] CHUYỂN ĐỔI NGỮ CẢNH DÒNG HỌ (SWITCH CONTEXT API)
+  // [PHASE 2][SEC-02] CHUYỂN ĐỔI NGỮ CẢNH DÒNG HỌ (SWITCH CONTEXT API V1.2)
   // =========================================================================
-  /**
-   * Cấp phát Context Token mới dựa trên dòng họ đích mà user lựa chọn
-   */
-  switchContext: async (userId, targetTenantId) => {
+  switchContext: async (userId, targetTenantId, currentAuthHeader = null) => {
     if (!targetTenantId) {
       const error = new Error('Thiếu mã định danh dòng họ (targetTenantId).');
       error.status = 400;
@@ -3285,6 +3302,7 @@ const authService = {
       throw error;
     }
 
+    // 1. Kiểm tra quyền liên kết dòng họ qua basePrisma (không lọc tenant_id)
     const link = await basePrisma.user_member_links.findFirst({
       where: {
         user_id: userId,
@@ -3347,24 +3365,36 @@ const authService = {
       throw new Error('Cấu hình thiếu JWT_SECRET tại tệp môi trường .env.');
     }
 
+    // 2. Tính toán thời hạn sống kế thừa token gốc (chống gia hạn vô hạn 24h)
+    const expiresIn = resolveSwitchExpiresIn(currentAuthHeader);
+
+    // 3. Ký Context Token mới mang đầy đủ Claims Multi-Home
     const contextToken = jwt.sign(
       {
         userId: user.id,
         email: user.email,
         role: link.role_in_tenant || user.role,
+        roleInTenant: link.role_in_tenant || user.role,
         tenantId: link.tenant_id,
         activeTenantId: link.tenant_id,
         activeMemberId: link.member_id,
         activeLinkStatus: link.status,
         linkType: link.link_type,
+        status: user.status,
         tenantStatus: link.tenant?.status || null,
       },
       secret,
-      { expiresIn: '24h' }
+      { expiresIn }
     );
 
     return {
       token: contextToken,
+      activeTenantId: link.tenant_id,
+      activeMemberId: link.member_id,
+      activeLinkStatus: link.status,
+      linkType: link.link_type,
+      roleInTenant: link.role_in_tenant,
+      clanName: link.tenant?.name || null,
       activeContext: {
         activeTenantId: link.tenant_id,
         activeMemberId: link.member_id,

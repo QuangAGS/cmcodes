@@ -1,10 +1,13 @@
 /**
  * PATH       : src/modules/auth/auth.controller.js
- * DATETIME   : 2026-11-10T15:15:00+07:00
- * VERSION    : 23.5.0 - MULTIHOME - AVAILABLE-CLANS-FIX
+ * DATETIME   : 2026-11-11T11:40:00+07:00
+ * VERSION    : 23.6.1-MULTIHOME-AMEND02-V12-FINAL
  * DESCRIPTION:
- * - 23.5.0: Bổ sung API `GET /api/auth/available-clans` (SMOKE-4.2) bị thiếu trong controller.
- * - 23.4.0 - MULTIHOME - PHASE2-[SEC-02]: Bổ sung API `POST /api/auth/switch-context`.
+ * - [AMEND-RP-OP-2026-02 V1.2] Lát 1/7 Multi-Home Controller hoàn chỉnh:
+ *   + getAvailableClans: Gọi authService.getAvailableClans(userId).
+ *   + switchContext: Truyền req.headers.authorization làm tham số thứ 3 vào authService.switchContext
+ *     để thực thi resolveSwitchExpiresIn, kế thừa chính xác exp token gốc (trần 12h, chống kéo dài vô hạn).
+ * - 23.4.0 - MULTIHOME - PHASE2-[SEC-02]: Bổ sung API POST /api/auth/switch-context.
  * - [23.3.1-OP1a] Register: truyền correlationId vào extraData (CED / notifications).
  * - [23.3.0-W4] Turnstile theo TURNSTILE_REQUIRED; Q1 honeypot, Assert Order login.
  */
@@ -36,111 +39,109 @@ const authController = {
     }
   },
 
-    register: async (req, res) => {
-      try {
-        const {
-          turnstileToken,
-          hp_field,
-          isRevision,
-          ...payload
-        } = req.body;
+  register: async (req, res) => {
+    try {
+      const {
+        turnstileToken,
+        hp_field,
+        isRevision,
+        ...payload
+      } = req.body;
 
-        const ip = req.headers['cf-connecting-ip'] || req.ip || 'unknown';
-        const userAgent = req.headers['user-agent'] || 'unknown';
+      const ip = req.headers['cf-connecting-ip'] || req.ip || 'unknown';
+      const userAgent = req.headers['user-agent'] || 'unknown';
 
-        if (isIPBlocked(ip)) {
-          const record = ipBlockList.get(ip);
-          const minutesLeft = Math.ceil((record.blockedUntil - Date.now()) / 60000);
-          return res.status(403).json({
-            error: `IP của bạn đang bị tạm khóa. Vui lòng thử lại sau ${minutesLeft} phút.`,
-          });
+      if (isIPBlocked(ip)) {
+        const record = ipBlockList.get(ip);
+        const minutesLeft = Math.ceil((record.blockedUntil - Date.now()) / 60000);
+        return res.status(403).json({
+          error: `IP của bạn đang bị tạm khóa. Vui lòng thử lại sau ${minutesLeft} phút.`,
+        });
+      }
+
+      if (hp_field && hp_field.trim().length > 0) {
+        blockIP(ip, securityConfig.HONEYPOT_BLOCK_MINUTES, 'HONEYPOT_DETECTED');
+        await authLogService.logAttempt({
+          identifier: payload.phone || payload.email || 'unknown',
+          ip_address: ip,
+          user_agent: userAgent,
+          status: 'THAT_BAI',
+          failure_reason: 'HONEYPOT_DETECTED',
+        });
+        return res.status(403).json({ error: 'Hành vi đáng ngờ. Vui lòng thử lại sau.' });
+      }
+
+      if (securityConfig.TURNSTILE_REQUIRED) {
+        if (!turnstileToken) {
+          return res.status(403).json({ error: 'Vui lòng hoàn thành CAPTCHA' });
         }
-
-        if (hp_field && hp_field.trim().length > 0) {
-          blockIP(ip, securityConfig.HONEYPOT_BLOCK_MINUTES, 'HONEYPOT_DETECTED');
+        const turnstileResult = await validateTurnstile(turnstileToken, ip, 'register');
+        if (!turnstileResult.success) {
           await authLogService.logAttempt({
             identifier: payload.phone || payload.email || 'unknown',
             ip_address: ip,
             user_agent: userAgent,
             status: 'THAT_BAI',
-            failure_reason: 'HONEYPOT_DETECTED',
+            failure_reason: `TURNSTILE_FAILED_${turnstileResult.errors?.join(',') || 'unknown'}`,
           });
-          return res.status(403).json({ error: 'Hành vi đáng ngờ. Vui lòng thử lại sau.' });
+          return res.status(403).json({
+            error: turnstileResult.message || 'CAPTCHA không hợp lệ. Vui lòng thử lại.',
+          });
         }
+      }
 
-        if (securityConfig.TURNSTILE_REQUIRED) {
-          if (!turnstileToken) {
-            return res.status(403).json({ error: 'Vui lòng hoàn thành CAPTCHA' });
-          }
-          const turnstileResult = await validateTurnstile(turnstileToken, ip, 'register');
-          if (!turnstileResult.success) {
-            await authLogService.logAttempt({
-              identifier: payload.phone || payload.email || 'unknown',
-              ip_address: ip,
-              user_agent: userAgent,
-              status: 'THAT_BAI',
-              failure_reason: `TURNSTILE_FAILED_${turnstileResult.errors?.join(',') || 'unknown'}`,
-            });
-            return res.status(403).json({
-              error: turnstileResult.message || 'CAPTCHA không hợp lệ. Vui lòng thử lại.',
-            });
-          }
-        }
+      const suspicious = await authLogService.getSuspiciousAttempts(
+        ip,
+        securityConfig.SUSPICIOUS_TIME_WINDOW_MINUTES
+      );
+      if (suspicious.attempts >= securityConfig.SUSPICIOUS_ATTEMPTS_THRESHOLD) {
+        blockIP(ip, securityConfig.IP_BLOCK_MINUTES, 'REPEATED_SUSPICIOUS_ACTIVITY');
+      }
 
-        const suspicious = await authLogService.getSuspiciousAttempts(
-          ip,
-          securityConfig.SUSPICIOUS_TIME_WINDOW_MINUTES
+      const extraData = {
+        ip_address: ip,
+        user_agent: userAgent,
+        correlationId:
+          req.correlationId ||
+          req.headers['x-correlation-id'] ||
+          null,
+      };
+
+      if (isRevision === true) {
+        const result = await authService.submitRegistrationRevision(
+          { ...payload, isRevision: true },
+          extraData
         );
-        if (suspicious.attempts >= securityConfig.SUSPICIOUS_ATTEMPTS_THRESHOLD) {
-          blockIP(ip, securityConfig.IP_BLOCK_MINUTES, 'REPEATED_SUSPICIOUS_ACTIVITY');
-        }
-
-        const extraData = {
-          ip_address: ip,
-          user_agent: userAgent,
-          correlationId:
-            req.correlationId ||
-            req.headers['x-correlation-id'] ||
-            null,
-        };
-
-        // PR-OP-3B B1: revision — không JWT
-        if (isRevision === true) {
-          const result = await authService.submitRegistrationRevision(
-            { ...payload, isRevision: true },
-            extraData
-          );
-          return res.status(200).json({
-            status: 'success',
-            data: result,
-            message:
-              'Hồ sơ bổ sung đã được gửi lại và đang chờ Ban Quản trị xem xét.',
-          });
-        }
-
-        // Đăng ký mới (giữ nguyên)
-        const result = await authService.registerUser(payload, extraData);
-        return res.status(201).json({
+        return res.status(200).json({
           status: 'success',
           data: result,
-          message: 'Hồ sơ đăng ký đã được gửi thành công và đang chờ phê duyệt.',
-        });
-      } catch (error) {
-        console.error('[Register Error]:', error);
-        if (error.message === 'DENIED') {
-          return res.status(403).json({
-            status: 'error',
-            code: error.code || 'DENIED',
-            message: 'Không thể chỉnh sửa hồ sơ ở trạng thái hiện tại.',
-          });
-        }
-        return res.status(error.status || 500).json({
-          status: 'error',
-          code: error.code || 'REGISTER_FAILED',
-          message: error.message || 'Không thể hoàn tất đăng ký',
+          message:
+            'Hồ sơ bổ sung đã được gửi lại và đang chờ Ban Quản trị xem xét.',
         });
       }
-    },
+
+      const result = await authService.registerUser(payload, extraData);
+      return res.status(201).json({
+        status: 'success',
+        data: result,
+        message: 'Hồ sơ đăng ký đã được gửi thành công và đang chờ phê duyệt.',
+      });
+    } catch (error) {
+      console.error('[Register Error]:', error);
+      if (error.message === 'DENIED') {
+        return res.status(403).json({
+          status: 'error',
+          code: error.code || 'DENIED',
+          message: 'Không thể chỉnh sửa hồ sơ ở trạng thái hiện tại.',
+        });
+      }
+      return res.status(error.status || 500).json({
+        status: 'error',
+        code: error.code || 'REGISTER_FAILED',
+        message: error.message || 'Không thể hoàn tất đăng ký',
+      });
+    }
+  },
 
   login: async (req, res) => {
     try {
@@ -168,7 +169,7 @@ const authController = {
         attemptCount: lockMetadata.attemptCount,
         linked: lockMetadata.linkedIdentifiers,
       });
-      
+
       if (isIPBlocked(ip)) {
         const record = ipBlockList.get(ip);
         const minutesLeft = Math.ceil((record.blockedUntil - Date.now()) / 60000);
@@ -253,36 +254,7 @@ const authController = {
           remainingAttempts: error.metadata?.remainingAttempts || 0,
         });
       }
-      /** 
-      if (
-        errStatus === 423 ||
-        errCode === 'ACCOUNT_CHO_DUYET' ||
-        errCode === 'TENANT_PENDING_ACTIVATION' ||
-        errCode === 'TENANT_CHO_DUYET' ||
-        errCode === 'ACCOUNT_LOCKED' ||
-        errCode === 'ACCOUNT_BANNED' ||
-        errMessage.includes('chờ Ban Quản trị') ||
-        errMessage.includes('chờ Hệ thống Trung tâm')
-      ) {
-        await authLogService.logAttempt({
-          identifier: req.body.identifier || 'unknown',
-          ip_address: ip,
-          user_agent: userAgent,
-          status: 'THAT_BAI',
-          failure_reason: `LOGIN_REJECTED_${errCode || 'PENDING_OR_LOCKED'}`,
-        });
-        return res.status(423).json({
-          status: 'error',
-          code: errCode || 'ACCOUNT_CHO_DUYET',
-          message: error.message,
-          minutesLeft: error.minutesLeft || undefined,
-          isPermanent: error.isPermanent || undefined,
-          lockType: error.lockType || undefined,
-          reasonCode: error.reasonCode || undefined,
-        });
-      }
-      */
-      // PR-OP-3A: CHO_DUYET — trả reviewNote / canEdit / tempSnapshot (trước 423 generic)
+
       if (errCode === 'ACCOUNT_CHO_DUYET') {
         await authLogService.logAttempt({
           identifier: req.body.identifier || 'unknown',
@@ -672,7 +644,6 @@ const authController = {
     }
   },
 
-  //PR-OP-4-R1: Admin trả về sửa (NEEDS_REVISION) → giữ CHO_DUYET; case → NEEDS_REVISION + review_note.
   returnForRevision: async (req, res) => {
     try {
       const { userId, adminNote } = req.body;
@@ -851,9 +822,7 @@ const authController = {
       });
     }
   },
-  // =========================================================================
-  // 23.5.0 - MULTIHOME - PHASE2-[SEC-02] Bổ sung API GET /api/auth/available-clans
-  // =========================================================================
+
   getAvailableClans: async (req, res) => {
     try {
       const userId = req.user?.userId || req.user?.id || req.user?.sub;
@@ -866,7 +835,6 @@ const authController = {
         });
       }
 
-      // Gọi service lấy danh sách các dòng họ liên kết của user
       const result = await authService.getAvailableClans(userId);
 
       return res.status(200).json({
@@ -884,11 +852,11 @@ const authController = {
     }
   },
 
-  // 23.4.0 - MULTIHOME - PHASE2-[SEC-02] Bổ sung API POST /api/auth/switch-context
   switchContext: async (req, res) => {
     try {
       const userId = req.user?.userId || req.user?.id;
       const { targetTenantId } = req.body;
+      const authHeader = req.headers.authorization;
 
       if (!userId) {
         return res.status(401).json({
@@ -898,7 +866,8 @@ const authController = {
         });
       }
 
-      const result = await authService.switchContext(userId, targetTenantId);
+      // Truyền authHeader sang authService để kế thừa TTL exp của token cũ
+      const result = await authService.switchContext(userId, targetTenantId, authHeader);
 
       return res.status(200).json({
         status: 'success',
