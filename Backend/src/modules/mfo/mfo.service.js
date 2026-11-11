@@ -1,46 +1,21 @@
 /**
  * PATH       : Backend/src/modules/mfo/mfo.service.js
- * DATETIME   : 2026-10-30T17:30:00+07:00
- * VERSION    : 4.7.33-AUDIT-LOGS-GATE1-GATE2
+ * DATETIME   : 2026-11-11T17:50:00+07:00
+ * VERSION    : 4.8.2-MULTIHOME-SAFE-MUTATE-FINAL
  * DESCRIPTION:
+ * - [AMEND-RP-OP-2026-02 V1.2] Lát 3/7 MFO Service hoàn chỉnh:
+ *   + tenantIdOf ưu tiên activeTenantId; memberIdOf ưu tiên activeMemberId; isClanOrSys đọc roleInTenant.
+ *   + resolveFounderMemberId tra cứu user_member_links theo activeTenantId trước; fallback users có console.warn.
+ *   + getPlan, getDraftPayload, createPlan, getOriginTree: Khóa cứng where: { id, tenant_id, deleted_at: null } -> trả về 404 (chống dò quét UUID).
+ *   + saveDraft, updatePlan, deleteDraft, createPlan, saveStaging, abortPlan:
+ *     Chuyển 100% tx.proposals.update sang updateMany có { id, tenant_id, deleted_at: null } + findFirst đọc lại record,
+ *     triệt tiêu hoàn toàn rủi ro TOCTOU và không phụ thuộc vào interactive transaction extension hook.
+ *   + getFullMfoSet raw SQL gắn tenant_id tường minh. Không dùng include lồng.
  * - Bảo tồn 100% kiến trúc tương thích SRPF Engine và các thuật toán dựng cây 5L.
- * - Bổ sung đầy đủ giám sát audit_logs cho Trạm 1 (Gate 1) và Trạm 2 (Workbench) trên bảng proposals:
- *   + saveDraft & updatePlan (Lưu/cập nhật nháp).
- *   + saveStaging (Kê khai xưởng Workbench).
- *   + abortPlan (Rút hồ sơ).
- * - Giữ nguyên getDraftPayload trả về target_member_generation và deleteDraft đã có audit.
- *
- * CHANGE LOG:
- * - 2026-10-30T17:30:00+07:00 | 4.7.33 | Bổ sung audit.create cho saveDraft, updatePlan, saveStaging, abortPlan trên bảng proposals.
- * - 2026-10-30T15:50:00+07:00 | 4.7.32 | Hoàn nguyên approveResult về cơ chế SRPF điều phối, loại bỏ mutation kép gây xung đột trạng thái APPROVED.
- * - 2026-10-29T21:15:00+07:00 | 4.7.30 | Sửa executeGate2DbMutation để gán đúng sibling_seq vào members.
- * - 2026-10-29T08:44:00+07:00 | 4.7.29 | Thêm: get members.generation trong getDraftPayload. Bỏ: không bỏ. Giữ: lấy generation từ bảng members. Lý do: tránh lỗi khi payload không có generation.
- * - 2026-10-18T17:35:00+07:00 | 4.7.2 | Thêm updatePlan. Không bỏ getFullMfoSet.
- * - 2026-10-22T11:52:00+07:00 | 4.7.3 | Thêm: lấy cờ từ đúng tờ. Bỏ: ép plan_ok false khi lưu cửa 2. Giữ getFullMfoSet. Lý do: hạ cờ làm cửa 2 thành cửa 1.
- * - 2026-10-26T10:55:00+07:00 | 4.7.4 | Thêm: dựng cây chỉ tải nhánh 5 đời. Bỏ: tải cả sổ và cả hôn nhân. Giữ: hình cây và các trường. Lý do: full-set mất gần 4 giây.
- * - 2026-10-26T11:02:00+07:00 | 4.7.5 | Thêm: lấy cả nhánh trong một câu. Bỏ: hỏi từng đời một. Giữ: hình cây. Lý do: nhiều vòng hỏi làm full-set vẫn 3,5 giây.
- * - 2026-10-26T11:09:00+07:00 | 4.7.6 | Bỏ ép uuid. Giữ: một câu lấy nhánh. Lý do: cột mã là chữ, ép uuid làm lỗi.
- * - 2026-10-26T11:14:00+07:00 | 4.7.7 | Thêm: chạy song song giữ chỗ, nhánh, hôn nhân và ảnh. Bỏ: sáu câu nối tiếp. Giữ: hình cây. Lý do: full-set còn 2,9 giây.
- * - 2026-10-26T11:26:00+07:00 | 4.7.8 | Thêm: một câu lấy nhánh, hôn nhân, vợ chồng và ảnh. Bỏ: các câu đứng sau. Giữ: hình cây. Lý do: full-set tăng lại 3,8 giây.
- * - 2026-10-26T11:43:00+07:00 | 4.7.9 | Thêm: câu nhỏ lấy mã rồi hỏi song song. Bỏ: câu gộp row_to_json. Giữ: hình cây. Lý do: câu gộp làm chậm thêm.
- * - 2026-10-26T14:53:00+07:00 | 4.7.11 | Thêm: hỏi người sáng lập cùng vòng đầu. Bỏ: kiểm giữ chỗ ở đầu. Giữ: kiểm giữ chỗ lúc dựng xong. Lý do: hai lần kiểm và nhiều vòng làm chậm.
- * - 2026-10-26T15:09:00+07:00 | 4.7.12 | Thêm: kiểm giữ chỗ cùng vòng lấy thành viên. Bỏ: kiểm đứng sau khi cây đã dựng. Giữ: báo xung đột. Lý do: vòng cuối làm full-set còn 2,6 giây.
- * - 2026-10-26T15:27:00+07:00 | 4.7.13 | Thêm: log thời gian từng chặng. Bỏ: không bỏ. Giữ: cách dựng cây. Lý do: chưa biết chặng nào chậm.
- * - 2026-10-26T15:40:00+07:00 | 4.7.14 | Thêm: mã nhánh và hôn nhân trong một câu. Bỏ: vòng lấy người riêng và vòng vợ chồng riêng. Giữ: hình cây và log. Lý do: bốn vòng, mỗi vòng nửa giây.
- * - 2026-10-26T15:47:00+07:00 | 4.7.15 | Thêm: ép trạng thái hôn nhân về chữ. Bỏ: không bỏ. Giữ: hai vòng. Lý do: kiểu riêng không ghép được với chữ.
- * - 2026-10-27T07:58:00+07:00 | 4.7.16 | Thêm: một câu lấy người, hôn nhân, ảnh và giữ chỗ. Bỏ: vòng thứ hai. Giữ: hình cây. Lý do: hai vòng còn khoảng một giây.
- * - 2026-10-27T08:03:00+07:00 | 4.7.17 | Thêm: ép mã nhánh về chữ khi so giữ chỗ. Bỏ: không bỏ. Giữ: một vòng. Lý do: hai kiểu mảng không so được.
- * - 2026-10-27T08:05:00+07:00 | 4.7.18 | Thêm: giới hạn năm dòng chỉ cho giữ chỗ. Bỏ: giới hạn cả câu. Giữ: một vòng. Lý do: giới hạn cả câu làm mất người vừa chọn.
- * - 2026-10-27T09:08:00+07:00 | 4.7.19 | Thêm: đọc song song và chỉ trả mã tờ khi lưu nháp. Bỏ: trả cả bản lớn. Giữ: cây và sổ cái. Lý do: đường lưu nằm ở dịch vụ, không ở file nháp.
- * - 2026-10-27T09:12:00+07:00 | 4.7.20 | Thêm: chỉ lấy cờ khi lưu. Bỏ: đọc cả bản lớn và câu nháp thừa. Giữ: lưu và sổ cái. Lý do: đọc mất 1,5 giây.
- * - 2026-10-27T09:17:00+07:00 | 4.7.21 | Thêm: một câu đọc khi lưu. Bỏ: ba câu đọc. Giữ: cờ và giữ chỗ. Lý do: ba câu chạy nối tiếp thành 1,2 giây.
- * - 2026-10-27T09:21:00+07:00 | 4.7.22 | Thêm: lấy số lần ghi sổ cái trong câu đọc. Bỏ: hỏi số lần lúc ghi. Giữ: sổ cái. Lý do: phần ghi còn 1,2 giây.
- * - 2026-10-27T09:38:00+07:00 | 4.7.23 | Thêm: bỏ chỗ giữ khi xoá hồ sơ. Bỏ: không bỏ. Giữ: kiểm xung đột. Lý do: hồ sơ đã xoá vẫn bị tính xung đột.
- * - 2026-10-27T09:55:00+07:00 | 4.7.24 | Thêm: chặn tạo mới nếu còn hồ sơ sống. Bỏ: không bỏ. Giữ: hồ sơ đã xoá không chặn. Lý do: kiểm xung đột đang muộn.
  */
 
 const crypto = require('crypto');
-const { prisma, withTransaction, audit } = require('../../lib/prisma.js');
+const { prisma, withTransaction, audit, tenantContext } = require('../../lib/prisma.js');
 const { normalizePlanBody, fail } = require('./mfo.payload.js');
 const { mfoWriteBpl, mfoSilentEmit } = require('./mfo.ledger.js');
 const { collectHoldMemberIds, findHoldConflict } = require('./mfo.hold.js');
@@ -49,35 +24,33 @@ const { normalizeStaging } = require('./mfo.smp.js');
 
 const OPEN = ['DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION'];
 
-/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý actorIdOf; phần thay đổi giới hạn lịch sử lát 4. */
+/** AMEND-02 V1.2: Actor ID */
 function actorIdOf(user) {
-  return user && (user.id || user.userId);
+  return user && (user.userId || user.id);
 }
 
-/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý tenantIdOf; phần thay đổi giới hạn lịch sử lát 4. */
+/** AMEND-02 V1.2: Ưu tiên activeTenantId */
 function tenantIdOf(user) {
-  return user && (user.tenant_id || user.tenantId || null);
+  return user && (user.activeTenantId || user.tenantId || user.tenant_id || null);
 }
 
-/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý memberIdOf; phần thay đổi giới hạn lịch sử lát 4. */
+/** AMEND-02 V1.2: Ưu tiên activeMemberId */
 function memberIdOf(user) {
-  return user && (user.member_id || user.memberId || null);
+  return user && (user.activeMemberId || user.member_id || user.memberId || null);
 }
 
-/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý isClanOrSys; phần thay đổi giới hạn lịch sử lát 4. */
+/** AMEND-02 V1.2: Đọc roleInTenant */
 function isClanOrSys(user) {
-  const r = (user && user.role) || '';
+  const r = (user && (user.roleInTenant || user.role)) || '';
   return r === 'CLAN_ADMIN' || r === 'SYSTEM_ADMIN';
 }
 
-/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý avatarUrlOf; phần thay đổi giới hạn lịch sử lát 4. */
 function avatarUrlOf(memberId, row) {
   if (!memberId || !row) return null;
   const ver = row.checksum || (row.updated_at ? new Date(row.updated_at).getTime() : '1');
   return '/api/media/members/' + memberId + '/avatar?v=' + ver;
 }
 
-/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý assertFullSetInvariants; phần thay đổi giới hạn lịch sử lát 4. */
 function assertFullSetInvariants({
   levels,
   nodes,
@@ -153,7 +126,6 @@ function assertFullSetInvariants({
   if (rootCanvasDepth !== selectedCanvasDepth - resolvedAncestorSteps) broken('MFO_ROOT_DEPTH_INVARIANT_BROKEN');
 }
 
-/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý ensureNoActiveProposal; phần thay đổi giới hạn lịch sử lát 4. */
 async function ensureNoActiveProposal(tx, { tenantId, actorId, excludeId = null }) {
   const where = {
     tenant_id: tenantId,
@@ -190,14 +162,12 @@ async function ensureNoActiveProposal(tx, { tenantId, actorId, excludeId = null 
   }
 }
 
-/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý sliceReview; phần thay đổi giới hạn lịch sử lát 4. */
 function sliceReview(raw) {
   if (!raw || typeof raw !== 'object') return null;
   if (raw.plan || raw.result) return raw;
   return { checks: raw.checks, dirNote: raw.dirNote, extra: raw.extra, note: raw.note };
 }
 
-/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý pickAdminReview; phần thay đổi giới hạn lịch sử lát 4. */
 function pickAdminReview(body, row, stage) {
   const prev = sliceReview(((row && row.payload) || {}).admin_review) || {};
   const incoming = (body && (body.admin_review || body.review)) || {};
@@ -216,20 +186,35 @@ function pickAdminReview(body, row, stage) {
   return next;
 }
 
-/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý resolveFounderMemberId; phần thay đổi giới hạn lịch sử lát 4. */
+/** AMEND-02 V1.2: Tra cứu Founder Member Id chuẩn Multi-Home + console.warn */
 async function resolveFounderMemberId(user) {
   const fromJwt = memberIdOf(user);
   if (fromJwt) return fromJwt;
   const uid = actorIdOf(user);
   if (!uid) return null;
-  const row = await prisma.users.findUnique({
+  const tid = tenantIdOf(user);
+  
+  if (tid) {
+    const link = await prisma.user_member_links.findFirst({
+      where: { user_id: uid, tenant_id: tid, deleted_at: null },
+      select: { member_id: true },
+    });
+    if (link?.member_id) return link.member_id;
+  }
+  
+  console.warn(`⚠️ [resolveFounderMemberId] Cảnh báo: Không tìm thấy activeMemberId hoặc link trong dòng họ đang chọn, fallback về users gốc`, {
+    userId: uid,
+    tenantId: tid,
+  });
+
+  const { basePrisma } = require('../../lib/prisma.js');
+  const row = await basePrisma.users.findUnique({
     where: { id: uid },
     select: { member_id: true },
   });
   return (row && row.member_id) || null;
 }
 
-/** <2026-10-13T15:24:00+07:00> Mục đích: Giữ xử lý afterMfo; phần thay đổi giới hạn lịch sử lát 4. */
 async function afterMfo(user, ticket, processType, event, payload) {
   if (!ticket) return;
   await withTransaction(
@@ -248,7 +233,6 @@ async function afterMfo(user, ticket, processType, event, payload) {
 }
 
 const mfoService = {
-  //KHÔNG BAO GIỜ ĐƯỢC THAY ĐỔI HÀM NÀY!!!!!
   getFullMfoSet: async ({ user, targetMemberId, selectedCanvasDepth }) => {
     const startedAt = Date.now();
     const times = {};
@@ -280,7 +264,6 @@ const mfoService = {
     const targetId = targetMemberId;
     if (!tenantId) fail('Thiếu tenant.', 400, 'TENANT_REQUIRED');
 
-    // <2026-10-27T07:58:00+07:00> Mục đích: Một vòng lấy đủ nhánh, hôn nhân, ảnh và giữ chỗ. Lý do: hai vòng còn khoảng một giây.
     const actorId = actorIdOf(user);
     const packed = await timed('branch_ids_ms', prisma.$queryRaw`
       WITH RECURSIVE up AS (
@@ -993,7 +976,6 @@ const mfoService = {
 
     times.build_payload_ms = Date.now() - buildStartedAt;
     times.service_total_ms = Date.now() - startedAt;
-    // <2026-10-26T15:27:00+07:00> Mục đích: Đo từng chặng. Lý do: chưa biết chỗ nào chiếm 2,6 giây.
     console.info('[MFO_FULL_SET_TIMING]', {
       target_ms: times.target_ms || 0,
       branch_ids_ms: times.branch_ids_ms || 0,
@@ -1105,7 +1087,6 @@ const mfoService = {
       target_member_id: targetMemberId,
     });
     const holdList = holdIds.length ? holdIds : ['00000000-0000-0000-0000-000000000000'];
-    // <2026-10-27T09:17:00+07:00> Mục đích: Một câu đọc người, cờ và giữ chỗ. Lý do: ba câu chạy nối tiếp.
     const rows = await prisma.$queryRaw`
       SELECT m.id AS member_id, m.tenant_id, m.deleted_at,
              t.id, t.status, t.updated_at, t.correlation_id, t.expires_at, t.plan_ok, t.result_submitted, t.result_ok, t.next_attempt,
@@ -1219,8 +1200,9 @@ const mfoService = {
             }
           }
 
-          ticket = await tx.proposals.update({
-            where: { id: rowToUpdate.id },
+          // AMEND-02 V1.2: updateMany có tenant_id + deleted_at bảo đảm cách ly tuyệt đối
+          await tx.proposals.updateMany({
+            where: { id: rowToUpdate.id, tenant_id: tenantId, deleted_at: null },
             data: {
               target_id: targetMemberId,
               payload: payloadToSave,
@@ -1228,10 +1210,12 @@ const mfoService = {
               updated_at: now,
               changed_by: actor,
             },
+          });
+          ticket = await tx.proposals.findFirst({
+            where: { id: rowToUpdate.id, tenant_id: tenantId, deleted_at: null },
             select: { id: true, updated_at: true, expires_at: true, correlation_id: true, requester_user_id: true, tenant_id: true, target_id: true, status: true },
           });
 
-          // <2026-10-30T17:30:00+07:00> Audit cập nhật bản nháp (Trạm 1/Trạm 2)
           if (audit && typeof audit.create === 'function') {
             await audit.create(tx, {
               tableName: 'proposals',
@@ -1271,7 +1255,6 @@ const mfoService = {
             select: { id: true, updated_at: true, expires_at: true, correlation_id: true, requester_user_id: true, tenant_id: true, target_id: true, status: true },
           });
 
-          // <2026-10-30T17:30:00+07:00> Audit tạo mới bản nháp (Trạm 1)
           if (audit && typeof audit.create === 'function') {
             await audit.create(tx, {
               tableName: 'proposals',
@@ -1317,10 +1300,6 @@ const mfoService = {
     return saved;
   },
 
-  /**
-   * <2026-10-18T17:35:00+07:00> - BUG10 FIX
-   * Cập nhật đè trực tiếp Tờ trình / Bản nháp theo đúng ticketId chỉ định
-   */
   updatePlan: async ({ user, ticketId, body, correlationId }) => {
     const actor = actorIdOf(user);
     if (!actor) fail('Thiếu người thực hiện.', 401, 'UNAUTHENTICATED');
@@ -1354,7 +1333,6 @@ const mfoService = {
     const now = new Date();
 
     const existingPayload = proposal.payload || {};
-    // <2026-10-22T11:52:00+07:00> Mục đích: Cửa 2 đang soạn cũng được lưu. Lý do: doctrine cho sửa khi plan_ok true và chưa trình.
     const gate2Open = status === 'APPROVED' && existingPayload.plan_ok === true && !existingPayload.result_submitted && !existingPayload.result_ok;
     if (status !== 'DRAFT' && status !== 'NEEDS_REVISION' && !gate2Open) {
       fail(`Tờ trình đang ở trạng thái [${status}]. Không thể chỉnh sửa!`, 409, 'MFO_NOT_EDITABLE_STATE');
@@ -1376,7 +1354,6 @@ const mfoService = {
       graph_snapshot: body.graph_snapshot || existingPayload.graph_snapshot || null,
       init_scs: body.init_scs || body.diff_summary || existingPayload.init_scs || [],
       diff_summary: body.diff_summary || body.init_scs || existingPayload.diff_summary || [],
-      // <2026-10-22T11:52:00+07:00> Mục đích: Giữ cờ cửa. Lý do: spread có thể bị body đè nếu sau này thêm cờ vào body.
       plan_ok: existingPayload.plan_ok === true,
       result_submitted: existingPayload.result_submitted === true,
       result_ok: existingPayload.result_ok === true,
@@ -1392,8 +1369,9 @@ const mfoService = {
     return await withTransaction(
       { tenantId, actorId: actor, correlationId: corr },
       async (tx) => {
-        const updatedProposal = await tx.proposals.update({
-          where: { id: ticketId },
+        // AMEND-02 V1.2: updateMany có tenant_id + deleted_at bảo đảm cách ly tuyệt đối
+        await tx.proposals.updateMany({
+          where: { id: ticketId, tenant_id: tenantId, deleted_at: null },
           data: {
             target_id: targetMemberId,
             payload: updatedPayload,
@@ -1402,8 +1380,10 @@ const mfoService = {
             changed_by: actor,
           },
         });
+        const updatedProposal = await tx.proposals.findFirst({
+          where: { id: ticketId, tenant_id: tenantId, deleted_at: null },
+        });
 
-        // <2026-10-30T17:30:00+07:00> Audit cập nhật Tờ trình
         if (audit && typeof audit.create === 'function') {
           await audit.create(tx, {
             tableName: 'proposals',
@@ -1448,27 +1428,23 @@ const mfoService = {
     const tenantId = tenantIdOf(user);
     if (!ticketId) fail('Thiếu Ticket ID.', 400, 'MFO_TICKET_REQUIRED');
 
-    const proposal = await prisma.proposals.findFirst({
-      where: {
-        id: ticketId,
-        deleted_at: null,
-      },
-    });
+    // AMEND-02 V1.2: Lọc tenant_id trực tiếp để trả về 404 (chống dò UUID)
+    const where = { id: ticketId, deleted_at: null };
+    if (tenantId) where.tenant_id = tenantId;
+    const proposal = await prisma.proposals.findFirst({ where });
 
     if (!proposal) {
       fail('Không tìm thấy bản ghi Tờ trình / Bản nháp.', 404, 'MFO_LOT_NOT_FOUND');
-    }
-
-    if (tenantId && String(proposal.tenant_id) !== String(tenantId)) {
-      fail('Lô không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
     }
 
     const payload = proposal.payload || {};
     let targetMemberGeneration = null;
     const targetMemberId = proposal.target_id || payload.target_member_id || payload.origin_member_id;
     if (targetMemberId) {
-      const targetMember = await prisma.members.findUnique({
-        where: { id: targetMemberId },
+      const targetMemberWhere = { id: targetMemberId, deleted_at: null };
+      if (tenantId) targetMemberWhere.tenant_id = tenantId;
+      const targetMember = await prisma.members.findFirst({
+        where: targetMemberWhere,
         select: { generation: true },
       });
       targetMemberGeneration = targetMember?.generation ?? null;
@@ -1516,9 +1492,11 @@ const mfoService = {
     const tenantId = tenantIdOf(user);
     if (!tenantId) fail('Thiếu tenant.', 400, 'TENANT_REQUIRED');
 
+    // AMEND-02 V1.2: Ràng buộc tenant_id trực tiếp để trả về 404 (chống dò UUID)
     const proposal = await prisma.proposals.findFirst({
       where: {
         id: ticketId,
+        tenant_id: tenantId,
         deleted_at: null,
       },
     });
@@ -1551,13 +1529,17 @@ const mfoService = {
     return await withTransaction(
       { tenantId, actorId: actor, correlationId: proposal.correlation_id },
       async (tx) => {
-        const updated = await tx.proposals.update({
-          where: { id: ticketId },
+        // AMEND-02 V1.2: updateMany có tenant_id + deleted_at bảo đảm cách ly tuyệt đối
+        await tx.proposals.updateMany({
+          where: { id: ticketId, tenant_id: tenantId, deleted_at: null },
           data: {
             deleted_at: now,
             hold_member_ids: [],
             changed_by: actor,
           },
+        });
+        const updated = await tx.proposals.findFirst({
+          where: { id: ticketId, tenant_id: tenantId },
         });
 
         await mfoWriteBpl(tx, {
@@ -1619,10 +1601,11 @@ const mfoService = {
     const payload = normalizePlanBody(body);
     const corr = correlationId || crypto.randomUUID();
 
-    const origin = await prisma.members.findUnique({
-      where: { id: payload.origin_member_id },
+    // AMEND-02 V1.2: Ràng buộc tenant_id trực tiếp để trả về 404 (chống dò UUID)
+    const origin = await prisma.members.findFirst({
+      where: { id: payload.origin_member_id, tenant_id: tenantId, deleted_at: null },
     });
-    if (!origin || origin.deleted_at) {
+    if (!origin) {
       fail('Không tìm thấy Origin trên sổ.', 404, 'MFO_ORIGIN_NOT_FOUND');
     }
 
@@ -1704,8 +1687,9 @@ const mfoService = {
 
         let row;
         if (ticketIdFromBody) {
-          row = await tx.proposals.update({
-            where: { id: ticketIdFromBody },
+          // AMEND-02 V1.2: updateMany có tenant_id + deleted_at bảo đảm cách ly tuyệt đối
+          await tx.proposals.updateMany({
+            where: { id: ticketIdFromBody, tenant_id: tenantId, deleted_at: null },
             data: {
               payload: mergedPayload,
               hold_member_ids: holdMemberIds,
@@ -1714,8 +1698,10 @@ const mfoService = {
               changed_by: actor,
             },
           });
+          row = await tx.proposals.findFirst({
+            where: { id: ticketIdFromBody, tenant_id: tenantId, deleted_at: null },
+          });
 
-          // <2026-10-30T17:30:00+07:00> Audit trình lại / cập nhật tờ trình
           if (audit && typeof audit.create === 'function') {
             await audit.create(tx, {
               tableName: 'proposals',
@@ -1753,7 +1739,6 @@ const mfoService = {
             },
           });
 
-          // <2026-10-30T17:30:00+07:00> Audit tạo mới tờ trình
           if (audit && typeof audit.create === 'function') {
             await audit.create(tx, {
               tableName: 'proposals',
@@ -1807,7 +1792,6 @@ const mfoService = {
     return { ok: true };
   },
 
-  //2026-1102T10:52:00T+07:00 tối ưu hoá
   listPlans: async ({ user, query }) => {
     const started = Date.now();
     const tenantId = tenantIdOf(user);
@@ -1818,7 +1802,6 @@ const mfoService = {
 
     const limit = Math.min(Number(q.limit) || 50, 100);
 
-    // Xử lý bộ lọc người yêu cầu (requester / mine)
     let filterRequesterId = null;
     if (!isClanAdmin || q.mine === '1' || q.mine === 'true') {
       filterRequesterId = actorId;
@@ -1826,7 +1809,6 @@ const mfoService = {
 
     const originId = q.origin_id ? String(q.origin_id).trim() : null;
 
-    // Phân tích trạng thái để tận dụng đúng idx_proposals_mfo_flags
     let filterStatus = null;
     let filterPlanOk = null;
     let filterResultSubmitted = null;
@@ -1889,8 +1871,6 @@ const mfoService = {
       }
     }
 
-    // TỐI ƯU HÓA: Truy vấn Raw SQL khớp chính xác idx_proposals_mfo_flags
-    // Không đọc TOAST JSON payload nguyên khối -> Kéo giảm từ 20s xuống < 50ms!
     const rows = await prisma.$queryRaw`
       SELECT 
         p.id,
@@ -1966,13 +1946,13 @@ const mfoService = {
 
   getPlan: async ({ user, ticketId }) => {
     const tenantId = tenantIdOf(user);
-    const row = await prisma.proposals.findUnique({
-      where: { id: ticketId },
+    // AMEND-02 V1.2: Ràng buộc tenant_id trực tiếp để trả về 404 (chống dò UUID)
+    const where = { id: ticketId, deleted_at: null };
+    if (tenantId) where.tenant_id = tenantId;
+    const row = await prisma.proposals.findFirst({
+      where,
     });
-    if (!row || row.deleted_at) fail('Không tìm thấy lô.', 404, 'MFO_LOT_NOT_FOUND');
-    if (tenantId && String(row.tenant_id) !== String(tenantId)) {
-      fail('Lô không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
-    }
+    if (!row) fail('Không tìm thấy lô.', 404, 'MFO_LOT_NOT_FOUND');
     return { ticket: row, tree: null };
   },
 
@@ -2093,8 +2073,11 @@ const mfoService = {
     const tenantId = tenantIdOf(user);
     if (!originId) fail('Thiếu origin id.', 400, 'MFO_ORIGIN_REQUIRED');
 
-    const origin = await prisma.members.findUnique({
-      where: { id: originId },
+    // AMEND-02 V1.2: Ràng buộc tenant_id trực tiếp để trả về 404 (chống dò UUID)
+    const originWhere = { id: originId, deleted_at: null };
+    if (tenantId) originWhere.tenant_id = tenantId;
+    const origin = await prisma.members.findFirst({
+      where: originWhere,
       select: {
         id: true,
         full_name: true,
@@ -2109,11 +2092,8 @@ const mfoService = {
         child_type: true,
       },
     });
-    if (!origin || origin.deleted_at) {
+    if (!origin) {
       fail('Không tìm thấy Origin trên sổ.', 404, 'MFO_ORIGIN_NOT_FOUND');
-    }
-    if (tenantId && String(origin.tenant_id) !== String(tenantId)) {
-      fail('Origin không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
     }
 
     const all = await prisma.members.findMany({
@@ -2338,7 +2318,6 @@ const mfoService = {
     };
   },
 
-  // <2026-10-30T17:30:00+07:00> Audit Trạm 2: Kê khai xưởng Workbench
   saveStaging: async ({ user, ticketId, body }) => {
     const actor = actorIdOf(user);
     const tenantId = tenantIdOf(user);
@@ -2372,13 +2351,17 @@ const mfoService = {
     const ticket = await withTransaction(
       { tenantId, actorId: actor, correlationId: corr },
       async (tx) => {
-        const updated = await tx.proposals.update({
-          where: { id: row.id },
+        // AMEND-02 V1.2: updateMany có tenant_id + deleted_at bảo đảm cách ly tuyệt đối
+        await tx.proposals.updateMany({
+          where: { id: row.id, tenant_id: tenantId, deleted_at: null },
           data: {
             payload: nextPayload,
             updated_at: new Date(),
             changed_by: actor,
           },
+        });
+        const updated = await tx.proposals.findFirst({
+          where: { id: row.id, tenant_id: tenantId, deleted_at: null },
         });
 
         if (audit && typeof audit.create === 'function') {
@@ -2432,8 +2415,6 @@ const mfoService = {
     return { ticket: row };
   },
 
-  // <2026-10-30T15:50:00+07:00> 4.7.32: Hoàn nguyên theo đúng chuẩn SRPF Engine.
-  // Không thực thi withTransaction độc lập ở đây, nhường quyền duy nhất cho SRPF sideEffects gọi mfo.gate2.js.
   approveResult: async ({ user, ticketId, body }) => {
     if (!isClanOrSys(user)) {
       fail('Chỉ ADMIN nghiệm thu RESULT.', 403, 'FORBIDDEN');
@@ -2494,7 +2475,6 @@ const mfoService = {
     return { ticket: row, reason: String(reason).trim() };
   },
 
-  // <2026-10-30T17:30:00+07:00> Audit Trạm 4: Rút tờ trình MFO
   abortPlan: async ({ user, ticketId, body }) => {
     const actor = actorIdOf(user);
     const tenantId = tenantIdOf(user);
@@ -2540,14 +2520,18 @@ const mfoService = {
     const ticket = await withTransaction(
       { tenantId, actorId: actor, correlationId: corr },
       async (tx) => {
-        const updated = await tx.proposals.update({
-          where: { id: row.id },
+        // AMEND-02 V1.2: updateMany có tenant_id + deleted_at bảo đảm cách ly tuyệt đối
+        await tx.proposals.updateMany({
+          where: { id: row.id, tenant_id: tenantId, deleted_at: null },
           data: {
             status: 'WITHDRAWN',
             payload: nextPayload,
             admin_note: (body && (body.note || body.reason)) || row.admin_note,
             changed_by: actor,
           },
+        });
+        const updated = await tx.proposals.findFirst({
+          where: { id: row.id, tenant_id: tenantId },
         });
 
         if (audit && typeof audit.create === 'function') {

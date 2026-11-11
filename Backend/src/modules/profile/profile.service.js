@@ -1,15 +1,15 @@
 /**
  * PATH       : src/modules/profile/profile.service.js
- * DATETIME   : 2026-11-11T11:35:00+07:00
- * VERSION    : 1.8.1-MULTIHOME-AMEND02-V12-FINAL
+ * DATETIME   : 2026-11-11T15:10:00+07:00
+ * VERSION    : 1.8.2-MULTIHOME-NESTED-DEFENSE-FINAL
  * DESCRIPTION:
- * - [AMEND-RP-OP-2026-02 V1.2] Lát 1/7 Profile Service hoàn chỉnh:
- *   + resolveMemberActor: Dùng basePrisma.users, nạp member & tenant theo claims JWT.
- *   + Log warning khi buộc phải fallback về users.tenant_id / users.member_id.
- *   + getMyProfile: Lọc tenant_id và deleted_at tường minh cho mảng relation (graves).
- *   + getMyProfile tenantOrigin đọc từ basePrisma.tenants.
- *   + patchMyProfile: Thực thi trong prisma.$transaction (client đã extend).
- * - Actor select is_alive. Không strip death_* khi đã mất.
+ * - [AMEND-RP-OP-2026-02 V1.2] Lát 3/7 Profile Service hoàn chỉnh:
+ *   + getMyProfile: Lọc tường minh tenant_id và deleted_at ở cấp 1 (graves, address)
+ *     và cấp 2 (cemetery, addresses).
+ *   + Bổ sung lớp khử nhiễm in-memory loại bỏ triệt để đối tượng con nếu lệch dòng họ hoặc mang cờ xóa mềm.
+ *   + tenantOrigin chỉ nhận khi originAddress thuộc đúng dòng họ active.
+ *   + resolveMemberActor đọc users qua basePrisma, nạp activeTenantId / activeMemberId từ JWT snapshot.
+ *   + patchMyProfile thực thi qua prisma.$transaction.
  */
 
 'use strict';
@@ -201,13 +201,12 @@ function unwrapBody(raw) {
 }
 
 /**
- * RESOLVE MEMBER ACTOR (CHUẨN HÓA AMEND-02 V1.2)
+ * RESOLVE MEMBER ACTOR (CHUẨN HÓA THEO AMEND-02 V1.2)
  */
 async function resolveMemberActor(reqUser) {
   const userId = reqUser?.userId || reqUser?.id;
   if (!userId) deny('UNAUTHORIZED', 'Thiếu phiên đăng nhập.', 401);
 
-  // 1. Luôn dùng basePrisma để đọc users, không bị scope theo tenant_id
   const user = await basePrisma.users.findFirst({
     where: { id: userId, deleted_at: null },
     select: {
@@ -223,7 +222,6 @@ async function resolveMemberActor(reqUser) {
     deny('FORBIDDEN', 'Tài khoản chưa được duyệt.', 403);
   }
 
-  // 2. Lấy Context dòng họ đang active từ JWT Claims (Cảnh báo chi tiết nếu fallback)
   let activeTenantId = reqUser?.activeTenantId || reqUser?.tenantId;
   let activeMemberId = reqUser?.activeMemberId;
 
@@ -261,7 +259,6 @@ async function resolveMemberActor(reqUser) {
     deny('NOT_MEMBER_ACTOR', 'Tài khoản chưa gắn thành viên dòng họ.', 403);
   }
 
-  // 3. Đọc Member thuộc activeTenantId qua basePrisma
   const member = await basePrisma.members.findFirst({
     where: { id: activeMemberId, tenant_id: activeTenantId, deleted_at: null },
     select: { id: true, tenant_id: true, status: true, is_alive: true },
@@ -461,6 +458,9 @@ async function upsertAddress(tx, tenantId, actorId, payload) {
   });
 }
 
+/**
+ * GET MY PROFILE (KHÉP KÍN INCLUDE LỒNG LÁT 3)
+ */
 async function getMyProfile(reqUser, section = '') {
   const { user, member, self } = await resolveMemberActor(reqUser);
   const isSelf = self !== false;
@@ -471,20 +471,52 @@ async function getMyProfile(reqUser, section = '') {
   const needBio = sec === 'bio' || sec === 'bio_read';
   const needAddr = sec === 'address';
 
-  // Lọc tường minh tenant_id cho mảng quan hệ graves (AMEND-02 V1.2)
+  const tenantFilter = { tenant_id: member.tenant_id, deleted_at: null };
+
+  // AMEND-02 V1.2: Lọc tường minh tenant_id và deleted_at ở cấp 1 (graves, address) và cấp 2 (cemetery, addresses)
   const row = await prisma.members.findFirst({
     where: { id: member.id, tenant_id: member.tenant_id, deleted_at: null },
     include: needAddr
       ? {
-          currentAddress: true,
-          originAddress: true,
+          currentAddress: {
+            where: tenantFilter,
+          },
+          originAddress: {
+            where: tenantFilter,
+          },
           graves: {
-            where: { tenant_id: member.tenant_id, deleted_at: null },
-            include: { addresses: true, cemetery: true },
+            where: tenantFilter,
+            include: {
+              addresses: {
+                where: tenantFilter,
+              },
+              cemetery: {
+                where: tenantFilter,
+              },
+            },
           },
         }
       : undefined,
   });
+
+  if (!row) {
+    deny('NOT_FOUND', 'Không tìm thấy hồ sơ thành viên.', 404);
+  }
+
+  // BẢO VỆ ĐA TẦNG IN-MEMORY LÁT 3: Loại bỏ đối tượng con nếu lệch tenant_id hoặc bị xóa mềm
+  const currentAddr = (row.currentAddress && row.currentAddress.tenant_id === member.tenant_id && !row.currentAddress.deleted_at)
+    ? row.currentAddress : null;
+  const originAddr = (row.originAddress && row.originAddress.tenant_id === member.tenant_id && !row.originAddress.deleted_at)
+    ? row.originAddress : null;
+
+  const rawGraves = Array.isArray(row.graves) ? row.graves : (row.graves ? [row.graves] : []);
+  const sanitizedGraves = rawGraves
+    .filter((g) => g && g.tenant_id === member.tenant_id && !g.deleted_at)
+    .map((g) => ({
+      ...g,
+      addresses: (g.addresses && g.addresses.tenant_id === member.tenant_id && !g.addresses.deleted_at) ? g.addresses : null,
+      cemetery: (g.cemetery && g.cemetery.tenant_id === member.tenant_id && !g.cemetery.deleted_at) ? g.cemetery : null,
+    }));
 
   const biography = needBio
     ? await prisma.biographies.findFirst({
@@ -508,7 +540,9 @@ async function getMyProfile(reqUser, section = '') {
         originAddress: true,
       },
     });
-    tenantOrigin = (ten && ten.originAddress) || null;
+    if (ten && ten.originAddress && (!ten.originAddress.tenant_id || ten.originAddress.tenant_id === member.tenant_id) && !ten.originAddress.deleted_at) {
+      tenantOrigin = ten.originAddress;
+    }
   }
 
   return {
@@ -535,15 +569,15 @@ async function getMyProfile(reqUser, section = '') {
       death_note: row.death_note,
     },
     biography: biography || null,
-    origin_address: needAddr ? (row.originAddress || null) : null,
+    origin_address: needAddr ? originAddr : null,
     tenant_origin_address: tenantOrigin,
-    current_address: needAddr ? (row.currentAddress || null) : null,
+    current_address: needAddr ? currentAddr : null,
     resting_address: (function () {
-      const g = Array.isArray(row.graves) ? row.graves[0] : row.graves;
+      const g = sanitizedGraves[0];
       return (g && g.addresses) || null;
     })(),
     grave: (function () {
-      const g = Array.isArray(row.graves) ? row.graves[0] : row.graves;
+      const g = sanitizedGraves[0];
       if (!g) return null;
       return {
         id: g.id,
@@ -660,7 +694,6 @@ async function patchMyProfile(reqUser, rawBody = {}) {
     deny('EMPTY_PATCH', 'Không nhận được trường hồ sơ. Kiểm tra Request Payload (Network).', 400);
   }
 
-  // AMEND-02 V1.2: Transaction đi qua prisma.$transaction (client đã extend)
   return prisma.$transaction(async (tx) => {
     const correlationId = correlation.create();
     const actorCtx = {

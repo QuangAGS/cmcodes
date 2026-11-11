@@ -1,23 +1,27 @@
 /**
  * PATH       : src/modules/members/branch.service.js
- * DATETIME   : 2026-09-14T21:55:00+07:00
- * VERSION    : 1.9.1-M13-QUOTA
- * DESCRIPTION: Cây chi + SUBMIT/APPROVE/REJECT.
- *   TX: status + proposal BRANCH_REVIEW + writeBpl.
- *   Sau commit: silentEmit. APPROVED = tem, không khóa field.
- *   Submit: 422 nếu thiếu founder_id hoặc cặp cha/mẹ–con cùng branch_id.
+ * DATETIME   : 2026-11-11T15:05:00+07:00
+ * VERSION    : 1.11.0-MULTIHOME-AMEND02-V12-FINAL
+ * DESCRIPTION:
+ * - [AMEND-RP-OP-2026-02 V1.2] Lát 3/7 Branch Service hoàn chỉnh:
+ *   + getBranchTree: Fail-closed nếu thiếu tenantId. Lọc tenant_id và deleted_at tường minh
+ *     ở cả root và cấp 1 founder, originMember; bổ sung khử nhiễm in-memory.
+ *   + loadBranch & loadMember: Chuyển sang findFirst kèm { id, tenant_id, deleted_at: null } thay vì findUnique trần.
+ *   + Toàn bộ mutation (submitBranch, approveBranch, rejectBranch, setFounder, setOrigin, patchBranchMember, withdrawOpenTickets):
+ *     Chuyển sang updateMany kèm { id, tenant_id, deleted_at: null } và findFirst đọc lại record,
+ *     bảo đảm an toàn dữ liệu kể cả khi interactive transaction (tx) không đi qua extension.
+ *   + tenantIdOf / roleOf: Ưu tiên activeTenantId và roleInTenant từ JWT snapshot.
  */
 
 'use strict';
 
 const crypto = require('crypto');
-const { prisma, withTransaction } = require('../../lib/prisma.js');
+const { prisma, withTransaction, tenantContext } = require('../../lib/prisma.js');
 const { writeBpl } = require('../../services/bpl.service.js');
 const { silentEmit } = require('../notifications/services/silentNotificationEmit.service.js');
 const {
   NotificationMetadataSchemas,
 } = require('../notifications/policy/notification-metadata-schemas.js');
-
 
 function parseQuotaSpan(raw) {
   if (raw === undefined || raw === null || raw === '') return undefined;
@@ -46,11 +50,11 @@ function actorIdOf(user) {
 }
 
 function tenantIdOf(user) {
-  return user && (user.tenant_id || user.tenantId || null);
+  return user && (user.activeTenantId || user.tenantId || user.tenant_id || null);
 }
 
 function roleOf(user) {
-  return (user && user.role) || '';
+  return (user && (user.roleInTenant || user.role)) || '';
 }
 
 function isClanOrSys(user) {
@@ -58,12 +62,23 @@ function isClanOrSys(user) {
   return r === 'CLAN_ADMIN' || r === 'SYSTEM_ADMIN';
 }
 
-async function loadBranch(txOrPrisma, branchId) {
-  const row = await txOrPrisma.branches.findUnique({
-    where: { id: branchId },
-  });
-  if (!row || row.deleted_at) {
+async function loadBranch(txOrPrisma, branchId, tenantId = null) {
+  const where = { id: branchId, deleted_at: null };
+  if (tenantId) where.tenant_id = tenantId;
+  const row = await txOrPrisma.branches.findFirst({ where });
+  if (!row) {
     fail('Không tìm thấy chi.', 404, 'BRANCH_NOT_FOUND');
+  }
+  return row;
+}
+
+async function loadMember(txOrPrisma, memberId, tenantId = null) {
+  if (!memberId) fail('Thiếu member_id.', 400, 'MEMBER_ID_REQUIRED');
+  const where = { id: memberId, deleted_at: null };
+  if (tenantId) where.tenant_id = tenantId;
+  const row = await txOrPrisma.members.findFirst({ where });
+  if (!row) {
+    fail('Không tìm thấy người.', 404, 'MEMBER_NOT_FOUND');
   }
   return row;
 }
@@ -77,6 +92,7 @@ async function assertSubmitPrecond(client, branch) {
   const members = await client.members.findMany({
     where: {
       branch_id: branch.id,
+      tenant_id: branch.tenant_id,
       deleted_at: null,
     },
     select: {
@@ -122,7 +138,6 @@ function assertCanSubmit(branch, user) {
   );
 }
 
-
 const ATTACH_OPEN = ['DRAFT', 'PROVISIONAL', 'REJECTED'];
 const DETACH_OK = ['DRAFT', 'PROVISIONAL', 'REJECTED'];
 
@@ -144,38 +159,28 @@ function assertCanAttach(branch, user) {
   );
 }
 
-async function loadMember(txOrPrisma, memberId) {
-  if (!memberId) fail('Thiếu member_id.', 400, 'MEMBER_ID_REQUIRED');
-  const row = await txOrPrisma.members.findUnique({
-    where: { id: memberId },
-  });
-  if (!row || row.deleted_at) {
-    fail('Không tìm thấy người.', 404, 'MEMBER_NOT_FOUND');
-  }
-  return row;
-}
-
 function assertSameTenant(branch, member) {
   if (String(branch.tenant_id) !== String(member.tenant_id)) {
     fail('Người không thuộc dòng họ này.', 403, 'TENANT_MISMATCH');
   }
 }
 
-
-async function withdrawOpenTickets(tx, branchId, actor) {
+async function withdrawOpenTickets(tx, branchId, actor, tenantId = null) {
+  const where = {
+    ticket_type: 'BRANCH_REVIEW',
+    target_table: 'branches',
+    target_id: branchId,
+    deleted_at: null,
+    status: { in: ['DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION'] },
+    ...(tenantId ? { tenant_id: tenantId } : {}),
+  };
   const open = await tx.proposals.findMany({
-    where: {
-      ticket_type: 'BRANCH_REVIEW',
-      target_table: 'branches',
-      target_id: branchId,
-      deleted_at: null,
-      status: { in: ['DRAFT', 'PENDING', 'UNDER_REVIEW', 'NEEDS_REVISION'] },
-    },
+    where,
     select: { id: true },
   });
   for (const row of open) {
-    await tx.proposals.update({
-      where: { id: row.id },
+    await tx.proposals.updateMany({
+      where: { id: row.id, ...(tenantId ? { tenant_id: tenantId } : {}) },
       data: {
         status: 'WITHDRAWN',
         changed_by: actor,
@@ -213,23 +218,54 @@ async function emitSafe({ eventType, userId, metadata, correlationId, branch }) 
 }
 
 const branchService = {
-  getBranchTree: async () => {
+  getBranchTree: async (userOrTenantId = null) => {
     try {
+      const store = tenantContext && typeof tenantContext.getStore === 'function' ? tenantContext.getStore() : null;
+      let effectiveTenantId = null;
+      if (typeof userOrTenantId === 'string') {
+        effectiveTenantId = userOrTenantId;
+      } else if (userOrTenantId && typeof userOrTenantId === 'object') {
+        effectiveTenantId = tenantIdOf(userOrTenantId);
+      }
+      if (!effectiveTenantId) {
+        effectiveTenantId = store?.activeTenantId || store?.tenantId || null;
+      }
+
+      if (!effectiveTenantId) {
+        fail('getBranchTree yêu cầu tenantId hợp lệ (fail-closed).', 400, 'TENANT_REQUIRED');
+      }
+
       const allBranches = await prisma.branches.findMany({
+        where: {
+          tenant_id: effectiveTenantId,
+          deleted_at: null,
+        },
         include: {
           founder: {
+            where: {
+              tenant_id: effectiveTenantId,
+              deleted_at: null,
+            },
             select: {
               id: true,
               full_name: true,
               generation: true,
+              tenant_id: true,
+              deleted_at: true,
             },
           },
           originMember: {
+            where: {
+              tenant_id: effectiveTenantId,
+              deleted_at: null,
+            },
             select: {
               id: true,
               full_name: true,
               generation: true,
               branch_id: true,
+              tenant_id: true,
+              deleted_at: true,
             },
           },
         },
@@ -240,6 +276,14 @@ const branchService = {
 
       const branchMap = {};
       allBranches.forEach((branch) => {
+        // Lọc bảo vệ in-memory cấp 2:
+        if (branch.founder && (branch.founder.deleted_at || (branch.founder.tenant_id && branch.founder.tenant_id !== effectiveTenantId))) {
+          branch.founder = null;
+        }
+        if (branch.originMember && (branch.originMember.deleted_at || (branch.originMember.tenant_id && branch.originMember.tenant_id !== effectiveTenantId))) {
+          branch.originMember = null;
+        }
+
         branchMap[branch.id] = {
           ...branch,
           children: [],
@@ -260,7 +304,7 @@ const branchService = {
       return rootBranches;
     } catch (error) {
       console.error('[BranchTree Error]:', error.message);
-      throw new Error('Không thể xây dựng cấu trúc chi họ. Vui lòng thử lại sau.');
+      throw error;
     }
   },
 
@@ -277,7 +321,7 @@ const branchService = {
         correlationId: corr,
       },
       async (tx) => {
-        const branch = await loadBranch(tx, branchId);
+        const branch = await loadBranch(tx, branchId, tenantIdOf(user));
         assertCanSubmit(branch, user);
 
         const allowed = ['DRAFT', 'REJECTED', 'PROVISIONAL'];
@@ -291,7 +335,7 @@ const branchService = {
 
         await assertSubmitPrecond(tx, branch);
 
-        await withdrawOpenTickets(tx, branch.id, actor);
+        await withdrawOpenTickets(tx, branch.id, actor, branch.tenant_id);
 
         const rejectedOpen = await tx.proposals.findMany({
           where: {
@@ -300,12 +344,13 @@ const branchService = {
             target_id: branch.id,
             status: 'REJECTED',
             deleted_at: null,
+            tenant_id: branch.tenant_id,
           },
           select: { id: true },
         });
         for (const row of rejectedOpen) {
-          await tx.proposals.update({
-            where: { id: row.id },
+          await tx.proposals.updateMany({
+            where: { id: row.id, tenant_id: branch.tenant_id },
             data: {
               status: 'WITHDRAWN',
               changed_by: actor,
@@ -334,13 +379,16 @@ const branchService = {
           },
         });
 
-        const updated = await tx.branches.update({
-          where: { id: branch.id },
+        await tx.branches.updateMany({
+          where: { id: branch.id, tenant_id: branch.tenant_id, deleted_at: null },
           data: {
             status: 'SUBMITTED',
             changed_by: actor,
             updated_at: new Date(),
           },
+        });
+        const updated = await tx.branches.findFirst({
+          where: { id: branch.id, tenant_id: branch.tenant_id, deleted_at: null },
         });
 
         await writeBpl({
@@ -405,7 +453,7 @@ const branchService = {
         correlationId: corr,
       },
       async (tx) => {
-        const branch = await loadBranch(tx, branchId);
+        const branch = await loadBranch(tx, branchId, tenantIdOf(user));
         const allowed = ['SUBMITTED', 'UNDER_REVIEW'];
         if (!allowed.includes(branch.status)) {
           fail(
@@ -422,6 +470,7 @@ const branchService = {
             target_id: branch.id,
             status: { in: ['PENDING', 'UNDER_REVIEW'] },
             deleted_at: null,
+            tenant_id: branch.tenant_id,
           },
           orderBy: { created_at: 'desc' },
         });
@@ -437,8 +486,8 @@ const branchService = {
         if (span !== undefined) ticketPayload.max_generation_span = span;
         if (note) ticketPayload.approver_note = note;
 
-        const closed = await tx.proposals.update({
-          where: { id: ticket.id },
+        await tx.proposals.updateMany({
+          where: { id: ticket.id, tenant_id: branch.tenant_id },
           data: {
             status: 'APPROVED',
             admin_note: note || ticket.admin_note,
@@ -449,6 +498,9 @@ const branchService = {
             updated_at: new Date(),
           },
         });
+        const closed = await tx.proposals.findFirst({
+          where: { id: ticket.id, tenant_id: branch.tenant_id },
+        });
 
         const branchData = {
           status: 'APPROVED',
@@ -457,9 +509,12 @@ const branchService = {
         };
         if (span !== undefined) branchData.max_generation_span = span;
 
-        const updated = await tx.branches.update({
-          where: { id: branch.id },
+        await tx.branches.updateMany({
+          where: { id: branch.id, tenant_id: branch.tenant_id, deleted_at: null },
           data: branchData,
+        });
+        const updated = await tx.branches.findFirst({
+          where: { id: branch.id, tenant_id: branch.tenant_id, deleted_at: null },
         });
 
         await writeBpl({
@@ -526,7 +581,7 @@ const branchService = {
         correlationId: corr,
       },
       async (tx) => {
-        const branch = await loadBranch(tx, branchId);
+        const branch = await loadBranch(tx, branchId, tenantIdOf(user));
         const allowed = ['SUBMITTED', 'UNDER_REVIEW'];
         if (!allowed.includes(branch.status)) {
           fail(
@@ -543,6 +598,7 @@ const branchService = {
             target_id: branch.id,
             status: { in: ['PENDING', 'UNDER_REVIEW'] },
             deleted_at: null,
+            tenant_id: branch.tenant_id,
           },
           orderBy: { created_at: 'desc' },
         });
@@ -550,8 +606,8 @@ const branchService = {
           fail('Không có hồ sơ duyệt đang mở.', 409, 'BRANCH_TICKET_MISSING');
         }
 
-        const closed = await tx.proposals.update({
-          where: { id: ticket.id },
+        await tx.proposals.updateMany({
+          where: { id: ticket.id, tenant_id: branch.tenant_id },
           data: {
             status: 'REJECTED',
             admin_note: why,
@@ -561,14 +617,20 @@ const branchService = {
             updated_at: new Date(),
           },
         });
+        const closed = await tx.proposals.findFirst({
+          where: { id: ticket.id, tenant_id: branch.tenant_id },
+        });
 
-        const updated = await tx.branches.update({
-          where: { id: branch.id },
+        await tx.branches.updateMany({
+          where: { id: branch.id, tenant_id: branch.tenant_id, deleted_at: null },
           data: {
             status: 'REJECTED',
             changed_by: actor,
             updated_at: new Date(),
           },
+        });
+        const updated = await tx.branches.findFirst({
+          where: { id: branch.id, tenant_id: branch.tenant_id, deleted_at: null },
         });
 
         await writeBpl({
@@ -626,9 +688,9 @@ const branchService = {
         correlationId: corr,
       },
       async (tx) => {
-        const branch = await loadBranch(tx, branchId);
+        const branch = await loadBranch(tx, branchId, tenantIdOf(user));
         assertCanAttach(branch, user);
-        const member = await loadMember(tx, memberId);
+        const member = await loadMember(tx, memberId, branch.tenant_id);
         assertSameTenant(branch, member);
 
         if (member.branch_id && String(member.branch_id) !== String(branch.id)) {
@@ -639,22 +701,28 @@ const branchService = {
           );
         }
 
-        const updatedMember = await tx.members.update({
-          where: { id: member.id },
+        await tx.members.updateMany({
+          where: { id: member.id, tenant_id: branch.tenant_id, deleted_at: null },
           data: {
             branch_id: branch.id,
             changed_by: actor,
             updated_at: new Date(),
           },
         });
+        const updatedMember = await tx.members.findFirst({
+          where: { id: member.id, tenant_id: branch.tenant_id, deleted_at: null },
+        });
 
-        const updated = await tx.branches.update({
-          where: { id: branch.id },
+        await tx.branches.updateMany({
+          where: { id: branch.id, tenant_id: branch.tenant_id, deleted_at: null },
           data: {
             founder_id: member.id,
             changed_by: actor,
             updated_at: new Date(),
           },
+        });
+        const updated = await tx.branches.findFirst({
+          where: { id: branch.id, tenant_id: branch.tenant_id, deleted_at: null },
         });
 
         await writeBpl({
@@ -697,12 +765,12 @@ const branchService = {
         correlationId: corr,
       },
       async (tx) => {
-        const branch = await loadBranch(tx, branchId);
+        const branch = await loadBranch(tx, branchId, tenantIdOf(user));
         assertCanAttach(branch, user);
 
         let member = null;
         if (memberId) {
-          member = await loadMember(tx, memberId);
+          member = await loadMember(tx, memberId, branch.tenant_id);
           assertSameTenant(branch, member);
         } else if (['APPROVED', 'MERGED', 'SUBMITTED', 'UNDER_REVIEW'].includes(branch.status)) {
           fail(
@@ -712,13 +780,16 @@ const branchService = {
           );
         }
 
-        const updated = await tx.branches.update({
-          where: { id: branch.id },
+        await tx.branches.updateMany({
+          where: { id: branch.id, tenant_id: branch.tenant_id, deleted_at: null },
           data: {
             origin_member_id: member ? member.id : null,
             changed_by: actor,
             updated_at: new Date(),
           },
+        });
+        const updated = await tx.branches.findFirst({
+          where: { id: branch.id, tenant_id: branch.tenant_id, deleted_at: null },
         });
 
         if (member) {
@@ -770,9 +841,9 @@ const branchService = {
         correlationId: corr,
       },
       async (tx) => {
-        const branch = await loadBranch(tx, branchId);
+        const branch = await loadBranch(tx, branchId, tenantIdOf(user));
         assertCanAttach(branch, user);
-        const member = await loadMember(tx, memberId);
+        const member = await loadMember(tx, memberId, branch.tenant_id);
         assertSameTenant(branch, member);
 
         if (action === 'ATTACH') {
@@ -783,14 +854,18 @@ const branchService = {
               'MEMBER_BRANCH_TAKEN'
             );
           }
-          const updatedMember = await tx.members.update({
-            where: { id: member.id },
+          await tx.members.updateMany({
+            where: { id: member.id, tenant_id: branch.tenant_id, deleted_at: null },
             data: {
               branch_id: branch.id,
               changed_by: actor,
               updated_at: new Date(),
             },
           });
+          const updatedMember = await tx.members.findFirst({
+            where: { id: member.id, tenant_id: branch.tenant_id, deleted_at: null },
+          });
+
           await writeBpl({
             tx,
             processType: 'BRANCH_MEMBER_ATTACH',
@@ -828,20 +903,26 @@ const branchService = {
           changed_by: actor,
           updated_at: new Date(),
         };
-        const updatedMember = await tx.members.update({
-          where: { id: member.id },
+        await tx.members.updateMany({
+          where: { id: member.id, tenant_id: branch.tenant_id, deleted_at: null },
           data: memberPatch,
+        });
+        const updatedMember = await tx.members.findFirst({
+          where: { id: member.id, tenant_id: branch.tenant_id, deleted_at: null },
         });
 
         let updatedBranch = branch;
         if (branch.founder_id && String(branch.founder_id) === String(member.id)) {
-          updatedBranch = await tx.branches.update({
-            where: { id: branch.id },
+          await tx.branches.updateMany({
+            where: { id: branch.id, tenant_id: branch.tenant_id, deleted_at: null },
             data: {
               founder_id: null,
               changed_by: actor,
               updated_at: new Date(),
             },
+          });
+          updatedBranch = await tx.branches.findFirst({
+            where: { id: branch.id, tenant_id: branch.tenant_id, deleted_at: null },
           });
         }
 

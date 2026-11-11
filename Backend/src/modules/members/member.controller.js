@@ -203,12 +203,15 @@ const memberController = {
   getMemberTree: async (req, res) => {
     try {
       const { branchId } = req.params;
-      const tenantId = req.user?.activeTenantId || req.user?.tenantId;
-      const raw = await memberService.getRawMembersForTree(branchId, tenantId);
-      const tree = memberService.buildTreeLogic(raw);
-      res.status(200).json({ status: 'success', data: tree });
+      const tenantId = req.user?.activeTenantId || req.user?.tenantId || req.user?.tenant_id;
+      const result = await memberService.getMemberTreeData(branchId, tenantId);
+      res.status(200).json({ status: 'success', data: result.tree || result });
     } catch (error) {
-      res.status(500).json({ status: 'error', message: error.message });
+      res.status(error.statusCode || 500).json({
+        status: 'error',
+        code: error.code || 'INTERNAL_ERROR',
+        message: error.message,
+      });
     }
   },
 

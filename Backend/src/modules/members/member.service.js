@@ -1,18 +1,19 @@
 /**
  * PATH: src/modules/members/member.service.js
- * DATETIME: 2026-11-11T12:30:00+07:00
- * VERSION: 1.10.0-MULTIHOME-ACTOR-RESOLVED
+ * DATETIME: 2026-11-11T15:00:00+07:00
+ * VERSION: 1.12.0-MULTIHOME-STRICT-NESTED-RESOLVED
  * DESCRIPTION:
- * - [AMEND-RP-OP-2026-02 V1.2] Lát 2/7 Member Service:
- *   + Khắc phục lỗi createdByMemberId: Ưu tiên activeMemberId từ actor/payload.
- *   + Khi fallback, tra cứu member_id từ user_member_links theo tenant_id active,
- *     tuyệt đối không đọc users.member_id (tránh gắn nhầm member dòng họ gốc khi ở họ phụ).
- * - Tích hợp Dual-write FTDI Bước 3: Đồng bộ quan hệ phụ mẫu vào bảng parentages qua parentage.mapper.js khi tạo thành viên.
- * - Tự động bảo vệ bằng Advisory Lock và Cycle Check (isNewChild: true) không gây nghẽn hiệu năng.
- * - Bảo tồn 100% logic tạo Address, Member, Biographies và Audit Log hiện có.
+ * - [AMEND-RP-OP-2026-02 V1.2] Lát 3/7 Member Service:
+ *   + getMemberTreeData: Fail-closed nếu thiếu tenantId (tự nạp từ ALS store).
+ *   + Khép kín include lồng: Gắn where { tenant_id, deleted_at: null } ở cấp 1 (marriages_as_*)
+ *     và cấp 2 (members_marriages_*_idTomembers).
+ *   + buildTreeLogic: Bổ sung lớp khử nhiễm in-memory loại bỏ spouse nếu lệch tenant_id hoặc bị xóa mềm.
+ *   + Cung cấp alias getRawMembersForTree trỏ về getMemberTreeData tương thích 100% với controller.
+ *   + createFullMember: Ưu tiên activeMemberId, tra cứu link theo activeTenantId.
+ * - Tích hợp Dual-write FTDI Bước 3: Đồng bộ quan hệ phụ mẫu vào bảng parentages.
  */
 
-const { prisma } = require('../../lib/prisma.js');
+const { prisma, tenantContext } = require('../../lib/prisma.js');
 const auditService = require('../../services/audit.service');
 const dataIntegrityService = require('../../services/dataIntegrity.service');
 const { syncMemberParentages, flushParentageAudit } = require('../genealogy/parentage.mapper.js');
@@ -20,19 +21,11 @@ const { syncMemberParentages, flushParentageAudit } = require('../genealogy/pare
 const memberService = {
   /**
    * CREATE FULL MEMBER: Lưu đồng thời vào nhiều bảng (Transaction).
-   * @param {Object} payload - Dữ liệu từ Controller gửi xuống (bao gồm Metadata).
-   * @param {String} tenantId - ID dòng họ lấy từ Context.
-   * @param {Object} [actor] - Thông tin actor phiên làm việc (req.user).
    */
   createFullMember: async (payload, tenantId, actor = null) => {
     const { memberData, currentAddr, biographyData, changed_by, change_reason } = payload;
 
     return await prisma.$transaction(async (tx) => {
-      /**
-       * -------------------------------------------------------------------
-       * 🏛️ STEP 1: Tạo bản ghi Address (Địa chỉ hiện tại)
-       * -------------------------------------------------------------------
-       */
       let curId = null;
       if (currentAddr?.full_address) {
         const addr = await tx.addresses.create({
@@ -42,11 +35,6 @@ const memberService = {
         await auditService.logAction('THEM_MOI', 'addresses', addr.id, null, addr, changed_by, 'Đi kèm tạo mới thành viên', tenantId);
       }
 
-      /**
-       * -------------------------------------------------------------------
-       * 👤 STEP 2: Tạo bản ghi cốt lõi trong bảng Members
-       * -------------------------------------------------------------------
-       */
       const {
         created_by: _ignoreCreatedBy,
         created_by_member_id: _ignoreCreatedByMember,
@@ -55,7 +43,6 @@ const memberService = {
         ...safeMemberData
       } = memberData || {};
 
-      // AMEND-02 V1.2: Ưu tiên activeMemberId từ actor / payload
       let createdByMemberId =
         payload.created_by_member_id ||
         actor?.activeMemberId ||
@@ -63,7 +50,6 @@ const memberService = {
         null;
 
       if (changed_by && !createdByMemberId && tenantId) {
-        // Multi-Home: Tra cứu đúng member_id tại dòng họ đang active qua user_member_links
         const link = await tx.user_member_links.findFirst({
           where: { user_id: changed_by, tenant_id: tenantId, deleted_at: null },
           select: { member_id: true },
@@ -82,11 +68,6 @@ const memberService = {
         },
       });
 
-      /**
-       * -------------------------------------------------------------------
-       * 🌿 STEP 2.5: FTDI DUAL-WRITE — ĐỒNG BỘ VÀO BẢNG PARENTAGES (BƯỚC 3)
-       * -------------------------------------------------------------------
-       */
       const fatherId = safeMemberData.father_id || null;
       const motherId = safeMemberData.mother_id || null;
       const parentUnionId = safeMemberData.parent_union_id || null;
@@ -110,11 +91,6 @@ const memberService = {
         await flushParentageAudit(tx, auditQueue);
       }
 
-      /**
-       * -------------------------------------------------------------------
-       * 📖 STEP 3: Tạo bản ghi Tiểu sử (Biographies) đi kèm nếu có
-       * -------------------------------------------------------------------
-       */
       if (biographyData) {
         const bio = await tx.biographies.create({
           data: { ...biographyData, member_id: member.id, tenant_id: tenantId, changed_by },
@@ -122,11 +98,6 @@ const memberService = {
         await auditService.logAction('THEM_MOI', 'biographies', bio.id, null, bio, changed_by, 'Đi kèm tạo mới thành viên', tenantId);
       }
 
-      /**
-       * -------------------------------------------------------------------
-       * 🔬 STEP 4: Nhật ký kiểm toán (Audit Logs) & Kiểm tra tính toàn vẹn
-       * -------------------------------------------------------------------
-       */
       await auditService.logAction('THEM_MOI', 'members', member.id, null, member, changed_by, change_reason, tenantId);
 
       return member;
@@ -134,23 +105,57 @@ const memberService = {
   },
 
   // =========================================================================
-  // KHỐI TIẾN TRÌNH: KIỂM TRA SỨC KHỎE DỮ LIỆU & DỰNG CÂY (GIỮ NGUYÊN 100%)
+  // KHỐI TIẾN TRÌNH: KIỂM TRA SỨC KHỎE DỮ LIỆU & DỰNG CÂY
   // =========================================================================
 
-  getMemberTreeData: async (branchId) => {
+  getMemberTreeData: async (branchId, tenantId = null) => {
+    const store = tenantContext && typeof tenantContext.getStore === 'function' ? tenantContext.getStore() : null;
+    const effectiveTenantId = tenantId || store?.activeTenantId || store?.tenantId || null;
+
+    if (!effectiveTenantId) {
+      const err = new Error('getMemberTreeData yêu cầu tenantId hợp lệ (fail-closed).');
+      err.statusCode = 400;
+      err.code = 'TENANT_REQUIRED';
+      throw err;
+    }
+
+    const where = { 
+      branch_id: branchId,
+      tenant_id: effectiveTenantId,
+      deleted_at: null,
+    };
+
+    const marriageWhere = {
+      tenant_id: effectiveTenantId,
+      deleted_at: null,
+    };
+
+    const spouseWhere = {
+      tenant_id: effectiveTenantId,
+      deleted_at: null,
+    };
+
+    // AMEND-02 V1.2: Lọc tường minh tenant_id và deleted_at ở cấp 1 (marriages) và cấp 2 (spouse)
     const all = await prisma.members.findMany({
-      where: { 
-        branch_id: branchId,
-        deleted_at: null 
-      },
+      where,
       include: {
         marriages_as_husband: { 
-          include: { members_marriages_wife_idTomembers: true } 
+          where: marriageWhere,
+          include: {
+            members_marriages_wife_idTomembers: {
+              where: spouseWhere,
+            },
+          },
         },
         marriages_as_wife: { 
-          include: { members_marriages_husband_idTomembers: true } 
-        }
-      }
+          where: marriageWhere,
+          include: {
+            members_marriages_husband_idTomembers: {
+              where: spouseWhere,
+            },
+          },
+        },
+      },
     });
 
     let changed = true;
@@ -166,7 +171,7 @@ const memberService = {
     }
 
     const healthIssues = dataIntegrityService.checkBranchHealth(all);
-    const tree = memberService.buildTreeLogic(all);
+    const tree = memberService.buildTreeLogic(all, effectiveTenantId);
 
     return {
       tree,
@@ -178,7 +183,11 @@ const memberService = {
     };
   },
 
-  buildTreeLogic: (members) => {
+  getRawMembersForTree: async (branchId, tenantId = null) => {
+    return memberService.getMemberTreeData(branchId, tenantId);
+  },
+
+  buildTreeLogic: (members, tenantId = null) => {
     if (members.length === 0) return [];
     
     const sortedMembers = [...members].sort((a, b) => (a.generation || 0) - (b.generation || 0));
@@ -191,7 +200,11 @@ const memberService = {
     sortedMembers.forEach(m => {
       const marriages = [...(m.marriages_as_husband || []), ...(m.marriages_as_wife || [])];
       marriages.forEach(rel => {
-        const spouse = rel.members_marriages_wife_idTomembers || rel.members_marriages_husband_idTomembers;
+        let spouse = rel.members_marriages_wife_idTomembers || rel.members_marriages_husband_idTomembers;
+        // BẢO VỆ ĐA TẦNG IN-MEMORY LÁT 3: Loại bỏ đối tác nếu lệch tenant_id hoặc bị xóa mềm
+        if (spouse && (spouse.deleted_at || (tenantId && spouse.tenant_id && spouse.tenant_id !== tenantId))) {
+          spouse = null;
+        }
         if (spouse || rel.spouse_name_literal) {
           map[m.id].partners.push({ 
             id: spouse?.id || null, 
