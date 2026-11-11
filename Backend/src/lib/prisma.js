@@ -166,8 +166,8 @@ const prisma = basePrisma.$extends({
             args.create = applyTenantData(args.create || {}, tenantId);
             args.update = args.update || {};
           }
-          // findUnique lệch tenant luôn trả về null (chống ID Enumeration)
-          // findUniqueOrThrow ném lỗi 404 NOT_FOUND chuẩn (không lộ S0.1)
+          // AMEND-02 V1.2: findUnique lệch tenant luôn trả về null (chống UUID probing)
+          // findUniqueOrThrow ném lỗi chuẩn 404 NOT_FOUND (không để lộ mã S0.1 hay 403)
           if (operation === 'findUnique' || operation === 'findUniqueOrThrow') {
             return query({
               ...args,
@@ -175,7 +175,7 @@ const prisma = basePrisma.$extends({
             }).then(async (row) => {
               if (row && row.tenant_id && row.tenant_id !== tenantId) {
                 if (operation === 'findUniqueOrThrow') {
-                  const err = new Error(`Không tìm thấy bản ghi.`);
+                  const err = new Error('Không tìm thấy bản ghi.');
                   err.statusCode = 404;
                   err.code = 'NOT_FOUND';
                   throw err;

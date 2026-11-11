@@ -191,6 +191,7 @@ model addresses {
   residences member_residences[]
 
   @@unique([tenant_id, country_code, full_address], map: "uq_addresses_tenant_country_full")
+  @@unique([id, tenant_id], name: "id_tenant_id") ///Phục vụ MUTATE
   @@index([tenant_id], map: "idx_address_tenant")
   @@index([country_code], map: "idx_address_country")
   @@index([admin_area], map: "idx_address_admin_area")
@@ -348,6 +349,7 @@ model branches {
   /// Quota đời sau APPROVE. NULL = chưa tem / chưa chốt.
   max_generation_span Int?
 
+  @@unique([id, tenant_id], name: "id_tenant_id") ///Phục vụ MUTATE
   @@index([parent_id], map: "idx_branch_parent")
   @@index([origin_address_id], map: "idx_branch_origin_addr")
   @@index([tenant_id], map: "idx_branch_tenant")
@@ -565,6 +567,7 @@ model marriages {
   children_from_union                   members[]         @relation("MemberParentUnion")
   parentages                            parentages[]
 
+  @@unique([id, tenant_id], name: "id_tenant_id") ///Phục vụ MUTATE
   @@index([tenant_id], map: "idx_marriages_tenant")
   @@index([wife_id], map: "idx_marriage_wife")
   @@index([changed_by], map: "idx_marriages_user")
@@ -719,6 +722,7 @@ model members {
   parent_union_id String?    @db.VarChar(36)
   parent_union    marriages? @relation("MemberParentUnion", fields: [parent_union_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_members_parent_union")
 
+  @@unique([id, tenant_id], name: "id_tenant_id") ///Phục vụ MUTATE
   @@index([tenant_id], map: "idx_members_tenant")
   @@index([branch_id], map: "idx_member_branch")
   @@index([current_address_id], map: "idx_member_current_addr")
@@ -1563,6 +1567,9 @@ model user_member_links {
   member   members    @relation(fields: [member_id], references: [id], onDelete: Cascade, map: "fk_uml_member")
   proposal proposals? @relation(fields: [proposal_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_uml_proposal")
 
+  ///Khóa ràng buộc nghiệp vụ Multi-Home
+  @@unique([user_id, tenant_id], map: "uq_uml_user_tenant")
+  @@unique([user_id, member_id], map: "uq_uml_user_member")
   // Chỉ mục tra cứu tiêu chuẩn của Prisma
   @@index([user_id], map: "idx_uml_user")
   @@index([tenant_id], map: "idx_uml_tenant")

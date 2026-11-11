@@ -1,17 +1,13 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/App.jsx
- * DATETIME    : 2026-11-11T12:10:00+07:00
- * VERSION     : 3.4.0-APP-ADMIN-GUARD-ROLE-IN-TENANT
+ * DATETIME    : 2026-11-11T18:00:00+07:00
+ * VERSION     : 3.5.0-APP-SELECT-TENANT-REMOVED-FINAL
  * DESCRIPTION : Định tuyến ứng dụng Gia Phả Số chuẩn AMEND-RP-OP-2026-02 V1.2:
  *               - AdminProtectedRoute: Thẩm định quyền theo activeContext.roleInTenant
  *                 (hoặc role trên token của link), không bị trói buộc bởi user.role cũ.
  *               - Mount HeaderClanSwitcher và SandboxModeBanner trên AppLayout.
- * =============================================================================
- * CHANGELOGS:
- * - 2026-11-10T14:30:00+07:00 (v3.3.0): Merge membership.
- * - 2026-11-11T12:10:00+07:00 (v3.4.0-APP-ADMIN-GUARD-ROLE-IN-TENANT):
- *   + Nâng cấp AdminProtectedRoute thẩm định theo role_in_tenant.
+ *               - Khai tử SelectTenantPage: Chuyển hướng vĩnh viễn về /op.
  * =============================================================================
  */
 
@@ -56,7 +52,6 @@ const DocumentUploadPage = lazy(() => import('./pages/DocumentUploadPage.jsx'));
 const BioFileUploadPage = lazy(() => import('./pages/BioFileUploadPage.jsx'));
 const AdminMemberVitalPage = lazy(() => import('./pages/AdminMemberVitalPage.jsx'));
 const AdminBranchesPage = lazy(() => import('./pages/AdminBranchesPage.jsx'));
-import { SelectTenantPage } from './features/membership/pages/SelectTenantPage';
 
 const ADMIN_ROLES = new Set([
   'SYSTEM_ADMIN',
@@ -158,13 +153,11 @@ const AppRouter = () => {
             </OpProtectedRoute>
           }
         />
+
+        {/* SelectTenantPage đã gỡ khỏi luồng: chuyển hướng vĩnh viễn về /op */}
         <Route
           path="/membership/select-tenant"
-          element={
-            <OpProtectedRoute>
-              <SelectTenantPage />
-            </OpProtectedRoute>
-          }
+          element={<Navigate to="/op" replace />}
         />
 
         {/* Tree */}
