@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/auth/auth.controller.js
- * DATETIME   : 2026-11-11T11:40:00+07:00
- * VERSION    : 23.6.1-MULTIHOME-AMEND02-V12-FINAL
+ * DATETIME   : 2026-11-12T11:30:00+07:00
+ * VERSION    : 23.7.0-MULTIHOME-AMEND02-V15-LAT0
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.2] Lát 1/7 Multi-Home Controller hoàn chỉnh:
  *   + getAvailableClans: Gọi authService.getAvailableClans(userId).
@@ -271,6 +271,7 @@ const authController = {
           canEdit: error.canEdit === true,
           caseStatus: error.caseStatus ?? null,
           caseId: error.caseId ?? null,
+          caseMetadata: error.caseMetadata ?? null,
           tempSnapshot: error.tempSnapshot ?? null,
         });
       }
@@ -299,6 +300,24 @@ const authController = {
           isPermanent: error.isPermanent || undefined,
           lockType: error.lockType || undefined,
           reasonCode: error.reasonCode || undefined,
+        });
+      }
+
+      if (errCode === 'ACCOUNT_PERMANENTLY_REJECTED') {
+        await authLogService.logAttempt({
+          identifier: req.body.identifier || 'unknown',
+          ip_address: ip,
+          user_agent: userAgent,
+          status: 'THAT_BAI',
+          failure_reason: 'LOGIN_REJECTED_ACCOUNT_PERMANENTLY_REJECTED',
+        });
+        return res.status(403).json({
+          status: 'error',
+          code: 'ACCOUNT_PERMANENTLY_REJECTED',
+          canEdit: false,
+          message:
+            error.message ||
+            'Hồ sơ đăng ký của bạn đã bị từ chối vĩnh viễn và không thể nộp lại.',
         });
       }
 
@@ -595,7 +614,7 @@ const authController = {
 
   processApproval: async (req, res) => {
     try {
-      const { userId, newStatus, adminNote, isFinalRejection } = req.body;
+      const { userId, newStatus, adminNote, isFinalRejection, targetMemberId } = req.body;
       const actorId = req.user.userId;
       const { role, tenantId: actorTenantId } = req.user;
       const correlationId = req.correlationId;
@@ -616,6 +635,7 @@ const authController = {
         actorTenantId,
         actorStatus: req.user.status,
         correlation_id: correlationId,
+        targetMemberId: targetMemberId || undefined,
         isFinalRejection:
           isFinalRejection === true ||
           isFinalRejection === 'true' ||
@@ -628,17 +648,20 @@ const authController = {
       if (error.message === 'DENIED') {
         return res.status(403).json({
           status: 'error',
+          code: 'DENIED',
           message: 'Bạn không có quyền thao tác trên hồ sơ này.',
         });
       }
-      if (error.status === 400) {
-        return res.status(400).json({
+      if (error.status === 400 || error.status === 409) {
+        return res.status(error.status).json({
           status: 'error',
+          code: error.code || 'APPROVAL_VALIDATION_ERROR',
           message: error.message,
         });
       }
       res.status(error.status || 500).json({
         status: 'error',
+        code: error.code || 'APPROVAL_FAILED',
         message: error.message || 'Lỗi xử lý phê duyệt đơn.',
       });
     }
