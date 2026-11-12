@@ -2,7 +2,7 @@
  * PATH       : src/features/register-wizard/components/CreateClanForm.jsx
  * OLD PATH   : src/features/auth/components/CreateClanForm.jsx
  * DATETIME   : <2026-08-05T15:00:00+07:00>
- * VERSION    : 24.6.7.R1.9 - PR-OP-4
+ * VERSION    : 24.7.0-MULTIHOME-AMEND02-V15-LAT1
  * DESCRIPTION:
  * PURPOSE
  * - Create a new clan registration flow.
@@ -240,6 +240,20 @@ const CreateClanForm = ({
 
   
   const [showPassword, setShowPassword] = useState(false);
+  const [founderGender, setFounderGender] = useState(
+    initialData?.registration_profile?.gender || initialData?.gender || 'NAM'
+  );
+  const [founderAlias, setFounderAlias] = useState(
+    initialData?.registration_profile?.alias || initialData?.alias || ''
+  );
+  const [founderBirthPlace, setFounderBirthPlace] = useState(
+    initialData?.registration_profile?.birth_place ||
+      initialData?.birth_place ||
+      ''
+  );
+  const [founderAddress, setFounderAddress] = useState(
+    initialData?.registration_profile?.address || initialData?.address || ''
+  );
   const [attentionMessage, setAttentionMessage] = useState('');
   const [attentionField, setAttentionField] = useState('');
   const { speak } = useTts();
@@ -1337,26 +1351,49 @@ const CreateClanForm = ({
     setAttentionMessage('');
     setAttentionField('');
 
+    const resolvedPhone = isRevision
+      ? resolveRevisionPhone(lockedIdentifier, initialData, latestValues.phone)
+      : latestValues.phone || '';
+    const resolvedEmail = isRevision
+      ? resolveRevisionEmail(lockedIdentifier, initialData, latestValues.email) || null
+      : latestValues.email || null;
+
+    const founderRegistrationProfile = {
+      claim_mode: 'CLAN_SETUP',
+      full_name: latestValues.temp_full_name,
+      alias: String(founderAlias || '').trim() || undefined,
+      gender: founderGender || 'NAM',
+      birth_year:
+        latestValues.temp_birth_year &&
+        /^\d{4}$/.test(String(latestValues.temp_birth_year).trim())
+          ? Number(String(latestValues.temp_birth_year).trim())
+          : undefined,
+      birth_place: String(founderBirthPlace || '').trim() || undefined,
+      address: String(founderAddress || '').trim() || undefined,
+      father_name: latestValues.temp_father_name || undefined,
+      generation: 1,
+      member_role: 'TRUONG_HO',
+      is_alive: true,
+      phone: resolvedPhone || undefined,
+      email: resolvedEmail || undefined,
+      note: latestValues.temp_note || undefined,
+    };
+
+    // AMEND-RP-OP-2026-02 V1.5.0: Payload sạch cho C2-S, KHÔNG rải temp_*
     const finalPayload = {
-      ...latestValues,
       isNewClan: true,
+      clanName: latestValues.clanName,
       description: latestValues.description,
+      phone: resolvedPhone,
+      email: resolvedEmail,
+      password: latestValues.password,
+      gender: founderGender || 'NAM',
+      registration_profile: founderRegistrationProfile,
       turnstileToken: captchaCheck.token || captchaZone.getToken(),
       hp_field: latestValues.hp_field || '',
       ...(isRevision
         ? {
             isRevision: true,
-            phone: resolveRevisionPhone(
-              lockedIdentifier,
-              initialData,
-              latestValues.phone
-            ),
-            email:
-              resolveRevisionEmail(
-                lockedIdentifier,
-                initialData,
-                latestValues.email
-              ) || null,
           }
         : {}),
     };
@@ -1660,6 +1697,62 @@ const CreateClanForm = ({
                         {errors.temp_full_name.message}
                       </p>
                     )}
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <label className={uiSystem.label}>
+                        Giới tính <span className="text-rose-500">*</span>
+                      </label>
+                      <select
+                        value={founderGender}
+                        onFocus={() => guidedFlow.goToField('personalInfo')}
+                        onChange={(e) => setFounderGender(e.target.value)}
+                        className={uiSystem.select || uiSystem.input}
+                      >
+                        <option value="NAM">Nam</option>
+                        <option value="NU">Nữ</option>
+                        <option value="KHAC">Khác</option>
+                      </select>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className={uiSystem.label}>Tên tự / Tên hiệu</label>
+                      <input
+                        type="text"
+                        value={founderAlias}
+                        onFocus={() => guidedFlow.goToField('personalInfo')}
+                        onChange={(e) => setFounderAlias(e.target.value)}
+                        className={uiSystem.input}
+                        placeholder="Tên tự, tên hiệu (nếu có)"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="space-y-1">
+                      <label className={uiSystem.label}>Nguyên quán / Quê gốc</label>
+                      <input
+                        type="text"
+                        value={founderBirthPlace}
+                        onFocus={() => guidedFlow.goToField('personalInfo')}
+                        onChange={(e) => setFounderBirthPlace(e.target.value)}
+                        className={uiSystem.input}
+                        placeholder="Xã/Phường, Huyện, Tỉnh"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className={uiSystem.label}>Địa chỉ hiện tại</label>
+                      <input
+                        type="text"
+                        value={founderAddress}
+                        onFocus={() => guidedFlow.goToField('personalInfo')}
+                        onChange={(e) => setFounderAddress(e.target.value)}
+                        className={uiSystem.input}
+                        placeholder="Nơi cư trú hiện tại"
+                      />
+                    </div>
                   </div>
 
                   <div className="space-y-1">

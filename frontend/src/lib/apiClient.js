@@ -22,14 +22,15 @@ import axios from 'axios';
 
 const API_REQUEST_TIMEOUT = 30000;
 
-const PUBLIC_AUTH_PATHS = [
+const PUBLIC_PATHS = [
   '/auth/login',
   '/auth/register',
-  '/auth/forgot',
+  '/auth/check-identity',
   '/auth/forgot-password',
-  '/auth/verify-reset',
-  '/auth/reset-password',
+  '/auth/verify-reset-code',
   '/auth/change-password-after-reset',
+  '/tenants/search',
+  '/public/tenants', // <-- Bổ sung: không gắn token cũ & không redirect 401 khi Guest tra cứu
 ];
 
 function readStoredToken() {

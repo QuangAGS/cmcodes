@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/auth/registrationValidator.js
- * DATETIME   : 2026-11-09T11:45:00+07:00
- * VERSION    : 1.2.0:PHASE3-[VALIDATOR-REGEX-STRICT]
+ * DATETIME   : 2026-11-12T12:15:00+07:00
+ * VERSION    : 1.3.0-MULTIHOME-AMEND02-V15-LAT1
  * DESCRIPTION:
  * - Căn cứ: AMEND-RP-OP-2026-01-V1.1
  * - [1.2.0]: Bổ sung pattern regex cho email, phone và claimed_member_id (UUID v4)
@@ -55,6 +55,12 @@ const REGISTRATION_SCHEMA = {
   },
   proof_documents: { type: 'array', required: false },
   social_profiles: { type: 'object', required: false },
+  claim_mode: {
+    type: 'string',
+    required: false,
+    enum: ['CLAIM_EM', 'NEW_PROFILE_21', 'CLAN_SETUP'],
+  },
+  claim_verification: { type: 'object', required: false },
 };
 
 function validateRegistrationProfile(data = {}) {

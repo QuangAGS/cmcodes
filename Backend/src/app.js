@@ -1,7 +1,7 @@
 /**
  * PATH       : src/app.js
- * DATETIME   : 2026-09-16T15:10:00+07:00
- * VERSION    : 21.7.1-MFO-L1
+ * DATETIME   : 2026-11-12T12:15:00+07:00
+ * VERSION    : 21.8.0-MULTIHOME-AMEND02-V15-LAT1
  * DESCRIPTION:
  * - [21.7.0-W2] Wave 2 PR-W2-3: Early tenant 404 → next(err) dual-contract CED.
  * 
@@ -67,6 +67,7 @@ const mediaRoutes = require('./modules/interactions/media.routes');
 const onboardingRoutes = require('./modules/onboarding/onboarding.routes');
 const profileRoutes = require('./modules/profile/profile.routes');
 
+const publicSearchRoutes = require('./modules/public/publicSearch.routes');
 const authRoutesRaw = require('./modules/auth/auth.routes');
 const authRoutes = authRoutesRaw.default || authRoutesRaw;
 
@@ -163,6 +164,9 @@ app.get('/', (req, res) =>
     environment: securityConfig.NODE_ENV,
   })
 );
+
+// [AMEND-RP-OP-2026-02 V1.5.0] Public search endpoints cho Guest Claim (không yêu cầu JWT)
+app.use('/api/public', publicSearchRoutes);
 
 if (typeof authRoutes === 'function') {
   app.use('/api/auth', authRoutes);

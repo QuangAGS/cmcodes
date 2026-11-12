@@ -2,7 +2,7 @@
  * PATH: src/features/register-wizard/components/RegisterForm.jsx
  * OLD PATH       : src/features/auth/components/RegisterForm.jsx
  * DATETIME   : <2026-08-01T16:37:00+07:00>
- * VERSION    : 24.6.7.R1.9 - PR-OP4
+ * VERSION    : 24.7.0-MULTIHOME-AMEND02-V15-LAT1
  * DESCRIPTION:
  * 24.6.7.R1.9 - PR-OP4:NEEDS_REVISION
  * - PURPOSE 24.6.7.R1.9:
@@ -145,11 +145,20 @@ const RegisterForm = ({
    * - Fresh register must remain selector-first.
    */
   useEffect(() => {
+    if (isRevision) {
+      setRegisterMode(
+        initialData?.isNewClan === true
+          ? REGISTER_MODES.CREATE
+          : REGISTER_MODES.JOIN
+      );
+      setRegisterOpenSource('revision');
+      return;
+    }
     const nextMode = resolveInitialRegisterMode(initialData);
 
     setRegisterMode(nextMode);
     setRegisterOpenSource(nextMode ? 'draft' : 'selector');
-  }, [initialData]);
+  }, [initialData, isRevision]);
 
   /**
    * <2026-05-15T00:00:00+07:00>

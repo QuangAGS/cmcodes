@@ -1,7 +1,7 @@
 /**
  * PATH: src/middlewares/rateLimit.middleware.js
- * DATETIME   : 2026-07-27T14:50:00+07:00
- * VERSION    : 20.3.0-W4
+ * DATETIME   : 2026-11-12T12:15:00+07:00
+ * VERSION    : 20.4.0-MULTIHOME-AMEND02-V15-LAT1
  * DESCRIPTION:
  * - Rate limit từ securityConfig (reset) + hard policy login/register.
  * - [20.3.0-W4] PR-W4-1: onboardingWrite + onboardingAdmin limiters; 429 gắn correlationId.
@@ -114,6 +114,22 @@ const checkIdentityRateLimiter = createRateLimiter({
   message: 'Quá nhiều lần kiểm tra định danh. Vui lòng thử lại sau 1 phút.',
 });
 
+/** Public tenant search (Guest C2) */
+const publicSearchRateLimiter = createRateLimiter({
+  max: 30,
+  windowMinutes: 1,
+  code: 'PUBLIC_SEARCH_RATE_LIMITED',
+  message: 'Quá nhiều yêu cầu tìm kiếm dòng họ. Vui lòng thử lại sau 1 phút.',
+});
+
+/** Public member claim search (Guest C2 — V1.5.0 Mục 5.2: tối đa 15 req/phút/IP) */
+const publicClaimSearchRateLimiter = createRateLimiter({
+  max: 15,
+  windowMinutes: 1,
+  code: 'CLAIM_SEARCH_RATE_LIMITED',
+  message: 'Bạn đã tra cứu thành viên quá 15 lần trong 1 phút. Vui lòng chờ 1 phút rồi thử lại.',
+});
+
 module.exports = {
   loginRateLimiter,
   registerRateLimiter,
@@ -121,4 +137,6 @@ module.exports = {
   onboardingWriteRateLimiter,
   onboardingAdminRateLimiter,
   checkIdentityRateLimiter,
+  publicSearchRateLimiter,
+  publicClaimSearchRateLimiter,
 };

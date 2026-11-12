@@ -2,7 +2,7 @@
  * PATH: src/features/register-wizard/components/JoinClanForm.jsx
  * OLD PATH       : src/features/auth/components/JoinClanForm.jsx
  * DATETIME   : <2026-05-28T09:55:00+07:00>
- * VERSION    : EGAL-25.X. R6.2.2A-PR-OP-4-identity
+ * VERSION    : EGAL-25.X. R6.3.0-MULTIHOME-AMEND02-V15-LAT1
  * DESCRIPTION:
  * - PURPOSE EGAL-25.X. R6.2.2A: 
  *    chỉ gỡ social preferred-channel khỏi JoinClanForm, thêm email optional, 
@@ -104,6 +104,8 @@ import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx
 // Dùng shared captcha zone thay vì Turnstile component riêng. ------------------
 import useCaptchaZone from '../../elder-doctrine/hooks/useCaptchaZone.js';
 import CaptchaAttentionField from '../../elder-doctrine/components/CaptchaAttentionField.jsx';
+import ClaimMemberWizard from '../../membership/components/ClaimMemberWizard.jsx';
+import RegistrationProfileForm from '../../membership/components/RegistrationProfileForm.jsx';
 // -------------------------------------------------------------------------------------------
 
 /**
@@ -200,9 +202,88 @@ const JoinClanForm = ({
       ? {
         id: initialData.tenantId,
         name: initialData.clanName,
+        slug: initialData.tenantSlug || '',
       }
       : null,
   );
+
+  // [AMEND-RP-OP-2026-02 V1.5.0 Lát 1] Phân nhánh C2: CLAIM_EM vs NEW_PROFILE_21
+  const initialRegProfile =
+    initialData?.registration_profile &&
+    typeof initialData.registration_profile === 'object'
+      ? initialData.registration_profile
+      : {};
+
+  const [claimMode, setClaimMode] = useState(() => {
+    if (
+      initialRegProfile.claim_mode === 'CLAIM_EM' ||
+      initialRegProfile.claimed_member_id ||
+      initialData?.claimed_member_id
+    ) {
+      return 'CLAIM_EM';
+    }
+    if (
+      initialRegProfile.claim_mode === 'NEW_PROFILE_21' ||
+      initialRegProfile.full_name ||
+      initialData?.temp_full_name
+    ) {
+      return 'NEW_PROFILE_21';
+    }
+    return 'CLAIM_EM';
+  });
+
+  const [profileDraft, setProfileDraft] = useState(() => ({
+    full_name: initialRegProfile.full_name || initialData?.temp_full_name || '',
+    alias: initialRegProfile.alias || '',
+    gender: initialRegProfile.gender || 'NAM',
+    birth_day: initialRegProfile.birth_day ?? '',
+    birth_month: initialRegProfile.birth_month ?? '',
+    birth_year:
+      initialRegProfile.birth_year ?? initialData?.temp_birth_year ?? '',
+    birth_place: initialRegProfile.birth_place || '',
+    is_alive:
+      initialRegProfile.is_alive !== undefined
+        ? initialRegProfile.is_alive
+        : true,
+    death_year: initialRegProfile.death_year ?? '',
+    generation: initialRegProfile.generation ?? '',
+    member_role: initialRegProfile.member_role || 'THANH_VIEN',
+    branch_name:
+      initialRegProfile.branch_name || initialData?.temp_branch_name || '',
+    father_name:
+      initialRegProfile.father_name || initialData?.temp_father_name || '',
+    mother_name: initialRegProfile.mother_name || '',
+    grandfather_name:
+      initialRegProfile.grandfather_name ||
+      initialData?.temp_grandfather_name ||
+      '',
+    grandmother_name: initialRegProfile.grandmother_name || '',
+    address: initialRegProfile.address || initialData?.temp_address || '',
+    note: initialRegProfile.note || initialData?.temp_note || '',
+    temp_relationship: initialData?.temp_relationship || 'CON_DE',
+    social_profiles: initialRegProfile.social_profiles || {
+      zalo: '',
+      facebook: '',
+    },
+    proof_documents: Array.isArray(initialRegProfile.proof_documents)
+      ? initialRegProfile.proof_documents
+      : [],
+    claimed_member_id:
+      initialRegProfile.claimed_member_id ||
+      initialData?.claimed_member_id ||
+      '',
+    claimed_member_summary:
+      initialRegProfile.claim_verification?.claimed_member_summary ||
+      initialRegProfile.claimed_member_summary ||
+      null,
+    claim_verification: initialRegProfile.claim_verification || {
+      layer1_lineage: '',
+      layer2_branch_origin: '',
+      layer3_guarantor_note: '',
+    },
+  }));
+
+  const [profileErrors, setProfileErrors] = useState({});
 
   const [phoneRemoteError, setPhoneRemoteError] = useState('');
   const [phoneChecking, setPhoneChecking] = useState(false);
@@ -533,7 +614,38 @@ const JoinClanForm = ({
       setSearchKeyword('');
       setTenantResults([]);
       setSelectedTenant(null);
-      //setSelectedChannel('zalo');   --EGAL-25.X. R6.2.2A
+      setClaimMode('CLAIM_EM');
+      setProfileErrors({});
+      setProfileDraft({
+        full_name: '',
+        alias: '',
+        gender: 'NAM',
+        birth_day: '',
+        birth_month: '',
+        birth_year: '',
+        birth_place: '',
+        is_alive: true,
+        death_year: '',
+        generation: '',
+        member_role: 'THANH_VIEN',
+        branch_name: '',
+        father_name: '',
+        mother_name: '',
+        grandfather_name: '',
+        grandmother_name: '',
+        address: '',
+        note: '',
+        temp_relationship: 'CON_DE',
+        social_profiles: { zalo: '', facebook: '' },
+        proof_documents: [],
+        claimed_member_id: '',
+        claimed_member_summary: null,
+        claim_verification: {
+          layer1_lineage: '',
+          layer2_branch_origin: '',
+          layer3_guarantor_note: '',
+        },
+      });
     }
 
     requestAnimationFrame(() => {
@@ -626,6 +738,30 @@ const JoinClanForm = ({
         setValue(key, n[key], { shouldValidate: false, shouldDirty: false });
       }
     });
+
+    const rp =
+      initialData?.registration_profile &&
+      typeof initialData.registration_profile === 'object'
+        ? initialData.registration_profile
+        : {};
+    if (rp.claim_mode === 'CLAIM_EM' || rp.claimed_member_id) {
+      setClaimMode('CLAIM_EM');
+    } else if (rp.claim_mode === 'NEW_PROFILE_21' || rp.full_name) {
+      setClaimMode('NEW_PROFILE_21');
+    }
+    setProfileDraft((prev) => ({
+      ...prev,
+      ...rp,
+      full_name: rp.full_name || n.temp_full_name || prev.full_name,
+      father_name: rp.father_name || n.temp_father_name || prev.father_name,
+      birth_year: rp.birth_year ?? n.temp_birth_year ?? prev.birth_year,
+      note: rp.note || n.temp_note || prev.note,
+      temp_relationship: n.temp_relationship || prev.temp_relationship,
+      claimed_member_summary:
+        rp.claim_verification?.claimed_member_summary ||
+        rp.claimed_member_summary ||
+        prev.claimed_member_summary,
+    }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialData, setValue]);
 
@@ -778,12 +914,19 @@ const JoinClanForm = ({
     setTenantLoading(true);
 
     try {
-      const res = await apiClient.get('/tenants/search', {
-        params: { q, field: 'name' },
+      const res = await apiClient.get('/public/tenants/search', {
+        params: { q },
       });
       setTenantResults(res.data?.data || []);
     } catch (err) {
-      setTenantResults([]);
+      try {
+        const fallbackRes = await apiClient.get('/tenants/search', {
+          params: { q, field: 'name' },
+        });
+        setTenantResults(fallbackRes.data?.data || []);
+      } catch (_) {
+        setTenantResults([]);
+      }
     } finally {
       setTenantLoading(false);
     }
@@ -1122,46 +1265,104 @@ const JoinClanForm = ({
       return;
     }
 
-    if (!latestValues?.temp_full_name?.trim?.()) {
-      routeFieldError('temp_full_name', 'Bác vui lòng nhập họ và tên của mình.', 'personalInfo');
-      return;
-    }
+    setProfileErrors({});
 
-    if (!latestValues?.temp_father_name?.trim?.()) {
-      routeFieldError(
-        'temp_father_name',
-        'Bác vui lòng nhập tên cha hoặc mẹ để Ban quản trị đối chiếu.',
-        'personalInfo',
-      );
-      return;
-    }
+    if (claimMode === 'CLAIM_EM') {
+      const emId = String(profileDraft.claimed_member_id || '').trim();
+      const emSummary = profileDraft.claimed_member_summary || {};
+      const ver = profileDraft.claim_verification || {};
+      const l1 = String(ver.layer1_lineage || '').trim();
+      const l2 = String(ver.layer2_branch_origin || '').trim();
+      const l3 = String(ver.layer3_guarantor_note || '').trim();
 
-    if (!latestValues?.temp_birth_year?.trim()) {
-      routeFieldError('temp_birth_year', 'Bác vui lòng nhập năm sinh của bác.', 'personalInfo');
-      return;
-    }
+      if (!emId) {
+        const msg = 'Bác vui lòng tìm và chọn hồ sơ của mình trên cây gia phả (hoặc chuyển sang Khai báo mới 21 trường).';
+        setProfileErrors({ claimed_member_id: msg });
+        routeFieldError('personalInfo', msg, 'personalInfo');
+        return;
+      }
+      if (!l1) {
+        const msg = 'Bác vui lòng nhập Lớp 1 gia mật (họ tên Cha/Mẹ/Ông nội hoặc ngày giỗ tổ).';
+        setProfileErrors({ layer1_lineage: msg });
+        routeFieldError('personalInfo', msg, 'personalInfo');
+        return;
+      }
+      if (!l2) {
+        const msg = 'Bác vui lòng nhập Lớp 2 gia mật (tên Chi/Phái hoặc quê quán gia đình).';
+        setProfileErrors({ layer2_branch_origin: msg });
+        routeFieldError('personalInfo', msg, 'personalInfo');
+        return;
+      }
+      if (!l3) {
+        const msg = 'Bác vui lòng nhập Lớp 3 gia mật (người bảo lãnh trong họ hoặc lời nhắn xác minh).';
+        setProfileErrors({ layer3_guarantor_note: msg });
+        routeFieldError('personalInfo', msg, 'personalInfo');
+        return;
+      }
 
-    if (!/^\d{4}$/.test(String(latestValues.temp_birth_year).trim())) {
-      routeFieldError(
-        'temp_birth_year',
-        'Bác vui lòng nhập năm sinh gồm bốn chữ số, ví dụ một chín sáu mươi lăm.',
-        'personalInfo',
-      );
-      return;
-    }
+      const mappedFullName = String(emSummary.full_name || profileDraft.full_name || '').trim();
+      const mappedFatherName = String(emSummary.father_name || l1).trim();
+      const mappedBirthYear =
+        emSummary.birth_year && /^\d{4}$/.test(String(emSummary.birth_year))
+          ? String(emSummary.birth_year)
+          : '1900';
+      const mappedNote = `Lớp 1: ${l1} | Lớp 2: ${l2} | Lớp 3: ${l3}`;
 
-    if (!latestValues?.temp_relationship) {
-      routeFieldError(
-        'temp_relationship',
-        'Bác vui lòng chọn quan hệ với dòng họ.',
-        'personalInfo',
-      );
-      return;
-    }
+      latestValues.temp_full_name = mappedFullName;
+      latestValues.temp_father_name = mappedFatherName;
+      latestValues.temp_birth_year = mappedBirthYear;
+      latestValues.temp_relationship = 'CON_DE';
+      latestValues.temp_note = mappedNote;
 
-    if (!latestValues?.temp_note?.trim?.()) {
-      routeFieldError('temp_note', 'Bác vui lòng nhập lời nhắn tới Ban quản trị.', 'personalInfo');
-      return;
+      setValue('temp_full_name', mappedFullName, { shouldValidate: false });
+      setValue('temp_father_name', mappedFatherName, { shouldValidate: false });
+      setValue('temp_birth_year', mappedBirthYear, { shouldValidate: false });
+      setValue('temp_relationship', 'CON_DE', { shouldValidate: false });
+      setValue('temp_note', mappedNote, { shouldValidate: false });
+    } else {
+      const fName = String(profileDraft.full_name || '').trim();
+      const faName = String(profileDraft.father_name || '').trim();
+      const bYearRaw = String(profileDraft.birth_year ?? '').trim();
+      const noteText = String(profileDraft.note || '').trim();
+      const rel = String(profileDraft.temp_relationship || 'CON_DE').trim();
+
+      if (!fName) {
+        const msg = 'Bác vui lòng nhập họ và tên khai sinh.';
+        setProfileErrors({ full_name: msg });
+        routeFieldError('personalInfo', msg, 'personalInfo');
+        return;
+      }
+      if (!faName) {
+        const msg = 'Bác vui lòng nhập họ và tên Cha để Ban quản trị đối chiếu.';
+        setProfileErrors({ father_name: msg });
+        routeFieldError('personalInfo', msg, 'personalInfo');
+        return;
+      }
+      if (bYearRaw && !/^\d{4}$/.test(bYearRaw)) {
+        const msg = 'Bác vui lòng nhập năm sinh gồm 4 chữ số (ví dụ: 1975).';
+        setProfileErrors({ birth_year: msg });
+        routeFieldError('personalInfo', msg, 'personalInfo');
+        return;
+      }
+      if (!noteText) {
+        const msg = 'Bác vui lòng nhập lời nhắn gửi Ban quản trị xác minh.';
+        setProfileErrors({ note: msg });
+        routeFieldError('personalInfo', msg, 'personalInfo');
+        return;
+      }
+
+      const mappedBirthYear = bYearRaw || '1900';
+      latestValues.temp_full_name = fName;
+      latestValues.temp_father_name = faName;
+      latestValues.temp_birth_year = mappedBirthYear;
+      latestValues.temp_relationship = rel || 'CON_DE';
+      latestValues.temp_note = noteText;
+
+      setValue('temp_full_name', fName, { shouldValidate: false });
+      setValue('temp_father_name', faName, { shouldValidate: false });
+      setValue('temp_birth_year', mappedBirthYear, { shouldValidate: false });
+      setValue('temp_relationship', rel || 'CON_DE', { shouldValidate: false });
+      setValue('temp_note', noteText, { shouldValidate: false });
     }
 
     if (!latestValues?.phone?.trim?.()) {
@@ -1329,16 +1530,126 @@ const JoinClanForm = ({
       ? resolveRevisionEmail(lockedIdentifier, initialData, latestValues.email) || null
       : latestValues.email || null;
 
+    const builtRegistrationProfile =
+      claimMode === 'CLAIM_EM'
+        ? {
+            claim_mode: 'CLAIM_EM',
+            claimed_member_id: profileDraft.claimed_member_id,
+            full_name:
+              profileDraft.claimed_member_summary?.full_name ||
+              profileDraft.full_name ||
+              latestValues.temp_full_name,
+            alias: profileDraft.claimed_member_summary?.alias || undefined,
+            gender: profileDraft.gender || 'NAM',
+            birth_year: profileDraft.claimed_member_summary?.birth_year
+              ? Number(profileDraft.claimed_member_summary.birth_year)
+              : undefined,
+            branch_name:
+              profileDraft.claimed_member_summary?.branch_name ||
+              profileDraft.claim_verification?.layer2_branch_origin ||
+              undefined,
+            father_name:
+              profileDraft.claimed_member_summary?.father_name ||
+              profileDraft.claim_verification?.layer1_lineage ||
+              undefined,
+            mother_name:
+              profileDraft.claimed_member_summary?.mother_name || undefined,
+            generation:
+              profileDraft.claimed_member_summary?.generation != null
+                ? Number(profileDraft.claimed_member_summary.generation)
+                : undefined,
+            phone: resolvedPhone || undefined,
+            email: resolvedEmail || undefined,
+            note: String(
+              profileDraft.claim_verification?.layer3_guarantor_note || ''
+            ).trim(),
+            claim_verification: {
+              claimed_member_summary:
+                profileDraft.claimed_member_summary || null,
+              layer1_lineage: String(
+                profileDraft.claim_verification?.layer1_lineage || ''
+              ).trim(),
+              layer2_branch_origin: String(
+                profileDraft.claim_verification?.layer2_branch_origin || ''
+              ).trim(),
+              layer3_guarantor_note: String(
+                profileDraft.claim_verification?.layer3_guarantor_note || ''
+              ).trim(),
+            },
+          }
+        : {
+            claim_mode: 'NEW_PROFILE_21',
+            claimed_member_id: undefined,
+            full_name: String(profileDraft.full_name || '').trim(),
+            alias: String(profileDraft.alias || '').trim() || undefined,
+            gender: profileDraft.gender || 'NAM',
+            birth_day:
+              profileDraft.birth_day !== '' && profileDraft.birth_day != null
+                ? Number(profileDraft.birth_day)
+                : undefined,
+            birth_month:
+              profileDraft.birth_month !== '' &&
+              profileDraft.birth_month != null
+                ? Number(profileDraft.birth_month)
+                : undefined,
+            birth_year:
+              profileDraft.birth_year !== '' && profileDraft.birth_year != null
+                ? Number(profileDraft.birth_year)
+                : undefined,
+            birth_place:
+              String(profileDraft.birth_place || '').trim() || undefined,
+            is_alive: profileDraft.is_alive !== false,
+            death_year:
+              profileDraft.is_alive === false &&
+              profileDraft.death_year !== '' &&
+              profileDraft.death_year != null
+                ? Number(profileDraft.death_year)
+                : undefined,
+            generation:
+              profileDraft.generation !== '' && profileDraft.generation != null
+                ? Number(profileDraft.generation)
+                : undefined,
+            member_role: profileDraft.member_role || 'THANH_VIEN',
+            branch_name:
+              String(profileDraft.branch_name || '').trim() || undefined,
+            father_name:
+              String(profileDraft.father_name || '').trim() || undefined,
+            mother_name:
+              String(profileDraft.mother_name || '').trim() || undefined,
+            grandfather_name:
+              String(profileDraft.grandfather_name || '').trim() || undefined,
+            grandmother_name:
+              String(profileDraft.grandmother_name || '').trim() || undefined,
+            address: String(profileDraft.address || '').trim() || undefined,
+            phone: resolvedPhone || undefined,
+            email: resolvedEmail || undefined,
+            note: String(profileDraft.note || '').trim(),
+            proof_documents: Array.isArray(profileDraft.proof_documents)
+              ? profileDraft.proof_documents
+              : [],
+            social_profiles:
+              profileDraft.social_profiles &&
+              typeof profileDraft.social_profiles === 'object'
+                ? profileDraft.social_profiles
+                : {},
+          };
+
+    // AMEND-RP-OP-2026-02 V1.5.0: Payload sạch chỉ mang registration_profile / claimed_member_id, KHÔNG rải temp_*
     const finalPayload = {
-      ...latestValues,
+      isNewClan: false,
       tenantId: selectedTenant.id,
       clanName: selectedTenant.name,
       tenantSlug: selectedTenant.slug || '',
       phone: resolvedPhone,
       email: resolvedEmail,
+      password: latestValues.password,
+      gender: builtRegistrationProfile.gender,
+      ...(builtRegistrationProfile.claimed_member_id
+        ? { claimed_member_id: builtRegistrationProfile.claimed_member_id }
+        : {}),
+      registration_profile: builtRegistrationProfile,
       turnstileToken: captchaCheck.token || captchaZone.getToken(),
       hp_field: latestValues.hp_field || '',
-      isNewClan: false,
       ...(isRevision
         ? {
             isRevision: true,
@@ -1660,7 +1971,7 @@ const JoinClanForm = ({
               activeField={guidedFlow.activeField}
               helperText={
                 ttsMessages?.joinClan?.personalInfo ||
-                'Bác nhập thông tin cá nhân để Ban quản trị xác minh.'
+                'Bác chọn nhận hồ sơ đã có trên cây gia phả hoặc khai báo hồ sơ nhân thân 21 trường.'
               }
               completed={guidedFlow.isCompleted('personalInfo')}
               voiceAction={
@@ -1675,116 +1986,98 @@ const JoinClanForm = ({
               <div className={uiSystem.section}>
                 <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-slate-400">
                   <User size={18} />
-                  Thông tin cá nhân
+                  Nhận diện nhân thân trong dòng họ
                 </h3>
 
-                <div className="space-y-4">
-                  <div className="space-y-1">
-                    <label className={uiSystem.label}>
-                      Họ và tên <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      {...fullNameRegister}
-                      ref={(el) => {
-                        fullNameRegister.ref(el);
-                        fullNameRef.current = el;
-                      }}
-                      onFocus={() => guidedFlow.goToField('personalInfo')}
-                      className={uiSystem.input}
-                      placeholder="Nguyễn Văn A"
-                    />
-                    {errors.temp_full_name && (
-                      <p className="text-xs font-bold text-rose-600">
-                        {errors.temp_full_name.message}
-                      </p>
-                    )}
-                  </div>
+                {/* Bộ chọn 2 nhánh C2 theo AMEND-RP-OP-2026-02 V1.5.0 */}
+                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                  <button
+                    type="button"
+                    disabled={effectiveLoading}
+                    onClick={() => {
+                      setClaimMode('CLAIM_EM');
+                      setProfileErrors({});
+                      setAttentionMessage('');
+                      guidedFlow.goToField('personalInfo');
+                    }}
+                    className={`rounded-2xl border p-3.5 text-left transition ${
+                      claimMode === 'CLAIM_EM'
+                        ? 'border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <p className="text-xs font-black uppercase tracking-wider text-emerald-700">
+                      Cách 1 (Khuyên dùng)
+                    </p>
+                    <p className="mt-1 text-sm font-black">
+                      Đã có tên trên cây gia phả
+                    </p>
+                    <p className="mt-0.5 text-xs font-medium text-slate-500">
+                      Tìm hồ sơ có sẵn và trả lời 3 lớp gia mật để nhận liên kết.
+                    </p>
+                  </button>
 
-                  <div className="space-y-1">
-                    <label className={uiSystem.label}>
-                      Tên cha/mẹ <span className="text-rose-500">*</span>
-                    </label>
-                    <input
-                      {...fatherNameRegister}
-                      ref={(el) => {
-                        fatherNameRegister.ref(el);
-                        fatherNameRef.current = el;
-                      }}
-                      onFocus={() => guidedFlow.goToField('personalInfo')}
-                      className={uiSystem.input}
-                      placeholder="Tên cha hoặc mẹ để đối chiếu"
-                    />
-                    {errors.temp_father_name && (
-                      <p className="text-xs font-bold text-rose-600">
-                        {errors.temp_father_name.message}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className={uiSystem.label}>Năm sinh</label>
-                    <input
-                      {...birthYearRegister}
-                      ref={(el) => {
-                        birthYearRegister.ref(el);
-                        birthYearRef.current = el;
-                      }}
-                      onFocus={() => guidedFlow.goToField('personalInfo')}
-                      className={uiSystem.input}
-                      placeholder="Ví dụ: 1965"
-                    />
-                    {errors.temp_birth_year && (
-                      <p className="text-xs font-bold text-rose-600">
-                        {errors.temp_birth_year.message}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className={uiSystem.label}>
-                      Quan hệ với dòng họ <span className="text-rose-500">*</span>
-                    </label>
-                    <select
-                      {...relationshipRegister}
-                      ref={(el) => {
-                        relationshipRegister.ref(el);
-                        relationshipRef.current = el;
-                      }}
-                      onFocus={() => guidedFlow.goToField('personalInfo')}
-                      className={uiSystem.select || uiSystem.input}
-                    >
-                      {RELATIONSHIP_OPTIONS.map((item) => (
-                        <option key={item.value || 'empty'} value={item.value}>
-                          {item.label}
-                        </option>
-                      ))}
-                    </select>
-                    {errors.temp_relationship && (
-                      <p className="text-xs font-bold text-rose-600">
-                        {errors.temp_relationship.message}
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className={uiSystem.label}>
-                      Lời nhắn cho quản trị viên <span className="text-rose-500">*</span>
-                    </label>
-                    <textarea
-                      {...noteRegister}
-                      ref={(el) => {
-                        noteRegister.ref(el);
-                        noteRef.current = el;
-                      }}
-                      onFocus={() => guidedFlow.goToField('personalInfo')}
-                      className={`${uiSystem.input} min-h-[100px] resize-none`}
-                      placeholder="Thông tin bổ sung để Ban quản trị xác minh..."
-                    />
-                    {errors.temp_note && (
-                      <p className="text-xs font-bold text-rose-600">{errors.temp_note.message}</p>
-                    )}
-                  </div>
+                  <button
+                    type="button"
+                    disabled={effectiveLoading}
+                    onClick={() => {
+                      setClaimMode('NEW_PROFILE_21');
+                      setProfileErrors({});
+                      setAttentionMessage('');
+                      guidedFlow.goToField('personalInfo');
+                    }}
+                    className={`rounded-2xl border p-3.5 text-left transition ${
+                      claimMode === 'NEW_PROFILE_21'
+                        ? 'border-indigo-600 bg-indigo-50 text-indigo-950 shadow-sm'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <p className="text-xs font-black uppercase tracking-wider text-indigo-700">
+                      Cách 2 (Khai báo mới)
+                    </p>
+                    <p className="mt-1 text-sm font-black">
+                      Chưa có tên trên cây (21 trường)
+                    </p>
+                    <p className="mt-0.5 text-xs font-medium text-slate-500">
+                      Điền đầy đủ hồ sơ nhân thân & tiền nhân 3 đời để lập mới.
+                    </p>
+                  </button>
                 </div>
+
+                {claimMode === 'CLAIM_EM' ? (
+                  selectedTenant?.id ? (
+                    <ClaimMemberWizard
+                      tenantId={selectedTenant.id}
+                      tenantName={selectedTenant.name}
+                      value={profileDraft}
+                      disabled={effectiveLoading}
+                      errors={profileErrors}
+                      onFocusZone={() => guidedFlow.goToField('personalInfo')}
+                      onChange={(nextDraft) => {
+                        setProfileDraft(nextDraft);
+                        setProfileErrors({});
+                        setAttentionMessage('');
+                      }}
+                    />
+                  ) : (
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold text-amber-800">
+                      Bác vui lòng tìm và chọn dòng họ ở mục phía trên trước để
+                      tra cứu danh sách thành viên trên cây.
+                    </div>
+                  )
+                ) : (
+                  <RegistrationProfileForm
+                    value={profileDraft}
+                    disabled={effectiveLoading}
+                    errors={profileErrors}
+                    onFocusZone={() => guidedFlow.goToField('personalInfo')}
+                    onChange={(nextDraft) => {
+                      setProfileDraft(nextDraft);
+                      setProfileErrors({});
+                      setAttentionMessage('');
+                    }}
+                  />
+                )}
               </div>
             </GuidedFieldWrapper>
 

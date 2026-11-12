@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/WaitingPage.jsx
  * DATETIME   : 2026-05-15T00:00:00+07:00
- * VERSION    : EGAL-25.x R2
+ * VERSION    : EGAL-25.x R3-MULTIHOME-AMEND02-V15-LAT1
  * DESCRIPTION:
  * - EGAL-6.5 Step 4: TRUE REVIEW PAGE.
  * - Hiển thị đầy đủ effective submission data trước khi gửi.
@@ -124,7 +124,19 @@ const WaitingPage = ({
     ? 'Tạo dòng họ mới'
     : 'Gia nhập dòng họ';
   
+  const regProfile =
+    data.registration_profile && typeof data.registration_profile === 'object'
+      ? data.registration_profile
+      : {};
+
   const effectiveSections = useMemo(() => {
+    const genderLabel =
+      regProfile.gender === 'NU'
+        ? 'Nữ'
+        : regProfile.gender === 'KHAC'
+          ? 'Khác'
+          : 'Nam';
+
     if (isNewClan) {
       return [
         {
@@ -139,13 +151,17 @@ const WaitingPage = ({
         {
           id: 'personal',
           icon: User,
-          title: 'Thông tin người quản trị',
+          title: 'Thông tin người sáng lập (Trưởng họ)',
           rows: [
-            ['Họ và tên', displayValue(data.temp_full_name)],
-            ['Tên cha/mẹ', displayValue(data.temp_father_name)],
-            ['Năm sinh', displayValue(data.temp_birth_year)],
+            ['Họ và tên', displayValue(regProfile.full_name || data.temp_full_name)],
+            ['Giới tính', genderLabel],
+            ...(regProfile.alias ? [['Tên tự / Tên hiệu', regProfile.alias]] : []),
+            ['Tên cha/mẹ', displayValue(regProfile.father_name || data.temp_father_name)],
+            ['Năm sinh', displayValue(regProfile.birth_year || data.temp_birth_year)],
+            ...(regProfile.birth_place ? [['Nguyên quán', regProfile.birth_place]] : []),
+            ...(regProfile.address ? [['Địa chỉ hiện tại', regProfile.address]] : []),
             ['Quan hệ', relationshipLabel],
-            ['Lời nhắn tới Ban quản trị', displayValue(data.temp_note)],
+            ['Lời nhắn tới Ban quản trị', displayValue(regProfile.note || data.temp_note)],
           ],
         },
         {
@@ -166,26 +182,88 @@ const WaitingPage = ({
       ];
     }
 
+    // Nhánh C2: Claim EM có sẵn trên cây
+    if (regProfile.claim_mode === 'CLAIM_EM' && regProfile.claimed_member_id) {
+      const emSum = regProfile.claim_verification?.claimed_member_summary || {};
+      const ver = regProfile.claim_verification || {};
+      return [
+        {
+          id: 'clan',
+          icon: Users,
+          title: 'Dòng họ xin gia nhập',
+          rows: [
+            ['Tên dòng họ', displayValue(data.clanName)],
+            ['Hình thức xác thực', 'Nhận hồ sơ thành viên có sẵn trên cây (Claim EM)'],
+          ],
+        },
+        {
+          id: 'claim-em',
+          icon: User,
+          title: 'Hồ sơ trên cây & 3 lớp gia mật',
+          rows: [
+            ['Thành viên xin nhận', displayValue(emSum.full_name || regProfile.full_name)],
+            ...(emSum.generation != null ? [['Đời thứ', `Đời thứ ${emSum.generation}`]] : []),
+            ...(emSum.branch_name ? [['Chi / Nhánh', emSum.branch_name]] : []),
+            ...(emSum.father_name ? [['Cha trên cây', emSum.father_name]] : []),
+            ['Giới tính xác nhận', genderLabel],
+            ['Lớp 1 — Huyết thống & Tiền nhân', displayValue(ver.layer1_lineage)],
+            ['Lớp 2 — Chi phái & Quê quán', displayValue(ver.layer2_branch_origin)],
+            ['Lớp 3 — Người bảo lãnh & Lời nhắn', displayValue(ver.layer3_guarantor_note)],
+          ],
+        },
+        {
+          id: 'contact',
+          icon: MessageSquareText,
+          title: 'Thông tin tài khoản đăng nhập',
+          rows: [
+            ['Số điện thoại đăng nhập', displayValue(data.phone)],
+            ['Email', displayValue(data.email, 'Không khai báo')],
+          ],
+        },
+        {
+          id: 'security',
+          icon: LockKeyhole,
+          title: 'Thông tin bảo mật',
+          rows: [['Mật khẩu', maskPassword(data.password)]],
+        },
+      ];
+    }
+
+    // Nhánh C2: Khai báo mới 21 trường phả hệ (No EM)
+    const birthParts = [regProfile.birth_day, regProfile.birth_month, regProfile.birth_year]
+      .filter((v) => v !== undefined && v !== null && v !== '')
+      .join('/');
+
     return [
       {
         id: 'clan',
         icon: Users,
-        title: 'Thông tin dòng họ',
+        title: 'Dòng họ xin gia nhập',
         rows: [
           ['Tên dòng họ', displayValue(data.clanName)],
-          ['Định danh dòng họ', displayValue(data.tenantSlug, 'Đã chọn từ danh sách'), true],
+          ['Hình thức đăng ký', 'Khai báo hồ sơ nhân thân mới (21 trường phả hệ)'],
         ],
       },
       {
         id: 'personal',
         icon: User,
-        title: 'Thông tin cá nhân',
+        title: 'Hồ sơ nhân thân & Tiền nhân 3 đời',
         rows: [
-          ['Họ và tên', displayValue(data.temp_full_name)],
-          ['Tên cha/mẹ', displayValue(data.temp_father_name)],
-          ['Năm sinh', displayValue(data.temp_birth_year)],
+          ['Họ và tên khai sinh', displayValue(regProfile.full_name || data.temp_full_name)],
+          ...(regProfile.alias ? [['Tên tự / Tên hiệu', regProfile.alias]] : []),
+          ['Giới tính', genderLabel],
+          ['Ngày/Tháng/Năm sinh', displayValue(birthParts || data.temp_birth_year)],
+          ...(regProfile.birth_place ? [['Nơi sinh / Nguyên quán', regProfile.birth_place]] : []),
+          ['Tình trạng', regProfile.is_alive === false ? `Đã mất${regProfile.death_year ? ` (${regProfile.death_year})` : ''}` : 'Còn sống'],
+          ...(regProfile.generation ? [['Đời thứ', `Đời thứ ${regProfile.generation}`]] : []),
+          ...(regProfile.branch_name ? [['Chi / Phái / Nhánh', regProfile.branch_name]] : []),
+          ['Họ tên Cha', displayValue(regProfile.father_name || data.temp_father_name)],
+          ...(regProfile.mother_name ? [['Họ tên Mẹ', regProfile.mother_name]] : []),
+          ...(regProfile.grandfather_name ? [['Họ tên Ông nội', regProfile.grandfather_name]] : []),
+          ...(regProfile.grandmother_name ? [['Họ tên Bà nội', regProfile.grandmother_name]] : []),
+          ...(regProfile.address ? [['Địa chỉ cư trú', regProfile.address]] : []),
           ['Quan hệ với dòng họ', relationshipLabel],
-          ['Lời nhắn tới Ban quản trị', displayValue(data.temp_note)],
+          ['Lời nhắn tới Ban quản trị', displayValue(regProfile.note || data.temp_note)],
         ],
       },
       {
@@ -204,14 +282,24 @@ const WaitingPage = ({
         rows: [['Mật khẩu', maskPassword(data.password)]],
       },
     ];
-  }, [data, isNewClan, relationshipLabel]);
+  }, [data, isNewClan, relationshipLabel, regProfile]);
 
   const handleConfirm = () => {
     if (!reviewChecked) return;
 
+    // AMEND-RP-OP-2026-02 V1.5.0: Loại bỏ hoàn toàn các trường temp_* cũ trước khi gửi POST /auth/register
     const {
       tenantSlug,
       clanSlug,
+      temp_full_name,
+      temp_father_name,
+      temp_grandfather_name,
+      temp_birth_year,
+      temp_relationship,
+      temp_address,
+      temp_branch_name,
+      temp_note,
+      temp_social_profiles,
       ...apiPayload
     } = data;
 

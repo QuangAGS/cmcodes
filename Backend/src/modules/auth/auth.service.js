@@ -735,13 +735,6 @@ const authService = {
             isNewClan,
           });
 
-          return {
-            userId: newUser.id,
-            tenantId: tid,
-            slug: tenantSlug,
-            status: newUser.status,
-            validatedProfile,
-          };
           // [AMEND-02 V1.5.0] Đưa việc tạo onboarding_cases vào trong transaction để tránh sinh user mồ côi
           const C = incomingCorrelationId || crypto.randomUUID();
           const caseType = isNewClan ? 'CLAN_SETUP' : 'MEMBER_JOIN';

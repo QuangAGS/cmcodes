@@ -1,461 +1,469 @@
 /**
- * =============================================================================
- * PATH        : frontend/src/features/membership/components/RegistrationProfileForm.jsx
- * DATETIME    : 2026-11-10T11:55:00+07:00
- * VERSION     : 1.1.0-REGISTRATION-PROFILE-FORM-VALIDATED
- * DESCRIPTION : Biểu mẫu khai báo thông tin phả hệ 21 trường (AMEND-RP-OP-2026-01-V1.1).
- *               Tích hợp bộ kiểm tra tính hợp lệ dữ liệu client-side khớp 100%
- *               với hàm validateRegistrationProfile của Backend nhằm loại bỏ hoàn toàn
- *               các mã lỗi 400 VALIDATION_REQUIRED, VALIDATION_MAX, VALIDATION_MIN.
- * =============================================================================
- * CHANGELOGS:
- * - 2026-11-10T11:22:00+07:00 (v1.0.0-REGISTRATION-PROFILE-FORM-21F):
- *   + Khởi tạo 21 trường dữ liệu cơ bản theo AMEND.
- * - 2026-11-10T11:55:00+07:00 (v1.1.0-REGISTRATION-PROFILE-FORM-VALIDATED):
- *   + Bổ sung client-side validation logic tương đương Backend SSOT validator.
- *   + Giữ nút bấm chuẩn Elder min-h-[52px], cỡ chữ to, tương phản cao.
- * =============================================================================
+ * ============================================================================
+ * PATH       : frontend/src/features/membership/components/RegistrationProfileForm.jsx
+ * DATETIME   : 2026-11-12T12:20:00+07:00
+ * VERSION    : 1.0.0-MULTIHOME-AMEND02-V15-LAT1
+ * DESCRIPTION:
+ * - [AMEND-RP-OP-2026-02 V1.5.0 MF-06] Biểu mẫu khai báo nhân thân chuẩn 21 trường phả hệ
+ *   (dành cho Case 2 No EM khi người dùng chưa có tên trên cây gia phả).
+ * - Tương thích 100% với REGISTRATION_SCHEMA (Backend registrationValidator.js).
+ * - Dùng chung cho cả C2 (Guest tại /auth) và C1 (Multi-Home tại /membership/claim).
+ * ============================================================================
  */
 
-import React, { useState } from 'react';
+import { User, GitBranch, MapPin, FileText } from 'lucide-react';
 
-/**
- * Bộ quy chuẩn ràng buộc trường dữ liệu khớp chuẩn Backend AMEND-RP-OP-2026-01-V1.1
- */
-const CLIENT_VALIDATION_RULES = {
-  full_name: { required: true, max: 100, label: 'Họ và tên chính thức' },
-  alias: { max: 100, label: 'Tên thường gọi / Tên húy' },
-  gender: { required: true, enum: ['NAM', 'NU', 'KHAC'], label: 'Giới tính' },
-  birth_year: { min: 1800, max: new Date().getFullYear(), label: 'Năm sinh' },
-  birth_month: { min: 1, max: 12, label: 'Tháng sinh' },
-  birth_day: { min: 1, max: 31, label: 'Ngày sinh' },
-  birth_place: { max: 200, label: 'Nơi sinh' },
-  death_year: { min: 1800, max: new Date().getFullYear(), label: 'Năm mất' },
-  generation: { min: 1, max: 20, label: 'Đời thứ' },
-  phone: { max: 20, label: 'Số điện thoại' },
-  email: { max: 100, label: 'Hộp thư điện tử' },
-  branch_name: { max: 100, label: 'Tên Chi / Nhánh' },
-  father_name: { max: 100, label: 'Họ tên Cha' },
-  mother_name: { max: 100, label: 'Họ tên Mẹ' },
-  grandfather_name: { max: 100, label: 'Họ tên Ông nội' },
-  grandmother_name: { max: 100, label: 'Họ tên Bà nội' },
-  address: { max: 500, label: 'Địa chỉ thường trú' },
-  note: { max: 1000, label: 'Ghi chú' },
-};
+const GENDER_OPTIONS = [
+  { value: 'NAM', label: 'Nam' },
+  { value: 'NU', label: 'Nữ' },
+  { value: 'KHAC', label: 'Khác' },
+];
 
-export const RegistrationProfileForm = ({
-  initialValues = {},
-  onSubmit,
-  isSubmitting = false,
-  mode = 'CREATE', // 'CREATE' | 'REVISION'
-  revisionFeedback = '',
+const MEMBER_ROLE_OPTIONS = [
+  { value: 'THANH_VIEN', label: 'Thành viên trong họ' },
+  { value: 'TRUONG_CHI', label: 'Trưởng chi / Trưởng phái' },
+  { value: 'TRUONG_NGANH', label: 'Trưởng ngành' },
+  { value: 'TRUONG_TOC', label: 'Trưởng tộc' },
+  { value: 'KHAC', label: 'Vai vế khác' },
+];
+
+const RELATIONSHIP_OPTIONS = [
+  { value: 'CON_DE', label: 'Con đẻ' },
+  { value: 'CON_DAU', label: 'Con dâu' },
+  { value: 'CON_RE', label: 'Con rể' },
+  { value: 'CON_NUOI', label: 'Con nuôi' },
+  { value: 'CON_DO_DAU', label: 'Con đỡ đầu' },
+  { value: 'KHAC', label: 'Khác' },
+];
+
+const RegistrationProfileForm = ({
+  value = {},
+  onChange,
+  onFocusZone,
+  disabled = false,
+  errors = {},
 }) => {
-  const [formData, setFormData] = useState({
-    full_name: initialValues.full_name || '',
-    alias: initialValues.alias || '',
-    gender: initialValues.gender || 'NAM',
-    birth_year: initialValues.birth_year || '',
-    birth_month: initialValues.birth_month || '',
-    birth_day: initialValues.birth_day || '',
-    birth_place: initialValues.birth_place || '',
-    death_year: initialValues.death_year || '',
-    is_alive: initialValues.is_alive !== undefined ? initialValues.is_alive : true,
-    generation: initialValues.generation || '',
-    phone: initialValues.phone || '',
-    email: initialValues.email || '',
-    member_role: initialValues.member_role || 'THANH_VIEN',
-    branch_name: initialValues.branch_name || '',
-    father_name: initialValues.father_name || '',
-    mother_name: initialValues.mother_name || '',
-    grandfather_name: initialValues.grandfather_name || '',
-    grandmother_name: initialValues.grandmother_name || '',
-    address: initialValues.address || '',
-    note: initialValues.note || '',
-    claimed_member_id: initialValues.claimed_member_id || '',
-    proof_documents: initialValues.proof_documents || [],
-    social_facebook: initialValues.social_profiles?.facebook || '',
-    social_zalo: initialValues.social_profiles?.zalo || '',
-  });
-
-  const [validationError, setValidationError] = useState('');
-
-  const handleChange = (field, value) => {
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
+  const profile = {
+    full_name: '',
+    alias: '',
+    gender: 'NAM',
+    birth_day: '',
+    birth_month: '',
+    birth_year: '',
+    birth_place: '',
+    is_alive: true,
+    death_year: '',
+    generation: '',
+    member_role: 'THANH_VIEN',
+    branch_name: '',
+    father_name: '',
+    mother_name: '',
+    grandfather_name: '',
+    grandmother_name: '',
+    address: '',
+    note: '',
+    temp_relationship: 'CON_DE',
+    social_profiles: { zalo: '', facebook: '' },
+    proof_documents: [],
+    ...(value || {}),
   };
 
-  /**
-   * Thẩm định dữ liệu tương đồng với validateRegistrationProfile (Backend)
-   */
-  const validateForm = () => {
-    for (const [key, rule] of Object.entries(CLIENT_VALIDATION_RULES)) {
-      const val = formData[key];
+  const socialProfiles =
+    profile.social_profiles && typeof profile.social_profiles === 'object'
+      ? profile.social_profiles
+      : { zalo: '', facebook: '' };
 
-      // Kiểm tra trường bắt buộc
-      if (rule.required && (!val || !val.toString().trim())) {
-        return `Trường [${rule.label}] là bắt buộc.`;
-      }
-
-      if (val !== undefined && val !== null && val !== '') {
-        // Kiểm tra độ dài tối đa chuỗi
-        if (rule.max && typeof val === 'string' && val.length > rule.max) {
-          return `Trường [${rule.label}] không được vượt quá ${rule.max} ký tự.`;
-        }
-
-        // Kiểm tra giá trị số (min / max)
-        if (rule.min !== undefined || (rule.max !== undefined && typeof val === 'number')) {
-          const numVal = Number(val);
-          if (isNaN(numVal)) {
-            return `Trường [${rule.label}] phải là một con số hợp lệ.`;
-          }
-          if (rule.min !== undefined && numVal < rule.min) {
-            return `Trường [${rule.label}] phải lớn hơn hoặc bằng ${rule.min}.`;
-          }
-          if (rule.max !== undefined && numVal > rule.max) {
-            return `Trường [${rule.label}] không được vượt quá ${rule.max}.`;
-          }
-        }
-
-        // Kiểm tra giá trị Enum
-        if (rule.enum && !rule.enum.includes(val)) {
-          return `Giá trị chọn cho trường [${rule.label}] không hợp lệ.`;
-        }
-      }
-    }
-    return null;
+  const updateField = (field, fieldVal) => {
+    onFocusZone?.();
+    if (!onChange) return;
+    onChange({
+      ...profile,
+      claim_mode: 'NEW_PROFILE_21',
+      claimed_member_id: null,
+      [field]: fieldVal,
+    });
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    setValidationError('');
-
-    const error = validateForm();
-    if (error) {
-      setValidationError(error);
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      return;
-    }
-
-    // Làm sạch và ép kiểu dữ liệu chuẩn xác trước khi dispatch
-    const cleanPayload = {
-      ...formData,
-      birth_year: formData.birth_year ? Number(formData.birth_year) : undefined,
-      birth_month: formData.birth_month ? Number(formData.birth_month) : undefined,
-      birth_day: formData.birth_day ? Number(formData.birth_day) : undefined,
-      death_year: formData.death_year ? Number(formData.death_year) : undefined,
-      generation: formData.generation ? Number(formData.generation) : undefined,
-      is_alive: Boolean(formData.is_alive),
+  const updateSocial = (key, text) => {
+    onFocusZone?.();
+    if (!onChange) return;
+    onChange({
+      ...profile,
+      claim_mode: 'NEW_PROFILE_21',
+      claimed_member_id: null,
       social_profiles: {
-        facebook: formData.social_facebook || undefined,
-        zalo: formData.social_zalo || undefined,
+        ...socialProfiles,
+        [key]: text,
       },
-    };
-
-    delete cleanPayload.social_facebook;
-    delete cleanPayload.social_zalo;
-
-    onSubmit(cleanPayload);
+    });
   };
+
+  const inputClass =
+    'w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100';
+  const labelClass = 'block text-xs font-black text-slate-700 mb-1';
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-8 max-w-4xl mx-auto">
-      {mode === 'REVISION' && revisionFeedback && (
-        <div className="p-5 bg-amber-50 border-2 border-amber-400 rounded-2xl">
-          <h4 className="text-base font-bold text-amber-950 flex items-center gap-2">
-            <span className="w-6 h-6 rounded-full bg-amber-500 text-white flex items-center justify-center text-xs font-black">
-              !
-            </span>
-            Nội dung Ban quản trị yêu cầu bổ sung / chỉnh sửa:
-          </h4>
-          <p className="mt-2 text-base text-amber-900 font-semibold whitespace-pre-wrap">
-            {revisionFeedback}
-          </p>
-        </div>
-      )}
+    <div className="space-y-5">
+      {/* NHÓM 1: THÔNG TIN NHÂN THÂN */}
+      <div className="space-y-3.5 rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+        <h4 className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-emerald-800">
+          <User size={15} />
+          1. Thông tin nhân thân
+        </h4>
 
-      {validationError && (
-        <div className="p-4 bg-red-50 border-l-4 border-red-500 rounded-r-xl text-red-800 font-bold text-base shadow-sm">
-          {validationError}
-        </div>
-      )}
-
-      {/* 1. THÔNG TIN CÁ NHÂN */}
-      <section className="p-6 bg-white border border-gray-200 rounded-3xl shadow-sm space-y-6">
-        <h3 className="text-xl font-bold text-gray-900 border-b pb-3">
-          1. Thông tin cá nhân cơ bản
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="block text-base font-bold text-gray-800 mb-2">
-              Họ và tên chính thức (*)
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label className={labelClass}>
+              Họ và tên khai sinh <span className="text-rose-500">*</span>
             </label>
             <input
               type="text"
-              required
-              value={formData.full_name}
-              onChange={(e) => handleChange('full_name', e.target.value)}
+              disabled={disabled}
+              value={profile.full_name || ''}
+              onFocus={() => onFocusZone?.()}
+              onChange={(e) => updateField('full_name', e.target.value)}
               placeholder="Ví dụ: Nguyễn Văn An"
-              className="w-full px-4 py-3 min-h-[48px] rounded-xl border border-gray-300 text-base focus:ring-2 focus:ring-blue-500"
+              className={inputClass}
             />
+            {errors.full_name && (
+              <p className="mt-1 text-xs font-bold text-rose-600">
+                {errors.full_name}
+              </p>
+            )}
           </div>
 
           <div>
-            <label className="block text-base font-bold text-gray-800 mb-2">
-              Tên thường gọi / Tên tự / Tên húy
-            </label>
+            <label className={labelClass}>Tên tự / Tên hiệu / Tên thường gọi</label>
             <input
               type="text"
-              value={formData.alias}
-              onChange={(e) => handleChange('alias', e.target.value)}
-              placeholder="Ví dụ: Ba An"
-              className="w-full px-4 py-3 min-h-[48px] rounded-xl border border-gray-300 text-base focus:ring-2 focus:ring-blue-500"
+              disabled={disabled}
+              value={profile.alias || ''}
+              onFocus={() => onFocusZone?.()}
+              onChange={(e) => updateField('alias', e.target.value)}
+              placeholder="Tên tự, tên hiệu (nếu có)"
+              className={inputClass}
             />
           </div>
 
           <div>
-            <label className="block text-base font-bold text-gray-800 mb-2">
-              Giới tính (*)
+            <label className={labelClass}>
+              Giới tính <span className="text-rose-500">*</span>
             </label>
             <select
-              value={formData.gender}
-              onChange={(e) => handleChange('gender', e.target.value)}
-              className="w-full px-4 py-3 min-h-[48px] rounded-xl border border-gray-300 text-base focus:ring-2 focus:ring-blue-500 bg-white"
+              disabled={disabled}
+              value={profile.gender || 'NAM'}
+              onFocus={() => onFocusZone?.()}
+              onChange={(e) => updateField('gender', e.target.value)}
+              className={inputClass}
             >
-              <option value="NAM">Nam</option>
-              <option value="NU">Nữ</option>
-              <option value="KHAC">Khác</option>
+              {GENDER_OPTIONS.map((g) => (
+                <option key={g.value} value={g.value}>
+                  {g.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Ngày / Tháng / Năm sinh */}
+          <div className="sm:col-span-2">
+            <label className={labelClass}>Ngày / Tháng / Năm sinh (Dương lịch)</label>
+            <div className="grid grid-cols-3 gap-2">
+              <input
+                type="number"
+                min={1}
+                max={31}
+                disabled={disabled}
+                value={profile.birth_day ?? ''}
+                onFocus={() => onFocusZone?.()}
+                onChange={(e) => updateField('birth_day', e.target.value)}
+                placeholder="Ngày (1-31)"
+                className={inputClass}
+              />
+              <input
+                type="number"
+                min={1}
+                max={12}
+                disabled={disabled}
+                value={profile.birth_month ?? ''}
+                onFocus={() => onFocusZone?.()}
+                onChange={(e) => updateField('birth_month', e.target.value)}
+                placeholder="Tháng (1-12)"
+                className={inputClass}
+              />
+              <input
+                type="number"
+                min={1800}
+                max={new Date().getFullYear()}
+                disabled={disabled}
+                value={profile.birth_year ?? ''}
+                onFocus={() => onFocusZone?.()}
+                onChange={(e) => updateField('birth_year', e.target.value)}
+                placeholder="Năm (VD: 1975)"
+                className={inputClass}
+              />
+            </div>
+            {errors.birth_year && (
+              <p className="mt-1 text-xs font-bold text-rose-600">
+                {errors.birth_year}
+              </p>
+            )}
+          </div>
+
+          <div className="sm:col-span-2">
+            <label className={labelClass}>Nơi sinh / Nguyên quán</label>
+            <input
+              type="text"
+              disabled={disabled}
+              value={profile.birth_place || ''}
+              onFocus={() => onFocusZone?.()}
+              onChange={(e) => updateField('birth_place', e.target.value)}
+              placeholder="Xã/Phường, Huyện/Quận, Tỉnh/Thành phố"
+              className={inputClass}
+            />
+          </div>
+
+          <div>
+            <label className={labelClass}>Tình trạng hiện tại</label>
+            <select
+              disabled={disabled}
+              value={profile.is_alive === false ? 'false' : 'true'}
+              onFocus={() => onFocusZone?.()}
+              onChange={(e) =>
+                updateField('is_alive', e.target.value === 'true')
+              }
+              className={inputClass}
+            >
+              <option value="true">Còn sống</option>
+              <option value="false">Đã mất (Khai hộ thân nhân)</option>
+            </select>
+          </div>
+
+          {profile.is_alive === false && (
+            <div>
+              <label className={labelClass}>Năm mất</label>
+              <input
+                type="number"
+                min={1800}
+                max={new Date().getFullYear()}
+                disabled={disabled}
+                value={profile.death_year ?? ''}
+                onFocus={() => onFocusZone?.()}
+                onChange={(e) => updateField('death_year', e.target.value)}
+                placeholder="Năm mất (VD: 2020)"
+                className={inputClass}
+              />
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* NHÓM 2: VỊ TRÍ PHẢ HỆ & TIỀN NHÂN 3 ĐỜI */}
+      <div className="space-y-3.5 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
+        <h4 className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-indigo-800">
+          <GitBranch size={15} />
+          2. Vị trí phả hệ & Tiền nhân 3 đời
+        </h4>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div>
+            <label className={labelClass}>Đời thứ mấy trong họ (nếu biết)</label>
+            <input
+              type="number"
+              min={1}
+              max={30}
+              disabled={disabled}
+              value={profile.generation ?? ''}
+              onFocus={() => onFocusZone?.()}
+              onChange={(e) => updateField('generation', e.target.value)}
+              placeholder="Ví dụ: 8"
+              className={inputClass}
+            />
+          </div>
+
+          <div>
+            <label className={labelClass}>Quan hệ huyết thống</label>
+            <select
+              disabled={disabled}
+              value={profile.temp_relationship || 'CON_DE'}
+              onFocus={() => onFocusZone?.()}
+              onChange={(e) => updateField('temp_relationship', e.target.value)}
+              className={inputClass}
+            >
+              {RELATIONSHIP_OPTIONS.map((r) => (
+                <option key={r.value} value={r.value}>
+                  {r.label}
+                </option>
+              ))}
             </select>
           </div>
 
           <div>
-            <label className="block text-base font-bold text-gray-800 mb-2">
-              Đời thứ (Thế hệ trong dòng họ)
+            <label className={labelClass}>Tên Chi / Phái / Nhánh</label>
+            <input
+              type="text"
+              disabled={disabled}
+              value={profile.branch_name || ''}
+              onFocus={() => onFocusZone?.()}
+              onChange={(e) => updateField('branch_name', e.target.value)}
+              placeholder="Ví dụ: Chi 2 - Phái Giáp"
+              className={inputClass}
+            />
+          </div>
+
+          <div>
+            <label className={labelClass}>Vai vế / Chức trách trong họ</label>
+            <select
+              disabled={disabled}
+              value={profile.member_role || 'THANH_VIEN'}
+              onFocus={() => onFocusZone?.()}
+              onChange={(e) => updateField('member_role', e.target.value)}
+              className={inputClass}
+            >
+              {MEMBER_ROLE_OPTIONS.map((mr) => (
+                <option key={mr.value} value={mr.value}>
+                  {mr.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className={labelClass}>
+              Họ và tên Cha <span className="text-rose-500">*</span>
             </label>
             <input
-              type="number"
-              min="1"
-              max="20"
-              value={formData.generation}
-              onChange={(e) => handleChange('generation', e.target.value)}
-              placeholder="Ví dụ: 15"
-              className="w-full px-4 py-3 min-h-[48px] rounded-xl border border-gray-300 text-base focus:ring-2 focus:ring-blue-500"
+              type="text"
+              disabled={disabled}
+              value={profile.father_name || ''}
+              onFocus={() => onFocusZone?.()}
+              onChange={(e) => updateField('father_name', e.target.value)}
+              placeholder="Họ tên đầy đủ của Cha"
+              className={inputClass}
+            />
+            {errors.father_name && (
+              <p className="mt-1 text-xs font-bold text-rose-600">
+                {errors.father_name}
+              </p>
+            )}
+          </div>
+
+          <div>
+            <label className={labelClass}>Họ và tên Mẹ</label>
+            <input
+              type="text"
+              disabled={disabled}
+              value={profile.mother_name || ''}
+              onFocus={() => onFocusZone?.()}
+              onChange={(e) => updateField('mother_name', e.target.value)}
+              placeholder="Họ tên đầy đủ của Mẹ"
+              className={inputClass}
+            />
+          </div>
+
+          <div>
+            <label className={labelClass}>Họ và tên Ông nội</label>
+            <input
+              type="text"
+              disabled={disabled}
+              value={profile.grandfather_name || ''}
+              onFocus={() => onFocusZone?.()}
+              onChange={(e) => updateField('grandfather_name', e.target.value)}
+              placeholder="Họ tên Ông nội"
+              className={inputClass}
+            />
+          </div>
+
+          <div>
+            <label className={labelClass}>Họ và tên Bà nội</label>
+            <input
+              type="text"
+              disabled={disabled}
+              value={profile.grandmother_name || ''}
+              onFocus={() => onFocusZone?.()}
+              onChange={(e) => updateField('grandmother_name', e.target.value)}
+              placeholder="Họ tên Bà nội"
+              className={inputClass}
             />
           </div>
         </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Ngày sinh</label>
-            <input
-              type="number"
-              min="1"
-              max="31"
-              value={formData.birth_day}
-              onChange={(e) => handleChange('birth_day', e.target.value)}
-              placeholder="Ngày (1-31)"
-              className="w-full px-3 py-2.5 min-h-[48px] rounded-xl border border-gray-300 text-base"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Tháng sinh</label>
-            <input
-              type="number"
-              min="1"
-              max="12"
-              value={formData.birth_month}
-              onChange={(e) => handleChange('birth_month', e.target.value)}
-              placeholder="Tháng (1-12)"
-              className="w-full px-3 py-2.5 min-h-[48px] rounded-xl border border-gray-300 text-base"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-1">Năm sinh</label>
-            <input
-              type="number"
-              min="1800"
-              max={new Date().getFullYear()}
-              value={formData.birth_year}
-              onChange={(e) => handleChange('birth_year', e.target.value)}
-              placeholder={`Năm (1800-${new Date().getFullYear()})`}
-              className="w-full px-3 py-2.5 min-h-[48px] rounded-xl border border-gray-300 text-base"
-            />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-          <div>
-            <label className="block text-base font-bold text-gray-800 mb-2">Nơi sinh</label>
-            <input
-              type="text"
-              value={formData.birth_place}
-              onChange={(e) => handleChange('birth_place', e.target.value)}
-              placeholder="Xã/Phường, Huyện/Quận, Tỉnh/TP"
-              className="w-full px-4 py-3 min-h-[48px] rounded-xl border border-gray-300 text-base"
-            />
-          </div>
-
-          <div className="flex flex-col justify-center">
-            <span className="block text-base font-bold text-gray-800 mb-2">Tình trạng</span>
-            <div className="flex items-center gap-6 h-[48px]">
-              <label className="flex items-center gap-2 text-base font-medium text-gray-800 cursor-pointer">
-                <input
-                  type="radio"
-                  name="is_alive"
-                  checked={formData.is_alive === true}
-                  onChange={() => handleChange('is_alive', true)}
-                  className="w-5 h-5 text-blue-600"
-                />
-                Còn sống
-              </label>
-              <label className="flex items-center gap-2 text-base font-medium text-gray-800 cursor-pointer">
-                <input
-                  type="radio"
-                  name="is_alive"
-                  checked={formData.is_alive === false}
-                  onChange={() => handleChange('is_alive', false)}
-                  className="w-5 h-5 text-blue-600"
-                />
-                Đã mất
-              </label>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 2. HUYẾT THỐNG TIỀN NHÂN */}
-      <section className="p-6 bg-white border border-gray-200 rounded-3xl shadow-sm space-y-6">
-        <h3 className="text-xl font-bold text-gray-900 border-b pb-3">
-          2. Tiền nhân & Nhánh tộc (Thẩm định huyết thống)
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="block text-base font-bold text-gray-800 mb-2">Họ tên Cha</label>
-            <input
-              type="text"
-              value={formData.father_name}
-              onChange={(e) => handleChange('father_name', e.target.value)}
-              placeholder="Họ tên thân phụ"
-              className="w-full px-4 py-3 min-h-[48px] rounded-xl border border-gray-300 text-base"
-            />
-          </div>
-
-          <div>
-            <label className="block text-base font-bold text-gray-800 mb-2">Họ tên Mẹ</label>
-            <input
-              type="text"
-              value={formData.mother_name}
-              onChange={(e) => handleChange('mother_name', e.target.value)}
-              placeholder="Họ tên thân mẫu"
-              className="w-full px-4 py-3 min-h-[48px] rounded-xl border border-gray-300 text-base"
-            />
-          </div>
-
-          <div>
-            <label className="block text-base font-bold text-gray-800 mb-2">Họ tên Ông nội</label>
-            <input
-              type="text"
-              value={formData.grandfather_name}
-              onChange={(e) => handleChange('grandfather_name', e.target.value)}
-              placeholder="Họ tên ông nội"
-              className="w-full px-4 py-3 min-h-[48px] rounded-xl border border-gray-300 text-base"
-            />
-          </div>
-
-          <div>
-            <label className="block text-base font-bold text-gray-800 mb-2">Họ tên Bà nội</label>
-            <input
-              type="text"
-              value={formData.grandmother_name}
-              onChange={(e) => handleChange('grandmother_name', e.target.value)}
-              placeholder="Họ tên bà nội"
-              className="w-full px-4 py-3 min-h-[48px] rounded-xl border border-gray-300 text-base"
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="block text-base font-bold text-gray-800 mb-2">Tên Chi / Nhánh dòng họ</label>
-            <input
-              type="text"
-              value={formData.branch_name}
-              onChange={(e) => handleChange('branch_name', e.target.value)}
-              placeholder="Ví dụ: Chi 2, Nhánh Giáp Ba..."
-              className="w-full px-4 py-3 min-h-[48px] rounded-xl border border-gray-300 text-base"
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* 3. LIÊN LẠC & ĐỊA CHỈ */}
-      <section className="p-6 bg-white border border-gray-200 rounded-3xl shadow-sm space-y-6">
-        <h3 className="text-xl font-bold text-gray-900 border-b pb-3">
-          3. Thông tin liên lạc & Địa chỉ hiện tại
-        </h3>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="block text-base font-bold text-gray-800 mb-2">Số điện thoại liên hệ</label>
-            <input
-              type="tel"
-              value={formData.phone}
-              onChange={(e) => handleChange('phone', e.target.value)}
-              placeholder="09xxxxxxxx"
-              className="w-full px-4 py-3 min-h-[48px] rounded-xl border border-gray-300 text-base"
-            />
-          </div>
-
-          <div>
-            <label className="block text-base font-bold text-gray-800 mb-2">Hộp thư điện tử (Email)</label>
-            <input
-              type="email"
-              value={formData.email}
-              onChange={(e) => handleChange('email', e.target.value)}
-              placeholder="email@example.com"
-              className="w-full px-4 py-3 min-h-[48px] rounded-xl border border-gray-300 text-base"
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="block text-base font-bold text-gray-800 mb-2">Địa chỉ thường trú</label>
-            <input
-              type="text"
-              value={formData.address}
-              onChange={(e) => handleChange('address', e.target.value)}
-              placeholder="Số nhà, đường phố, thôn/xóm, tỉnh/thành phố"
-              className="w-full px-4 py-3 min-h-[48px] rounded-xl border border-gray-300 text-base"
-            />
-          </div>
-
-          <div className="md:col-span-2">
-            <label className="block text-base font-bold text-gray-800 mb-2">Ghi chú thêm cho Ban quản trị</label>
-            <textarea
-              rows="3"
-              value={formData.note}
-              onChange={(e) => handleChange('note', e.target.value)}
-              placeholder="Bác có thể ghi thêm thông tin gia cảnh hoặc các chi tiết phả ký khác..."
-              className="w-full px-4 py-3 rounded-xl border border-gray-300 text-base"
-            />
-          </div>
-        </div>
-      </section>
-
-      {/* NÚT THAO TÁC SUBMIT */}
-      <div className="pt-4">
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="w-full py-4 px-6 min-h-[52px] bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white font-extrabold text-lg rounded-2xl shadow-xl transition-all focus:outline-none focus:ring-4 focus:ring-blue-200 flex items-center justify-center"
-        >
-          {isSubmitting
-            ? 'Đang kiểm tra và lưu hồ sơ...'
-            : mode === 'REVISION'
-            ? 'Nộp lại hồ sơ đã bổ sung'
-            : 'Hoàn tất & Gửi hồ sơ đăng ký'}
-        </button>
       </div>
-    </form>
+
+      {/* NHÓM 3: CƯ TRÚ & LIÊN LẠC MỞ RỘNG */}
+      <div className="space-y-3.5 rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+        <h4 className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-slate-700">
+          <MapPin size={15} />
+          3. Địa chỉ cư trú & Mạng xã hội
+        </h4>
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="sm:col-span-2">
+            <label className={labelClass}>Địa chỉ cư trú hiện tại</label>
+            <input
+              type="text"
+              disabled={disabled}
+              value={profile.address || ''}
+              onFocus={() => onFocusZone?.()}
+              onChange={(e) => updateField('address', e.target.value)}
+              placeholder="Số nhà, đường, xã/phường, tỉnh/thành phố"
+              className={inputClass}
+            />
+          </div>
+
+          <div>
+            <label className={labelClass}>Zalo liên hệ</label>
+            <input
+              type="text"
+              disabled={disabled}
+              value={socialProfiles.zalo || ''}
+              onFocus={() => onFocusZone?.()}
+              onChange={(e) => updateSocial('zalo', e.target.value)}
+              placeholder="Số/Tên Zalo"
+              className={inputClass}
+            />
+          </div>
+
+          <div>
+            <label className={labelClass}>Facebook liên hệ</label>
+            <input
+              type="text"
+              disabled={disabled}
+              value={socialProfiles.facebook || ''}
+              onFocus={() => onFocusZone?.()}
+              onChange={(e) => updateSocial('facebook', e.target.value)}
+              placeholder="Tên hoặc link Facebook"
+              className={inputClass}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* NHÓM 4: LỜI NHẮN & MINH CHỨNG */}
+      <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/60 p-4">
+        <h4 className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-slate-700">
+          <FileText size={15} />
+          4. Lời nhắn & Thông tin minh chứng
+        </h4>
+
+        <div>
+          <label className={labelClass}>
+            Lời nhắn gửi Ban Quản trị xác minh{' '}
+            <span className="text-rose-500">*</span>
+          </label>
+          <textarea
+            disabled={disabled}
+            value={profile.note || ''}
+            onFocus={() => onFocusZone?.()}
+            onChange={(e) => updateField('note', e.target.value)}
+            placeholder="Ghi rõ thông tin gia đình, người thân quen trong họ hoặc bối cảnh xin nhập phả để Hội đồng gia tộc đối chiếu..."
+            className={`${inputClass} min-h-[96px] resize-none`}
+          />
+          {errors.note && (
+            <p className="mt-1 text-xs font-bold text-rose-600">{errors.note}</p>
+          )}
+        </div>
+      </div>
+    </div>
   );
 };
+
+export default RegistrationProfileForm;
