@@ -1,20 +1,32 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/context/AuthContext.jsx
- * DATETIME    : 2026-11-11T12:00:00+07:00
- * VERSION     : 2.1.0-AUTH-CONTEXT-MULTIHOME-ROLE-SWITCH
- * DESCRIPTION : Quản lý phiên làm việc và Ngữ cảnh dòng họ (Multi-Home Session).
- *               - Bổ sung redirectUrl cho switchContext: window.location.href = redirectUrl.
- *               - Seed availableClans trực tiếp từ login payload, không gọi API thừa.
- *               - Điều hướng sau login: DA_DUYET có member vào thẳng /op.
- *               - Role SSOT: roleInTenant lấy từ user_member_links.
+ * DATETIME    : 2026-11-11T23:00:00+07:00
+ * VERSION     : 2.1.3-AUTH-CONTEXT-LOGIN-423
+ * DESCRIPTION : Quản lý phiên làm việc và ngữ cảnh dòng họ (Multi-Home Session).
+ *               - Giữ switchContext(targetTenantId, redirectUrl).
+ *               - Seed availableClans từ login payload.
+ *               - DA_DUYET có member vào /op.
+ *               - Role SSOT: roleInTenant từ user_member_links.
+ *               - clearSession xóa đủ auth_token, token, active_context.
+ *               - register gọi POST /auth/register, không ghi token.
+ *               - login chuẩn hóa 423 ACCOUNT_CHO_DUYET (canEdit, reviewNote, tempSnapshot).
  * =============================================================================
  * CHANGELOGS:
  * - 2026-11-10T21:40:00+07:00 (v2.0.8): Redirect /membership/select-tenant.
  * - 2026-11-11T12:00:00+07:00 (v2.1.0-AUTH-CONTEXT-MULTIHOME-ROLE-SWITCH):
- *   + Hỗ trợ switchContext(targetTenantId, redirectUrl = null).
- *   + DA_DUYET vào thẳng /op (bỏ ép buộc select-tenant vì đã có HeaderClanSwitcher).
+ *   + switchContext(targetTenantId, redirectUrl = null).
+ *   + DA_DUYET vào thẳng /op.
+ * - 2026-11-11T22:30:00+07:00 (v2.1.1-AUTH-CONTEXT-CLEAR-SESSION):
+ *   + Thêm clearSession, dùng ở logout và loadUser khi phiên hỏng.
+ *   + Đọc token cùng thứ tự với apiClient (auth_token rồi token).
+ * - 2026-11-11T22:45:00+07:00 (v2.1.2-AUTH-CONTEXT-REGISTER):
+ *   + Export register(payload) -> POST /auth/register.
+ * - 2026-11-11T23:00:00+07:00 (v2.1.3-AUTH-CONTEXT-LOGIN-423):
+ *   + login không để Axios code (ERR_BAD_REQUEST) che code nghiệp vụ.
+ *   + 423 ACCOUNT_CHO_DUYET mang canEdit, reviewNote, tempSnapshot, caseId.
  * =============================================================================
+ * QX: Tuân thủ chặt chẽ. Không đổi resolvePostLoginRedirect, không đổi shape login() khi thành công.
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
@@ -22,6 +34,24 @@ import apiClient from '../lib/apiClient';
 import { membershipApi } from '../features/membership/api/membershipApi';
 
 const AuthContext = createContext(null);
+
+function readStoredToken() {
+  return localStorage.getItem('auth_token') || localStorage.getItem('token') || '';
+}
+
+function writeStoredToken(token) {
+  localStorage.setItem('auth_token', token);
+  localStorage.setItem('token', token);
+  apiClient.defaults.headers.common.Authorization = `Bearer ${token}`;
+}
+
+function clearSession() {
+  localStorage.removeItem('auth_token');
+  localStorage.removeItem('token');
+  localStorage.removeItem('active_context');
+  localStorage.removeItem('tenantId');
+  delete apiClient.defaults.headers.common.Authorization;
+}
 
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
@@ -60,7 +90,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const loadAvailableClans = useCallback(async () => {
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('token');
+    const token = readStoredToken();
     if (!token) {
       setAvailableClans([]);
       return;
@@ -76,7 +106,7 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const loadUser = useCallback(async () => {
-    const token = localStorage.getItem('auth_token') || localStorage.getItem('token');
+    const token = readStoredToken();
     if (!token) {
       setUser(null);
       setActiveContext(null);
@@ -118,9 +148,7 @@ export const AuthProvider = ({ children }) => {
       }
     } catch (err) {
       console.error('Phiên đăng nhập hết hạn hoặc không hợp lệ:', err);
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('token');
-      localStorage.removeItem('active_context');
+      clearSession();
       setUser(null);
       setActiveContext(null);
       setAvailableClans([]);
@@ -134,15 +162,30 @@ export const AuthProvider = ({ children }) => {
   }, [loadUser]);
 
   const login = async (credentials) => {
-    const res = await apiClient.post('/auth/login', credentials);
+    let res;
+    try {
+      res = await apiClient.post('/auth/login', credentials);
+    } catch (err) {
+      const data = err?.response?.data || {};
+      const normalized = new Error(
+        data.message || 'Đăng nhập thất bại. Vui lòng kiểm tra lại.'
+      );
+      normalized.code = data.code || 'LOGIN_FAILED';
+      normalized.status = err?.response?.status || null;
+      normalized.canEdit = data.canEdit === true;
+      normalized.reviewNote = data.reviewNote ?? null;
+      normalized.tempSnapshot = data.tempSnapshot ?? null;
+      normalized.caseStatus = data.caseStatus ?? null;
+      normalized.caseId = data.caseId ?? null;
+      normalized.response = err?.response;
+      throw normalized;
+    }
 
     const payload = res.data?.data || res.data;
     const userObj = payload.user || payload;
 
     if (payload.token) {
-      localStorage.setItem('auth_token', payload.token);
-      localStorage.setItem('token', payload.token);
-      apiClient.defaults.headers.common['Authorization'] = `Bearer ${payload.token}`;
+      writeStoredToken(payload.token);
     }
 
     const clans = Array.isArray(userObj.availableClans) ? userObj.availableClans : [];
@@ -191,9 +234,7 @@ export const AuthProvider = ({ children }) => {
       const payload = data?.data || data;
 
       if (payload.token) {
-        localStorage.setItem('auth_token', payload.token);
-        localStorage.setItem('token', payload.token);
-        apiClient.defaults.headers.common['Authorization'] = `Bearer ${payload.token}`;
+        writeStoredToken(payload.token);
       }
 
       const updatedContext = {
@@ -207,7 +248,6 @@ export const AuthProvider = ({ children }) => {
       setActiveContext(updatedContext);
       localStorage.setItem('active_context', JSON.stringify(updatedContext));
 
-      // Lát 2: Nếu có redirectUrl thì dùng window.location.href, không reload() rồi navigate()
       if (redirectUrl) {
         window.location.href = redirectUrl;
         return updatedContext;
@@ -223,11 +263,18 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  /**
+   * Đăng ký / gửi lại hồ sơ revision.
+   * Không ghi token. Phiên hiện tại không đổi.
+   * BE tự rẽ revision khi payload.isRevision === true.
+   */
+  const register = async (payload) => {
+    const res = await apiClient.post('/auth/register', payload || {});
+    return res.data?.data || res.data;
+  };
+
   const logout = () => {
-    localStorage.removeItem('auth_token');
-    localStorage.removeItem('token');
-    localStorage.removeItem('active_context');
-    delete apiClient.defaults.headers.common['Authorization'];
+    clearSession();
     setUser(null);
     setActiveContext(null);
     setAvailableClans([]);
@@ -241,10 +288,12 @@ export const AuthProvider = ({ children }) => {
     availableClans,
     isSwitchingContext,
     login,
+    register,
     logout,
     switchContext,
     resolvePostLoginRedirect,
     refreshContext: loadUser,
+    clearSession,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -258,4 +307,5 @@ export const useAuth = () => {
   return context;
 };
 
+export { clearSession };
 export default AuthContext;

@@ -1,20 +1,22 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/pages/AuthPage.jsx
- * DATETIME    : 2026-11-10T16:10:00+07:00
- * VERSION     : 24.6.9-AUTH-PAGE-MEMBERSHIP-REDIRECT
+ * DATETIME    : 2026-11-11T23:00:00+07:00
+ * VERSION     : 24.6.12-AUTH-PAGE-REVISION-423
  * DESCRIPTION : Trang xác thực (Login / Register / Forgot / Reset).
- *               Tích hợp redirect sau login theo AuthContext.resolvePostLoginRedirect
- *               (membership claim / status / DRAFT / tree).
- *               Giữ nguyên các view, error handling, Elder TTS, revision-notice.
+ *               Giữ redirect sau login.
+ *               423 ACCOUNT_CHO_DUYET: ưu tiên code/message backend, không lấy Axios ERR_BAD_REQUEST.
+ *               Nút bổ sung hồ sơ seed pendingFormData từ tempSnapshot.
  * =============================================================================
  * CHANGELOGS:
- * - 24.6.8.R3.3.5-W2 (2026-07-26): Residual Wave 2 – tenant lifecycle vs lock.
- * - 2026-11-10T16:10:00+07:00 (v24.6.9-AUTH-PAGE-MEMBERSHIP-REDIRECT):
- *   + handleLoginSubmit dùng result.redirectPath từ AuthContext.login().
- *   + Hỗ trợ shape trả về { user, context, redirectPath }.
- *   + Chuẩn hóa QX (Q1–Q4).
+ * - 24.6.8.R3.3.5-W2: Residual Wave 2 – tenant lifecycle vs lock.
+ * - 2026-11-10 (v24.6.9): login dùng result.redirectPath.
+ * - 2026-11-11 (v24.6.10): khôi phục toggleAuthMode.
+ * - 2026-11-11T22:40:00+07:00 (v24.6.11-AUTH-PAGE-RESTORE-REGISTER-CONTRACT):
+ *   + Trả lại onRegisterSubmit, pendingFormData, view waiting/result.
+ *   + RegisterForm nhận đủ props contract v24.6.8.
  * =============================================================================
+ * QX: Tuân thủ chặt chẽ. Không đổi tên LoginForm. Không đổi redirect sau login.
  */
 
 import { useState } from 'react';
@@ -38,18 +40,6 @@ import ResultPage from './ResultPage.jsx';
 
 import { useTts } from '../shared/hooks/useTts.js';
 import { clearMfoClientOnLogin } from '../features/mfo/lib/mfoDraftStore.js';
-
-import {
-  createTransitionSnapshot,
-  resolveReentryType,
-  resolveReentryPolicy,
-  reconstructRuntimeState,
-} from '../features/elder-doctrine/services/navigationLifecycle.service.js';
-
-import {
-  createFullRuntimeResetPlan,
-  incrementRuntimeVersion,
-} from '../features/elder-doctrine/services/runtimeInvalidation.service.js';
 
 const extractBackendMessage = (err) => {
   return (
@@ -102,18 +92,111 @@ const extractMinutesLeft = (err) => {
 
 export default function AuthPage() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, register } = useAuth();
   const { speak, speakError } = useTts?.() || {};
 
   const [view, setView] = useState('login');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [pendingFormData, setPendingFormData] = useState(null);
+
   const [loginMessage, setLoginMessage] = useState('');
   const [loginMessageType, setLoginMessageType] = useState('error');
   const [loginSuccessMessage, setLoginSuccessMessage] = useState('');
   const [loginUserStatus, setLoginUserStatus] = useState('');
   const [lockoutInfo, setLockoutInfo] = useState({});
+
   const [revisionContext, setRevisionContext] = useState(null);
+  const [registerRevisionMode, setRegisterRevisionMode] = useState(false);
   const [runtimeVersion, setRuntimeVersion] = useState(1);
+  const [reentryContext, setReentryContext] = useState(null);
+
+  const handleSwitchToRegister = () => {
+    setLoginMessage('');
+    setLoginSuccessMessage('');
+    setLoginUserStatus('');
+    setRegisterRevisionMode(false);
+    setRevisionContext(null);
+    setRuntimeVersion((prev) => prev + 1);
+    setView('register');
+  };
+
+  const handleRegisterSubmit = async (data) => {
+    const snap = revisionContext?.tempSnapshot || {};
+    const identitySeed = {
+      phone: snap.phone || data.phone || '',
+      email: snap.email || data.email || '',
+    };
+
+    const merged = {
+      ...data,
+      ...(registerRevisionMode || data?.isRevision
+        ? {
+            isRevision: true,
+            phone: resolveRevisionPhone(
+              revisionContext?.identifier,
+              identitySeed,
+              data.phone
+            ),
+            email:
+              resolveRevisionEmail(
+                revisionContext?.identifier,
+                identitySeed,
+                data.email
+              ) || null,
+            isNewClan:
+              data.isNewClan === true ||
+              snap.isNewClan === true ||
+              snap.role === 'CLAN_ADMIN',
+          }
+        : {}),
+    };
+
+    setPendingFormData(merged);
+    setIsSubmitting(true);
+
+    try {
+      setReentryContext(null);
+      setView('waiting');
+    } catch (err) {
+      toast.error(err?.message || 'Không thể xử lý');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleWaitingBack = () => {
+    setReentryContext({
+      from: 'WaitingPage',
+      action: 'edit',
+      preserveDraft: true,
+      resetRuntime: true,
+    });
+    setRuntimeVersion((prev) => prev + 1);
+    setView('register');
+  };
+
+  const handleConfirmSubmit = async (confirmedData) => {
+    if (typeof register !== 'function') {
+      toast.error('Luồng đăng ký chưa được nối. AuthContext chưa export register.');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      await register(confirmedData || pendingFormData);
+      toast.success('Hồ sơ đã được gửi thành công!');
+      setRegisterRevisionMode(false);
+      setView('result');
+    } catch (err) {
+      const safeMessage =
+        extractBackendMessage(err) || 'Gửi hồ sơ thất bại. Bác vui lòng thử lại.';
+      toast.error(safeMessage);
+      speakError?.(safeMessage);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleLoginSubmit = async (loginData) => {
     setIsSubmitting(true);
@@ -128,11 +211,6 @@ export default function AuthPage() {
 
       const user = result?.user || result;
       const redirectPath = result?.redirectPath;
-
-      // ===== LOG TẠM ĐỂ XÁC NHẬN =====
-      console.log('[LOGIN RESULT]', result);
-      console.log('[REDIRECT TO]', redirectPath || '(fallback)');
-      // ================================
 
       if (user) {
         if (user.status === 'CHO_DUYET' && !redirectPath) {
@@ -152,13 +230,11 @@ export default function AuthPage() {
         if (typeof speak === 'function') speak(successMessage, { rate: 0.82 });
         else speakError?.(successMessage);
 
-        // Ưu tiên redirectPath từ AuthContext (membership-aware)
         if (redirectPath) {
           navigate(redirectPath, { replace: true });
           return;
         }
 
-        // Fallback theo role (giữ tương thích cũ)
         const role = String(user?.role || '').toUpperCase();
         if (role === 'CLAN_ADMIN' || role === 'SYSTEM_ADMIN') {
           navigate('/admin');
@@ -167,11 +243,15 @@ export default function AuthPage() {
         }
       }
     } catch (err) {
-      console.error('[Login error:]', err);
-
-      const backendError = err.response?.data;
-      const errorCode = err?.code || backendError?.code || extractBackendCode(err);
-      const serverMessage = err?.message || backendError?.message || extractBackendMessage(err);
+      const backendError = err.response?.data || {};
+      const errorCode =
+        backendError.code ||
+        err?.code ||
+        extractBackendCode(err);
+      const serverMessage =
+        backendError.message ||
+        (err?.code && err.code !== 'ERR_BAD_REQUEST' ? err.message : '') ||
+        extractBackendMessage(err);
 
       if (
         errorCode === 'USER_PENDING_APPROVAL' ||
@@ -192,6 +272,7 @@ export default function AuthPage() {
             caseStatus: err?.caseStatus ?? serverData.caseStatus ?? null,
             caseId: err?.caseId ?? serverData.caseId ?? null,
           });
+          setRegisterRevisionMode(true);
           setView('revision-notice');
 
           const msg = serverMessage || 'Ban Quản trị có góp ý. Bác vui lòng xem và bổ sung hồ sơ.';
@@ -223,6 +304,7 @@ export default function AuthPage() {
         {view === 'login' && (
           <LoginForm
             onSubmitLogin={handleLoginSubmit}
+            toggleAuthMode={handleSwitchToRegister}
             isSubmitting={isSubmitting}
             onBackHome={() => navigate('/')}
             onForgotPassword={() => setView('forgot')}
@@ -236,10 +318,32 @@ export default function AuthPage() {
 
         {view === 'register' && (
           <RegisterForm
-            onBack={() => setView('login')}
-            onSuccess={() => setView('login')}
+            onRegisterSubmit={handleRegisterSubmit}
+            toggleAuthMode={() => {
+              setRegisterRevisionMode(false);
+              setRevisionContext(null);
+              setView('login');
+            }}
+            isSubmitting={isSubmitting}
+            initialData={pendingFormData}
+            isRevision={registerRevisionMode}
+            lockedIdentifier={revisionContext?.identifier || ''}
+            reentryContext={reentryContext}
+            runtimeVersion={runtimeVersion}
           />
         )}
+
+        {view === 'waiting' && (
+          <WaitingPage
+            formData={pendingFormData}
+            onConfirmSubmit={handleConfirmSubmit}
+            onBack={handleWaitingBack}
+            loading={isSubmitting}
+            runtimeVersion={runtimeVersion}
+          />
+        )}
+
+        {view === 'result' && <ResultPage formData={pendingFormData} />}
 
         {view === 'forgot' && (
           <ForgotPasswordForm
@@ -274,7 +378,28 @@ export default function AuthPage() {
             <p className="text-gray-700">{revisionContext.reviewNote || 'Ban quản trị yêu cầu bổ sung thông tin.'}</p>
             <button
               type="button"
-              onClick={() => navigate(`/membership/claim?caseId=${revisionContext.caseId}&mode=revision`)}
+              onClick={() => {
+                const id = revisionContext?.identifier || '';
+                const snap = revisionContext?.tempSnapshot || {};
+                const isNewClan =
+                  snap.isNewClan === true ||
+                  snap.role === 'CLAN_ADMIN' ||
+                  snap.caseType === 'CLAN_SETUP';
+
+                setPendingFormData({
+                  ...snap,
+                  phone: resolveRevisionPhone(id, snap, snap.phone),
+                  email: resolveRevisionEmail(id, snap, snap.email) || '',
+                  tenantId: snap.tenantId || snap.tenant_id || '',
+                  clanName: snap.clanName || '',
+                  description: snap.description || '',
+                  tenantSlug: snap.tenantSlug || '',
+                  isRevision: true,
+                  isNewClan,
+                });
+                setRegisterRevisionMode(true);
+                setView('register');
+              }}
               className="w-full py-3 min-h-[48px] bg-amber-600 text-white font-bold rounded-2xl"
             >
               Bổ sung hồ sơ ngay
@@ -288,9 +413,6 @@ export default function AuthPage() {
             </button>
           </div>
         )}
-
-        {view === 'waiting' && <WaitingPage />}
-        {view === 'result' && <ResultPage />}
       </div>
     </div>
   );
