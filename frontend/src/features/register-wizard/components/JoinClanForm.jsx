@@ -1662,9 +1662,11 @@ const JoinClanForm = ({
       return;
     }
 
-    captchaZone.consume({
-      guidedFlow,
-    });
+    if (typeof onSubmit === 'function') {
+      await onSubmit(finalPayload);
+    }
+
+    captchaZone.consume({ guidedFlow });
 
     if (onSubmit) {
       onSubmit(finalPayload);

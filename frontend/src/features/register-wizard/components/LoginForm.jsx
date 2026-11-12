@@ -538,9 +538,9 @@ const LoginForm = ({
       hp_field: formData.hp_field,
     });
 
-    captchaStatusRef.current = CAPTCHA_ZONE_STATUS.CONSUMED;
-    captchaConsumedRef.current = true;
-    unmarkCompleted('captcha');
+    //captchaStatusRef.current = CAPTCHA_ZONE_STATUS.CONSUMED;
+    //captchaConsumedRef.current = true;
+    //unmarkCompleted('captcha');
   };
 
   const handleChange = (event) => {

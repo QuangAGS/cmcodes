@@ -46,7 +46,8 @@ function clearStoredSession() {
 
 function isPublicAuthRequest(url) {
   const path = String(url || '');
-  return PUBLIC_AUTH_PATHS.some((item) => path.includes(item));
+  // return PUBLIC_AUTH_PATHS.some((item) => path.includes(item)); // Không có biến này
+  return PUBLIC_PATHS.some((item) => path.includes(item));
 }
 
 const apiClient = axios.create({

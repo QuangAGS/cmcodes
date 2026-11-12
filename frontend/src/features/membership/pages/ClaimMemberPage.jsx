@@ -23,8 +23,9 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { membershipApi } from '../api/membershipApi';
 import MemberSearchSheet from '../../member/components/MemberSearchSheet';
-import { RegistrationProfileForm } from '../components/RegistrationProfileForm';
+//import { RegistrationProfileForm } from '../components/RegistrationProfileForm';
 import { ELDER_MEMBERSHIP_MESSAGES } from '../constants/membershipLabels';
+import RegistrationProfileForm from '../components/RegistrationProfileForm';
 
 export const ClaimMemberPage = () => {
   const navigate = useNavigate();
