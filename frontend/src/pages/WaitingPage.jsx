@@ -1,15 +1,23 @@
 /**
- * PATH       : src/pages/WaitingPage.jsx
- * DATETIME   : 2026-05-15T00:00:00+07:00
- * VERSION    : EGAL-25.x R3-MULTIHOME-AMEND02-V15-LAT1
- * DESCRIPTION:
+ * =============================================================================
+ * PATH        : frontend/src/pages/WaitingPage.jsx
+ * DATETIME    : 2026-11-13T15:34:00+07:00
+ * VERSION     : EGAL-25.x R3-MULTIHOME-UAT-BUG1.1
+ * DESCRIPTION :
  * - EGAL-6.5 Step 4: TRUE REVIEW PAGE.
- * - Hiển thị đầy đủ effective submission data trước khi gửi.
+ * - Hiển thị đầy đủ effective submission data trước khi gửi (C2 Claim EM / 21 trường / CLAN_SETUP).
  * - Preserve props contract hiện có: formData, onConfirmSubmit, onBack, loading.
  * - Không thay đổi API payload, auth flow, Turnstile, Honeypot.
- * - WaitingPage chỉ là review boundary, không trở thành lifecycle authority.
- * - AuthPage vẫn là orchestration root.
- * - Tuân thủ Q1/Q2.
+ * =============================================================================
+ * CHANGELOGS:
+ * - 2026-05-15T00:00:00+07:00 (EGAL-25.x R3): True review boundary trước khi gửi đăng ký.
+ * - 2026-11-12T19:55:00+07:00 (EGAL-25.x R3-MULTIHOME-AMEND02-V15-LAT1):
+ *   + Tách hiển thị 3 nhánh Claim EM, Khai báo 21 trường, Lập họ và lọc bỏ temp_* trước khi gửi.
+ * - 2026-11-13T15:34:00+07:00 (EGAL-25.x R3-MULTIHOME-UAT-BUG1.1):
+ *   + Dùng resolveVerificationPrompts đồng bộ nhãn 3 lớp xác minh theo ngữ cảnh quan hệ.
+ *   + Dọn đoạn mã thừa sau return trong helper displayValue.
+ * =============================================================================
+ * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
 
 import { useMemo, useState } from 'react';
@@ -27,7 +35,8 @@ import {
 } from 'lucide-react';
 
 import AttentionZone from '../components/AttentionZone.jsx';
-import ZoneVoiceButton from  '../features/elder-doctrine/components/ZoneVoiceButton.jsx';
+import ZoneVoiceButton from '../features/elder-doctrine/components/ZoneVoiceButton.jsx';
+import { resolveVerificationPrompts } from '../features/membership/components/ClaimMemberWizard.jsx';
 
 const RELATIONSHIP_LABELS = {
   CON_DE: 'Con đẻ',
@@ -49,14 +58,6 @@ const displayValue = (value, fallback = 'Chưa có thông tin') => {
   const text = String(value).trim();
 
   return text || fallback;
-
-  if (typeof raw === 'string') return raw.trim();
-
-  if (raw && typeof raw === 'object') {
-    return String(raw.channel || raw.preferredChannel || '').trim();
-  }
-
-  return '';
 };
 
 const ReviewRow = ({ label, value, muted = false }) => (
@@ -109,21 +110,15 @@ const WaitingPage = ({
     RELATIONSHIP_LABELS[data.temp_relationship] ||
     displayValue(data.temp_relationship);
 
-  /*
-  const reviewTitle = isNewClan
-    ? 'Rà soát hồ sơ tạo dòng họ mới'
-    : 'Rà soát hồ sơ gia nhập dòng họ';
-  */
   const reviewTitle = 'Rà soát hồ sơ';
   const reviewInstruction = isNewClan
     ? 'Bác vui lòng kiểm tra kỹ các thông tin dưới đây. Đây là dữ liệu sẽ được gửi tới Ban Quản trị để tạo dòng họ mới. Nếu thông tin chưa đúng, bác bấm “Quay lại chỉnh sửa”. Nếu đã đúng, bác tích xác nhận rồi bấm “Gửi hồ sơ”.'
     : 'Bác vui lòng kiểm tra kỹ các thông tin dưới đây. Đây là dữ liệu sẽ được gửi tới Ban Quản trị để xin tham gia dòng họ. Nếu thông tin chưa đúng, bác bấm “Quay lại chỉnh sửa”. Nếu đã đúng, bác tích xác nhận rồi bấm “Gửi hồ sơ”.';
 
-  
   const reviewType = isNewClan
     ? 'Tạo dòng họ mới'
     : 'Gia nhập dòng họ';
-  
+
   const regProfile =
     data.registration_profile && typeof data.registration_profile === 'object'
       ? data.registration_profile
@@ -186,6 +181,10 @@ const WaitingPage = ({
     if (regProfile.claim_mode === 'CLAIM_EM' && regProfile.claimed_member_id) {
       const emSum = regProfile.claim_verification?.claimed_member_summary || {};
       const ver = regProfile.claim_verification || {};
+      const verPrompts = resolveVerificationPrompts({
+        linkType: data.link_type || '',
+        childType: emSum.child_type || '',
+      });
       return [
         {
           id: 'clan',
@@ -199,16 +198,16 @@ const WaitingPage = ({
         {
           id: 'claim-em',
           icon: User,
-          title: 'Hồ sơ trên cây & 3 lớp gia mật',
+          title: 'Hồ sơ trên cây & 3 lớp xác minh',
           rows: [
             ['Thành viên xin nhận', displayValue(emSum.full_name || regProfile.full_name)],
             ...(emSum.generation != null ? [['Đời thứ', `Đời thứ ${emSum.generation}`]] : []),
             ...(emSum.branch_name ? [['Chi / Nhánh', emSum.branch_name]] : []),
             ...(emSum.father_name ? [['Cha trên cây', emSum.father_name]] : []),
             ['Giới tính xác nhận', genderLabel],
-            ['Lớp 1 — Huyết thống & Tiền nhân', displayValue(ver.layer1_lineage)],
-            ['Lớp 2 — Chi phái & Quê quán', displayValue(ver.layer2_branch_origin)],
-            ['Lớp 3 — Người bảo lãnh & Lời nhắn', displayValue(ver.layer3_guarantor_note)],
+            [verPrompts.layer1Label, displayValue(ver.layer1_lineage)],
+            [verPrompts.layer2Label, displayValue(ver.layer2_branch_origin)],
+            [verPrompts.layer3Label, displayValue(ver.layer3_guarantor_note)],
           ],
         },
         {
@@ -338,11 +337,6 @@ const WaitingPage = ({
             <FileCheck2 size={24} className="mt-1 shrink-0" />
 
             <div className="min-w-0">
-              {/*
-              <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-600">
-                Hồ sơ đăng ký
-              </p>
-              */}
               <h2 className="mt-1 text-2xl font-black leading-snug text-blue-900">
                 {reviewTitle}
               </h2>
@@ -363,20 +357,7 @@ const WaitingPage = ({
           </div>
         </div>
       </AttentionZone>
-      {/*}
-      <div className="rounded-3xl border border-amber-100 bg-amber-50 p-4 text-amber-800">
-        <div className="flex items-start gap-3">
-          <AlertCircle size={20} className="mt-0.5 shrink-0" />
-          <div>
-            <p className="text-sm font-black">Lưu ý trước khi gửi</p>
-            <p className="mt-1 text-sm font-bold leading-relaxed">
-              Nếu thông tin chưa đúng, bác hãy bấm “Quay lại chỉnh sửa”. Nếu đã
-              đúng, bác tích xác nhận rồi bấm “Gửi hồ sơ”.
-            </p>
-          </div>
-        </div>
-      </div>
-      */}
+
       <div className="rounded-3xl border border-slate-100 bg-white p-4 shadow-sm">
         <p className="text-[11px] font-black uppercase tracking-widest text-slate-400">
           Loại hồ sơ

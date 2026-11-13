@@ -1,16 +1,27 @@
 /**
  * ============================================================================
  * PATH       : frontend/src/features/membership/components/ClaimMemberWizard.jsx
- * DATETIME   : 2026-11-12T21:35:00+07:00
- * VERSION    : 1.2.0-MULTIHOME-AMEND03-G2-CLAIM-SEARCH
+ * DATETIME   : 2026-11-13T15:20:00+07:00
+ * VERSION    : 1.3.0-MULTIHOME-UAT-BUG1-CONTEXT-PROMPTS
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0 MF-05] Wizard nhận hồ sơ thành viên có sẵn trên cây (Claim EM):
  *   + Hỗ trợ tra cứu dòng họ công khai qua GET /api/public/tenants/search?q= (nếu chưa có tenantId)
  *   + Tra cứu thành viên CHINH_THUC qua GET /api/public/tenants/:tenantId/members/claim-search?q=
- *   + Xác thực 3 lớp gia mật (Huyết thống tiền nhân, Chi phái/Quê quán, Người bảo lãnh/Lời nhắn)
- *   + Xác nhận hồ sơ đã chọn trước khi chuyển rà soát.
+ *   + Tự động điều chỉnh bộ 3 câu hỏi xác minh theo ngữ cảnh quan hệ (linkType / child_type):
+ *     * Nhà dâu / rể (SPOUSE_FAMILY / CON_DAU / CON_RE): Xác minh Vợ/Chồng & Gia đình bên vợ/chồng
+ *       (không hỏi "Huyết thống & Tiền nhân trực hệ").
+ *     * Họ ngoại (MATERNAL): Xác minh quan hệ bên ngoại & tiền nhân phía Mẹ.
+ *     * Nuôi dưỡng / Giám hộ (GUARDIAN / CON_NUOI / CON_DO_DAU): Xác minh Cha/Mẹ nuôi, người đỡ đầu.
+ *     * Trực hệ nội tộc (PRIMARY_PATERNAL / CON_DE): Xác minh huyết thống & tiền nhân trực hệ.
  * - Dùng chung cho cả C2 (Guest đăng ký tại /auth) và C1 (Multi-Home tại /membership/claim).
  * ============================================================================
+ * CHANGELOGS:
+ * - 2026-11-12T21:35:00+07:00 (v1.2.0): Hiển thị nhãn child_type & giữ Authorization: ''.
+ * - 2026-11-13T15:20:00+07:00 (v1.3.0-MULTIHOME-UAT-BUG1-CONTEXT-PROMPTS):
+ *   + Fix UAT Bug 1: Tách bộ câu hỏi 3 lớp xác minh theo linkType / child_type, loại bỏ câu hỏi
+ *     huyết thống vô lý khi EEU/NEU gia nhập họ bên vợ/chồng (SPOUSE_FAMILY / CON_RE / CON_DAU).
+ * ============================================================================
+ * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -44,9 +55,126 @@ const CHILD_TYPE_LABELS = {
   CON_RIENG: 'Con riêng',
 };
 
+/**
+ * Xác định bộ 3 câu hỏi xác minh phù hợp với ngữ cảnh quan hệ của người xin gia nhập.
+ * Tránh hỏi "Huyết thống & Tiền nhân trực hệ" đối với con dâu/rể (SPOUSE_FAMILY / CON_DAU / CON_RE).
+ */
+const resolveVerificationPrompts = ({ linkType = '', childType = '' } = {}) => {
+  const normalizedLink = String(linkType || '').toUpperCase();
+  const normalizedChild = String(childType || '').toUpperCase();
+
+  if (
+    normalizedLink === 'SPOUSE_FAMILY' ||
+    normalizedChild === 'CON_DAU' ||
+    normalizedChild === 'CON_RE'
+  ) {
+    return {
+      contextKind: 'SPOUSE_FAMILY',
+      step2Label: '2. Xác minh hôn phối',
+      sectionTitle:
+        'Bước 2: Xác thực 3 lớp quan hệ hôn phối để Ban Quản trị đối chiếu',
+      layer1Label: 'Lớp 1 — Vợ/Chồng trong họ & Gia đình bên vợ/chồng',
+      layer1Placeholder:
+        'Nhập họ tên Vợ/Chồng trong họ, năm kết hôn, và họ tên Bố/Mẹ vợ (hoặc Bố/Mẹ chồng)...',
+      layer1MissingError:
+        'Bác vui lòng nhập Lớp 1 xác minh (họ tên Vợ/Chồng trong họ và Bố/Mẹ vợ hoặc chồng).',
+      layer2Label: 'Lớp 2 — Chi phái bên vợ/chồng & Quê quán / Nơi cư trú',
+      layer2Placeholder:
+        'Nhập tên Chi/Phái của gia đình bên vợ/chồng, quê quán hoặc nơi gia đình đang sinh sống...',
+      layer2MissingError:
+        'Bác vui lòng nhập Lớp 2 xác minh (tên Chi/Phái bên vợ/chồng hoặc nơi cư trú).',
+      layer3Label: 'Lớp 3 — Người thân trong họ bảo lãnh & Lời nhắn xác minh',
+      layer3Placeholder:
+        'Ghi tên anh/chị/em bên vợ/chồng hoặc người trong họ có thể xác nhận...',
+      layer3MissingError:
+        'Bác vui lòng nhập Lớp 3 xác minh (người bảo lãnh bên vợ/chồng hoặc lời nhắn xác minh).',
+      step3SummaryLabel: '3 lớp thông tin hôn phối',
+    };
+  }
+
+  if (normalizedLink === 'MATERNAL') {
+    return {
+      contextKind: 'MATERNAL',
+      step2Label: '2. 3 lớp bên ngoại',
+      sectionTitle:
+        'Bước 2: Xác thực 3 lớp quan hệ bên ngoại để Ban Quản trị đối chiếu',
+      layer1Label: 'Lớp 1 — Quan hệ bên ngoại & Tiền nhân phía Mẹ',
+      layer1Placeholder:
+        'Nhập họ tên Mẹ đẻ, Ông/Bà ngoại hoặc ngày giỗ tổ bên ngoại...',
+      layer1MissingError:
+        'Bác vui lòng nhập Lớp 1 xác minh (họ tên Mẹ, Ông/Bà ngoại hoặc ngày giỗ bên ngoại).',
+      layer2Label: 'Lớp 2 — Chi phái bên ngoại & Quê quán / Nơi cư trú',
+      layer2Placeholder:
+        'Nhập tên Chi/Phái bên ngoại, quê quán gốc hoặc nơi gia đình đang sinh sống...',
+      layer2MissingError:
+        'Bác vui lòng nhập Lớp 2 xác minh (tên Chi/Phái bên ngoại hoặc quê quán).',
+      layer3Label: 'Lớp 3 — Người bảo lãnh trong họ & Lời nhắn xác minh',
+      layer3Placeholder:
+        'Ghi tên người thân bên ngoại có thể xác nhận hoặc lời nhắn gửi Hội đồng gia tộc...',
+      layer3MissingError:
+        'Bác vui lòng nhập Lớp 3 xác minh (người bảo lãnh trong họ hoặc lời nhắn xác minh).',
+      step3SummaryLabel: '3 lớp thông tin bên ngoại',
+    };
+  }
+
+  if (
+    normalizedLink === 'GUARDIAN' ||
+    normalizedChild === 'CON_NUOI' ||
+    normalizedChild === 'CON_DO_DAU'
+  ) {
+    return {
+      contextKind: 'GUARDIAN',
+      step2Label: '2. 3 lớp xác minh',
+      sectionTitle:
+        'Bước 2: Xác thực 3 lớp quan hệ nuôi dưỡng / giám hộ để Ban Quản trị đối chiếu',
+      layer1Label: 'Lớp 1 — Cha/Mẹ nuôi hoặc Người đỡ đầu trong họ',
+      layer1Placeholder:
+        'Nhập họ tên Cha/Mẹ nuôi, người đỡ đầu hoặc bối cảnh gắn kết với gia đình...',
+      layer1MissingError:
+        'Bác vui lòng nhập Lớp 1 xác minh (họ tên Cha/Mẹ nuôi hoặc người đỡ đầu).',
+      layer2Label: 'Lớp 2 — Chi phái & Quê quán / Nơi cư trú',
+      layer2Placeholder:
+        'Nhập tên Chi/Phái, quê quán hoặc nơi gia đình đang sinh sống...',
+      layer2MissingError:
+        'Bác vui lòng nhập Lớp 2 xác minh (tên Chi/Phái hoặc nơi cư trú).',
+      layer3Label: 'Lớp 3 — Người bảo lãnh trong họ & Lời nhắn xác minh',
+      layer3Placeholder:
+        'Ghi tên người thân trong họ có thể xác nhận hoặc lời nhắn gửi Hội đồng gia tộc...',
+      layer3MissingError:
+        'Bác vui lòng nhập Lớp 3 xác minh (người bảo lãnh trong họ hoặc lời nhắn xác minh).',
+      step3SummaryLabel: '3 lớp thông tin xác minh',
+    };
+  }
+
+  return {
+    contextKind: 'PATERNAL',
+    step2Label: '2. 3 lớp gia mật',
+    sectionTitle: 'Bước 2: Xác thực 3 lớp gia mật để Ban Quản trị đối chiếu',
+    layer1Label: 'Lớp 1 — Huyết thống & Tiền nhân trực hệ',
+    layer1Placeholder:
+      'Nhập họ tên Cha, Mẹ, Ông nội hoặc ngày giỗ tổ của gia đình...',
+    layer1MissingError:
+      'Bác vui lòng nhập Lớp 1 gia mật (họ tên Cha, Mẹ, Ông nội hoặc ngày giỗ tổ).',
+    layer2Label: 'Lớp 2 — Chi phái & Quê quán / Nơi cư trú',
+    layer2Placeholder:
+      'Nhập tên Chi/Phái, quê quán gốc hoặc nơi gia đình đang sinh sống...',
+    layer2MissingError:
+      'Bác vui lòng nhập Lớp 2 gia mật (tên Chi/Phái hoặc quê quán).',
+    layer3Label: 'Lớp 3 — Người bảo lãnh trong họ & Lời nhắn xác minh',
+    layer3Placeholder:
+      'Ghi tên người thân trong họ có thể xác nhận hoặc lời nhắn gửi Hội đồng gia tộc...',
+    layer3MissingError:
+      'Bác vui lòng nhập Lớp 3 gia mật (người bảo lãnh trong họ hoặc lời nhắn xác minh).',
+    step3SummaryLabel: '3 lớp gia mật',
+  };
+};
+
 const ClaimMemberWizard = ({
   tenantId: propTenantId = '',
   tenantName: propTenantName = '',
+  linkType = '',
+  isMultiHome = false,
+  onMemberSelect,
   onTenantSelect,
   value = {},
   onChange,
@@ -77,6 +205,11 @@ const ClaimMemberWizard = ({
     layer2_branch_origin: '',
     layer3_guarantor_note: '',
   };
+
+  const prompts = resolveVerificationPrompts({
+    linkType,
+    childType: selectedMember?.child_type || '',
+  });
 
   useEffect(() => {
     if (propTenantId || internalTenant) return;
@@ -177,6 +310,7 @@ const ClaimMemberWizard = ({
 
   const handleSelectMember = (member) => {
     onFocusZone?.();
+    onMemberSelect?.(member);
     emitChange({
       claim_mode: 'CLAIM_EM',
       claimed_member_id: member.id,
@@ -247,7 +381,7 @@ const ClaimMemberWizard = ({
                 : 'text-slate-400'
           }`}
         >
-          2. 3 lớp gia mật
+          {prompts.step2Label}
         </div>
         <div
           className={`rounded-xl py-2 transition ${
@@ -440,7 +574,7 @@ const ClaimMemberWizard = ({
           )}
         </div>
       ) : (
-        /* BƯỚC 2 & BƯỚC 3: HIỂN THỊ HỒ SƠ ĐÃ CHỌN + 3 LỚP GIA MẬT */
+        /* BƯỚC 2 & BƯỚC 3: HIỂN THỊ HỒ SƠ ĐÃ CHỌN + 3 LỚP XÁC MINH */
         <div className="space-y-4">
           <div className="rounded-2xl border border-emerald-200 bg-emerald-50/90 p-4 text-emerald-950">
             <div className="flex items-start justify-between gap-3">
@@ -516,12 +650,12 @@ const ClaimMemberWizard = ({
             </div>
           </div>
 
-          {/* 3 LỚP GIA MẬT */}
+          {/* 3 LỚP XÁC MINH THEO NGỮ CẢNH QUAN HỆ */}
           <div className="space-y-4 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
             <div className="flex items-center gap-2 text-indigo-900">
               <ShieldCheck size={18} className="text-indigo-600" />
               <h4 className="text-sm font-black">
-                Bước 2: Xác thực 3 lớp gia mật để Ban Quản trị đối chiếu
+                {prompts.sectionTitle}
               </h4>
             </div>
 
@@ -529,7 +663,7 @@ const ClaimMemberWizard = ({
             <div className="space-y-1">
               <label className="flex items-center gap-1.5 text-xs font-black text-slate-800">
                 <Users size={14} className="text-indigo-600" />
-                Lớp 1 — Huyết thống & Tiền nhân trực hệ{' '}
+                {prompts.layer1Label}{' '}
                 <span className="text-rose-500">*</span>
               </label>
               <input
@@ -540,7 +674,7 @@ const ClaimMemberWizard = ({
                 onChange={(e) =>
                   handleLayerChange('layer1_lineage', e.target.value)
                 }
-                placeholder="Nhập họ tên Cha, Mẹ, Ông nội hoặc ngày giỗ tổ của gia đình..."
+                placeholder={prompts.layer1Placeholder}
                 className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
               />
               {errors.layer1_lineage && (
@@ -554,7 +688,7 @@ const ClaimMemberWizard = ({
             <div className="space-y-1">
               <label className="flex items-center gap-1.5 text-xs font-black text-slate-800">
                 <MapPin size={14} className="text-indigo-600" />
-                Lớp 2 — Chi phái & Quê quán / Nơi cư trú{' '}
+                {prompts.layer2Label}{' '}
                 <span className="text-rose-500">*</span>
               </label>
               <input
@@ -565,7 +699,7 @@ const ClaimMemberWizard = ({
                 onChange={(e) =>
                   handleLayerChange('layer2_branch_origin', e.target.value)
                 }
-                placeholder="Nhập tên Chi/Phái, quê quán gốc hoặc nơi gia đình đang sinh sống..."
+                placeholder={prompts.layer2Placeholder}
                 className="w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
               />
               {errors.layer2_branch_origin && (
@@ -579,7 +713,7 @@ const ClaimMemberWizard = ({
             <div className="space-y-1">
               <label className="flex items-center gap-1.5 text-xs font-black text-slate-800">
                 <MessageSquareText size={14} className="text-indigo-600" />
-                Lớp 3 — Người bảo lãnh trong họ & Lời nhắn xác minh{' '}
+                {prompts.layer3Label}{' '}
                 <span className="text-rose-500">*</span>
               </label>
               <textarea
@@ -589,7 +723,7 @@ const ClaimMemberWizard = ({
                 onChange={(e) =>
                   handleLayerChange('layer3_guarantor_note', e.target.value)
                 }
-                placeholder="Ghi tên người thân trong họ có thể xác nhận hoặc lời nhắn gửi Hội đồng gia tộc..."
+                placeholder={prompts.layer3Placeholder}
                 className="min-h-[84px] w-full resize-none rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
               />
               {errors.layer3_guarantor_note && (
@@ -605,9 +739,11 @@ const ClaimMemberWizard = ({
             <div className="flex items-center gap-2.5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-800">
               <CheckCircle2 size={18} className="shrink-0 text-emerald-600" />
               <span>
-                Bước 3: Đã hoàn tất 3 lớp gia mật cho hồ sơ{' '}
-                <strong>{selectedMember?.full_name}</strong>. Bác tiếp tục
-                hoàn thiện thông tin tài khoản bên dưới để rà soát và gửi đơn.
+                Bước 3: Đã hoàn tất {prompts.step3SummaryLabel} cho hồ sơ{' '}
+                <strong>{selectedMember?.full_name}</strong>.{' '}
+                {isMultiHome
+                  ? 'Bác bấm nút "Gửi hồ sơ xin gia nhập dòng họ" bên dưới để hoàn tất.'
+                  : 'Bác tiếp tục hoàn thiện thông tin tài khoản bên dưới để rà soát và gửi đơn.'}
               </span>
             </div>
           )}
@@ -617,5 +753,5 @@ const ClaimMemberWizard = ({
   );
 };
 
-export { ClaimMemberWizard };
+export { ClaimMemberWizard, resolveVerificationPrompts };
 export default ClaimMemberWizard;

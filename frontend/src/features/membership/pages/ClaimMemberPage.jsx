@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/features/membership/pages/ClaimMemberPage.jsx
- * DATETIME    : 2026-11-13T10:30:00+07:00
- * VERSION     : 2.1.0-MULTIHOME-AMEND02-V15-LAT3
+ * DATETIME    : 2026-11-13T15:34:00+07:00
+ * VERSION     : 2.2.0-MULTIHOME-UAT-BUG1-CONTEXT-PROMPTS
  * DESCRIPTION : Trang Gia nhập dòng họ & Nhận diện nhân thân trên sổ họ:
  *               - Không hỏi lại SĐT, Email, Mật khẩu (kế thừa từ phiên đăng nhập).
  *               - Không gọi /auth/register; nộp về POST /api/membership/cases
@@ -21,6 +21,11 @@
  * - 2026-11-13T10:30:00+07:00 (v2.1.0-MULTIHOME-AMEND02-V15-LAT3):
  *   + Sửa mặc định modeParam về rỗng (''); chỉ bật tìm kiếm chọn họ khác khi mode=add-clan.
  *   + Tự động giữ dòng họ hiện tại của phiên khi truy cập /membership/claim mặc định.
+ * - 2026-11-13T15:34:00+07:00 (v2.2.0-MULTIHOME-UAT-BUG1-CONTEXT-PROMPTS):
+ *   + Truyền linkType và isMultiHome={true} xuống ClaimMemberWizard để hiển thị 3 câu hỏi
+ *     xác minh theo đúng ngữ cảnh quan hệ (Nhà dâu/rể, Họ ngoại, Nuôi dưỡng, Trực hệ).
+ *   + Tự động chuyển linkType sang SPOUSE_FAMILY / GUARDIAN khi chọn hồ sơ CON_DAU / CON_RE / CON_NUOI.
+ *   + Không ghi đè câu trả lời Lớp 1 vào father_name khi ở ngữ cảnh SPOUSE_FAMILY.
  * =============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -41,7 +46,7 @@ import { toast } from 'sonner';
 import { useAuth } from '../../../context/AuthContext';
 import apiClient from '../../../lib/apiClient';
 import { membershipApi } from '../api/membershipApi';
-import ClaimMemberWizard from '../components/ClaimMemberWizard';
+import ClaimMemberWizard, { resolveVerificationPrompts } from '../components/ClaimMemberWizard';
 import RegistrationProfileForm from '../components/RegistrationProfileForm';
 import {
   LINK_TYPE_LABELS,
@@ -286,6 +291,10 @@ export const ClaimMemberPage = () => {
       const l1 = String(ver.layer1_lineage || '').trim();
       const l2 = String(ver.layer2_branch_origin || '').trim();
       const l3 = String(ver.layer3_guarantor_note || '').trim();
+      const activePrompts = resolveVerificationPrompts({
+        linkType,
+        childType: emSum.child_type || '',
+      });
 
       if (!emId) {
         const msg = 'Bác vui lòng tìm và chọn hồ sơ của mình trên cây gia phả.';
@@ -294,23 +303,25 @@ export const ClaimMemberPage = () => {
         return null;
       }
       if (!l1) {
-        const msg = 'Bác vui lòng nhập Lớp 1 gia mật (họ tên Cha, Mẹ, Ông nội hoặc ngày giỗ tổ).';
+        const msg = activePrompts.layer1MissingError;
         setProfileErrors({ layer1_lineage: msg });
         setErrorMsg(msg);
         return null;
       }
       if (!l2) {
-        const msg = 'Bác vui lòng nhập Lớp 2 gia mật (tên Chi/Phái hoặc quê quán).';
+        const msg = activePrompts.layer2MissingError;
         setProfileErrors({ layer2_branch_origin: msg });
         setErrorMsg(msg);
         return null;
       }
       if (!l3) {
-        const msg = 'Bác vui lòng nhập Lớp 3 gia mật (người bảo lãnh trong họ hoặc lời nhắn xác minh).';
+        const msg = activePrompts.layer3MissingError;
         setProfileErrors({ layer3_guarantor_note: msg });
         setErrorMsg(msg);
         return null;
       }
+
+      const isSpouseContext = activePrompts.contextKind === 'SPOUSE_FAMILY';
 
       return {
         tenantId: selectedTenant.id,
@@ -325,13 +336,16 @@ export const ClaimMemberPage = () => {
           gender: profileDraft.gender || 'NAM',
           birth_year: emSum.birth_year ? Number(emSum.birth_year) : undefined,
           branch_name: emSum.branch_name || l2,
-          father_name: emSum.father_name || l1,
+          father_name: isSpouseContext
+            ? emSum.father_name || undefined
+            : emSum.father_name || l1,
           mother_name: emSum.mother_name || undefined,
           generation:
             emSum.generation != null ? Number(emSum.generation) : undefined,
           note: l3,
           claim_verification: {
             claimed_member_summary: emSum,
+            verification_context: activePrompts.contextKind,
             layer1_lineage: l1,
             layer2_branch_origin: l2,
             layer3_guarantor_note: l3,
@@ -728,9 +742,19 @@ export const ClaimMemberPage = () => {
                 <ClaimMemberWizard
                   tenantId={selectedTenant.id}
                   tenantName={selectedTenant.name}
+                  linkType={linkType}
+                  isMultiHome={true}
                   value={profileDraft}
                   disabled={isSubmitting}
                   errors={profileErrors}
+                  onMemberSelect={(pickedMember) => {
+                    const ct = String(pickedMember?.child_type || '').toUpperCase();
+                    if (ct === 'CON_DAU' || ct === 'CON_RE') {
+                      setLinkType('SPOUSE_FAMILY');
+                    } else if (ct === 'CON_NUOI' || ct === 'CON_DO_DAU') {
+                      setLinkType('GUARDIAN');
+                    }
+                  }}
                   onChange={(nextDraft) => {
                     setProfileDraft(nextDraft);
                     setProfileErrors({});

@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/auth/auth.service.js
- * DATETIME   : 2026-11-13T10:30:00+07:00
- * VERSION    : 20.9.1-MULTIHOME-AMEND02-V15-LAT3
+ * DATETIME   : 2026-11-13T17:15:00+07:00
+ * VERSION    : 20.9.3-MULTIHOME-UAT-BUG2-ISCLAN-MARRIAGE
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0] Lát 0 + Lát 3 Multi-Home SSOT:
  *   + Lát 0 (C2 & C2-S): registerUser tạo users (CHO_DUYET) + onboarding_cases.metadata trong 1 TX atomic;
@@ -11,11 +11,16 @@
  *     switchContext hỗ trợ chuyển ngữ cảnh sang dòng họ B đang CHO_DUYET/TU_CHOI;
  *     queryReviewableUsers hiển thị hồ sơ C1/C1-S; processUserApproval & returnForRevision ủy quyền
  *     xử lý C1/C1-S sang membershipService (link DA_DUYET, is_default = false, giữ nguyên họ gốc A).
+ *   + UAT Bug 2.1: queryReviewableUsers truy vấn is_clan, child_type và marriages trên members để
+ *     xác định chính xác tư cách Nội tộc/Ngoại tộc và vai vế CON_RE / CON_DAU / CON_DE.
  * ============================================================================
  * CHANGELOGS:
  * - 2026-11-12T11:30:00+07:00 (v20.8.0-MULTIHOME-AMEND02-V15-LAT0-ATOMIC): Hoàn thiện Lát 0 Phương án A.
- * - 2026-11-13T10:30:00+07:00 (v20.9.1-MULTIHOME-AMEND02-V15-LAT3): Bổ sung hỗ trợ Multi-Home C1 / C1-S
- *   (getAvailableClans, switchContext, queryReviewableUsers, ủy quyền approve/revision C1 sang membershipService).
+ * - 2026-11-13T10:30:00+07:00 (v20.9.1-MULTIHOME-AMEND02-V15-LAT3): Bổ sung hỗ trợ Multi-Home C1 / C1-S.
+ * - 2026-11-13T16:30:00+07:00 (v20.9.2-MULTIHOME-UAT-BUG2-RELATIONSHIP): Select child_type trên members.
+ * - 2026-11-13T17:15:00+07:00 (v20.9.3-MULTIHOME-UAT-BUG2-ISCLAN-MARRIAGE):
+ *   + Bổ sung resolveMemberClanRelation (is_clan + child_type + marriages) trong queryReviewableUsers
+ *     để không hiển thị nhầm CON_DE khi thành viên ngoại tộc (is_clan = false) mang default DB.
  * ============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -131,6 +136,53 @@ function normalizeIncomingRegistrationProfile(payload, logIdentifier) {
 /**
  * Tổng hợp ghi chú phả hệ từ 21 trường để không thất lạc thông tin tiền nhân / địa chỉ khi tạo member chính thức.
  */
+/**
+ * Suy diễn tư cách Nội tộc / Ngoại tộc (is_clan) và vai vế (child_type) từ members + marriages.
+ * Khắc phục trường hợp schema.prisma đặt @default(CON_DE) cho thành viên ngoại tộc (is_clan = false).
+ */
+function resolveMemberClanRelation(member) {
+  if (!member) {
+    return { isClan: null, childType: null };
+  }
+  const isClan = member.is_clan !== false;
+  const hasClanWife = (member.marriages_as_husband || []).some(
+    (m) =>
+      m.members_marriages_wife_idTomembers &&
+      m.members_marriages_wife_idTomembers.is_clan !== false
+  );
+  const hasClanHusband = (member.marriages_as_wife || []).some(
+    (m) =>
+      m.members_marriages_husband_idTomembers &&
+      m.members_marriages_husband_idTomembers.is_clan !== false
+  );
+  const isMarriedToClanMember = hasClanWife || hasClanHusband;
+
+  if (!isClan) {
+    if (
+      member.child_type === 'CON_RE' ||
+      member.child_type === 'CON_DAU' ||
+      member.child_type === 'KHAC'
+    ) {
+      return { isClan: false, childType: member.child_type };
+    }
+    if (isMarriedToClanMember || member.child_type === 'CON_DE' || !member.child_type) {
+      const inferred =
+        member.gender === 'NAM'
+          ? 'CON_RE'
+          : member.gender === 'NU'
+            ? 'CON_DAU'
+            : 'KHAC';
+      return { isClan: false, childType: inferred };
+    }
+    return { isClan: false, childType: member.child_type };
+  }
+
+  return {
+    isClan: true,
+    childType: member.child_type || 'CON_DE',
+  };
+}
+
 function buildMemberNoteFromProfile(profile = {}) {
   const parts = [];
   if (profile.father_name) parts.push(`Cha: ${profile.father_name}`);
@@ -1725,7 +1777,7 @@ const authService = {
             activeLink?.member_id || profile.claimed_member_id || null;
 
           if (memberIdToInspect && user.tenant_id) {
-            linkedMember = await basePrisma.members.findFirst({
+            const rawMember = await basePrisma.members.findFirst({
               where: {
                 id: memberIdToInspect,
                 tenant_id: user.tenant_id,
@@ -1736,6 +1788,8 @@ const authService = {
                 full_name: true,
                 generation: true,
                 gender: true,
+                is_clan: true,
+                child_type: true,
                 is_alive: true,
                 branch_id: true,
                 status: true,
@@ -1743,8 +1797,41 @@ const authService = {
                 branch: {
                   select: { id: true, name: true },
                 },
+                marriages_as_husband: {
+                  where: { deleted_at: null },
+                  select: {
+                    id: true,
+                    members_marriages_wife_idTomembers: {
+                      select: { id: true, is_clan: true },
+                    },
+                  },
+                  take: 5,
+                },
+                marriages_as_wife: {
+                  where: { deleted_at: null },
+                  select: {
+                    id: true,
+                    members_marriages_husband_idTomembers: {
+                      select: { id: true, is_clan: true },
+                    },
+                  },
+                  take: 5,
+                },
               },
             });
+            if (rawMember) {
+              const rel = resolveMemberClanRelation(rawMember);
+              const {
+                marriages_as_husband,
+                marriages_as_wife,
+                ...cleanMember
+              } = rawMember;
+              linkedMember = {
+                ...cleanMember,
+                is_clan: rel.isClan,
+                child_type: rel.childType,
+              };
+            }
           }
 
           const isFinalRejection =
@@ -1758,6 +1845,25 @@ const authService = {
             : profile.claimed_member_id
               ? 'CLAIM_EM'
               : 'NEW_MEMBER_21_FIELDS';
+
+          const summaryObj =
+            profile.claim_verification?.claimed_member_summary || {};
+          const effectiveIsClan =
+            linkedMember?.is_clan !== undefined
+              ? linkedMember.is_clan
+              : summaryObj.is_clan !== undefined
+                ? summaryObj.is_clan
+                : null;
+          const effectiveChildType =
+            linkedMember?.child_type ||
+            summaryObj.child_type ||
+            null;
+          const resolvedRelationship =
+            effectiveChildType ||
+            profile.temp_relationship ||
+            rawCaseMeta.link_type ||
+            user.temp_relationship ||
+            'CON_DE';
 
           return {
             id: user.id,
@@ -1799,7 +1905,11 @@ const authService = {
                 'Chưa khai báo',
               grandmother_name: profile.grandmother_name || null,
               address: profile.address || user.temp_address || 'Chưa khai báo',
-              relationship: user.temp_relationship || 'CON_DE',
+              is_clan: effectiveIsClan,
+              is_clan: effectiveIsClan,
+              relationship: resolvedRelationship,
+              child_type: effectiveChildType,
+              link_type: rawCaseMeta.link_type || null,
               note: profile.note || user.temp_note || 'Không có ghi chú',
               claimed_member_id: profile.claimed_member_id || null,
               proof_documents: profile.proof_documents || [],
@@ -1866,7 +1976,7 @@ const authService = {
 
           let linkedMember = null;
           if (profile.claimed_member_id && c.tenant_id) {
-            linkedMember = await basePrisma.members.findFirst({
+            const rawMember = await basePrisma.members.findFirst({
               where: {
                 id: profile.claimed_member_id,
                 tenant_id: c.tenant_id,
@@ -1877,13 +1987,48 @@ const authService = {
                 full_name: true,
                 generation: true,
                 gender: true,
+                is_clan: true,
+                child_type: true,
                 is_alive: true,
                 branch_id: true,
                 status: true,
                 role: true,
                 branch: { select: { id: true, name: true } },
+                marriages_as_husband: {
+                  where: { deleted_at: null },
+                  select: {
+                    id: true,
+                    members_marriages_wife_idTomembers: {
+                      select: { id: true, is_clan: true },
+                    },
+                  },
+                  take: 5,
+                },
+                marriages_as_wife: {
+                  where: { deleted_at: null },
+                  select: {
+                    id: true,
+                    members_marriages_husband_idTomembers: {
+                      select: { id: true, is_clan: true },
+                    },
+                  },
+                  take: 5,
+                },
               },
             });
+            if (rawMember) {
+              const rel = resolveMemberClanRelation(rawMember);
+              const {
+                marriages_as_husband,
+                marriages_as_wife,
+                ...cleanMember
+              } = rawMember;
+              linkedMember = {
+                ...cleanMember,
+                is_clan: rel.isClan,
+                child_type: rel.childType,
+              };
+            }
           }
 
           const isClanSetup = c.case_type === 'CLAN_SETUP';
@@ -1893,6 +2038,24 @@ const authService = {
               : c.status === 'APPROVED' || c.status === 'MERGED'
                 ? 'DA_DUYET'
                 : 'CHO_DUYET';
+
+          const summaryObj =
+            profile.claim_verification?.claimed_member_summary || {};
+          const effectiveIsClan =
+            linkedMember?.is_clan !== undefined
+              ? linkedMember.is_clan
+              : summaryObj.is_clan !== undefined
+                ? summaryObj.is_clan
+                : null;
+          const effectiveChildType =
+            linkedMember?.child_type ||
+            summaryObj.child_type ||
+            null;
+          const resolvedRelationship =
+            effectiveChildType ||
+            profile.temp_relationship ||
+            rawCaseMeta.link_type ||
+            'CON_DE';
 
           return {
             id: u.id,
@@ -1929,7 +2092,9 @@ const authService = {
               grandfather_name: profile.grandfather_name || 'Chưa khai báo',
               grandmother_name: profile.grandmother_name || null,
               address: profile.address || 'Chưa khai báo',
-              relationship: profile.temp_relationship || 'CON_DE',
+              relationship: resolvedRelationship,
+              child_type: effectiveChildType,
+              link_type: rawCaseMeta.link_type || null,
               note: profile.note || 'Không có ghi chú',
               claimed_member_id: profile.claimed_member_id || null,
               proof_documents: profile.proof_documents || [],

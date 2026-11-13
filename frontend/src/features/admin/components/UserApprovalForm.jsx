@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH       : frontend/src/features/admin/components/UserApprovalForm.jsx
- * DATETIME   : 2026-11-13T12:00:00+07:00
- * VERSION    : 14.6.0-MULTIHOME-AMEND02-V15-LAT4
+ * DATETIME   : 2026-11-13T17:15:00+07:00
+ * VERSION    : 14.9.0-MULTIHOME-UAT-BUG2-ISCLAN-COMPOSITE
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0 Lát 4] Form đối soát & phê duyệt chi tiết hồ sơ:
  *   + Hiển thị banner phân loại hồ sơ (EM / 21 trường / CLAN SETUP / C1 Multi-Home).
@@ -15,12 +15,98 @@
  * - 2026-08-04T17:20:00+07:00 (v14.4.3-PR-OP-4-FINAL-LABEL): 3 khung đối soát + từ chối lần cuối.
  * - 2026-11-13T11:30:00+07:00 (v14.5.0-MULTIHOME-AMEND02-V15-LAT4):
  *   + Bổ sung khối đối soát 2 cột EM + 3 lớp gia mật, 4 nhóm 21 trường, cảnh báo C1 và xác nhận 2 bước.
+ * - 2026-11-13T12:00:00+07:00 (v14.6.0-MULTIHOME-AMEND02-V15-LAT4):
+ *   + Ánh xạ currentUserStatus theo caseStatus cho hồ sơ Multi-Home C1/C1-S để mở khóa nút duyệt.
+ * - 2026-11-13T15:34:00+07:00 (v14.7.0-MULTIHOME-UAT-BUG1-CONTEXT-PROMPTS):
+ *   + Dùng resolveVerificationPrompts hiển thị đúng nhãn 3 lớp xác minh theo ngữ cảnh link_type / child_type.
+ * - 2026-11-13T16:25:00+07:00 (v14.8.0-MULTIHOME-UAT-BUG2-RELATIONSHIP-DISPLAY):
+ *   + Ưu tiên đọc member.child_type và caseMetadata.link_type.
+ * - 2026-11-13T17:15:00+07:00 (v14.9.0-MULTIHOME-UAT-BUG2-ISCLAN-COMPOSITE):
+ *   + Chuẩn hóa hiển thị ghép 2 phần: (a) Nội tộc / Ngoại tộc (căn cứ is_clan) + (b) Vai vế
+ *     (child_type / suy diễn marriages), vd: "Ngoại tộc — Con rể", "Nội tộc — Con đẻ".
  * =============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
 
 import React, { useState } from 'react';
 import { User, Shield, Network, ChevronDown, ChevronUp, Save, X } from 'lucide-react';
+import { resolveVerificationPrompts } from '../../membership/components/ClaimMemberWizard.jsx';
+
+const RELATIONSHIP_DISPLAY_LABELS = {
+  CON_DE: 'Con đẻ',
+  CON_DAU: 'Con dâu',
+  CON_RE: 'Con rể',
+  CON_NUOI: 'Con nuôi',
+  CON_DO_DAU: 'Con đỡ đầu',
+  CON_RIENG: 'Con riêng',
+  SPOUSE_FAMILY: 'Nhà dâu / rể (Hôn phối)',
+  MATERNAL: 'Họ ngoại',
+  GUARDIAN: 'Đỡ đầu / Giám hộ',
+  PRIMARY_PATERNAL: 'Họ nội (Trực hệ)',
+  DESCENDANT_FAMILY: 'Dòng dõi hậu duệ',
+  OTHER: 'Khác',
+};
+
+const resolveEffectiveIsClan = (
+  memberIsClan,
+  summaryIsClan,
+  snapshotIsClan
+) => {
+  if (typeof memberIsClan === 'boolean') return memberIsClan;
+  if (typeof summaryIsClan === 'boolean') return summaryIsClan;
+  if (typeof snapshotIsClan === 'boolean') return snapshotIsClan;
+  return null;
+};
+
+const formatClanRelationshipDisplay = ({
+  isClan,
+  memberGender,
+  memberChildType,
+  summaryChildType,
+  snapshotChildType,
+  linkType,
+  snapshotRelationship,
+}) => {
+  let effectiveChildType = String(
+    memberChildType || summaryChildType || snapshotChildType || ''
+  ).toUpperCase();
+  const effectiveLinkType = String(linkType || '').toUpperCase();
+  const rawRel = String(snapshotRelationship || '').toUpperCase();
+  const gender = String(memberGender || '').toUpperCase();
+
+  // Nếu là Ngoại tộc (is_clan === false) nhưng child_type vẫn mang giá trị mặc định CON_DE của DB,
+  // tự động quy đổi sang CON_RE / CON_DAU theo giới tính.
+  if (isClan === false && (!effectiveChildType || effectiveChildType === 'CON_DE')) {
+    effectiveChildType =
+      gender === 'NAM' ? 'CON_RE' : gender === 'NU' ? 'CON_DAU' : 'KHAC';
+  }
+
+  const childLabel = effectiveChildType
+    ? RELATIONSHIP_DISPLAY_LABELS[effectiveChildType] || effectiveChildType
+    : '';
+  const linkLabel = effectiveLinkType
+    ? RELATIONSHIP_DISPLAY_LABELS[effectiveLinkType] || effectiveLinkType
+    : '';
+
+  // Khi đã xác định tư cách Nội tộc / Ngoại tộc từ bản ghi member trên cây
+  if (typeof isClan === 'boolean') {
+    const clanScopeLabel = isClan ? 'Nội tộc' : 'Ngoại tộc';
+    const roleLabel =
+      childLabel ||
+      (rawRel ? RELATIONSHIP_DISPLAY_LABELS[rawRel] || snapshotRelationship : '') ||
+      linkLabel;
+    return roleLabel ? `${clanScopeLabel} — ${roleLabel}` : clanScopeLabel;
+  }
+
+  // Trường hợp hồ sơ khai báo mới 21 trường (chưa gắn node member trên cây)
+  const declaredRole =
+    childLabel ||
+    (rawRel ? RELATIONSHIP_DISPLAY_LABELS[rawRel] || snapshotRelationship : '');
+  if (declaredRole && linkLabel && declaredRole !== linkLabel) {
+    return `${declaredRole} (${linkLabel})`;
+  }
+  return declaredRole || linkLabel || 'Chưa khai báo';
+};
 
 const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
   const raw = userData?.rawBackendData || userData || {};
@@ -50,6 +136,22 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
 
   const tenant = userCore.tenant || raw.tenant || raw.tenantData;
   const member = userCore.member_profile || raw.member_profile || raw.memberData;
+
+  const effectiveIsClan = resolveEffectiveIsClan(
+    member?.is_clan,
+    claimVerification?.claimed_member_summary?.is_clan,
+    snapshot.is_clan
+  );
+
+  const resolvedRelationshipDisplay = formatClanRelationshipDisplay({
+    isClan: effectiveIsClan,
+    memberGender: member?.gender || snapshot.gender,
+    memberChildType: member?.child_type,
+    summaryChildType: claimVerification?.claimed_member_summary?.child_type,
+    snapshotChildType: snapshot.child_type,
+    linkType: caseMetadata.link_type || snapshot.link_type,
+    snapshotRelationship: snapshot.relationship,
+  });
 
   // Lát 4: Form C1 phải dùng trạng thái của hồ sơ (Multi-Home) thay vì users.status (DA_DUYET của họ gốc)
   const currentUserStatus = isMultiHomeCase && raw.caseStatus
@@ -84,16 +186,7 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
     tenant: false,
     member: false,
   });
-  /*
-  const [formState, setFormState] = useState({
-    userId: userCore.id || raw.id,
-    newStatus: resolveDefaultNewStatus(currentUserStatus),
-    adminNote: userCore.adminNote || '',
-    tenantId: tenant?.id || null,
-    newTenantStatus: tenant?.status || 'CHO_DUYET',
-  });
-  */
- 
+
   // PR-OP-4R2: Add isFinalRejection to formState for final rejection handling
   const [formState, setFormState] = useState({
     userId: userCore.id || raw.id,
@@ -116,37 +209,37 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
     setOpenBlocks((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
-    const handleLocalSubmit = (e) => {
-      e.preventDefault();
-      if (!formState.adminNote || formState.adminNote.trim() === '') {
-        alert('Vui lòng nhập Bút phê / Ghi chú của Admin trước khi lưu Sổ Cái.');
-        return;
-      }
-      if (!formState.newStatus) {
-        alert('Trạng thái hiện tại không cho phép thao tác tại form này.');
-        return;
-      }
+  const handleLocalSubmit = (e) => {
+    e.preventDefault();
+    if (!formState.adminNote || formState.adminNote.trim() === '') {
+      alert('Vui lòng nhập Bút phê / Ghi chú của Admin trước khi lưu Sổ Cái.');
+      return;
+    }
+    if (!formState.newStatus) {
+      alert('Trạng thái hiện tại không cho phép thao tác tại form này.');
+      return;
+    }
 
-      let newStatus = formState.newStatus;
-      let isFinalRejection = formState.isFinalRejection === true;
+    let newStatus = formState.newStatus;
+    let isFinalRejection = formState.isFinalRejection === true;
 
-      // Không bao giờ gửi FINAL_REJECT lên API
-      if (newStatus === 'FINAL_REJECT') {
-        newStatus = 'TU_CHOI';
-        isFinalRejection = true;
-      }
+    // Không bao giờ gửi FINAL_REJECT lên API
+    if (newStatus === 'FINAL_REJECT') {
+      newStatus = 'TU_CHOI';
+      isFinalRejection = true;
+    }
 
-      if (newStatus === 'TU_CHOI' && isFinalRejection && !confirmFinalStep2) {
-        alert('Vui lòng tích xác nhận bước 2 cho quyết định Từ chối vĩnh viễn.');
-        return;
-      }
+    if (newStatus === 'TU_CHOI' && isFinalRejection && !confirmFinalStep2) {
+      alert('Vui lòng tích xác nhận bước 2 cho quyết định Từ chối vĩnh viễn.');
+      return;
+    }
 
-      onSubmit({
-        ...formState,
-        newStatus,
-        isFinalRejection,
-      });
-    };
+    onSubmit({
+      ...formState,
+      newStatus,
+      isFinalRejection,
+    });
+  };
 
   const renderPrettyJson = (obj) => {
     if (!obj) {
@@ -225,6 +318,15 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
                     claimVerification?.claimed_member_summary?.branch_name ||
                     'Chưa rõ'}
                 </strong>
+                {(typeof effectiveIsClan === 'boolean' ||
+                  member?.child_type ||
+                  claimVerification?.claimed_member_summary?.child_type) && (
+                  <>
+                    {' '}
+                    • Quan hệ:{' '}
+                    <strong>{resolvedRelationshipDisplay}</strong>
+                  </>
+                )}
               </p>
               {!member && (
                 <p className="mt-1 rounded bg-rose-100 px-2 py-1 text-[11px] font-bold text-rose-800">
@@ -233,23 +335,34 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
               )}
             </div>
 
-            <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-3 text-xs space-y-1.5">
-              <p className="font-black uppercase text-indigo-800">
-                2. Câu trả lời 3 lớp gia mật
-              </p>
-              <p>
-                <span className="text-slate-500">Lớp 1 (Tiền nhân):</span>{' '}
-                <strong>{claimVerification.layer1_lineage || snapshot.father_name || '—'}</strong>
-              </p>
-              <p>
-                <span className="text-slate-500">Lớp 2 (Chi/Quê quán):</span>{' '}
-                <strong>{claimVerification.layer2_branch_origin || snapshot.branch_name || '—'}</strong>
-              </p>
-              <p>
-                <span className="text-slate-500">Lớp 3 (Bảo lãnh/Ghi chú):</span>{' '}
-                <strong>{claimVerification.layer3_guarantor_note || snapshot.note || '—'}</strong>
-              </p>
-            </div>
+            {(() => {
+              const adminVerPrompts = resolveVerificationPrompts({
+                linkType: caseMetadata.link_type || '',
+                childType:
+                  member?.child_type ||
+                  claimVerification?.claimed_member_summary?.child_type ||
+                  '',
+              });
+              return (
+                <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-3 text-xs space-y-1.5">
+                  <p className="font-black uppercase text-indigo-800">
+                    2. Câu trả lời 3 lớp xác minh
+                  </p>
+                  <p>
+                    <span className="text-slate-500">{adminVerPrompts.layer1Label}:</span>{' '}
+                    <strong>{claimVerification.layer1_lineage || snapshot.father_name || '—'}</strong>
+                  </p>
+                  <p>
+                    <span className="text-slate-500">{adminVerPrompts.layer2Label}:</span>{' '}
+                    <strong>{claimVerification.layer2_branch_origin || snapshot.branch_name || '—'}</strong>
+                  </p>
+                  <p>
+                    <span className="text-slate-500">{adminVerPrompts.layer3Label}:</span>{' '}
+                    <strong>{claimVerification.layer3_guarantor_note || snapshot.note || '—'}</strong>
+                  </p>
+                </div>
+              );
+            })()}
           </div>
         </div>
       ) : (
@@ -382,7 +495,7 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
                   Quan hệ với dòng họ:
                 </span>
                 <span className="font-bold text-slate-800">
-                  {snapshot.relationship || 'Chưa khai báo'}
+                  {resolvedRelationshipDisplay}
                 </span>
               </div>
               <div className="flex justify-between">
