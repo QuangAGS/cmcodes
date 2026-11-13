@@ -1,13 +1,23 @@
 /**
- * PATH       : src/pages/AdminUserApprovalPage.jsx (Hàm fetchReviewableUsers)
- * DATETIME   : 2026-08-18T21:05:00+07:00
- * VERSION    : 25.1.3-FE-OP-B2
+ * =============================================================================
+ * PATH       : frontend/src/pages/AdminUserApprovalPage.jsx
+ * DATETIME   : 2026-11-13T12:00:00+07:00
+ * VERSION    : 25.3.0-MULTIHOME-AMEND02-V15-LAT4
  * DESCRIPTION:
- * ISSUE1-DATA-BRIDGING-PATCH:
- * - VÁ DỨT ĐIỂM ISSUE 1: Khớp nối và truyền trọn vẹn dữ liệu hợp đồng (userData, tenantData) sang cho UserApprovalForm.
- * - Hòa trộn cấu trúc dữ liệu phẳng bề nổi và dữ liệu nested lồng nhau vào một Object duy nhất khi setSelectedUser.
- * - Q1-Bảo tồn: Giữ vẹn nguyên 100% giao diện thẻ card Mobile-first và logic đóng mở view review chi tiết của bản gốc.
- * - Q2-Code Format: Chú thích rõ ràng mục đích bổ sung kèm thẻ thời gian thực thi an toàn.
+ * - [AMEND-RP-OP-2026-02 V1.5.0 Lát 4] Trang danh sách & điều phối xét duyệt hồ sơ Admin:
+ *   + Gắn 4 nhãn phân loại hồ sơ: [NHẬN NGƯỜI TRÊN CÂY - EM], [KHAI BÁO MỚI - 21 TRƯỜNG],
+ *     [LẬP DÒNG HỌ MỚI - CLAN SETUP], [GIA NHẬP HỌ THỨ HAI - C1].
+ *   + Điều phối duyệt / trả sửa hồ sơ Multi-Home (C1 / C1-S) gọi qua
+ *     membershipApi (/api/membership/cases/:caseId/*) sử dụng roleInTenant.
+ *   + Giữ nguyên luồng C2 / C2-S (/auth/process-approval, /auth/return-for-revision)
+ *     và nhánh OP (?process=OP -> OpApprovalPanel).
+ * =============================================================================
+ * CHANGELOGS:
+ * - 2026-08-18T21:05:00+07:00 (v25.1.3-FE-OP-B2): Data bridging + OpApprovalPanel.
+ * - 2026-11-13T11:30:00+07:00 (v25.2.0-MULTIHOME-AMEND02-V15-LAT4):
+ *   + Bổ sung badge 4 loại hồ sơ và định tuyến duyệt C1 / C1-S sang /membership/cases/:caseId/*.
+ * =============================================================================
+ * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
 
 import { useState, useEffect, useCallback } from 'react';
@@ -24,7 +34,8 @@ import {
   RefreshCw 
 } from 'lucide-react';
 import UserApprovalForm from '../features/admin/components/UserApprovalForm.jsx';
-import apiClient from  '../lib/apiClient.js';
+import apiClient from '../lib/apiClient.js';
+import { membershipApi } from '../features/membership/api/membershipApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
 //FE-OP-B2
 import OpApprovalPanel from '../features/admin/components/OpApprovalPanel.jsx';
@@ -62,6 +73,50 @@ const getStatusBadgeClass = (item) => {
     return 'bg-rose-100 text-rose-900 border-rose-400';
   }
   return STATUS_BADGES[item.status] || 'bg-slate-50';
+};
+
+const CASE_CATEGORY_META = {
+  CLAIM_EM: {
+    label: '[NHẬN NGƯỜI TRÊN CÂY - EM]',
+    badgeClass: 'bg-emerald-50 text-emerald-800 border-emerald-200',
+  },
+  NEW_MEMBER_21_FIELDS: {
+    label: '[KHAI BÁO MỚI - 21 TRƯỜNG]',
+    badgeClass: 'bg-blue-50 text-blue-800 border-blue-200',
+  },
+  CLAN_SETUP_C2S: {
+    label: '[LẬP DÒNG HỌ MỚI - CLAN SETUP (C2-S)]',
+    badgeClass: 'bg-purple-50 text-purple-800 border-purple-200',
+  },
+  CLAN_SETUP_C1S: {
+    label: '[LẬP DÒNG HỌ MỚI - CLAN SETUP (C1-S)]',
+    badgeClass: 'bg-fuchsia-50 text-fuchsia-800 border-fuchsia-200',
+  },
+  MULTIHOME_C1: {
+    label: '[GIA NHẬP HỌ THỨ HAI - C1]',
+    badgeClass: 'bg-indigo-50 text-indigo-800 border-indigo-200',
+  },
+};
+
+const getCaseCategoryMeta = (item) => {
+  const cat = item?.claimCategory;
+  if (cat && CASE_CATEGORY_META[cat]) {
+    return CASE_CATEGORY_META[cat];
+  }
+  if (item?.caseType === 'CLAN_SETUP') {
+    return item?.isMultiHomeCase
+      ? CASE_CATEGORY_META.CLAN_SETUP_C1S
+      : CASE_CATEGORY_META.CLAN_SETUP_C2S;
+  }
+  if (item?.isMultiHomeCase) {
+    return CASE_CATEGORY_META.MULTIHOME_C1;
+  }
+  const snap = item?.temp_snapshot || {};
+  const meta = item?.caseMetadata || {};
+  if (snap.claimed_member_id || meta.claimed_member_id || meta.registration_profile?.claimed_member_id) {
+    return CASE_CATEGORY_META.CLAIM_EM;
+  }
+  return CASE_CATEGORY_META.NEW_MEMBER_21_FIELDS;
 };
 
 const AdminUserApprovalPage = () => {
@@ -134,11 +189,31 @@ const AdminUserApprovalPage = () => {
           return {
             // 🏛️ LỚP 1: Các trường phẳng bề nổi phục vụ hiển thị tức thì trên Thẻ Card và Form
             id: actualUser.id || item.id,
+            caseId: item.caseId || actualUser.caseId || null,
+            isMultiHomeCase:
+              item.isMultiHomeCase === true ||
+              actualUser.isMultiHomeCase === true,
+            claimCategory:
+              item.claimCategory || actualUser.claimCategory || null,
+            caseType: item.caseType || actualUser.caseType || null,
+            caseStatus: item.caseStatus || actualUser.caseStatus || null,
+            caseMetadata:
+              item.caseMetadata || actualUser.caseMetadata || {},
             name: registrationFullName,
             temp_full_name: registrationFullName,
             phone: actualUser.phone || item.phone || 'Chưa có số',
             email: actualUser.email || item.email || 'Chưa có email',
-            status: actualUser.status || item.status || 'CHO_DUYET',
+            // [LAT 4]: Multi-Home C1 dùng caseStatus để quyết định badge/thao tác thay cho users.status (DA_DUYET họ gốc)
+            status:
+              (item.isMultiHomeCase === true || actualUser.isMultiHomeCase === true) &&
+              (item.caseStatus || actualUser.caseStatus)
+                ? (item.caseStatus || actualUser.caseStatus) === 'REJECTED'
+                  ? 'TU_CHOI'
+                  : (item.caseStatus || actualUser.caseStatus) === 'APPROVED' ||
+                    (item.caseStatus || actualUser.caseStatus) === 'MERGED'
+                  ? 'DA_DUYET'
+                  : 'CHO_DUYET'
+                : actualUser.status || item.status || 'CHO_DUYET',
             role: actualUser.role || item.role || 'MEMBER',
             // PR-OP-4: từ chối lần cuối (từ BE queryReviewableUsers)
             isFinalRejection:
@@ -187,7 +262,7 @@ const AdminUserApprovalPage = () => {
           };
         })
         // Bộ lọc UX thực chiến: Gạt SYSTEM_ADMIN ra ngoài danh sách xử lý của dòng họ
-        .filter(u => u && u.role !== 'SYSTEM_ADMIN');
+        .filter(u => u && (u.isMultiHomeCase === true || u.role !== 'SYSTEM_ADMIN'));
 
       setUsersList(normalizedUsers);
       setPagination(serverPagination);
@@ -237,11 +312,13 @@ const AdminUserApprovalPage = () => {
     }
   };
 
-  // Xử lý nộp quyết định thay đổi trạng thái (Approve/Reject/Lock)
+  // Xử lý nộp quyết định thay đổi trạng thái (C2/C2-S qua /auth/*; C1/C1-S qua /membership/cases/:caseId/*)
   const handleApprovalSubmit = async (formData) => {
     setSubmitting(true);
     try {
       const userId = selectedUser.id;
+      const caseId = selectedUser.caseId || null;
+      const isMultiHome = selectedUser.isMultiHomeCase === true && Boolean(caseId);
       const adminNote = (formData.adminNote || '').trim();
 
       if (!adminNote) {
@@ -249,25 +326,49 @@ const AdminUserApprovalPage = () => {
         return;
       }
 
-      // PR-OP-4 R1: trả về sửa — không đổi users.status
-      if (formData.newStatus === 'RETURN_FOR_REVISION') {
-        await apiClient.post('/auth/return-for-revision', {
-          userId,
-          adminNote,
-        });
-        toast.success('Đã yêu cầu bổ sung hồ sơ (trả về sửa).');
+      if (isMultiHome) {
+        if (formData.newStatus === 'RETURN_FOR_REVISION') {
+          await membershipApi.returnForRevision(caseId, { adminNote });
+          toast.success('Đã yêu cầu bổ sung hồ sơ Multi-Home (trả về sửa).');
+        } else {
+          await membershipApi.approveCase(caseId, {
+            newStatus: formData.newStatus,
+            adminNote,
+            isFinalRejection: formData.isFinalRejection === true,
+            targetMemberId: formData.targetMemberId || undefined,
+          });
+          toast.success(
+            formData.isFinalRejection
+              ? 'Đã gắn từ chối lần cuối cho hồ sơ Multi-Home.'
+              : formData.newStatus === 'DA_DUYET'
+                ? 'Đã duyệt hồ sơ gia nhập dòng họ (Multi-Home) thành công!'
+                : 'Đã từ chối hồ sơ Multi-Home.'
+          );
+        }
       } else {
-        await apiClient.post('/auth/process-approval', {
-          userId,
-          newStatus: formData.newStatus,
-          adminNote,
-          isFinalRejection: formData.isFinalRejection === true,
-        });
-        toast.success(
-          formData.isFinalRejection
-            ? 'Đã gắn từ chối lần cuối.'
-            : 'Cập nhật trạng thái tài khoản thành công!'
-        );
+        // Luồng C2 / C2-S (Guest mới đăng ký)
+        if (formData.newStatus === 'RETURN_FOR_REVISION') {
+          await apiClient.post('/auth/return-for-revision', {
+            userId,
+            caseId: caseId || undefined,
+            adminNote,
+          });
+          toast.success('Đã yêu cầu bổ sung hồ sơ (trả về sửa).');
+        } else {
+          await apiClient.post('/auth/process-approval', {
+            userId,
+            caseId: caseId || undefined,
+            newStatus: formData.newStatus,
+            adminNote,
+            targetMemberId: formData.targetMemberId || undefined,
+            isFinalRejection: formData.isFinalRejection === true,
+          });
+          toast.success(
+            formData.isFinalRejection
+              ? 'Đã gắn từ chối lần cuối.'
+              : 'Cập nhật trạng thái tài khoản thành công!'
+          );
+        }
       }
 
       setSelectedUser(null);
@@ -419,9 +520,11 @@ const AdminUserApprovalPage = () => {
           </div>
         ) : (
           <div className="space-y-3">
-            {usersList.map((item) => (
+            {usersList.map((item) => {
+              const catMeta = getCaseCategoryMeta(item);
+              return (
               <div 
-                key={item.id} 
+                key={item.caseId || item.id} 
                 className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:border-slate-300 transition flex flex-col justify-between gap-4 sm:flex-row sm:items-center"
               >
                 <div className="space-y-1.5">
@@ -429,11 +532,11 @@ const AdminUserApprovalPage = () => {
                     <span className="text-base font-black tracking-tight text-slate-900">
                       {item.temp_full_name}
                     </span>
-                    {/* ***************
-                    <span className={`rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider ${STATUS_BADGES[item.status] || 'bg-slate-50'}`}>
-                        {STATUS_LABELS[item.status] || item.status}
+                    <span
+                      className={`rounded-md border px-2 py-0.5 text-[10px] font-black uppercase tracking-wider ${catMeta.badgeClass}`}
+                    >
+                      {catMeta.label}
                     </span>
-                    *****************  */}
                     <span
                       className={`rounded-full border px-2.5 py-0.5 text-[10px] font-black uppercase tracking-wider ${getStatusBadgeClass(item)}`}
                     >
@@ -472,7 +575,8 @@ const AdminUserApprovalPage = () => {
                   </button>
                 </div>
               </div>
-            ))}
+              );
+            })}
 
             {/* COMPONENT 3: PHÂN TRANG THÍCH ỨNG */}
             {pagination.total_pages > 1 && (

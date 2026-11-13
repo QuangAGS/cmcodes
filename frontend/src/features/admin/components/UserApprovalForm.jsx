@@ -1,15 +1,22 @@
 /**
- * PATH       : src/features/admin/components/UserApprovalForm.jsx
- * DATETIME   : 2026-08-04T17:20:00+07:00
- * VERSION    : 14.4.3-PR-OP-4-FINAL-LABEL
+ * =============================================================================
+ * PATH       : frontend/src/features/admin/components/UserApprovalForm.jsx
+ * DATETIME   : 2026-11-13T12:00:00+07:00
+ * VERSION    : 14.6.0-MULTIHOME-AMEND02-V15-LAT4
  * DESCRIPTION:
- * - TỐI ƯU UX MOBILE SCREEN: Label nhử động (Xem chi tiết / Thu gọn) trên 3 Khung.
- * - [14.4.2-R1] Option trạng thái theo nguồn user:
- *   + CHO_DUYET → DA_DUYET | TU_CHOI | RETURN_FOR_REVISION
- *   + TU_CHOI → CHO_DUYET (mở lại)
- *   + DA_DUYET → không đổi tại form này
- * - Q1: Giữ 3 khung, formState một cổng onSubmit.
- * - Q2: Header + changelog.
+ * - [AMEND-RP-OP-2026-02 V1.5.0 Lát 4] Form đối soát & phê duyệt chi tiết hồ sơ:
+ *   + Hiển thị banner phân loại hồ sơ (EM / 21 trường / CLAN SETUP / C1 Multi-Home).
+ *   + Khung đối soát 2 cột EM (Hồ sơ trên cây xin nhận vs Câu trả lời 3 lớp gia mật).
+ *   + Khung đối soát 4 nhóm thông tin 21 trường (Nhân thân, Tiền nhân 3 đời, Liên lạc/Cư trú, Minh chứng).
+ *   + Cảnh báo bảo toàn họ gốc (is_default = false) đối với hồ sơ Multi-Home C1 / C1-S.
+ *   + Xác nhận 2 bước bắt buộc khi chọn Từ chối lần cuối (khóa vĩnh viễn).
+ * =============================================================================
+ * CHANGELOGS:
+ * - 2026-08-04T17:20:00+07:00 (v14.4.3-PR-OP-4-FINAL-LABEL): 3 khung đối soát + từ chối lần cuối.
+ * - 2026-11-13T11:30:00+07:00 (v14.5.0-MULTIHOME-AMEND02-V15-LAT4):
+ *   + Bổ sung khối đối soát 2 cột EM + 3 lớp gia mật, 4 nhóm 21 trường, cảnh báo C1 và xác nhận 2 bước.
+ * =============================================================================
+ * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
 
 import React, { useState } from 'react';
@@ -20,10 +27,40 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
 
   const userCore = raw.userData || raw;
   const snapshot = userCore.temp_snapshot || raw.temp_snapshot || {};
+  const caseMetadata = raw.caseMetadata || userCore.caseMetadata || {};
+  const regProfile =
+    caseMetadata.registration_profile &&
+    typeof caseMetadata.registration_profile === 'object'
+      ? caseMetadata.registration_profile
+      : {};
+  const claimVerification =
+    regProfile.claim_verification &&
+    typeof regProfile.claim_verification === 'object'
+      ? regProfile.claim_verification
+      : {};
+  const isMultiHomeCase =
+    raw.isMultiHomeCase === true || userCore.isMultiHomeCase === true;
+  const isClaimEmCase =
+    regProfile.claim_mode === 'CLAIM_EM' ||
+    Boolean(regProfile.claimed_member_id || snapshot.claimed_member_id || caseMetadata.claimed_member_id);
+  const isClanSetupCase =
+    raw.caseType === 'CLAN_SETUP' ||
+    userCore.caseType === 'CLAN_SETUP' ||
+    regProfile.claim_mode === 'CLAN_SETUP';
+
   const tenant = userCore.tenant || raw.tenant || raw.tenantData;
   const member = userCore.member_profile || raw.member_profile || raw.memberData;
 
-  const currentUserStatus = userCore.status || raw.status || 'CHO_DUYET';
+  // Lát 4: Form C1 phải dùng trạng thái của hồ sơ (Multi-Home) thay vì users.status (DA_DUYET của họ gốc)
+  const currentUserStatus = isMultiHomeCase && raw.caseStatus
+    ? raw.caseStatus === 'REJECTED'
+      ? 'TU_CHOI'
+      : raw.caseStatus === 'APPROVED' || raw.caseStatus === 'MERGED'
+      ? 'DA_DUYET'
+      : 'CHO_DUYET'
+    : raw.status || userCore.status || 'CHO_DUYET';
+
+  const [confirmFinalStep2, setConfirmFinalStep2] = useState(false);
 
   // PR-OP-4: từ BE query / list normalize
   const isFinalRejectionRecord =
@@ -99,6 +136,11 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
         isFinalRejection = true;
       }
 
+      if (newStatus === 'TU_CHOI' && isFinalRejection && !confirmFinalStep2) {
+        alert('Vui lòng tích xác nhận bước 2 cho quyết định Từ chối vĩnh viễn.');
+        return;
+      }
+
       onSubmit({
         ...formState,
         newStatus,
@@ -122,6 +164,137 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
       onSubmit={handleLocalSubmit}
       className="space-y-4 text-slate-900 font-sans animate-fadeIn"
     >
+      {/* BANNERS PHÂN LOẠI HỒ SƠ (AMEND-RP-OP-2026-02 V1.5.0 Mục 7) */}
+      <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="inline-flex items-center rounded-lg bg-indigo-50 px-2.5 py-1 text-xs font-black text-indigo-800 border border-indigo-200">
+            {isClanSetupCase
+              ? isMultiHomeCase
+                ? '[LẬP DÒNG HỌ MỚI - CLAN SETUP (C1-S)]'
+                : '[LẬP DÒNG HỌ MỚI - CLAN SETUP (C2-S)]'
+              : isMultiHomeCase
+                ? '[GIA NHẬP HỌ THỨ HAI - C1]'
+                : isClaimEmCase
+                  ? '[NHẬN NGƯỜI TRÊN CÂY - EM]'
+                  : '[KHAI BÁO MỚI - 21 TRƯỜNG]'}
+          </span>
+          {raw.caseId && (
+            <span className="font-mono text-[11px] text-slate-400">
+              Case #{String(raw.caseId).slice(0, 8)}
+            </span>
+          )}
+        </div>
+
+        {isMultiHomeCase && (
+          <div className="rounded-xl border border-indigo-200 bg-indigo-50/70 p-3 text-xs font-semibold text-indigo-950">
+            Người dùng này đã có tài khoản hoạt động (<code>DA_DUYET</code>) tại dòng họ gốc.
+            Khi duyệt, hệ thống chỉ tạo liên kết phụ (<code>is_default = false</code>) tại{' '}
+            <strong>{tenant?.name || tenant?.clan_name || 'dòng họ đích'}</strong>, không làm thay đổi trạng thái tài khoản hay họ gốc.
+          </div>
+        )}
+      </div>
+
+      {/* ĐỐI SOÁT CHUYÊN BIỆT: CASE EM (2 CỘT) HOẶC 21 TRƯỜNG PHẢ HỆ (4 NHÓM) */}
+      {isClaimEmCase ? (
+        <div className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm space-y-3">
+          <h3 className="text-xs font-black uppercase tracking-wider text-emerald-900">
+            Đối soát nhận người trên cây (EM) &amp; 3 lớp gia mật
+          </h3>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-3 text-xs space-y-1.5">
+              <p className="font-black uppercase text-emerald-800">
+                1. Hồ sơ trên cây xin nhận
+              </p>
+              <p className="font-black text-sm text-slate-900">
+                {member?.full_name ||
+                  claimVerification?.claimed_member_summary?.full_name ||
+                  snapshot.full_name ||
+                  'Chưa rõ'}
+              </p>
+              <p className="text-slate-600">
+                Đời thứ:{' '}
+                <strong>
+                  {member?.generation ??
+                    claimVerification?.claimed_member_summary?.generation ??
+                    'Chưa rõ'}
+                </strong>{' '}
+                • Chi:{' '}
+                <strong>
+                  {member?.branch_name ||
+                    member?.branch?.name ||
+                    claimVerification?.claimed_member_summary?.branch_name ||
+                    'Chưa rõ'}
+                </strong>
+              </p>
+              {!member && (
+                <p className="mt-1 rounded bg-rose-100 px-2 py-1 text-[11px] font-bold text-rose-800">
+                  Cảnh báo: Không tìm thấy bản ghi thành viên hợp lệ trên cây!
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-3 text-xs space-y-1.5">
+              <p className="font-black uppercase text-indigo-800">
+                2. Câu trả lời 3 lớp gia mật
+              </p>
+              <p>
+                <span className="text-slate-500">Lớp 1 (Tiền nhân):</span>{' '}
+                <strong>{claimVerification.layer1_lineage || snapshot.father_name || '—'}</strong>
+              </p>
+              <p>
+                <span className="text-slate-500">Lớp 2 (Chi/Quê quán):</span>{' '}
+                <strong>{claimVerification.layer2_branch_origin || snapshot.branch_name || '—'}</strong>
+              </p>
+              <p>
+                <span className="text-slate-500">Lớp 3 (Bảo lãnh/Ghi chú):</span>{' '}
+                <strong>{claimVerification.layer3_guarantor_note || snapshot.note || '—'}</strong>
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="rounded-2xl border border-blue-200 bg-white p-4 shadow-sm space-y-3">
+          <h3 className="text-xs font-black uppercase tracking-wider text-blue-900">
+            Hồ sơ khai báo chi tiết (4 nhóm thông tin)
+          </h3>
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 text-xs">
+            <div className="rounded-xl bg-slate-50 p-3 border border-slate-100 space-y-1">
+              <p className="font-black text-slate-700 uppercase">1. Nhân thân</p>
+              <p>Họ tên: <strong>{regProfile.full_name || snapshot.full_name || '—'}</strong></p>
+              <p>Tên tự/hiệu: <strong>{regProfile.alias || snapshot.alias || '—'}</strong></p>
+              <p>Giới tính: <strong>{regProfile.gender || snapshot.gender || 'NAM'}</strong></p>
+              <p>
+                Sinh:{' '}
+                <strong>
+                  {[regProfile.birth_day, regProfile.birth_month, regProfile.birth_year || snapshot.birth_year]
+                    .filter(Boolean)
+                    .join('/') || 'Chưa rõ'}
+                </strong>
+              </p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3 border border-slate-100 space-y-1">
+              <p className="font-black text-slate-700 uppercase">2. Tiền nhân 3 đời</p>
+              <p>Cha: <strong>{regProfile.father_name || snapshot.father_name || '—'}</strong></p>
+              <p>Mẹ: <strong>{regProfile.mother_name || snapshot.mother_name || '—'}</strong></p>
+              <p>Ông nội: <strong>{regProfile.grandfather_name || snapshot.grandfather_name || '—'}</strong></p>
+              <p>Chi/Nhánh: <strong>{regProfile.branch_name || snapshot.branch_name || '—'}</strong> (Đời {regProfile.generation || snapshot.generation || '?'})</p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3 border border-slate-100 space-y-1">
+              <p className="font-black text-slate-700 uppercase">3. Liên lạc &amp; Cư trú</p>
+              <p>Quê quán: <strong>{regProfile.birth_place || snapshot.birth_place || '—'}</strong></p>
+              <p>Địa chỉ: <strong>{regProfile.address || snapshot.address || '—'}</strong></p>
+              <p>SĐT / Email: <strong>{userCore.phone || '—'} / {userCore.email || '—'}</strong></p>
+            </div>
+            <div className="rounded-xl bg-slate-50 p-3 border border-slate-100 space-y-1">
+              <p className="font-black text-slate-700 uppercase">4. Minh chứng &amp; Lời nhắn</p>
+              <p className="whitespace-pre-wrap font-medium text-slate-700">
+                {regProfile.note || snapshot.note || 'Không có ghi chú'}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* KHUNG 1: USER */}
       <div
         className={`rounded-2xl border bg-white shadow-sm overflow-hidden transition-all duration-200 ${
@@ -312,26 +485,42 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
                 </select>
               </div>
 
-              {/* R2: từ chối lần cuối */}
+              {/* R2: từ chối lần cuối (Xác nhận 2 bước theo V1.5.0 Mục 7) */}
               {formState.newStatus === 'TU_CHOI' && (
-                <label className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50/80 p-3 text-xs cursor-pointer">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5 shrink-0"
-                    checked={formState.isFinalRejection === true}
-                    // Bỏ disabled — cho tick/bỏ tick khi CHO_DUYET → Từ chối
-                    // Khi nguồn TU_CHOI + option Từ chối lần cuối: vẫn có thể giữ checked nhờ onChange select
-                    onChange={(e) =>
-                      setFormState((p) => ({
-                        ...p,
-                        isFinalRejection: e.target.checked,
-                      }))
-                    }
-                  />
-                  <span className="font-bold text-rose-800 leading-relaxed">
-                    Từ chối lần cuối — không cho mở lại hồ sơ qua quy trình reopen.
-                  </span>
-                </label>
+                <div className="space-y-2 rounded-xl border border-rose-200 bg-rose-50/80 p-3 text-xs">
+                  <label className="flex items-start gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 shrink-0"
+                      checked={formState.isFinalRejection === true}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setConfirmFinalStep2(false);
+                        setFormState((p) => ({
+                          ...p,
+                          isFinalRejection: checked,
+                        }));
+                      }}
+                    />
+                    <span className="font-bold text-rose-800 leading-relaxed">
+                      Từ chối lần cuối — khóa vĩnh viễn hồ sơ, không cho mở lại qua quy trình reopen.
+                    </span>
+                  </label>
+
+                  {formState.isFinalRejection === true && (
+                    <label className="ml-5 flex items-start gap-2 rounded-lg border border-rose-300 bg-white p-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 shrink-0"
+                        checked={confirmFinalStep2}
+                        onChange={(e) => setConfirmFinalStep2(e.target.checked)}
+                      />
+                      <span className="font-black text-rose-900">
+                        Bước 2: Tôi xác nhận quyết định từ chối vĩnh viễn của Hội đồng gia tộc là không thể hoàn tác.
+                      </span>
+                    </label>
+                  )}
+                </div>
               )}
 
               <div>

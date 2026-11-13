@@ -1,12 +1,13 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/pages/AuthPage.jsx
- * DATETIME    : 2026-11-11T23:00:00+07:00
- * VERSION     : 24.6.12-AUTH-PAGE-REVISION-423
+ * DATETIME    : 2026-11-13T09:35:00+07:00
+ * VERSION     : 24.7.1-MULTIHOME-AMEND02-V15-LAT2
  * DESCRIPTION : Trang xác thực (Login / Register / Forgot / Reset).
- *               Giữ redirect sau login.
- *               423 ACCOUNT_CHO_DUYET: ưu tiên code/message backend, không lấy Axios ERR_BAD_REQUEST.
- *               Nút bổ sung hồ sơ seed pendingFormData từ tempSnapshot.
+ *               - Giữ redirect sau login.
+ *               - 423 ACCOUNT_CHO_DUYET (canEdit === true): nạp caseMetadata.registration_profile
+ *                 (EM 3 lớp / 21 trường / CLAN_SETUP) vào pendingFormData cho luồng bổ sung hồ sơ.
+ *               - 403 ACCOUNT_PERMANENTLY_REJECTED (canEdit === false): khóa cứng, không mở form sửa.
  * =============================================================================
  * CHANGELOGS:
  * - 24.6.8.R3.3.5-W2: Residual Wave 2 – tenant lifecycle vs lock.
@@ -14,9 +15,12 @@
  * - 2026-11-11 (v24.6.10): khôi phục toggleAuthMode.
  * - 2026-11-11T22:40:00+07:00 (v24.6.11-AUTH-PAGE-RESTORE-REGISTER-CONTRACT):
  *   + Trả lại onRegisterSubmit, pendingFormData, view waiting/result.
- *   + RegisterForm nhận đủ props contract v24.6.8.
+ * - 2026-11-13T09:35:00+07:00 (v24.7.1-MULTIHOME-AMEND02-V15-LAT2):
+ *   + Đọc caseMetadata.registration_profile từ 423 ACCOUNT_CHO_DUYET và nạp đủ vào pendingFormData.
+ *   + Chặn riêng 403 ACCOUNT_PERMANENTLY_REJECTED (hard-lock, không hiện nút sửa).
+ *   + Reset cờ revision khi bấm Quay lại đăng nhập từ revision-notice.
  * =============================================================================
- * QX: Tuân thủ chặt chẽ. Không đổi tên LoginForm. Không đổi redirect sau login.
+ * QX: Tuân thủ chặt chẽ Q1–Q4. Không đổi tên LoginForm. Không đổi redirect sau login.
  */
 
 import { useState } from 'react';
@@ -122,30 +126,45 @@ export default function AuthPage() {
 
   const handleRegisterSubmit = async (data) => {
     const snap = revisionContext?.tempSnapshot || {};
+    const meta = revisionContext?.caseMetadata || {};
+    const metaProfile =
+      meta.registration_profile && typeof meta.registration_profile === 'object'
+        ? meta.registration_profile
+        : {};
     const identitySeed = {
-      phone: snap.phone || data.phone || '',
-      email: snap.email || data.email || '',
+      phone: snap.phone || metaProfile.phone || data.phone || '',
+      email: snap.email || metaProfile.email || data.email || '',
     };
+
+    const isRev = registerRevisionMode || data?.isRevision === true;
+    const lockedPhone = isRev
+      ? resolveRevisionPhone(revisionContext?.identifier, identitySeed, data.phone)
+      : data.phone;
+    const lockedEmail = isRev
+      ? resolveRevisionEmail(revisionContext?.identifier, identitySeed, data.email) || null
+      : data.email;
 
     const merged = {
       ...data,
-      ...(registerRevisionMode || data?.isRevision
+      ...(isRev
         ? {
             isRevision: true,
-            phone: resolveRevisionPhone(
-              revisionContext?.identifier,
-              identitySeed,
-              data.phone
-            ),
-            email:
-              resolveRevisionEmail(
-                revisionContext?.identifier,
-                identitySeed,
-                data.email
-              ) || null,
+            phone: lockedPhone,
+            email: lockedEmail,
+            ...(data.registration_profile && typeof data.registration_profile === 'object'
+              ? {
+                  registration_profile: {
+                    ...data.registration_profile,
+                    phone: lockedPhone || undefined,
+                    email: lockedEmail || undefined,
+                  },
+                }
+              : {}),
             isNewClan:
               data.isNewClan === true ||
               snap.isNewClan === true ||
+              metaProfile.claim_mode === 'CLAN_SETUP' ||
+              meta.case_type === 'CLAN_SETUP' ||
               snap.role === 'CLAN_ADMIN',
           }
         : {}),
@@ -253,6 +272,19 @@ export default function AuthPage() {
         (err?.code && err.code !== 'ERR_BAD_REQUEST' ? err.message : '') ||
         extractBackendMessage(err);
 
+      // Lát 2 (AMEND-RP-OP-2026-02 V1.5.0 Mục 6): Hard-lock 403 ACCOUNT_PERMANENTLY_REJECTED
+      if (errorCode === 'ACCOUNT_PERMANENTLY_REJECTED') {
+        const hardLockMsg =
+          serverMessage ||
+          'Hồ sơ đã bị từ chối vĩnh viễn. Không thể sửa hoặc nộp lại.';
+        setRevisionContext(null);
+        setRegisterRevisionMode(false);
+        setLoginMessage(hardLockMsg);
+        setLoginMessageType('error');
+        requestAnimationFrame(() => speakError?.(hardLockMsg));
+        return;
+      }
+
       if (
         errorCode === 'USER_PENDING_APPROVAL' ||
         errorCode === 'ACCOUNT_CHO_DUYET' ||
@@ -263,12 +295,15 @@ export default function AuthPage() {
         const canEdit = err?.canEdit === true || serverData.canEdit === true;
         const reviewNote = err?.reviewNote ?? serverData.reviewNote ?? null;
         const tempSnapshot = err?.tempSnapshot ?? serverData.tempSnapshot ?? null;
+        const caseMetadata = err?.caseMetadata ?? serverData.caseMetadata ?? null;
 
         if (errorCode === 'ACCOUNT_CHO_DUYET' && canEdit) {
           setRevisionContext({
             identifier: loginData?.identifier || '',
+            canEdit: true,
             reviewNote,
             tempSnapshot,
+            caseMetadata,
             caseStatus: err?.caseStatus ?? serverData.caseStatus ?? null,
             caseId: err?.caseId ?? serverData.caseId ?? null,
           });
@@ -376,37 +411,106 @@ export default function AuthPage() {
           <div className="space-y-4 text-center">
             <h2 className="text-xl font-bold text-gray-900">Hồ sơ cần bổ sung</h2>
             <p className="text-gray-700">{revisionContext.reviewNote || 'Ban quản trị yêu cầu bổ sung thông tin.'}</p>
+            {revisionContext.canEdit !== false && (
+              <button
+                type="button"
+                onClick={() => {
+                  const id = revisionContext?.identifier || '';
+                  const snap = revisionContext?.tempSnapshot || {};
+                  const meta = revisionContext?.caseMetadata || {};
+                  const profile =
+                    meta.registration_profile &&
+                    typeof meta.registration_profile === 'object'
+                      ? meta.registration_profile
+                      : meta;
+
+                  const isNewClan =
+                    snap.isNewClan === true ||
+                    profile.claim_mode === 'CLAN_SETUP' ||
+                    meta.case_type === 'CLAN_SETUP' ||
+                    meta.registrationType === 'NEW_CLAN' ||
+                    snap.role === 'CLAN_ADMIN' ||
+                    snap.caseType === 'CLAN_SETUP';
+
+                  const mergedSeed = { ...snap, ...profile };
+                  const resolvedPhone = resolveRevisionPhone(
+                    id,
+                    mergedSeed,
+                    snap.phone || profile.phone
+                  );
+                  const resolvedEmail =
+                    resolveRevisionEmail(
+                      id,
+                      mergedSeed,
+                      snap.email || profile.email
+                    ) || '';
+                  const resolvedClaimedMemberId =
+                    meta.claimed_member_id ||
+                    profile.claimed_member_id ||
+                    snap.claimed_member_id ||
+                    null;
+
+                  const hydratedProfile = {
+                    ...profile,
+                    ...(resolvedClaimedMemberId
+                      ? { claimed_member_id: resolvedClaimedMemberId }
+                      : {}),
+                    ...(resolvedPhone ? { phone: resolvedPhone } : {}),
+                    ...(resolvedEmail ? { email: resolvedEmail } : {}),
+                  };
+
+                  setPendingFormData({
+                    ...snap,
+                    ...profile,
+                    registration_profile: hydratedProfile,
+                    claimed_member_id: resolvedClaimedMemberId,
+                    temp_full_name:
+                      profile.full_name ||
+                      snap.full_name ||
+                      snap.temp_full_name ||
+                      '',
+                    temp_father_name:
+                      profile.father_name ||
+                      snap.father_name ||
+                      snap.temp_father_name ||
+                      '',
+                    temp_birth_year:
+                      profile.birth_year != null && profile.birth_year !== ''
+                        ? String(profile.birth_year)
+                        : snap.birth_year != null
+                          ? String(snap.birth_year)
+                          : snap.temp_birth_year || '',
+                    temp_relationship:
+                      profile.temp_relationship ||
+                      snap.temp_relationship ||
+                      snap.relationship ||
+                      'CON_DE',
+                    temp_note: profile.note || snap.note || snap.temp_note || '',
+                    phone: resolvedPhone,
+                    email: resolvedEmail,
+                    tenantId: snap.tenantId || snap.tenant_id || meta.tenant_id || '',
+                    clanName: snap.clanName || meta.clanName || '',
+                    description: snap.description || meta.description || '',
+                    tenantSlug: snap.tenantSlug || meta.tenantSlug || '',
+                    isRevision: true,
+                    isNewClan,
+                  });
+                  setRegisterRevisionMode(true);
+                  setView('register');
+                }}
+                className="w-full py-3 min-h-[48px] bg-amber-600 text-white font-bold rounded-2xl"
+              >
+                Bổ sung hồ sơ ngay
+              </button>
+            )}
             <button
               type="button"
               onClick={() => {
-                const id = revisionContext?.identifier || '';
-                const snap = revisionContext?.tempSnapshot || {};
-                const isNewClan =
-                  snap.isNewClan === true ||
-                  snap.role === 'CLAN_ADMIN' ||
-                  snap.caseType === 'CLAN_SETUP';
-
-                setPendingFormData({
-                  ...snap,
-                  phone: resolveRevisionPhone(id, snap, snap.phone),
-                  email: resolveRevisionEmail(id, snap, snap.email) || '',
-                  tenantId: snap.tenantId || snap.tenant_id || '',
-                  clanName: snap.clanName || '',
-                  description: snap.description || '',
-                  tenantSlug: snap.tenantSlug || '',
-                  isRevision: true,
-                  isNewClan,
-                });
-                setRegisterRevisionMode(true);
-                setView('register');
+                setRegisterRevisionMode(false);
+                setRevisionContext(null);
+                setPendingFormData(null);
+                setView('login');
               }}
-              className="w-full py-3 min-h-[48px] bg-amber-600 text-white font-bold rounded-2xl"
-            >
-              Bổ sung hồ sơ ngay
-            </button>
-            <button
-              type="button"
-              onClick={() => setView('login')}
               className="w-full py-3 min-h-[48px] bg-gray-100 text-gray-800 font-semibold rounded-2xl"
             >
               Quay lại đăng nhập

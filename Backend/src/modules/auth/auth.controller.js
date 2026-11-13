@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/auth/auth.controller.js
- * DATETIME   : 2026-11-12T11:30:00+07:00
- * VERSION    : 23.7.0-MULTIHOME-AMEND02-V15-LAT0
+ * DATETIME   : 2026-11-13T10:42:00+07:00
+ * VERSION    : 23.9.0-MULTIHOME-AMEND02-V15-LAT3-LAT4
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.2] Lát 1/7 Multi-Home Controller hoàn chỉnh:
  *   + getAvailableClans: Gọi authService.getAvailableClans(userId).
@@ -586,8 +586,8 @@ const authController = {
 
   getPendingUsers: async (req, res) => {
     try {
-      const actorRole = req.user?.role;
-      const actorTenantId = req.user?.tenantId || req.user?.tenant_id;
+      const actorRole = req.user?.roleInTenant || req.user?.role;
+      const actorTenantId = req.user?.activeTenantId || req.user?.tenantId || req.user?.tenant_id;
 
       if (!actorRole || !['SYSTEM_ADMIN', 'CLAN_ADMIN'].includes(actorRole)) {
         return res.status(403).json({
@@ -614,9 +614,10 @@ const authController = {
 
   processApproval: async (req, res) => {
     try {
-      const { userId, newStatus, adminNote, isFinalRejection, targetMemberId } = req.body;
+      const { userId, caseId, newStatus, adminNote, isFinalRejection, targetMemberId } = req.body;
       const actorId = req.user.userId;
-      const { role, tenantId: actorTenantId } = req.user;
+      const role = req.user.roleInTenant || req.user.role;
+      const actorTenantId = req.user.activeTenantId || req.user.tenantId;
       const correlationId = req.correlationId;
 
       if (!userId || !newStatus) {
@@ -628,6 +629,7 @@ const authController = {
 
       const result = await authService.processUserApproval({
         userId,
+        caseId: caseId || undefined,
         newStatus,
         adminNote,
         actorId,
@@ -669,9 +671,10 @@ const authController = {
 
   returnForRevision: async (req, res) => {
     try {
-      const { userId, adminNote } = req.body;
+      const { userId, caseId, adminNote } = req.body;
       const actorId = req.user.userId;
-      const { role, tenantId: actorTenantId } = req.user;
+      const role = req.user.roleInTenant || req.user.role;
+      const actorTenantId = req.user.activeTenantId || req.user.tenantId;
       const correlationId = req.correlationId;
 
       if (!userId || !adminNote) {
@@ -683,6 +686,7 @@ const authController = {
 
       const result = await authService.returnForRevision({
         userId,
+        caseId: caseId || undefined,
         adminNote,
         actorId,
         role,
@@ -720,8 +724,8 @@ const authController = {
   queryReviewableUsers: async (req, res) => {
     try {
       const filters = req.body || {};
-      const actorRole = req.user?.role;
-      const actorTenantId = req.user?.tenantId || req.user?.tenant_id;
+      const actorRole = req.user?.roleInTenant || req.user?.role;
+      const actorTenantId = req.user?.activeTenantId || req.user?.tenantId || req.user?.tenant_id;
 
       const rawResults = await authService.queryReviewableUsers(
         filters,
@@ -741,6 +745,14 @@ const authController = {
 
         return {
           id: actualUser.id || user.id,
+          caseId: user.caseId || actualUser.caseId || null,
+          isMultiHomeCase: user.isMultiHomeCase === true || actualUser.isMultiHomeCase === true,
+          isFinalRejection: user.isFinalRejection === true || actualUser.isFinalRejection === true,
+          claimCategory: user.claimCategory || actualUser.claimCategory || null,
+          caseType: user.caseType || actualUser.caseType || null,
+          caseStatus: user.caseStatus || actualUser.caseStatus || null,
+          caseMetadata: user.caseMetadata || actualUser.caseMetadata || {},
+          temp_snapshot: snapshot,
           name: actualUser.name || user.name || '',
           temp_full_name:
             snapshot.full_name || user.temp_full_name || actualUser.name || 'Thành viên chưa đặt tên',
@@ -791,7 +803,9 @@ const authController = {
     try {
       const { userId, adminNote } = req.body;
       const actorId = req.user.userId;
-      const { role, tenantId: actorTenantId, status: actorStatus } = req.user;
+      const role = req.user.roleInTenant || req.user.role;
+      const actorTenantId = req.user.activeTenantId || req.user.tenantId;
+      const actorStatus = req.user.status;
       const correlationId = req.correlationId;
 
       if (!userId || !adminNote) {

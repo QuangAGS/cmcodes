@@ -1,20 +1,12 @@
 /**
  * PATH       : src/app.js
- * DATETIME   : 2026-11-12T12:15:00+07:00
- * VERSION    : 21.8.0-MULTIHOME-AMEND02-V15-LAT1
+ * DATETIME   : 2026-11-13T09:50:00+07:00
+ * VERSION    : 21.9.0-MULTIHOME-AMEND02-V15-LAT3
  * DESCRIPTION:
+ * - [21.9.0-MULTIHOME-AMEND02-V15-LAT3] Mount /api/membership (membership.routes) cho luồng C1 & C1-S.
+ * - [21.8.0-MULTIHOME-AMEND02-V15-LAT1] Mount /api/public (publicSearch.routes) cho Guest Claim.
  * - [21.7.0-W2] Wave 2 PR-W2-3: Early tenant 404 → next(err) dual-contract CED.
- * 
  * - Production Hardening: Security Headers & CORS.
- * - Patch Config Gateway:
- *   + Import securityConfig.
- *   + CORS origin đọc từ securityConfig.ALLOWED_ORIGINS.
- *   + Global Error Handler đọc NODE_ENV từ securityConfig.
- * - [21.5.2] Mount onboarding.routes (OPD v1.1.0 / Phase 1–3).
- *   + Thêm allowedHeaders: x-correlation-id.
- * - [21.6.0-W1] Wave 1 PR-2: Correlation FIRST + CED Global Error Handler.
- *   + Mount correlationMiddleware trước mọi middleware khác.
- *   + Thay handler 500 mù bằng createGlobalErrorHandler({ legacy: true }).
  * - Bảo tồn toàn bộ logic cũ (Q1).
  * - Tuân thủ Q2.
  *
@@ -22,8 +14,9 @@
  * - 21.5.1 (2026-07-16): Production Hardening + securityConfig gateway.
  * - 21.5.2 (2026-07-20): Add /api/onboarding + CORS header x-correlation-id.
  * - 21.6.0-W1 (2026-07-22): Wave 1 PR-2 — Correlation FIRST + CED createGlobalErrorHandler({ legacy: true }).
- * - 21.6.0-W1 (2026-07-22): Correlation FIRST + CED Global Handler.
  * - 21.7.0-W2 (2026-07-25): Early tenant 404 dual-contract (PR-W2-3).
+ * - 21.8.0-MULTIHOME-AMEND02-V15-LAT1 (2026-11-12): Mount /api/public cho Guest Claim search.
+ * - 21.9.0-MULTIHOME-AMEND02-V15-LAT3 (2026-11-13): Mount /api/membership cho Multi-Home C1 & C1-S.
  */
 
 const express = require('express');
@@ -65,6 +58,7 @@ const mediaRoutes = require('./modules/interactions/media.routes');
 
 // [21.5.2] Onboarding module (EGAL-25.x OPD v1.1.0)
 const onboardingRoutes = require('./modules/onboarding/onboarding.routes');
+const membershipRoutes = require('./modules/membership/membership.routes');
 const profileRoutes = require('./modules/profile/profile.routes');
 
 const publicSearchRoutes = require('./modules/public/publicSearch.routes');
@@ -198,6 +192,7 @@ app.use('/api/notifications', notificationRoutes);
 // [21.5.2] Onboarding — EGAL-25.x OPD v1.1.0 (Phase 1–3)
 // Prefix nhất quán với các module hiện tại (/api/members, /api/branches, ...)
 app.use('/api/onboarding', onboardingRoutes);
+app.use('/api/membership', membershipRoutes);
 app.use('/api/me', profileRoutes);
 
 // ─────────────────────────────────────────────────────────────

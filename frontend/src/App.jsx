@@ -1,14 +1,22 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/App.jsx
- * DATETIME    : 2026-11-11T18:00:00+07:00
- * VERSION     : 3.5.0-APP-SELECT-TENANT-REMOVED-FINAL
- * DESCRIPTION : Định tuyến ứng dụng Gia Phả Số chuẩn AMEND-RP-OP-2026-02 V1.2:
+ * DATETIME    : 2026-11-13T11:05:00+07:00
+ * VERSION     : 3.6.0-MULTIHOME-AMEND02-V15-LAT3
+ * DESCRIPTION : Định tuyến ứng dụng Gia Phả Số chuẩn AMEND-RP-OP-2026-02 V1.5.0:
  *               - AdminProtectedRoute: Thẩm định quyền theo activeContext.roleInTenant
  *                 (hoặc role trên token của link), không bị trói buộc bởi user.role cũ.
  *               - Mount HeaderClanSwitcher và SandboxModeBanner trên AppLayout.
  *               - Khai tử SelectTenantPage: Chuyển hướng vĩnh viễn về /op.
+ *               - Bổ sung route /membership/setup cho luồng lập dòng họ mới (C1-S).
  * =============================================================================
+ * CHANGELOGS:
+ * - 2026-11-11T18:00:00+07:00 (v3.5.0-APP-SELECT-TENANT-REMOVED-FINAL):
+ *   + Gỡ SelectTenantPage, thẩm định quyền Admin theo roleInTenant.
+ * - 2026-11-13T11:05:00+07:00 (v3.6.0-MULTIHOME-AMEND02-V15-LAT3):
+ *   + Import ClanSetupPage và gắn route /membership/setup bọc bởi OpProtectedRoute.
+ * =============================================================================
+ * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
 
 import React, { Suspense, lazy } from 'react';
@@ -20,9 +28,10 @@ import { SandboxModeBanner } from './components/common/SandboxModeBanner';
 import { HeaderClanSwitcher } from './features/membership/components/HeaderClanSwitcher';
 import MfoAlarmHost from './features/mfo/components/MfoAlarmHost.jsx';
 
-// --- Membership (P0) ---
+// --- Membership (P0 + Multi-Home C1 / C1-S) ---
 import { ClaimMemberPage } from './features/membership/pages/ClaimMemberPage';
 import { MembershipStatusPage } from './features/membership/pages/MembershipStatusPage';
+import { ClanSetupPage } from './features/membership/pages/ClanSetupPage';
 
 // --- Lazy pages ---
 const HomePage = lazy(() => import('./pages/HomePage.jsx'));
@@ -150,6 +159,14 @@ const AppRouter = () => {
           element={
             <OpProtectedRoute>
               <MembershipStatusPage />
+            </OpProtectedRoute>
+          }
+        />
+        <Route
+          path="/membership/setup"
+          element={
+            <OpProtectedRoute>
+              <ClanSetupPage />
             </OpProtectedRoute>
           }
         />

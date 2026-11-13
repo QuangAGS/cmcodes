@@ -1,43 +1,35 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/features/membership/api/membershipApi.js
- * DATETIME    : 2026-11-10T15:55:00+07:00
- * VERSION     : 1.1.0-MEMBERSHIP-API-MAP-TO-EXISTING-BE
- * DESCRIPTION : HTTP Client cho phân hệ Membership & Multi-Home.
- *               Map các hàm FE sang đúng endpoint Backend hiện có
- *               (không còn gọi /membership/* chưa tồn tại).
+ * DATETIME    : 2026-11-13T10:45:00+07:00
+ * VERSION     : 1.3.0-MULTIHOME-AMEND02-V15-LAT3-LAT4
+ * DESCRIPTION : HTTP Client cho phân hệ Membership & Multi-Home (C1 & C1-S).
+ *               - getMyClans -> GET /auth/available-clans
+ *               - switchContext -> POST /auth/switch-context
+ *               - getMembershipStatus -> GET /membership/status (fallback /onboarding/my-op)
+ *               - submitClaim (C1) -> POST /membership/cases
+ *               - submitClanSetup (C1-S) -> POST /membership/clan-setup
+ *               - submitRevision -> POST /membership/cases/:caseId/revision
+ *               - reopenCase -> POST /membership/cases/:caseId/reopen
+ *               - approveCase (Admin C1/C1-S) -> POST /membership/cases/:caseId/approve
+ *               - returnForRevision (Admin C1/C1-S) -> POST /membership/cases/:caseId/return-revision
  * =============================================================================
  * CHANGELOGS:
- * - 2026-11-10T15:02:00+07:00 (v1.0.2-MEMBERSHIP-API-REMOVE-DOUBLE-PREFIX):
- *   + Loại bỏ prefix '/api' trùng lặp.
- * - 2026-11-10T15:55:00+07:00 (v1.1.0-MEMBERSHIP-API-MAP-TO-EXISTING-BE):
- *   + Map getMembershipStatus → GET /onboarding/my-op.
- *   + Map submitClaim → POST /onboarding/cases.
- *   + Map reopenCase → POST /onboarding/cases/:caseId/reopen.
- *   + Map submitRevision → POST /onboarding/cases/:caseId/revision.
- *   + Chuẩn hóa QX (Q1–Q4).
+ * - 2026-11-10T15:55:00+07:00 (v1.1.0): Map cơ bản sang /onboarding/*.
+ * - 2026-11-13T10:00:00+07:00 (v1.2.0): Đấu nối /membership/cases, /clan-setup, /status.
+ * - 2026-11-13T10:45:00+07:00 (v1.3.0): Thêm approveCase & returnForRevision cho cổng Admin Lát 4.
  * =============================================================================
+ * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
 
 import apiClient from '../../../lib/apiClient';
 
 export const membershipApi = {
-  /**
-   * Lấy danh sách dòng họ liên kết của user hiện tại.
-   * BE: GET /api/auth/available-clans
-   * @returns {Promise<{status: string, data: Array, message: string}>}
-   */
   getMyClans: async () => {
     const response = await apiClient.get('/auth/available-clans');
     return response.data;
   },
 
-  /**
-   * Chuyển ngữ cảnh sang tenant khác.
-   * BE: POST /api/auth/switch-context
-   * @param {string} targetTenantId
-   * @returns {Promise<object>}
-   */
   switchContext: async (targetTenantId) => {
     const response = await apiClient.post('/auth/switch-context', {
       targetTenantId,
@@ -45,47 +37,59 @@ export const membershipApi = {
     return response.data;
   },
 
-  /**
-   * Lấy trạng thái hồ sơ / Onboarding Case hiện tại.
-   * BE: GET /api/onboarding/my-op
-   * @returns {Promise<object>}
-   */
-  getMembershipStatus: async () => {
-    const response = await apiClient.get('/onboarding/my-op');
-    return response.data;
+  getMembershipStatus: async ({ caseId = null, tenantId = null } = {}) => {
+    const params = {};
+    if (caseId) params.caseId = caseId;
+    if (tenantId) params.tenantId = tenantId;
+
+    const response = await apiClient.get('/membership/status', { params });
+    const payload = response.data?.data ?? response.data;
+    if (payload) {
+      return payload;
+    }
+
+    const fallback = await apiClient.get('/onboarding/my-op');
+    return fallback.data?.data ?? fallback.data;
   },
 
-  /**
-   * Nộp hồ sơ Claim / tạo case mới.
-   * BE: POST /api/onboarding/cases
-   * @param {object} payload
-   * @returns {Promise<object>}
-   */
   submitClaim: async (payload) => {
-    const response = await apiClient.post('/onboarding/cases', payload);
+    const response = await apiClient.post('/membership/cases', payload);
     return response.data;
   },
 
-  /**
-   * Nộp lại hồ sơ khi bị yêu cầu bổ sung (NEEDS_REVISION).
-   * BE: POST /api/onboarding/cases/:caseId/revision
-   * @param {string} caseId
-   * @param {object} payload
-   * @returns {Promise<object>}
-   */
+  submitClanSetup: async (payload) => {
+    const response = await apiClient.post('/membership/clan-setup', payload);
+    return response.data;
+  },
+
   submitRevision: async (caseId, payload) => {
-    const response = await apiClient.post(`/onboarding/cases/${caseId}/revision`, payload);
+    const response = await apiClient.post(
+      `/membership/cases/${encodeURIComponent(caseId)}/revision`,
+      payload
+    );
     return response.data;
   },
 
-  /**
-   * Mở lại hồ sơ bị từ chối mềm (soft rejection).
-   * BE: POST /api/onboarding/cases/:caseId/reopen
-   * @param {string} caseId
-   * @returns {Promise<object>}
-   */
   reopenCase: async (caseId) => {
-    const response = await apiClient.post(`/onboarding/cases/${caseId}/reopen`);
+    const response = await apiClient.post(
+      `/membership/cases/${encodeURIComponent(caseId)}/reopen`
+    );
+    return response.data;
+  },
+
+  approveCase: async (caseId, payload) => {
+    const response = await apiClient.post(
+      `/membership/cases/${encodeURIComponent(caseId)}/approve`,
+      payload
+    );
+    return response.data;
+  },
+
+  returnForRevision: async (caseId, payload) => {
+    const response = await apiClient.post(
+      `/membership/cases/${encodeURIComponent(caseId)}/return-revision`,
+      payload
+    );
     return response.data;
   },
 };

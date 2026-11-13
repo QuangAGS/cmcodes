@@ -1,21 +1,23 @@
 /**
  * PATH       : src/modules/auth/auth.service.js
- * DATETIME   : 2026-11-12T11:30:00+07:00
- * VERSION    : 20.8.0-MULTIHOME-AMEND02-V15-LAT0-ATOMIC
+ * DATETIME   : 2026-11-13T10:30:00+07:00
+ * VERSION    : 20.9.1-MULTIHOME-AMEND02-V15-LAT3
  * DESCRIPTION:
- * - [AMEND-RP-OP-2026-02 V1.5.0] Lát 0 hoàn chỉnh theo Phương án A + Multi-Home SSOT:
- *   + registerUser: Chỉ tạo định danh users (CHO_DUYET), KHÔNG tạo members DU_BI,
- *     KHÔNG ghi users.member_id, KHÔNG rải dữ liệu phả hệ vào users.temp_*.
- *     Toàn bộ registration_profile (21 trường / claimed_member_id) lưu duy nhất vào onboarding_cases.metadata.
- *   + processUserApproval: Đọc registration_profile từ onboarding_cases.metadata.
- *     * Case 1 (Claim EM): Kiểm tra EM hợp lệ & chưa có chủ, tạo user_member_links (DA_DUYET) nối tới EM.
- *     * Case 2 (No EM - 21 trường) & C2-S (CLAN_SETUP): Tạo members với status = 'CHINH_THUC' từ metadata,
- *       tạo user_member_links (DA_DUYET, is_default = true, role_in_tenant = CLAN_ADMIN | USER).
- *     * Tuyệt đối KHÔNG ghi users.member_id; KHÔNG hạ role CLAN_ADMIN thành VIEWER;
- *       C2-S kích hoạt tenant sang HOAT_DONG kèm cờ social_configs.isSandbox = true.
- *   + loginUser: activeMemberId và activeLinkStatus lấy 100% từ user_member_links (không fallback user.member_id).
- *     423 ACCOUNT_CHO_DUYET trả đủ caseMetadata; 403 ACCOUNT_PERMANENTLY_REJECTED tách riêng cho hard-lock.
- *   + submitRegistrationRevision: Cập nhật registration_profile trực tiếp vào onboarding_cases.metadata.
+ * - [AMEND-RP-OP-2026-02 V1.5.0] Lát 0 + Lát 3 Multi-Home SSOT:
+ *   + Lát 0 (C2 & C2-S): registerUser tạo users (CHO_DUYET) + onboarding_cases.metadata trong 1 TX atomic;
+ *     processUserApproval tạo/nối member CHINH_THUC + user_member_links (DA_DUYET, is_default = true),
+ *     tuyệt đối không tạo DU_BI và không ghi users.member_id; loginUser trả 423 kèm caseMetadata và 403 hard-lock.
+ *   + Lát 3 (C1 & C1-S Multi-Home): getAvailableClans hợp nhất user_member_links với hồ sơ C1/C1-S chờ duyệt;
+ *     switchContext hỗ trợ chuyển ngữ cảnh sang dòng họ B đang CHO_DUYET/TU_CHOI;
+ *     queryReviewableUsers hiển thị hồ sơ C1/C1-S; processUserApproval & returnForRevision ủy quyền
+ *     xử lý C1/C1-S sang membershipService (link DA_DUYET, is_default = false, giữ nguyên họ gốc A).
+ * ============================================================================
+ * CHANGELOGS:
+ * - 2026-11-12T11:30:00+07:00 (v20.8.0-MULTIHOME-AMEND02-V15-LAT0-ATOMIC): Hoàn thiện Lát 0 Phương án A.
+ * - 2026-11-13T10:30:00+07:00 (v20.9.1-MULTIHOME-AMEND02-V15-LAT3): Bổ sung hỗ trợ Multi-Home C1 / C1-S
+ *   (getAvailableClans, switchContext, queryReviewableUsers, ủy quyền approve/revision C1 sang membershipService).
+ * ============================================================================
+ * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
 
 'use strict';
@@ -591,29 +593,64 @@ const authService = {
    * Lấy danh sách dòng họ liên kết của user (Multi-Home).
    */
   getAvailableClans: async (userId) => {
-    const links = await basePrisma.user_member_links.findMany({
-      where: {
-        user_id: userId,
-        deleted_at: null,
-      },
-      include: {
-        tenant: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-            status: true,
-            social_configs: true,
+    const [links, pendingCases] = await Promise.all([
+      basePrisma.user_member_links.findMany({
+        where: {
+          user_id: userId,
+          deleted_at: null,
+        },
+        include: {
+          tenant: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              status: true,
+              social_configs: true,
+            },
+          },
+          member: {
+            select: { id: true, full_name: true },
           },
         },
-        member: {
-          select: { id: true, full_name: true },
+        orderBy: [{ is_default: 'desc' }, { created_at: 'asc' }],
+      }),
+      basePrisma.onboarding_cases.findMany({
+        where: {
+          user_id: userId,
+          deleted_at: null,
+          process_kind: 'REGISTER',
+          tenant_id: { not: null },
+          status: {
+            in: [
+              'DRAFT',
+              'PROFILE_COMPLETED',
+              'FAMILY_TREE_DRAFT',
+              'SUBMITTED',
+              'UNDER_REVIEW',
+              'NEEDS_REVISION',
+              'REJECTED',
+            ],
+          },
         },
-      },
-      orderBy: [{ is_default: 'desc' }, { created_at: 'asc' }],
-    });
+        include: {
+          tenants: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              status: true,
+              social_configs: true,
+            },
+          },
+        },
+        orderBy: { created_at: 'desc' },
+      }),
+    ]);
 
-    return links.map((link) => {
+    const linkedTenantIds = new Set(links.map((l) => l.tenant_id));
+
+    const result = links.map((link) => {
       const sc =
         link.tenant?.social_configs && typeof link.tenant.social_configs === 'object'
           ? link.tenant.social_configs
@@ -631,6 +668,37 @@ const authService = {
         isSandbox: Boolean(sc.isSandbox),
       };
     });
+
+    for (const c of pendingCases) {
+      if (!c.tenant_id || linkedTenantIds.has(c.tenant_id)) continue;
+      linkedTenantIds.add(c.tenant_id);
+      const meta = c.metadata && typeof c.metadata === 'object' ? c.metadata : {};
+      const sc =
+        c.tenants?.social_configs && typeof c.tenants.social_configs === 'object'
+          ? c.tenants.social_configs
+          : {};
+      const mappedStatus = c.status === 'REJECTED' ? 'TU_CHOI' : 'CHO_DUYET';
+      result.push({
+        tenantId: c.tenant_id,
+        clanName: c.tenants?.name || meta.clanName || 'Dòng họ',
+        clanSlug: c.tenants?.slug || meta.tenantSlug || '',
+        linkType:
+          meta.link_type ||
+          (c.case_type === 'CLAN_SETUP' ? 'PRIMARY_PATERNAL' : 'SPOUSE_FAMILY'),
+        status: mappedStatus,
+        isDefault: false,
+        roleInTenant: c.case_type === 'CLAN_SETUP' ? 'CLAN_ADMIN' : 'VIEWER',
+        memberId: c.primary_member_id || null,
+        memberName: meta.registration_profile?.full_name || null,
+        isSandbox: Boolean(sc.isSandbox),
+        caseId: c.id,
+        caseType: c.case_type,
+        caseStatus: c.status,
+        isFinalRejection: meta.is_final_rejection === true,
+      });
+    }
+
+    return result;
   },
 
   generateToken: (user) => {
@@ -1744,14 +1812,148 @@ const authService = {
         })
       );
 
+      // Bổ sung hồ sơ Multi-Home C1 / C1-S (user đã DA_DUYET ở họ gốc, nộp đơn sang họ B hoặc lập họ B)
+      const c1CaseWhere = {
+        deleted_at: null,
+        process_kind: 'REGISTER',
+        ...(actorRole !== 'SYSTEM_ADMIN'
+          ? { tenant_id: actorTenantId, case_type: 'MEMBER_JOIN' }
+          : {}),
+        status:
+          status === 'TU_CHOI'
+            ? { in: ['REJECTED'] }
+            : status === 'DA_DUYET'
+              ? { in: ['APPROVED', 'MERGED'] }
+              : { in: ['SUBMITTED', 'UNDER_REVIEW', 'NEEDS_REVISION'] },
+        users: {
+          status: 'DA_DUYET',
+          deleted_at: null,
+        },
+      };
+
+      const c1Cases = await basePrisma.onboarding_cases.findMany({
+        where: c1CaseWhere,
+        orderBy: { updated_at: 'desc' },
+        take: 30,
+        include: {
+          users: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+              phone: true,
+              status: true,
+              role: true,
+              created_at: true,
+              updated_at: true,
+            },
+          },
+          tenants: {
+            select: PRISMA_SELECTS.TENANT_STANDARD,
+          },
+        },
+      });
+
+      const c1Items = await Promise.all(
+        c1Cases.map(async (c) => {
+          const u = c.users;
+          const rawCaseMeta = c.metadata && typeof c.metadata === 'object' ? c.metadata : {};
+          const profile =
+            rawCaseMeta.registration_profile &&
+            typeof rawCaseMeta.registration_profile === 'object'
+              ? rawCaseMeta.registration_profile
+              : rawCaseMeta;
+
+          let linkedMember = null;
+          if (profile.claimed_member_id && c.tenant_id) {
+            linkedMember = await basePrisma.members.findFirst({
+              where: {
+                id: profile.claimed_member_id,
+                tenant_id: c.tenant_id,
+                deleted_at: null,
+              },
+              select: {
+                id: true,
+                full_name: true,
+                generation: true,
+                gender: true,
+                is_alive: true,
+                branch_id: true,
+                status: true,
+                role: true,
+                branch: { select: { id: true, name: true } },
+              },
+            });
+          }
+
+          const isClanSetup = c.case_type === 'CLAN_SETUP';
+          const mappedStatus =
+            c.status === 'REJECTED'
+              ? 'TU_CHOI'
+              : c.status === 'APPROVED' || c.status === 'MERGED'
+                ? 'DA_DUYET'
+                : 'CHO_DUYET';
+
+          return {
+            id: u.id,
+            caseId: c.id,
+            isMultiHomeCase: true,
+            name: u.name,
+            email: u.email,
+            phone: u.phone,
+            status: mappedStatus,
+            role: isClanSetup ? 'CLAN_ADMIN' : 'USER',
+            isFinalRejection:
+              c.status === 'REJECTED' && rawCaseMeta.is_final_rejection === true,
+            claimCategory: isClanSetup ? 'CLAN_SETUP_C1S' : 'MULTIHOME_C1',
+            caseType: c.case_type,
+            caseStatus: c.status,
+            caseMetadata: rawCaseMeta,
+            created_at: c.created_at,
+            updated_at: c.updated_at,
+            temp_snapshot: {
+              full_name: profile.full_name || u.name || 'Chưa khai báo',
+              alias: profile.alias || null,
+              gender: profile.gender || 'NAM',
+              birth_year: profile.birth_year || 'Chưa khai báo',
+              birth_month: profile.birth_month || null,
+              birth_day: profile.birth_day || null,
+              birth_place: profile.birth_place || null,
+              death_year: profile.death_year || null,
+              is_alive: profile.is_alive !== undefined ? profile.is_alive : true,
+              generation: profile.generation || null,
+              member_role: profile.member_role || 'THANH_VIEN',
+              branch_name: profile.branch_name || 'Chưa khai báo',
+              father_name: profile.father_name || 'Chưa khai báo',
+              mother_name: profile.mother_name || null,
+              grandfather_name: profile.grandfather_name || 'Chưa khai báo',
+              grandmother_name: profile.grandmother_name || null,
+              address: profile.address || 'Chưa khai báo',
+              relationship: profile.temp_relationship || 'CON_DE',
+              note: profile.note || 'Không có ghi chú',
+              claimed_member_id: profile.claimed_member_id || null,
+              proof_documents: profile.proof_documents || [],
+              social_profiles: profile.social_profiles || {},
+              registration_reason: isClanSetup
+                ? 'Thành viên hiện hữu lập dòng họ mới (C1-S)'
+                : 'Thành viên hiện hữu xin gia nhập dòng họ thứ hai (C1)',
+            },
+            tenant: c.tenants || null,
+            member_profile: linkedMember,
+          };
+        })
+      );
+
+      const combinedData = [...c1Items, ...enrichedData];
+
       return {
         pagination: {
-          total_records: totalRecords,
+          total_records: totalRecords + c1Items.length,
           current_page: parseInt(page, 10),
           limit: take,
-          total_pages: Math.ceil(totalRecords / take),
+          total_pages: Math.ceil((totalRecords + c1Items.length) / take),
         },
-        data: enrichedData,
+        data: combinedData,
       };
     } catch (error) {
       console.error('❌ [queryReviewableUsers Advanced Exception]:', error.message);
@@ -1771,6 +1973,7 @@ const authService = {
   processUserApproval: async (payload) => {
     const {
       userId,
+      caseId: explicitCaseId,
       newStatus,
       adminNote,
       actorId,
@@ -1800,6 +2003,49 @@ const authService = {
     });
     if (!sourceUser) {
       throw new Error('Không tìm thấy tài khoản yêu cầu phê duyệt.');
+    }
+
+    // Lát 3 (Multi-Home C1 / C1-S): User đã DA_DUYET ở họ gốc A -> ủy quyền sang membershipService.approveMultiHomeCase
+    if (sourceUser.status === 'DA_DUYET') {
+      const targetMultiHomeCase = await basePrisma.onboarding_cases.findFirst({
+        where: {
+          ...(explicitCaseId ? { id: explicitCaseId } : {}),
+          user_id: userId,
+          deleted_at: null,
+          process_kind: 'REGISTER',
+          ...(role !== 'SYSTEM_ADMIN' && actorTenantId && !explicitCaseId
+            ? { tenant_id: actorTenantId }
+            : {}),
+          status: {
+            in: [
+              'SUBMITTED',
+              'UNDER_REVIEW',
+              'NEEDS_REVISION',
+              'DRAFT',
+              'PROFILE_COMPLETED',
+              'FAMILY_TREE_DRAFT',
+            ],
+          },
+        },
+        orderBy: { created_at: 'desc' },
+        select: { id: true },
+      });
+
+      if (targetMultiHomeCase) {
+        const membershipService = require('../membership/membership.service');
+        return membershipService.approveMultiHomeCase({
+          caseId: targetMultiHomeCase.id,
+          newStatus,
+          adminNote,
+          actorId,
+          actorRole: role,
+          actorTenantId,
+          actorStatus,
+          isFinalRejection: finalRejection,
+          targetMemberId: targetMemberId || null,
+          correlationId: correlation_id || correlationIdCamel || null,
+        });
+      }
     }
 
     if (sourceUser.status === 'TU_CHOI' && newStatus === 'CHO_DUYET') {
@@ -1873,7 +2119,33 @@ const authService = {
           throw new Error('Không tìm thấy tài khoản yêu cầu phê duyệt.');
         }
 
-        if (targetUser.status !== 'CHO_DUYET') {
+        // Nạp hồ sơ onboarding_cases (process_kind = REGISTER) để hỗ trợ cả C2/C2-S và Multi-Home C1/C1-S
+        const openCase = await tx.onboarding_cases.findFirst({
+          where: {
+            ...(explicitCaseId ? { id: explicitCaseId } : {}),
+            user_id: userId,
+            deleted_at: null,
+            process_kind: 'REGISTER',
+            ...(role !== 'SYSTEM_ADMIN' && actorTenantId && !explicitCaseId
+              ? { tenant_id: actorTenantId }
+              : {}),
+            status: {
+              in: [
+                'SUBMITTED',
+                'UNDER_REVIEW',
+                'NEEDS_REVISION',
+                'DRAFT',
+                'PROFILE_COMPLETED',
+                'FAMILY_TREE_DRAFT',
+              ],
+            },
+          },
+          orderBy: { created_at: 'desc' },
+        });
+
+        const isMultiHomeCase = targetUser.status === 'DA_DUYET' && Boolean(openCase);
+
+        if (targetUser.status !== 'CHO_DUYET' && !isMultiHomeCase) {
           throw new Error('DENIED');
         }
 
@@ -1889,40 +2161,29 @@ const authService = {
         if (role === 'CLAN_ADMIN' && actorStatus !== 'DA_DUYET') {
           throw new Error('DENIED');
         }
-        if (
-          targetUser.role === 'CLAN_ADMIN' &&
-          targetUser.status === 'CHO_DUYET' &&
-          role !== 'SYSTEM_ADMIN'
-        ) {
+
+        const effectiveTargetTenantId = openCase?.tenant_id || targetUser.tenant_id;
+        const effectiveTargetTenant = effectiveTargetTenantId
+          ? await tx.tenants.findUnique({
+              where: { id: effectiveTargetTenantId },
+              select: { id: true, name: true, status: true, social_configs: true },
+            })
+          : targetUser.tenants;
+
+        const isClanSetup =
+          openCase?.case_type === 'CLAN_SETUP' ||
+          (!isMultiHomeCase && targetUser.role === 'CLAN_ADMIN');
+
+        if (isClanSetup && role !== 'SYSTEM_ADMIN') {
           throw new Error('DENIED');
         }
-        if (role !== 'SYSTEM_ADMIN' && targetUser.tenant_id !== actorTenantId) {
+        if (role !== 'SYSTEM_ADMIN' && effectiveTargetTenantId !== actorTenantId) {
           throw new Error('DENIED');
         }
 
         securityLogIdentifier = targetUser.phone || targetUser.email || 'unknown';
         const oldUserStatus = targetUser.status;
         const finalReason = adminNote.trim();
-
-        // Nạp hồ sơ onboarding_cases (process_kind = REGISTER) để lấy metadata 21 trường / EM
-        const openCase = await tx.onboarding_cases.findFirst({
-          where: {
-            user_id: userId,
-            deleted_at: null,
-            process_kind: 'REGISTER',
-            status: {
-              in: [
-                'SUBMITTED',
-                'UNDER_REVIEW',
-                'NEEDS_REVISION',
-                'DRAFT',
-                'PROFILE_COMPLETED',
-                'FAMILY_TREE_DRAFT',
-              ],
-            },
-          },
-          orderBy: { created_at: 'desc' },
-        });
 
         const caseMeta =
           openCase?.metadata && typeof openCase.metadata === 'object'
@@ -1934,8 +2195,6 @@ const authService = {
             ? caseMeta.registration_profile
             : caseMeta;
 
-        const isClanSetup =
-          openCase?.case_type === 'CLAN_SETUP' || targetUser.role === 'CLAN_ADMIN';
         const snapshotName =
           profile.full_name || targetUser.name || 'Thành viên';
 
@@ -1943,7 +2202,7 @@ const authService = {
         let createdNewMember = false;
 
         if (newStatus === 'DA_DUYET') {
-          if (!targetUser.tenant_id) {
+          if (!effectiveTargetTenantId) {
             const err = new Error('Hồ sơ thiếu mã định danh dòng họ (tenant_id).');
             err.status = 400;
             throw err;
@@ -1957,7 +2216,7 @@ const authService = {
             const existingEm = await tx.members.findFirst({
               where: {
                 id: claimedMemberId,
-                tenant_id: targetUser.tenant_id,
+                tenant_id: effectiveTargetTenantId,
                 deleted_at: null,
               },
               select: { id: true, full_name: true, status: true },
@@ -1975,7 +2234,7 @@ const authService = {
             // Chặn tranh chấp: 1 EM chỉ có tối đa 1 liên kết DA_DUYET trong cùng dòng họ
             const existingActiveOwner = await tx.user_member_links.findFirst({
               where: {
-                tenant_id: targetUser.tenant_id,
+                tenant_id: effectiveTargetTenantId,
                 member_id: existingEm.id,
                 status: 'DA_DUYET',
                 deleted_at: null,
@@ -1995,7 +2254,7 @@ const authService = {
 
             resolvedMemberId = existingEm.id;
           } else {
-            // ── CASE 2 (No EM - 21 trường) & C2-S (Founder dòng họ mới) ──
+            // ── CASE 2 (No EM - 21 trường) & C2-S / C1-S (Founder dòng họ mới) ──
             const memberGender = VALID_MEMBER_GENDERS.has(profile.gender)
               ? profile.gender
               : 'NAM';
@@ -2007,7 +2266,7 @@ const authService = {
 
             const newMember = await tx.members.create({
               data: {
-                tenant_id: targetUser.tenant_id,
+                tenant_id: effectiveTargetTenantId,
                 full_name: profile.full_name || targetUser.name || 'Thành viên mới',
                 alias: profile.alias || null,
                 gender: memberGender,
@@ -2055,11 +2314,11 @@ const authService = {
                 full_name: newMember.full_name,
                 status: 'CHINH_THUC',
                 role: memberRole,
-                tenant_id: targetUser.tenant_id,
+                tenant_id: effectiveTargetTenantId,
               },
               actorId,
               finalReason,
-              targetUser.tenant_id,
+              effectiveTargetTenantId,
               C,
               tx
             );
@@ -2067,6 +2326,10 @@ const authService = {
 
           // Tạo / Cập nhật bản ghi SSOT user_member_links
           const assignedRoleInTenant = isClanSetup ? 'CLAN_ADMIN' : 'USER';
+          const resolvedLinkType =
+            caseMeta.link_type ||
+            (isClanSetup ? 'PRIMARY_PATERNAL' : isMultiHomeCase ? 'SPOUSE_FAMILY' : 'PRIMARY_PATERNAL');
+
           const existingDefaultLink = await tx.user_member_links.findFirst({
             where: {
               user_id: userId,
@@ -2080,7 +2343,7 @@ const authService = {
           const existingTenantLink = await tx.user_member_links.findFirst({
             where: {
               user_id: userId,
-              tenant_id: targetUser.tenant_id,
+              tenant_id: effectiveTargetTenantId,
               deleted_at: null,
             },
             select: { id: true, is_default: true },
@@ -2093,8 +2356,9 @@ const authService = {
                 member_id: resolvedMemberId,
                 status: 'DA_DUYET',
                 role_in_tenant: assignedRoleInTenant,
-                is_default:
-                  existingTenantLink.is_default || !existingDefaultLink,
+                is_default: isMultiHomeCase
+                  ? false
+                  : existingTenantLink.is_default || !existingDefaultLink,
                 approved_by: actorId,
                 approved_at: new Date(),
                 changed_by: actorId,
@@ -2104,12 +2368,12 @@ const authService = {
             await tx.user_member_links.create({
               data: {
                 user_id: userId,
-                tenant_id: targetUser.tenant_id,
+                tenant_id: effectiveTargetTenantId,
                 member_id: resolvedMemberId,
-                link_type: 'PRIMARY_PATERNAL',
+                link_type: resolvedLinkType,
                 status: 'DA_DUYET',
                 role_in_tenant: assignedRoleInTenant,
-                is_default: !existingDefaultLink,
+                is_default: isMultiHomeCase ? false : !existingDefaultLink,
                 approved_by: actorId,
                 approved_at: new Date(),
                 changed_by: actorId,
@@ -2118,9 +2382,11 @@ const authService = {
           }
         }
 
-        // Cập nhật users: chỉ cập nhật trạng thái an ninh & role phù hợp; KHÔNG ghi users.member_id
-        const nextUserRole =
-          newStatus === 'DA_DUYET'
+        // Chỉ cập nhật users nếu là luồng C2 / C2-S (users.status === 'CHO_DUYET').
+        // Với Multi-Home C1 / C1-S: giữ nguyên users.status = DA_DUYET và role ở họ gốc A!
+        const nextUserRole = isMultiHomeCase
+          ? targetUser.role
+          : newStatus === 'DA_DUYET'
             ? isClanSetup
               ? 'CLAN_ADMIN'
               : targetUser.role === 'VIEWER'
@@ -2128,30 +2394,34 @@ const authService = {
                 : targetUser.role
             : targetUser.role;
 
-        await tx.users.update({
-          where: { id: userId },
-          data: {
-            status: newStatus,
-            role: nextUserRole,
-            changed_by: actorId,
-          },
-        });
+        const nextUserStatus = isMultiHomeCase ? targetUser.status : newStatus;
 
-        // Cập nhật trạng thái Tenant nếu là luồng C2-S (CLAN_SETUP)
+        if (!isMultiHomeCase) {
+          await tx.users.update({
+            where: { id: userId },
+            data: {
+              status: nextUserStatus,
+              role: nextUserRole,
+              changed_by: actorId,
+            },
+          });
+        }
+
+        // Cập nhật trạng thái Tenant nếu là luồng C2-S hoặc C1-S (CLAN_SETUP)
         let updatedTenantData = null;
         if (
-          targetUser.tenants &&
-          targetUser.tenants.status === 'CHO_DUYET' &&
+          effectiveTargetTenant &&
+          effectiveTargetTenant.status === 'CHO_DUYET' &&
           newStatus === 'DA_DUYET'
         ) {
           const currentSc =
-            targetUser.tenants.social_configs &&
-            typeof targetUser.tenants.social_configs === 'object'
-              ? targetUser.tenants.social_configs
+            effectiveTargetTenant.social_configs &&
+            typeof effectiveTargetTenant.social_configs === 'object'
+              ? effectiveTargetTenant.social_configs
               : {};
 
           updatedTenantData = await tx.tenants.update({
-            where: { id: targetUser.tenant_id },
+            where: { id: effectiveTargetTenantId },
             data: {
               status: 'HOAT_DONG',
               social_configs: {
@@ -2166,12 +2436,12 @@ const authService = {
         if (
           newStatus === 'TU_CHOI' &&
           isClanSetup &&
-          targetUser.tenant_id &&
-          targetUser.tenants &&
-          targetUser.tenants.status === 'CHO_DUYET'
+          effectiveTargetTenantId &&
+          effectiveTargetTenant &&
+          effectiveTargetTenant.status === 'CHO_DUYET'
         ) {
           updatedTenantData = await tx.tenants.update({
-            where: { id: targetUser.tenant_id },
+            where: { id: effectiveTargetTenantId },
             data: {
               status: 'TU_CHOI',
               changed_by: actorId,
@@ -2826,6 +3096,7 @@ const authService = {
   returnForRevision: async (payload) => {
     const {
       userId,
+      caseId: explicitCaseId,
       adminNote,
       actorId,
       role,
@@ -2844,6 +3115,54 @@ const authService = {
       const error = new Error('Ghi chú yêu cầu bổ sung không được để trống.');
       error.status = 400;
       throw error;
+    }
+
+    const sourceUser = await basePrisma.users.findUnique({
+      where: { id: userId },
+      select: { id: true, status: true },
+    });
+    if (!sourceUser) {
+      throw new Error('Không tìm thấy tài khoản.');
+    }
+
+    // Lát 3 (Multi-Home C1 / C1-S): User đã DA_DUYET ở họ gốc A -> ủy quyền sang membershipService.returnMultiHomeForRevision
+    if (sourceUser.status === 'DA_DUYET') {
+      const targetMultiHomeCase = await basePrisma.onboarding_cases.findFirst({
+        where: {
+          ...(explicitCaseId ? { id: explicitCaseId } : {}),
+          user_id: userId,
+          deleted_at: null,
+          process_kind: 'REGISTER',
+          ...(role !== 'SYSTEM_ADMIN' && actorTenantId && !explicitCaseId
+            ? { tenant_id: actorTenantId }
+            : {}),
+          status: {
+            in: [
+              'SUBMITTED',
+              'UNDER_REVIEW',
+              'NEEDS_REVISION',
+              'DRAFT',
+              'PROFILE_COMPLETED',
+              'FAMILY_TREE_DRAFT',
+            ],
+          },
+        },
+        orderBy: { created_at: 'desc' },
+        select: { id: true },
+      });
+
+      if (targetMultiHomeCase) {
+        const membershipService = require('../membership/membership.service');
+        return membershipService.returnMultiHomeForRevision({
+          caseId: targetMultiHomeCase.id,
+          adminNote,
+          actorId,
+          actorRole: role,
+          actorTenantId,
+          actorStatus,
+          correlationId: correlation_id || correlationIdCamel || null,
+        });
+      }
     }
 
     const C =
@@ -3374,12 +3693,98 @@ const authService = {
     });
 
     if (!link) {
-      const error = new Error(
-        'Bạn không có quyền truy cập hoặc chưa liên kết với dòng họ này.'
+      // Kiểm tra hồ sơ Multi-Home C1 / C1-S đang chờ duyệt hoặc bị từ chối cho dòng họ đích
+      const pendingCase = await basePrisma.onboarding_cases.findFirst({
+        where: {
+          user_id: userId,
+          tenant_id: targetTenantId,
+          deleted_at: null,
+          process_kind: 'REGISTER',
+        },
+        include: {
+          tenants: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              status: true,
+              logo_url: true,
+              slogan: true,
+              social_configs: true,
+            },
+          },
+        },
+        orderBy: { created_at: 'desc' },
+      });
+
+      if (!pendingCase) {
+        const error = new Error(
+          'Bạn không có quyền truy cập hoặc chưa liên kết với dòng họ này.'
+        );
+        error.status = 403;
+        error.code = 'NO_TENANT_ACCESS';
+        throw error;
+      }
+
+      const user = await basePrisma.users.findUnique({
+        where: { id: userId, deleted_at: null },
+        select: { id: true, email: true, phone: true, name: true, role: true, status: true },
+      });
+      if (!user) {
+        const error = new Error('Tài khoản không tồn tại.');
+        error.status = 404;
+        error.code = 'USER_NOT_FOUND';
+        throw error;
+      }
+
+      const secret = process.env.JWT_SECRET || securityConfig.JWT_SECRET;
+      const expiresIn = resolveSwitchExpiresIn(currentAuthHeader);
+      const pendingStatus = pendingCase.status === 'REJECTED' ? 'TU_CHOI' : 'CHO_DUYET';
+      const pendingRole = pendingCase.case_type === 'CLAN_SETUP' ? 'CLAN_ADMIN' : 'VIEWER';
+      const meta = pendingCase.metadata && typeof pendingCase.metadata === 'object' ? pendingCase.metadata : {};
+      const resolvedLinkType =
+        meta.link_type ||
+        (pendingCase.case_type === 'CLAN_SETUP' ? 'PRIMARY_PATERNAL' : 'SPOUSE_FAMILY');
+
+      const contextToken = jwt.sign(
+        {
+          userId: user.id,
+          email: user.email,
+          role: pendingRole,
+          roleInTenant: pendingRole,
+          tenantId: targetTenantId,
+          activeTenantId: targetTenantId,
+          activeMemberId: null,
+          activeLinkStatus: pendingStatus,
+          linkType: resolvedLinkType,
+          status: user.status,
+          tenantStatus: pendingCase.tenants?.status || null,
+          isSandbox: false,
+        },
+        secret,
+        { expiresIn }
       );
-      error.status = 403;
-      error.code = 'NO_TENANT_ACCESS';
-      throw error;
+
+      return {
+        token: contextToken,
+        activeTenantId: targetTenantId,
+        activeMemberId: null,
+        activeLinkStatus: pendingStatus,
+        linkType: resolvedLinkType,
+        roleInTenant: pendingRole,
+        isSandbox: false,
+        clanName: pendingCase.tenants?.name || meta.clanName || null,
+        activeContext: {
+          activeTenantId: targetTenantId,
+          activeMemberId: null,
+          activeLinkStatus: pendingStatus,
+          linkType: resolvedLinkType,
+          roleInTenant: pendingRole,
+          isSandbox: false,
+          tenant: pendingCase.tenants || null,
+          member: null,
+        },
+      };
     }
 
     if (link.status === 'TU_CHOI' || link.status === 'HUY_LIEN_KET') {

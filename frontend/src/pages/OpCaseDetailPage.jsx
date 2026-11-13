@@ -1,12 +1,19 @@
 /**
  * PATH       : src/pages/OpCaseDetailPage.jsx
- * DATETIME   : 2026-08-23T18:10:00+07:00
- * VERSION    : 1.2.0-FOOTER
+ * DATETIME   : 2026-11-13T11:20:00+07:00
+ * VERSION    : 1.3.0-MULTIHOME-AMEND02-V15-LAT4
  * DESCRIPTION:
- * - Chi tiết case OP: BP read-only + trao đổi admin + sticky actions.
- * - Modal: Duyệt (reviewNote) / Trả sửa / Từ chối soft|final.
+ * - Chi tiết case OP (MEMBER_PROMOTE): BP read-only + trao đổi admin + sticky actions.
+ * - Modal: Duyệt (reviewNote) / Trả sửa / Từ chối soft|final (xác nhận 2 bước).
  * - TenantHeader = tenant của case (không nhánh role).
  * - Route: /admin/approval/op/:caseId
+ * =============================================================================
+ * CHANGELOGS:
+ * - 2026-08-23T18:10:00+07:00 (v1.2.0-FOOTER): Hoàn thiện modal 4 hành động OP.
+ * - 2026-11-13T11:20:00+07:00 (v1.3.0-MULTIHOME-AMEND02-V15-LAT4):
+ *   + Thêm nhãn loại hồ sơ OP và xác nhận 2 bước khi chọn Từ chối lần cuối.
+ * =============================================================================
+ * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -26,6 +33,7 @@ const emptyForm = () => ({
   note: '',
   revisionRequest: '',
   finalReject: false,
+  confirmFinalStep2: false,
 });
 
 function Field({ label, value }) {
@@ -58,8 +66,6 @@ export default function OpCaseDetailPage() {
     if (!caseId) return;
     setLoading(true);
     try {
-      // Dùng reviewable list filter client-side; ưu tiên nếu sau này có GET /cases/:id
-      // Phải gồm REJECTED / NEEDS_REVISION — default API chỉ SUBMITTED,UNDER_REVIEW
       const res = await apiClient.get('/onboarding/cases/reviewable', {
         params: {
           process_kind: 'MEMBER_PROMOTE',
@@ -91,7 +97,6 @@ export default function OpCaseDetailPage() {
     load();
   }, [load]);
 
-  // Ưu tiên tenant của case; bổ sung slogan/icon từ session user nếu list API thiếu
   const headerTenant = useMemo(
     () => resolveTenant(user, item?.tenant),
     [user, item?.tenant]
@@ -172,6 +177,10 @@ export default function OpCaseDetailPage() {
     const reason = form.note.trim();
     if (!reason) {
       toast.error('Vui lòng nhập lý do từ chối.');
+      return;
+    }
+    if (form.finalReject && !form.confirmFinalStep2) {
+      toast.error('Vui lòng tích xác nhận bước 2 cho quyết định từ chối lần cuối.');
       return;
     }
     setBusy(true);
@@ -274,7 +283,7 @@ export default function OpCaseDetailPage() {
             </div>
           </section>
 
-          {/* Trao đổi — chỗ admin nhớ yêu cầu */}
+          {/* Trao đổi */}
           <section className="mt-4 rounded-3xl border border-slate-200 bg-white p-4">
             <h2 className="text-xs font-black uppercase tracking-wide text-slate-500">
               Trao đổi / ghi chú
@@ -426,19 +435,41 @@ export default function OpCaseDetailPage() {
                       setForm((f) => ({ ...f, note: e.target.value }))
                     }
                   />
-                  <label className="mt-3 flex items-start gap-2 text-sm">
-                    <input
-                      type="checkbox"
-                      checked={form.finalReject}
-                      onChange={(e) =>
-                        setForm((f) => ({
-                          ...f,
-                          finalReject: e.target.checked,
-                        }))
-                      }
-                    />
-                    <span>Từ chối lần cuối (không mở lại)</span>
-                  </label>
+                  <div className="mt-3 space-y-2">
+                    <label className="flex items-start gap-2 text-sm font-semibold text-rose-800">
+                      <input
+                        type="checkbox"
+                        className="mt-1"
+                        checked={form.finalReject}
+                        onChange={(e) =>
+                          setForm((f) => ({
+                            ...f,
+                            finalReject: e.target.checked,
+                            confirmFinalStep2: false,
+                          }))
+                        }
+                      />
+                      <span>Từ chối lần cuối (khóa vĩnh viễn, không mở lại)</span>
+                    </label>
+                    {form.finalReject && (
+                      <label className="ml-5 flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-2.5 text-xs font-bold text-rose-900">
+                        <input
+                          type="checkbox"
+                          className="mt-0.5"
+                          checked={form.confirmFinalStep2}
+                          onChange={(e) =>
+                            setForm((f) => ({
+                              ...f,
+                              confirmFinalStep2: e.target.checked,
+                            }))
+                          }
+                        />
+                        <span>
+                          Bước 2: Tôi xác nhận quyết định từ chối vĩnh viễn là không thể hoàn tác.
+                        </span>
+                      </label>
+                    )}
+                  </div>
                   <button
                     type="button"
                     disabled={busy}

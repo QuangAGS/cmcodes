@@ -1,32 +1,30 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/context/AuthContext.jsx
- * DATETIME    : 2026-11-11T23:00:00+07:00
- * VERSION     : 2.1.3-AUTH-CONTEXT-LOGIN-423
+ * DATETIME    : 2026-11-13T11:20:00+07:00
+ * VERSION     : 2.2.0-MULTIHOME-AMEND02-V15-LAT5
  * DESCRIPTION : Quản lý phiên làm việc và ngữ cảnh dòng họ (Multi-Home Session).
  *               - Giữ switchContext(targetTenantId, redirectUrl).
  *               - Seed availableClans từ login payload.
- *               - DA_DUYET có member vào /op.
  *               - Role SSOT: roleInTenant từ user_member_links.
  *               - clearSession xóa đủ auth_token, token, active_context.
  *               - register gọi POST /auth/register, không ghi token.
- *               - login chuẩn hóa 423 ACCOUNT_CHO_DUYET (canEdit, reviewNote, tempSnapshot).
+ *               - login chuẩn hóa 423 ACCOUNT_CHO_DUYET (canEdit, reviewNote, caseMetadata, tempSnapshot).
+ *               - Lát 5: Chuẩn hóa resolvePostLoginRedirect theo đúng thứ tự Mục 4 V1.5.0:
+ *                 1. DRAFT -> /op/mfo/plan
+ *                 2. CHO_DUYET -> /membership/status
+ *                 3. TU_CHOI -> /membership/status
+ *                 4. !activeMemberId -> /membership/claim
+ *                 5. DA_DUYET + activeMemberId -> /op (SYSTEM_ADMIN -> /admin)
  * =============================================================================
  * CHANGELOGS:
- * - 2026-11-10T21:40:00+07:00 (v2.0.8): Redirect /membership/select-tenant.
- * - 2026-11-11T12:00:00+07:00 (v2.1.0-AUTH-CONTEXT-MULTIHOME-ROLE-SWITCH):
- *   + switchContext(targetTenantId, redirectUrl = null).
- *   + DA_DUYET vào thẳng /op.
- * - 2026-11-11T22:30:00+07:00 (v2.1.1-AUTH-CONTEXT-CLEAR-SESSION):
- *   + Thêm clearSession, dùng ở logout và loadUser khi phiên hỏng.
- *   + Đọc token cùng thứ tự với apiClient (auth_token rồi token).
- * - 2026-11-11T22:45:00+07:00 (v2.1.2-AUTH-CONTEXT-REGISTER):
- *   + Export register(payload) -> POST /auth/register.
- * - 2026-11-11T23:00:00+07:00 (v2.1.3-AUTH-CONTEXT-LOGIN-423):
- *   + login không để Axios code (ERR_BAD_REQUEST) che code nghiệp vụ.
- *   + 423 ACCOUNT_CHO_DUYET mang canEdit, reviewNote, tempSnapshot, caseId.
+ * - 2026-11-11T23:00:00+07:00 (v2.1.3-AUTH-CONTEXT-LOGIN-423): Chuẩn hóa lỗi 423.
+ * - 2026-11-13T11:20:00+07:00 (v2.2.0-MULTIHOME-AMEND02-V15-LAT5):
+ *   + Cập nhật resolvePostLoginRedirect đúng 5 bước chuẩn Mục 4 AMEND-RP-OP-2026-02-FE-V1.5.0.
+ *   + Không fallback mù activeLinkStatus sang 'DRAFT' trong loadUser và login.
+ *   + Gắn caseMetadata vào normalized error của login().
  * =============================================================================
- * QX: Tuân thủ chặt chẽ. Không đổi resolvePostLoginRedirect, không đổi shape login() khi thành công.
+ * QX: Tuân thủ chặt chẽ Q1–Q4. Không đổi shape login() khi thành công.
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
@@ -70,21 +68,32 @@ export const AuthProvider = ({ children }) => {
   const [isSwitchingContext, setIsSwitchingContext] = useState(false);
 
   /**
-   * Điều phối đường dẫn sau đăng nhập:
-   * - Chưa gắn member -> /membership/claim
-   * - Chờ duyệt -> /membership/status
-   * - Nháp Onboarding -> /op/mfo/plan
-   * - Đã duyệt (DA_DUYET) -> /op
+   * Điều phối đường dẫn sau đăng nhập (AMEND-RP-OP-2026-02-FE-V1.5.0 Mục 4):
+   * 0. SYSTEM_ADMIN -> /admin
+   * 1. activeLinkStatus === 'DRAFT' -> /op/mfo/plan (Clan-setup sandbox)
+   * 2. activeLinkStatus === 'CHO_DUYET' -> /membership/status
+   * 3. activeLinkStatus === 'TU_CHOI' -> /membership/status
+   * 4. Không có activeMemberId -> /membership/claim
+   * 5. DA_DUYET và có activeMemberId -> /op
    */
   const resolvePostLoginRedirect = useCallback((currentUser, currentContext) => {
-    if (!currentContext?.activeMemberId) {
-      return '/membership/claim';
+    const sysRole = String(currentUser?.role || '').toUpperCase();
+    if (sysRole === 'SYSTEM_ADMIN') {
+      return '/admin';
     }
-    if (currentContext?.activeLinkStatus === 'CHO_DUYET') {
+
+    const linkStatus = String(currentContext?.activeLinkStatus || '').toUpperCase();
+    if (linkStatus === 'DRAFT') {
+      return '/op/mfo/plan';
+    }
+    if (linkStatus === 'CHO_DUYET') {
       return '/membership/status';
     }
-    if (currentContext?.activeLinkStatus === 'DRAFT') {
-      return '/op/mfo/plan';
+    if (linkStatus === 'TU_CHOI') {
+      return '/membership/status';
+    }
+    if (!currentContext?.activeMemberId) {
+      return '/membership/claim';
     }
     return '/op';
   }, []);
@@ -123,19 +132,35 @@ export const AuthProvider = ({ children }) => {
 
       setUser(userObj);
 
+      const clansFromUser = Array.isArray(userObj.availableClans)
+        ? userObj.availableClans
+        : [];
+      const resolvedTenantId =
+        userObj.activeTenantId || userObj.tenantId || userObj.tenant_id || null;
+      const matchedLink =
+        clansFromUser.find((c) => c.tenantId === resolvedTenantId) ||
+        clansFromUser.find((c) => c.isDefault) ||
+        clansFromUser[0] ||
+        null;
+
       const activeLinkRole =
         userObj.roleInTenant ||
         userObj.role_in_tenant ||
+        matchedLink?.roleInTenant ||
         userObj.role ||
         'USER';
 
+      const resolvedLinkStatus =
+        userObj.activeLinkStatus ||
+        matchedLink?.status ||
+        (userObj.status === 'DA_DUYET' ? 'DA_DUYET' : 'CHO_DUYET');
+
       const newContext = {
-        activeTenantId: userObj.activeTenantId || userObj.tenantId || userObj.tenant_id || null,
-        activeMemberId: userObj.activeMemberId || userObj.member_id || null,
-        activeLinkStatus: userObj.activeLinkStatus
-          || (userObj.status === 'DA_DUYET' ? 'DA_DUYET' : 'DRAFT'),
+        activeTenantId: resolvedTenantId,
+        activeMemberId: userObj.activeMemberId ?? matchedLink?.memberId ?? null,
+        activeLinkStatus: resolvedLinkStatus,
         roleInTenant: activeLinkRole,
-        linkType: userObj.linkType || 'PRIMARY_PATERNAL',
+        linkType: userObj.linkType || matchedLink?.linkType || 'PRIMARY_PATERNAL',
       };
 
       setActiveContext(newContext);
@@ -175,6 +200,7 @@ export const AuthProvider = ({ children }) => {
       normalized.canEdit = data.canEdit === true;
       normalized.reviewNote = data.reviewNote ?? null;
       normalized.tempSnapshot = data.tempSnapshot ?? null;
+      normalized.caseMetadata = data.caseMetadata ?? null;
       normalized.caseStatus = data.caseStatus ?? null;
       normalized.caseId = data.caseId ?? null;
       normalized.response = err?.response;
@@ -203,9 +229,11 @@ export const AuthProvider = ({ children }) => {
 
     const newContext = {
       activeTenantId: userObj.activeTenantId || userObj.tenantId || userObj.tenant_id || null,
-      activeMemberId: userObj.activeMemberId || userObj.member_id || null,
-      activeLinkStatus: userObj.activeLinkStatus
-        || (userObj.status === 'DA_DUYET' ? 'DA_DUYET' : 'DRAFT'),
+      activeMemberId: userObj.activeMemberId ?? activeLink?.memberId ?? null,
+      activeLinkStatus:
+        userObj.activeLinkStatus ||
+        activeLink?.status ||
+        (userObj.status === 'DA_DUYET' ? 'DA_DUYET' : 'CHO_DUYET'),
       roleInTenant: activeLinkRole,
       linkType: userObj.linkType || activeLink?.linkType || 'PRIMARY_PATERNAL',
     };
