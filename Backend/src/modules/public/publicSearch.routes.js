@@ -1,18 +1,19 @@
 /**
  * ============================================================================
  * PATH       : src/modules/public/publicSearch.routes.js
- * DATETIME   : 2026-11-12T12:15:00+07:00
- * VERSION    : 1.0.0-MULTIHOME-AMEND02-V15-LAT1
+ * DATETIME   : 2026-11-12T20:55:00+07:00
+ * VERSION    : 1.2.0-MULTIHOME-AMEND03-G2-NO-ISCLAN-FILTER
  * DESCRIPTION:
- * - [AMEND-RP-OP-2026-02 V1.5.0 Mục 5] API công khai có kiểm soát cho Guest Claim (C2):
+ * - [AMEND-RP-OP-2026-02 V1.5.0 & AMEND-RP-OP-2026-03 G2] API công khai cho Guest Claim (C2) & Multi-Home (C1):
  *   1) GET /api/public/tenants/search?q=
  *      - Rate limit theo IP; q tối thiểu 2 ký tự.
- *      - Chỉ trả { id, name, slug } của các dòng họ HOAT_DONG, không lộ dữ liệu thành viên.
+ *      - Trả { id, name, slug } của các dòng họ không bị khóa/từ chối, không lộ dữ liệu thành viên.
  *   2) GET /api/public/tenants/:tenantId/members/claim-search?q=
  *      - Rate limit tối đa 15 request/phút/IP; q tối thiểu 2 ký tự.
- *      - Chỉ truy vấn status = 'CHINH_THUC', deleted_at = null (lọc is_clan an toàn).
+ *      - Chỉ truy vấn status = 'CHINH_THUC', deleted_at = null.
+ *      - KHÔNG lọc is_clan = true để cho phép cả con rể / con dâu (is_clan = false) tìm và nhận hồ sơ (EM).
  *      - Chỉ trả payload nhận diện phả hệ tối thiểu:
- *        { id, full_name, alias, generation, branch_name, father_name, mother_name, birth_year }.
+ *        { id, full_name, alias, generation, branch_name, father_name, mother_name, birth_year, child_type }.
  *      - Tuyệt đối không trả SĐT, email, địa chỉ, ngày/tháng sinh.
  * ============================================================================
  */
@@ -119,13 +120,14 @@ router.get(
       });
     }
 
-    // Chỉ lấy thành viên CHINH_THUC, chưa xóa mềm, thuộc nội tộc (is_clan = true hoặc null legacy)
+    // Chỉ lấy thành viên CHINH_THUC, chưa xóa mềm hoặc null legacy)
     const members = await basePrisma.members.findMany({
       where: {
         tenant_id: tenantId,
         status: 'CHINH_THUC',
         deleted_at: null,
-        OR: [{ is_clan: true }, { is_clan: null }],
+        
+        //OR: [{ is_clan: true }, { is_clan: null }],  -> KHÔNG lọc is_clan để cho phép cả con rể / con dâu (is_clan = false) tìm và nhận hồ sơ (EM)
         AND: [
           {
             OR: [

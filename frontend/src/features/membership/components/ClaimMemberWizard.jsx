@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : frontend/src/features/membership/components/ClaimMemberWizard.jsx
- * DATETIME   : 2026-11-12T14:55:00+07:00
- * VERSION    : 1.1.1-MULTIHOME-AMEND02-V15-LAT1
+ * DATETIME   : 2026-11-12T21:35:00+07:00
+ * VERSION    : 1.2.0-MULTIHOME-AMEND03-G2-CLAIM-SEARCH
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0 MF-05] Wizard nhận hồ sơ thành viên có sẵn trên cây (Claim EM):
  *   + Hỗ trợ tra cứu dòng họ công khai qua GET /api/public/tenants/search?q= (nếu chưa có tenantId)
@@ -34,6 +34,15 @@ const GENDER_OPTIONS = [
   { value: 'NU', label: 'Nữ' },
   { value: 'KHAC', label: 'Khác' },
 ];
+
+const CHILD_TYPE_LABELS = {
+  CON_DE: 'Con đẻ',
+  CON_DAU: 'Con dâu',
+  CON_RE: 'Con rể',
+  CON_NUOI: 'Con nuôi',
+  CON_DO_DAU: 'Con đỡ đầu',
+  CON_RIENG: 'Con riêng',
+};
 
 const ClaimMemberWizard = ({
   tenantId: propTenantId = '',
@@ -82,6 +91,7 @@ const ClaimMemberWizard = ({
       try {
         const res = await apiClient.get('/public/tenants/search', {
           params: { q },
+          headers: { Authorization: '' },
         });
         setTenantResults(res.data?.data || []);
       } catch (_) {
@@ -114,7 +124,10 @@ const ClaimMemberWizard = ({
       try {
         const res = await apiClient.get(
           `/public/tenants/${encodeURIComponent(activeTenantId)}/members/claim-search`,
-          { params: { q } }
+          {
+            params: { q },
+            headers: { Authorization: '' },
+          }
         );
         const list = res.data?.data || [];
         setResults(Array.isArray(list) ? list : []);
@@ -402,6 +415,11 @@ const ClaimMemberWizard = ({
                             Sinh năm {m.birth_year}
                           </span>
                         )}
+                        {m.child_type && CHILD_TYPE_LABELS[m.child_type] && (
+                          <span className="rounded-lg bg-amber-50 px-2 py-0.5 text-amber-800">
+                            {CHILD_TYPE_LABELS[m.child_type]}
+                          </span>
+                        )}
                       </div>
                       {(m.father_name || m.mother_name) && (
                         <p className="mt-1.5 text-xs font-medium text-slate-500">
@@ -447,6 +465,10 @@ const ClaimMemberWizard = ({
                         : null,
                       selectedMember?.birth_year
                         ? `Sinh năm ${selectedMember.birth_year}`
+                        : null,
+                      selectedMember?.child_type &&
+                      CHILD_TYPE_LABELS[selectedMember.child_type]
+                        ? CHILD_TYPE_LABELS[selectedMember.child_type]
                         : null,
                       selectedMember?.father_name
                         ? `Cha: ${selectedMember.father_name}`
@@ -595,4 +617,5 @@ const ClaimMemberWizard = ({
   );
 };
 
+export { ClaimMemberWizard };
 export default ClaimMemberWizard;

@@ -61,6 +61,7 @@ export default function MemberSearchSheet({
   const [q, setQ] = useState(initialQ || '');
   const [hits, setHits] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [previewId, setPreviewId] = useState(null); // ID của member đang xem kỹ
 
   const params = useMemo(
     () => ({
@@ -155,22 +156,10 @@ export default function MemberSearchSheet({
                       <ZoneVoiceButton visible text={speakRow(m)} label="Nghe" />
                     </span>
                   </div>
-                  <button
-                    type="button"
-                    className="min-w-0 flex-1 text-left"
-                    onClick={() => {
-                      if (typeof onLeaveToPreview === 'function') onLeaveToPreview(q);
-                      const path =
-                        typeof previewPath === 'function'
-                          ? previewPath(m.id)
-                          : `/op/mfo/members/${m.id}`;
-                      navigate(path);
-                    }}
-                  >
+                  <div className="min-w-0 flex-1 text-left">
                     <span className="block text-base font-semibold text-slate-800">{nm}</span>
                     <span className="mt-0.5 block text-sm font-normal text-slate-500">
-                      Giới tính: {genderVi(m.gender)} · Năm sinh:{' '}
-                      {m.birth_year || 'chưa rõ'} ·{' '}
+                      Giới tính: {genderVi(m.gender)} · Năm sinh: {m.birth_year || 'chưa rõ'} ·{' '}
                       {m.is_alive === false ? 'Đã mất' : 'Còn sống'}
                     </span>
                     {m.note ? (
@@ -178,22 +167,16 @@ export default function MemberSearchSheet({
                         Ghi chú: {m.note}
                       </span>
                     ) : null}
-                  </button>
+                  </div>
                 </div>
+
                 <div className="mt-2 flex gap-2 px-1 pb-1">
                   <button
                     type="button"
                     className="min-h-11 flex-1 rounded-xl border border-slate-300 bg-white text-sm font-bold text-slate-700"
-                    onClick={() => {
-                      if (typeof onLeaveToPreview === 'function') onLeaveToPreview(q);
-                      const path =
-                        typeof previewPath === 'function'
-                          ? previewPath(m.id)
-                          : `/op/mfo/members/${m.id}`;
-                      navigate(path);
-                    }}
+                    onClick={() => setPreviewId(previewId === m.id ? null : m.id)}
                   >
-                    Xem kỹ
+                    {previewId === m.id ? 'Thu gọn' : 'Xem kỹ'}
                   </button>
                   {typeof onPick === 'function' ? (
                     <button
@@ -205,6 +188,17 @@ export default function MemberSearchSheet({
                     </button>
                   ) : null}
                 </div>
+
+                {previewId === m.id && (
+                  <div className="mx-1 mb-2 rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-700">
+                    <div>Họ tên: {nm}</div>
+                    <div>Giới tính: {genderVi(m.gender)}</div>
+                    <div>Năm sinh: {m.birth_year || 'chưa rõ'}</div>
+                    <div>Tình trạng: {m.is_alive === false ? 'Đã mất' : 'Còn sống'}</div>
+                    {m.generation ? <div>Đời: {m.generation}</div> : null}
+                    {m.note ? <div className="mt-1 whitespace-pre-wrap">Ghi chú: {m.note}</div> : null}
+                  </div>
+                )}
               </li>
             );
           })}

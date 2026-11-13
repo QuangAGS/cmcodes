@@ -268,7 +268,17 @@ export const ClaimMemberPage = () => {
                 Nhập họ tên để tra cứu hồ sơ thành viên đã được lưu trữ trong sổ họ.
               </p>
               <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200">
-                <MemberSearchSheet onSelectMember={handleSelectMember} />
+                {/* <MemberSearchSheet onSelectMember={handleSelectMember} /> */}
+                
+                {/* Fix bug2 : Không hiển thị MemberSearchSheet khi chưa chọn member, nên tạm thời render trực tiếp MemberSearchSheet với onPick callback */}
+                <MemberSearchSheet
+                  onPick={(picked) =>
+                    handleSelectMember({
+                      id: picked.id,
+                      full_name: picked.member?.full_name || picked.name,
+                    })
+                  }
+                />
               </div>
             </div>
           )}
