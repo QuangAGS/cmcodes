@@ -1,8 +1,8 @@
 /**
- * PATH: src/features/register-wizard/components/JoinClanForm.jsx
- * OLD PATH       : src/features/auth/components/JoinClanForm.jsx
- * DATETIME   : <2026-05-28T09:55:00+07:00>
- * VERSION    : EGAL-25.X. R6.3.0-MULTIHOME-AMEND02-V15-LAT1
+ * PATH       : frontend/src/features/register-wizard/components/JoinClanForm.jsx
+ * OLD PATH   : src/features/auth/components/JoinClanForm.jsx
+ * DATETIME   : 2026-11-13T18:05:00+07:00
+ * VERSION    : EGAL-25.X. R6.3.1-MULTIHOME-UAT-BUG3-RELATIONSHIP
  * DESCRIPTION:
  * - PURPOSE EGAL-25.X. R6.2.2A: 
  *    chỉ gỡ social preferred-channel khỏi JoinClanForm, thêm email optional, 
@@ -260,7 +260,11 @@ const JoinClanForm = ({
     grandmother_name: initialRegProfile.grandmother_name || '',
     address: initialRegProfile.address || initialData?.temp_address || '',
     note: initialRegProfile.note || initialData?.temp_note || '',
-    temp_relationship: initialData?.temp_relationship || 'CON_DE',
+    temp_relationship:
+      initialRegProfile.child_type ||
+      initialRegProfile.temp_relationship ||
+      initialData?.temp_relationship ||
+      'CON_DE',
     social_profiles: initialRegProfile.social_profiles || {
       zalo: '',
       facebook: '',
@@ -756,7 +760,11 @@ const JoinClanForm = ({
       father_name: rp.father_name || n.temp_father_name || prev.father_name,
       birth_year: rp.birth_year ?? n.temp_birth_year ?? prev.birth_year,
       note: rp.note || n.temp_note || prev.note,
-      temp_relationship: n.temp_relationship || prev.temp_relationship,
+      temp_relationship:
+        rp.child_type ||
+        rp.temp_relationship ||
+        n.temp_relationship ||
+        prev.temp_relationship,
       claimed_member_summary:
         rp.claim_verification?.claimed_member_summary ||
         rp.claimed_member_summary ||
@@ -1530,11 +1538,17 @@ const JoinClanForm = ({
       ? resolveRevisionEmail(lockedIdentifier, initialData, latestValues.email) || null
       : latestValues.email || null;
 
+    const resolvedChildType = String(
+      profileDraft.temp_relationship || latestValues.temp_relationship || 'CON_DE'
+    ).trim();
+
     const builtRegistrationProfile =
       claimMode === 'CLAIM_EM'
         ? {
             claim_mode: 'CLAIM_EM',
             claimed_member_id: profileDraft.claimed_member_id,
+            child_type:
+              profileDraft.claimed_member_summary?.child_type || undefined,
             full_name:
               profileDraft.claimed_member_summary?.full_name ||
               profileDraft.full_name ||
@@ -1580,6 +1594,8 @@ const JoinClanForm = ({
         : {
             claim_mode: 'NEW_PROFILE_21',
             claimed_member_id: undefined,
+            child_type: resolvedChildType,
+            temp_relationship: resolvedChildType,
             full_name: String(profileDraft.full_name || '').trim(),
             alias: String(profileDraft.alias || '').trim() || undefined,
             gender: profileDraft.gender || 'NAM',

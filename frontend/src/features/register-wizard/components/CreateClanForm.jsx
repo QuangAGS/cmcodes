@@ -1,8 +1,8 @@
 /**
- * PATH       : src/features/register-wizard/components/CreateClanForm.jsx
+ * PATH       : frontend/src/features/register-wizard/components/CreateClanForm.jsx
  * OLD PATH   : src/features/auth/components/CreateClanForm.jsx
- * DATETIME   : <2026-08-05T15:00:00+07:00>
- * VERSION    : 24.7.0-MULTIHOME-AMEND02-V15-LAT1
+ * DATETIME   : 2026-11-13T18:05:00+07:00
+ * VERSION    : 24.7.1-MULTIHOME-UAT-BUG3-RELATIONSHIP
  * DESCRIPTION:
  * PURPOSE
  * - Create a new clan registration flow.
@@ -1360,6 +1360,8 @@ const CreateClanForm = ({
 
     const founderRegistrationProfile = {
       claim_mode: 'CLAN_SETUP',
+      child_type: latestValues.temp_relationship || 'CON_DE',
+      temp_relationship: latestValues.temp_relationship || 'CON_DE',
       full_name: latestValues.temp_full_name,
       alias: String(founderAlias || '').trim() || undefined,
       gender: founderGender || 'NAM',

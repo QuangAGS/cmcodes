@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/auth/registrationValidator.js
- * DATETIME   : 2026-11-12T12:15:00+07:00
- * VERSION    : 1.3.0-MULTIHOME-AMEND02-V15-LAT1
+ * DATETIME   : 2026-11-13T18:05:00+07:00
+ * VERSION    : 1.3.1-MULTIHOME-UAT-BUG3-RELATIONSHIP
  * DESCRIPTION:
  * - Căn cứ: AMEND-RP-OP-2026-01-V1.1
  * - [1.2.0]: Bổ sung pattern regex cho email, phone và claimed_member_id (UUID v4)
@@ -55,6 +55,16 @@ const REGISTRATION_SCHEMA = {
   },
   proof_documents: { type: 'array', required: false },
   social_profiles: { type: 'object', required: false },
+  child_type: {
+    type: 'string',
+    required: false,
+    enum: ['CON_DE', 'CON_DAU', 'CON_RE', 'CON_NUOI', 'CON_DO_DAU', 'CON_RIENG', 'KHAC'],
+  },
+  temp_relationship: {
+    type: 'string',
+    required: false,
+    enum: ['CON_DE', 'CON_DAU', 'CON_RE', 'CON_NUOI', 'CON_DO_DAU', 'CON_RIENG', 'KHAC'],
+  },
   claim_mode: {
     type: 'string',
     required: false,

@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : src/modules/membership/membership.service.js
- * DATETIME   : 2026-11-13T10:42:00+07:00
- * VERSION    : 1.1.1-MULTIHOME-AMEND02-V15-LAT3
+ * DATETIME   : 2026-11-13T18:05:00+07:00
+ * VERSION    : 1.1.2-MULTIHOME-UAT-BUG3-PERSIST-CHILD-TYPE
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0 Lát 3] Service xử lý trọn vẹn luồng Multi-Home C1
  *   (Gia nhập dòng họ khác) & C1-S (Lập dòng họ mới):
@@ -59,6 +59,15 @@ const VALID_MEMBER_ROLES = new Set([
   'TRUONG_CHI',
   'THANH_VIEN',
   'TRUONG_HO',
+  'KHAC',
+]);
+const VALID_MEMBER_CHILD_TYPES = new Set([
+  'CON_DE',
+  'CON_DAU',
+  'CON_RE',
+  'CON_NUOI',
+  'CON_DO_DAU',
+  'CON_RIENG',
   'KHAC',
 ]);
 
@@ -685,6 +694,16 @@ const membershipService = {
               : VALID_MEMBER_ROLES.has(profile.member_role)
                 ? profile.member_role
                 : 'THANH_VIEN';
+            const memberChildType = isClanSetup
+              ? 'CON_DE'
+              : VALID_MEMBER_CHILD_TYPES.has(profile.child_type)
+                ? profile.child_type
+                : VALID_MEMBER_CHILD_TYPES.has(profile.temp_relationship)
+                  ? profile.temp_relationship
+                  : 'CON_DE';
+            const memberIsClan = isClanSetup
+              ? true
+              : !['CON_DAU', 'CON_RE'].includes(memberChildType);
 
             const newMember = await tx.members.create({
               data: {
@@ -692,6 +711,8 @@ const membershipService = {
                 full_name: profile.full_name || targetUser.name || 'Thành viên mới',
                 alias: profile.alias || null,
                 gender: memberGender,
+                is_clan: memberIsClan,
+                child_type: memberChildType,
                 is_alive:
                   profile.is_alive !== undefined ? Boolean(profile.is_alive) : true,
                 generation:

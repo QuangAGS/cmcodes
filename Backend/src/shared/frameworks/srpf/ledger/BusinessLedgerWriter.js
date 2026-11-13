@@ -27,6 +27,7 @@
 const { writeBpl } = require('../../../../services/bpl.service.js');
 const { prisma } = require('../../../../lib/prisma.js');
 const { SRPF_ACTIONS } = require('../constants/actions');
+const auditService = require('../../../../services/audit.service.js');
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -165,7 +166,7 @@ async function write({
 
   let audit = null;
   const tenantId = actorForBpl.tenant_id || instance?.tenant_id || null;
-
+  /* *******************************
   if (tenantId && instance?.id) {
     // <2026-10-27T11:03:00+07:00> Mục đích: Ghi sổ kiểm sau, không chặn giao dịch. Lý do: câu này làm trả sửa chậm.
     const auditTable = instance._storage || 'onboarding_cases';
@@ -182,6 +183,23 @@ async function write({
       },
       changeReason: `SRPF ${processType || 'PROCESS'}:${action}`,
     }).catch((err) => console.warn('[SRPF] audit_logs skipped/failed:', err && err.message));
+  }
+    ************************** */
+
+  if (tenantId && instance?.id) {
+    const auditTable = instance._storage || 'onboarding_cases';
+    audit = await auditService.logAction(
+      toAuditAction(action),
+      auditTable,
+      instance.id,
+      metadata.from ? { status: metadata.from } : null,
+      { status: metadata.to || instance.currentState || instance.status },
+      changedBy,
+      `SRPF ${processType || 'PROCESS'}:${action}`,
+      tenantId,
+      correlationId,
+      client
+    );
   }
 
   return { bpl, audit };

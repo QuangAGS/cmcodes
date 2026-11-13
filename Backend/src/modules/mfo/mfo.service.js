@@ -1525,7 +1525,7 @@ const mfoService = {
     }
 
     const now = new Date();
-
+    /* *****************************
     return await withTransaction(
       { tenantId, actorId: actor, correlationId: proposal.correlation_id },
       async (tx) => {
@@ -1579,6 +1579,61 @@ const mfoService = {
         });
 
         return { id: updated.id, deleted: true, deleted_at: updated.deleted_at };
+      }
+    );
+    ***************************** */
+
+    return await withTransaction(
+      { tenantId, actorId: actor, correlationId: proposal.correlation_id },
+      async (tx) => {
+        await tx.proposals.updateMany({
+          where: { id: ticketId, tenant_id: tenantId, deleted_at: null },
+          data: {
+            deleted_at: now,
+            hold_member_ids: [],
+            changed_by: actor,
+          },
+        });
+
+        await mfoWriteBpl(tx, {
+          processType: 'MFO_PLAN_SUBMIT',
+          user,
+          ticket: proposal,
+          payload: {
+            action: 'MFO_DRAFT_DELETED',
+            ticket_id: proposal.id,
+            target_member_id: proposal.target_id,
+            deleted_from_status: proposal.status,
+            deleted_at: now.toISOString(),
+            deleted_by: actor,
+          },
+        });
+
+        if (audit && typeof audit.create === 'function') {
+          await audit.create(tx, {
+            tableName: 'proposals',
+            recordId: proposal.id,
+            action: 'XOA',
+            tenantId,
+            changedBy: actor,
+            correlationId: proposal.correlation_id,
+            oldData: {
+              id: proposal.id,
+              status: proposal.status,
+              target_id: proposal.target_id,
+              deleted_at: null,
+            },
+            newData: {
+              id: proposal.id,
+              status: proposal.status,
+              target_id: proposal.target_id,
+              deleted_at: now.toISOString(),
+            },
+            changeReason: `Người dùng xóa tờ trình ở trạng thái [${proposal.status}] theo quy chuẩn EU Delete Matrix`,
+          });
+        }
+
+        return { id: proposal.id, deleted: true, deleted_at: now };
       }
     );
   },

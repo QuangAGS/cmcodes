@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/auth/auth.service.js
- * DATETIME   : 2026-11-13T17:15:00+07:00
- * VERSION    : 20.9.3-MULTIHOME-UAT-BUG2-ISCLAN-MARRIAGE
+ * DATETIME   : 2026-11-13T18:05:00+07:00
+ * VERSION    : 20.9.4-MULTIHOME-UAT-BUG3-PERSIST-CHILD-TYPE
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0] Lát 0 + Lát 3 Multi-Home SSOT:
  *   + Lát 0 (C2 & C2-S): registerUser tạo users (CHO_DUYET) + onboarding_cases.metadata trong 1 TX atomic;
@@ -60,6 +60,15 @@ const VALID_MEMBER_ROLES = new Set([
   'TRUONG_CHI',
   'THANH_VIEN',
   'TRUONG_HO',
+  'KHAC',
+]);
+const VALID_MEMBER_CHILD_TYPES = new Set([
+  'CON_DE',
+  'CON_DAU',
+  'CON_RE',
+  'CON_NUOI',
+  'CON_DO_DAU',
+  'CON_RIENG',
   'KHAC',
 ]);
 
@@ -1860,6 +1869,7 @@ const authService = {
             null;
           const resolvedRelationship =
             effectiveChildType ||
+            profile.child_type ||
             profile.temp_relationship ||
             rawCaseMeta.link_type ||
             user.temp_relationship ||
@@ -2053,6 +2063,7 @@ const authService = {
             null;
           const resolvedRelationship =
             effectiveChildType ||
+            profile.child_type ||
             profile.temp_relationship ||
             rawCaseMeta.link_type ||
             'CON_DE';
@@ -2428,6 +2439,16 @@ const authService = {
               : VALID_MEMBER_ROLES.has(profile.member_role)
                 ? profile.member_role
                 : 'THANH_VIEN';
+            const memberChildType = isClanSetup
+              ? 'CON_DE'
+              : VALID_MEMBER_CHILD_TYPES.has(profile.child_type)
+                ? profile.child_type
+                : VALID_MEMBER_CHILD_TYPES.has(profile.temp_relationship)
+                  ? profile.temp_relationship
+                  : 'CON_DE';
+            const memberIsClan = isClanSetup
+              ? true
+              : !['CON_DAU', 'CON_RE'].includes(memberChildType);
 
             const newMember = await tx.members.create({
               data: {
@@ -2435,6 +2456,8 @@ const authService = {
                 full_name: profile.full_name || targetUser.name || 'Thành viên mới',
                 alias: profile.alias || null,
                 gender: memberGender,
+                is_clan: memberIsClan,
+                child_type: memberChildType,
                 is_alive:
                   profile.is_alive !== undefined ? Boolean(profile.is_alive) : true,
                 generation:

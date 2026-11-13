@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/pages/WaitingPage.jsx
- * DATETIME    : 2026-11-13T15:34:00+07:00
- * VERSION     : EGAL-25.x R3-MULTIHOME-UAT-BUG1.1
+ * DATETIME    : 2026-11-13T18:05:00+07:00
+ * VERSION     : EGAL-25.x R3-MULTIHOME-UAT-BUG3
  * DESCRIPTION :
  * - EGAL-6.5 Step 4: TRUE REVIEW PAGE.
  * - Hiển thị đầy đủ effective submission data trước khi gửi (C2 Claim EM / 21 trường / CLAN_SETUP).
@@ -16,6 +16,9 @@
  * - 2026-11-13T15:34:00+07:00 (EGAL-25.x R3-MULTIHOME-UAT-BUG1.1):
  *   + Dùng resolveVerificationPrompts đồng bộ nhãn 3 lớp xác minh theo ngữ cảnh quan hệ.
  *   + Dọn đoạn mã thừa sau return trong helper displayValue.
+ * - 2026-11-13T18:05:00+07:00 (EGAL-25.x R3-MULTIHOME-UAT-BUG3):
+ *   + Fix UAT Bug 3: Đọc quan hệ từ registration_profile.child_type / temp_relationship
+ *     (trước khi fallback data.temp_relationship) để hiển thị chính xác "Con đẻ", "Con rể",...
  * =============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -44,6 +47,7 @@ const RELATIONSHIP_LABELS = {
   CON_RE: 'Con rể',
   CON_NUOI: 'Con nuôi',
   CON_DO_DAU: 'Con đỡ đầu',
+  CON_RIENG: 'Con riêng',
   KHAC: 'Khác',
 };
 
@@ -106,9 +110,19 @@ const WaitingPage = ({
 
   const isNewClan = !isJoinClan;
 
+  const regProfile =
+    data.registration_profile && typeof data.registration_profile === 'object'
+      ? data.registration_profile
+      : {};
+
+  const rawRelationship =
+    regProfile.child_type ||
+    regProfile.temp_relationship ||
+    data.temp_relationship;
+
   const relationshipLabel =
-    RELATIONSHIP_LABELS[data.temp_relationship] ||
-    displayValue(data.temp_relationship);
+    RELATIONSHIP_LABELS[rawRelationship] ||
+    displayValue(rawRelationship);
 
   const reviewTitle = 'Rà soát hồ sơ';
   const reviewInstruction = isNewClan
@@ -118,11 +132,6 @@ const WaitingPage = ({
   const reviewType = isNewClan
     ? 'Tạo dòng họ mới'
     : 'Gia nhập dòng họ';
-
-  const regProfile =
-    data.registration_profile && typeof data.registration_profile === 'object'
-      ? data.registration_profile
-      : {};
 
   const effectiveSections = useMemo(() => {
     const genderLabel =

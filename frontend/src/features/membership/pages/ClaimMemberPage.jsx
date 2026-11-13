@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/features/membership/pages/ClaimMemberPage.jsx
- * DATETIME    : 2026-11-13T15:34:00+07:00
- * VERSION     : 2.2.0-MULTIHOME-UAT-BUG1-CONTEXT-PROMPTS
+ * DATETIME    : 2026-11-13T18:05:00+07:00
+ * VERSION     : 2.2.1-MULTIHOME-UAT-BUG3-RELATIONSHIP
  * DESCRIPTION : Trang Gia nhập dòng họ & Nhận diện nhân thân trên sổ họ:
  *               - Không hỏi lại SĐT, Email, Mật khẩu (kế thừa từ phiên đăng nhập).
  *               - Không gọi /auth/register; nộp về POST /api/membership/cases
@@ -220,6 +220,8 @@ export const ClaimMemberPage = () => {
         setProfileDraft((prev) => ({
           ...prev,
           ...rp,
+          temp_relationship:
+            rp.child_type || rp.temp_relationship || prev.temp_relationship,
           claimed_member_summary:
             rp.claim_verification?.claimed_member_summary ||
             rp.claimed_member_summary ||
@@ -384,6 +386,8 @@ export const ClaimMemberPage = () => {
       link_type: linkType,
       registration_profile: {
         claim_mode: 'NEW_PROFILE_21',
+        child_type: String(profileDraft.temp_relationship || 'CON_DE').trim(),
+        temp_relationship: String(profileDraft.temp_relationship || 'CON_DE').trim(),
         full_name: fName,
         alias: String(profileDraft.alias || '').trim() || undefined,
         gender: profileDraft.gender || 'NAM',
