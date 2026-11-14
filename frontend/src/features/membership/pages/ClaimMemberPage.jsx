@@ -1,12 +1,15 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/features/membership/pages/ClaimMemberPage.jsx
- * DATETIME    : 2026-11-13T18:05:00+07:00
- * VERSION     : 2.2.1-MULTIHOME-UAT-BUG3-RELATIONSHIP
+ * DATETIME    : 2026-11-14T11:15:00+07:00
+ * VERSION     : 2.3.0-MULTIHOME-UAT-BUG4-PROACTIVE-GUARD
  * DESCRIPTION : Trang Gia nhập dòng họ & Nhận diện nhân thân trên sổ họ:
  *               - Không hỏi lại SĐT, Email, Mật khẩu (kế thừa từ phiên đăng nhập).
  *               - Không gọi /auth/register; nộp về POST /api/membership/cases
  *                 (hoặc POST /api/membership/cases/:caseId/revision khi mode=revision).
+ *               - Kiểm tra chủ động (proactive) ngay khi EEU chọn dòng họ đích qua
+ *                 availableClans + GET /api/membership/eligibility?tenantId=...: nếu EEU đã gắn
+ *                 member trong tenant đó hoặc đang có hồ sơ chờ duyệt thì chặn ngay từ Bước 1.
  *               - Phân tách rõ 3 chế độ theo URL query ?mode=:
  *                 1. Mặc định (không có mode=add-clan): Giữ nguyên dòng họ đang active của phiên
  *                    để user chưa có activeMemberId nhận hồ sơ (EM) hoặc khai 21 trường ngay tại họ đó.
@@ -26,6 +29,11 @@
  *     xác minh theo đúng ngữ cảnh quan hệ (Nhà dâu/rể, Họ ngoại, Nuôi dưỡng, Trực hệ).
  *   + Tự động chuyển linkType sang SPOUSE_FAMILY / GUARDIAN khi chọn hồ sơ CON_DAU / CON_RE / CON_NUOI.
  *   + Không ghi đè câu trả lời Lớp 1 vào father_name khi ở ngữ cảnh SPOUSE_FAMILY.
+ * - 2026-11-13T18:05:00+07:00 (v2.2.1-MULTIHOME-UAT-BUG3-RELATIONSHIP):
+ *   + Đóng gói child_type & temp_relationship vào registration_profile cho nhánh NEW_PROFILE_21.
+ * - 2026-11-14T11:15:00+07:00 (v2.3.0-MULTIHOME-UAT-BUG4-PROACTIVE-GUARD):
+ *   + Fix UAT Bug 4: Kiểm tra chủ động qua membershipApi.checkEligibility & availableClans ngay khi
+ *     EEU chọn dòng họ; hiển thị nhãn trạng thái trên kết quả tìm kiếm và chặn sớm trước Bước 2.
  * =============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -40,6 +48,8 @@ import {
   ArrowLeft,
   AlertCircle,
   PlusCircle,
+  ArrowRightLeft,
+  ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -65,7 +75,7 @@ const C1_LINK_TYPES = [
 export const ClaimMemberPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { user, activeContext, availableClans, refreshContext } = useAuth();
+  const { user, activeContext, availableClans, refreshContext, switchContext, isSwitchingContext } = useAuth();
 
   const caseId = searchParams.get('caseId');
   const modeParam = searchParams.get('mode') || '';
@@ -170,15 +180,76 @@ export const ClaimMemberPage = () => {
   const [profileErrors, setProfileErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadingRevision, setLoadingRevision] = useState(false);
+  const [checkingEligibility, setCheckingEligibility] = useState(false);
+  const [eligibilityBlock, setEligibilityBlock] = useState(null);
   const [errorMsg, setErrorMsg] = useState('');
   const [revisionFeedback, setRevisionFeedback] = useState('');
 
-  // Các dòng họ đã liên kết chính thức (loại khỏi danh sách tìm kiếm khi mode=add-clan)
-  const approvedTenantIds = new Set(
-    (availableClans || [])
-      .filter((c) => c.status === 'DA_DUYET')
-      .map((c) => c.tenantId)
-  );
+  // Bản đồ các dòng họ EEU đã tham gia hoặc đang có hồ sơ mở
+  const existingClanByTenantId = React.useMemo(() => {
+    const map = new Map();
+    for (const c of availableClans || []) {
+      if (c?.tenantId) {
+        map.set(c.tenantId, c);
+      }
+    }
+    return map;
+  }, [availableClans]);
+
+  // Kiểm tra chủ động (proactive) ngay khi selectedTenant thay đổi
+  useEffect(() => {
+    if (isRevisionMode || !selectedTenant?.id) {
+      setEligibilityBlock(null);
+      return;
+    }
+
+    const localClan = existingClanByTenantId.get(selectedTenant.id);
+    if (localClan && ['DA_DUYET', 'CHO_DUYET', 'DRAFT'].includes(localClan.status)) {
+      const memberDisplay = localClan.memberName
+        ? ` (hồ sơ: ${localClan.memberName})`
+        : '';
+      const isApproved = localClan.status === 'DA_DUYET';
+      setEligibilityBlock({
+        reasonCode: isApproved
+          ? 'ALREADY_LINKED_TO_TENANT'
+          : 'DUPLICATE_PENDING_CASE',
+        linkStatus: localClan.status,
+        memberId: localClan.memberId || null,
+        memberName: localClan.memberName || null,
+        caseId: localClan.caseId || null,
+        tenantId: selectedTenant.id,
+        clanName: selectedTenant.name,
+        message: isApproved
+          ? `Tài khoản của bác đã là thành viên của dòng họ ${selectedTenant.name}${memberDisplay}. Mỗi tài khoản chỉ được gắn với một thành viên trong một dòng họ.`
+          : `Tài khoản của bác đã có hồ sơ xin gia nhập dòng họ ${selectedTenant.name}${memberDisplay} đang chờ xử lý.`,
+      });
+    } else {
+      setEligibilityBlock(null);
+    }
+
+    let cancelled = false;
+    setCheckingEligibility(true);
+    membershipApi
+      .checkEligibility(selectedTenant.id)
+      .then((res) => {
+        if (cancelled || !res) return;
+        if (res.eligible === false) {
+          setEligibilityBlock(res);
+        } else {
+          setEligibilityBlock(null);
+        }
+      })
+      .catch(() => {
+        // Giữ nguyên kết quả kiểm tra cục bộ nếu API tạm gián đoạn; BE vẫn chặn lúc submit
+      })
+      .finally(() => {
+        if (!cancelled) setCheckingEligibility(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedTenant?.id, selectedTenant?.name, isRevisionMode, existingClanByTenantId]);
 
   // Nạp dữ liệu hồ sơ cũ khi ở chế độ Revision (?caseId=...&mode=revision)
   useEffect(() => {
@@ -265,7 +336,12 @@ export const ClaimMemberPage = () => {
         });
         const rawList = Array.isArray(res.data?.data) ? res.data.data : [];
         setTenantResults(
-          rawList.filter((t) => t?.id && !approvedTenantIds.has(t.id))
+          rawList
+            .filter((t) => Boolean(t?.id))
+            .map((t) => ({
+              ...t,
+              existingLink: existingClanByTenantId.get(t.id) || null,
+            }))
         );
       } catch (_) {
         setTenantResults([]);
@@ -283,6 +359,11 @@ export const ClaimMemberPage = () => {
 
     if (!selectedTenant?.id) {
       setErrorMsg('Bác vui lòng tìm và chọn dòng họ cần gia nhập trước.');
+      return null;
+    }
+
+    if (!isRevisionMode && eligibilityBlock) {
+      setErrorMsg(eligibilityBlock.message);
       return null;
     }
 
@@ -594,36 +675,76 @@ export const ClaimMemberPage = () => {
 
                 {tenantResults.length > 0 && (
                   <div className="max-h-60 space-y-2 overflow-y-auto pr-1">
-                    {tenantResults.map((t) => (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => {
-                          setSelectedTenant(t);
-                          setErrorMsg('');
-                        }}
-                        className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white p-3.5 text-left shadow-sm transition hover:border-emerald-400 hover:bg-emerald-50"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
-                            <Landmark size={20} />
-                          </div>
-                          <div>
-                            <p className="text-sm font-black text-slate-900">
-                              {t.name}
-                            </p>
-                            {t.slug && (
-                              <p className="text-xs text-slate-500">
-                                Mã định danh: {t.slug}
+                    {tenantResults.map((t) => {
+                      const linkInfo = t.existingLink;
+                      const isAlreadyMember = linkInfo?.status === 'DA_DUYET';
+                      const isPending =
+                        linkInfo?.status === 'CHO_DUYET' ||
+                        linkInfo?.status === 'DRAFT';
+
+                      return (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedTenant(t);
+                            setErrorMsg('');
+                          }}
+                          className={`flex w-full items-center justify-between rounded-2xl border p-3.5 text-left shadow-sm transition ${
+                            isAlreadyMember
+                              ? 'border-amber-200 bg-amber-50/60 hover:border-amber-300'
+                              : isPending
+                                ? 'border-blue-200 bg-blue-50/60 hover:border-blue-300'
+                                : 'border-slate-200 bg-white hover:border-emerald-400 hover:bg-emerald-50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                                isAlreadyMember
+                                  ? 'bg-amber-100 text-amber-700'
+                                  : isPending
+                                    ? 'bg-blue-100 text-blue-700'
+                                    : 'bg-emerald-50 text-emerald-600'
+                              }`}
+                            >
+                              <Landmark size={20} />
+                            </div>
+                            <div>
+                              <p className="text-sm font-black text-slate-900">
+                                {t.name}
                               </p>
-                            )}
+                              {t.slug && (
+                                <p className="text-xs text-slate-500">
+                                  Mã định danh: {t.slug}
+                                </p>
+                              )}
+                              {isAlreadyMember && (
+                                <p className="mt-0.5 text-xs font-bold text-amber-800">
+                                  Đã gắn hồ sơ:{' '}
+                                  {linkInfo.memberName || 'Thành viên chính thức'}
+                                </p>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                        <span className="rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-black text-white">
-                          Chọn họ này
-                        </span>
-                      </button>
-                    ))}
+                          <span
+                            className={`rounded-xl px-3 py-1.5 text-xs font-black ${
+                              isAlreadyMember
+                                ? 'bg-amber-100 text-amber-900'
+                                : isPending
+                                  ? 'bg-blue-100 text-blue-900'
+                                  : 'bg-emerald-600 text-white'
+                            }`}
+                          >
+                            {isAlreadyMember
+                              ? 'Đã là thành viên'
+                              : isPending
+                                ? 'Đang chờ duyệt'
+                                : 'Chọn họ này'}
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -679,7 +800,79 @@ export const ClaimMemberPage = () => {
             </div>
           </div>
 
+          {checkingEligibility && selectedTenant?.id && (
+            <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-600">
+              <Loader2 size={16} className="animate-spin text-emerald-600" />
+              <span>Đang kiểm tra điều kiện gia nhập tại {selectedTenant.name}...</span>
+            </div>
+          )}
+
+          {eligibilityBlock && (
+            <div className="space-y-3 rounded-2xl border-2 border-rose-300 bg-rose-50 p-5 text-rose-950">
+              <div className="flex items-start gap-3">
+                <AlertCircle size={22} className="mt-0.5 shrink-0 text-rose-600" />
+                <div className="space-y-1">
+                  <p className="text-xs font-black uppercase tracking-wider text-rose-700">
+                    Không thể gửi thêm hồ sơ tại dòng họ này
+                  </p>
+                  <p className="text-sm font-bold leading-relaxed">
+                    {eligibilityBlock.message}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2.5 pt-1">
+                {eligibilityBlock.reasonCode === 'ALREADY_LINKED_TO_TENANT' &&
+                  eligibilityBlock.linkStatus === 'DA_DUYET' && (
+                    <button
+                      type="button"
+                      disabled={isSwitchingContext}
+                      onClick={() => switchContext(eligibilityBlock.tenantId, '/op')}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      <ArrowRightLeft size={15} />
+                      {isSwitchingContext
+                        ? 'Đang chuyển dòng họ...'
+                        : `Chuyển sang ${eligibilityBlock.clanName}`}
+                    </button>
+                  )}
+
+                {eligibilityBlock.reasonCode === 'DUPLICATE_PENDING_CASE' && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      navigate(
+                        eligibilityBlock.caseId
+                          ? `/membership/status?caseId=${encodeURIComponent(eligibilityBlock.caseId)}`
+                          : `/membership/status?tenantId=${encodeURIComponent(eligibilityBlock.tenantId)}`
+                      )
+                    }
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-black text-white shadow-sm hover:bg-blue-700"
+                  >
+                    <ExternalLink size={15} />
+                    Xem trạng thái hồ sơ đang chờ
+                  </button>
+                )}
+
+                {isAddClanMode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedTenant(null);
+                      setEligibilityBlock(null);
+                      setErrorMsg('');
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-xl border border-rose-300 bg-white px-4 py-2.5 text-xs font-black text-rose-800 hover:bg-rose-100"
+                  >
+                    Chọn dòng họ khác
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
           {/* BƯỚC 2: CHỌN CLAIM EM HOẶC KHAI BÁO 21 TRƯỜNG */}
+          {!eligibilityBlock && (
           <div className="space-y-4">
             <h2 className="text-sm font-black uppercase tracking-wider text-slate-700">
               {isAddClanMode
@@ -784,10 +977,16 @@ export const ClaimMemberPage = () => {
               />
             )}
           </div>
+          )}
 
           <button
             type="submit"
-            disabled={isSubmitting || !selectedTenant?.id}
+            disabled={
+              isSubmitting ||
+              checkingEligibility ||
+              Boolean(eligibilityBlock) ||
+              !selectedTenant?.id
+            }
             className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-4 text-base font-black text-white shadow-lg transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
             {isSubmitting ? (

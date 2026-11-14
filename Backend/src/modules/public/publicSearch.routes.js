@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : src/modules/public/publicSearch.routes.js
- * DATETIME   : 2026-11-13T17:15:00+07:00
- * VERSION    : 1.3.0-MULTIHOME-UAT-BUG2-ISCLAN-MARRIAGE-RESOLVE
+ * DATETIME   : 2026-11-14T11:15:00+07:00
+ * VERSION    : 1.4.0-MULTIHOME-UAT-BUG4-CLAIMED-FLAG
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0 & AMEND-RP-OP-2026-03 G2] API công khai cho Guest Claim (C2) & Multi-Home (C1):
  *   1) GET /api/public/tenants/search?q=
@@ -12,8 +12,8 @@
  *      - Rate limit tối đa 15 request/phút/IP; q tối thiểu 2 ký tự.
  *      - Chỉ truy vấn status = 'CHINH_THUC', deleted_at = null.
  *      - KHÔNG lọc is_clan = true để cho phép cả con rể / con dâu (is_clan = false) tìm và nhận hồ sơ (EM).
- *      - Trả payload nhận diện phả hệ tối thiểu kèm is_clan & child_type (suy diễn từ marriages nếu
- *        is_clan = false nhưng DB đang dính @default(CON_DE)).
+ *      - Trả payload nhận diện phả hệ tối thiểu kèm is_clan, child_type và cờ is_claimed
+ *        (đánh dấu nút thành viên đã có tài khoản liên kết DA_DUYET, không lộ PII).
  *      - Tuyệt đối không trả SĐT, email, địa chỉ, ngày/tháng sinh.
  * ============================================================================
  * CHANGELOGS:
@@ -21,6 +21,9 @@
  * - 2026-11-13T17:15:00+07:00 (v1.3.0-MULTIHOME-UAT-BUG2-ISCLAN-MARRIAGE-RESOLVE):
  *   + Select is_clan, child_type, marriages_as_husband, marriages_as_wife và trả về is_clan + child_type
  *     đã suy diễn chuẩn (CON_RE / CON_DAU cho ngoại tộc) trong claim-search.
+ * - 2026-11-14T11:15:00+07:00 (v1.4.0-MULTIHOME-UAT-BUG4-CLAIMED-FLAG):
+ *   + Fix UAT Bug 4: Trả thêm boolean is_claimed (kiểm tra user_member_links status = 'DA_DUYET')
+ *     để giao diện khóa sớm nút thành viên đã có chủ sở hữu ngay từ Bước 1.
  * ============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -233,6 +236,21 @@ router.get(
       orderBy: [{ generation: 'asc' }, { full_name: 'asc' }],
     });
 
+    const memberIds = members.map((m) => m.id);
+    const activeLinks =
+      memberIds.length > 0
+        ? await basePrisma.user_member_links.findMany({
+            where: {
+              tenant_id: tenantId,
+              member_id: { in: memberIds },
+              status: 'DA_DUYET',
+              deleted_at: null,
+            },
+            select: { member_id: true },
+          })
+        : [];
+    const claimedMemberIds = new Set(activeLinks.map((l) => l.member_id));
+
     // Payload tối thiểu — tuyệt đối không trả SĐT, email, địa chỉ, ngày/tháng sinh
     const sanitized = members.map((m) => {
       const rel = resolveMemberClanRelation(m);
@@ -247,6 +265,7 @@ router.get(
         birth_year: m.birth_year ?? null,
         is_clan: rel.isClan,
         child_type: rel.childType,
+        is_claimed: claimedMemberIds.has(m.id),
       };
     });
 

@@ -1,17 +1,20 @@
 /**
  * ============================================================================
  * PATH       : src/modules/membership/membership.controller.js
- * DATETIME   : 2026-11-13T10:30:00+07:00
- * VERSION    : 1.1.0-MULTIHOME-AMEND02-V15-LAT3
+ * DATETIME   : 2026-11-14T11:15:00+07:00
+ * VERSION    : 1.2.0-MULTIHOME-UAT-BUG4-PROACTIVE-CHECK
  * DESCRIPTION:
  * - HTTP Controller cho phân hệ Multi-Home C1 (/membership/cases) & C1-S (/membership/clan-setup),
- *   bao gồm nộp đơn, xem trạng thái, bổ sung hồ sơ, mở lại từ chối mềm, và phê duyệt/trả sửa C1.
+ *   bao gồm kiểm tra điều kiện chủ động, nộp đơn, xem trạng thái, bổ sung hồ sơ, mở lại từ chối mềm,
+ *   và phê duyệt/trả sửa C1.
  * ============================================================================
  * CHANGELOGS:
  * - 2026-11-13T09:45:00+07:00 (v1.0.0-MULTIHOME-AMEND02-V15-LAT3):
  *   + Khởi tạo getStatus, createCase, clanSetup, submitRevision, reopenCase.
  * - 2026-11-13T10:30:00+07:00 (v1.1.0-MULTIHOME-AMEND02-V15-LAT3):
  *   + Bổ sung approveCase và returnForRevision cho cổng Admin duyệt C1 / C1-S.
+ * - 2026-11-14T11:15:00+07:00 (v1.2.0-MULTIHOME-UAT-BUG4-PROACTIVE-CHECK):
+ *   + Bổ sung checkEligibility (GET /api/membership/eligibility?tenantId=...).
  * ============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -21,6 +24,28 @@
 const membershipService = require('./membership.service');
 
 const membershipController = {
+  checkEligibility: async (req, res) => {
+    try {
+      const userId = req.user?.userId || req.user?.id;
+      const tenantId = req.query?.tenantId || req.query?.tenant_id || '';
+      const result = await membershipService.checkMultiHomeEligibility(
+        userId,
+        tenantId
+      );
+
+      return res.status(200).json({
+        status: 'success',
+        data: result,
+      });
+    } catch (err) {
+      return res.status(err.status || 500).json({
+        status: 'error',
+        code: err.code || 'CHECK_ELIGIBILITY_FAILED',
+        message: err.message || 'Không thể kiểm tra điều kiện gia nhập dòng họ.',
+      });
+    }
+  },
+
   getStatus: async (req, res) => {
     try {
       const userId = req.user?.userId || req.user?.id;

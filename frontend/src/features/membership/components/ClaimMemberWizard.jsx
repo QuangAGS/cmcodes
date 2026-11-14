@@ -1,12 +1,13 @@
 /**
  * ============================================================================
  * PATH       : frontend/src/features/membership/components/ClaimMemberWizard.jsx
- * DATETIME   : 2026-11-13T15:20:00+07:00
- * VERSION    : 1.3.0-MULTIHOME-UAT-BUG1-CONTEXT-PROMPTS
+ * DATETIME   : 2026-11-14T11:45:00+07:00
+ * VERSION    : 1.5.0-MULTIHOME-UAT-BUG4-FINAL
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0 MF-05] Wizard nhận hồ sơ thành viên có sẵn trên cây (Claim EM):
  *   + Hỗ trợ tra cứu dòng họ công khai qua GET /api/public/tenants/search?q= (nếu chưa có tenantId)
  *   + Tra cứu thành viên CHINH_THUC qua GET /api/public/tenants/:tenantId/members/claim-search?q=
+ *   + Khóa chọn sớm các nút thành viên đã có tài khoản liên kết (is_claimed === true).
  *   + Tự động điều chỉnh bộ 3 câu hỏi xác minh theo ngữ cảnh quan hệ (linkType / child_type):
  *     * Nhà dâu / rể (SPOUSE_FAMILY / CON_DAU / CON_RE): Xác minh Vợ/Chồng & Gia đình bên vợ/chồng
  *       (không hỏi "Huyết thống & Tiền nhân trực hệ").
@@ -20,6 +21,8 @@
  * - 2026-11-13T15:20:00+07:00 (v1.3.0-MULTIHOME-UAT-BUG1-CONTEXT-PROMPTS):
  *   + Fix UAT Bug 1: Tách bộ câu hỏi 3 lớp xác minh theo linkType / child_type, loại bỏ câu hỏi
  *     huyết thống vô lý khi EEU/NEU gia nhập họ bên vợ/chồng (SPOUSE_FAMILY / CON_RE / CON_DAU).
+ * - 2026-11-14T11:15:00+07:00 (v1.4.0-MULTIHOME-UAT-BUG4-CLAIMED-GUARD):
+ *   + Fix UAT Bug 4: Vô hiệu hóa nút chọn và gắn nhãn "Đã có tài khoản liên kết" khi m.is_claimed === true.
  * ============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -59,6 +62,54 @@ const CHILD_TYPE_LABELS = {
  * Xác định bộ 3 câu hỏi xác minh phù hợp với ngữ cảnh quan hệ của người xin gia nhập.
  * Tránh hỏi "Huyết thống & Tiền nhân trực hệ" đối với con dâu/rể (SPOUSE_FAMILY / CON_DAU / CON_RE).
  */
+
+/**
+ * Suy diễn tư cách Nội tộc / Ngoại tộc (is_clan) và vai vế (child_type) từ members + marriages.
+ * Khắc phục trường hợp schema.prisma đặt @default(CON_DE) cho thành viên ngoại tộc (is_clan = false).
+ */
+const resolveMemberClanRelation = (member) => {
+  if (!member) {
+    return { isClan: true, childType: 'CON_DE' };
+  }
+  const isClan = member.is_clan !== false;
+  const hasClanWife = (member.marriages_as_husband || []).some(
+    (m) =>
+      m.members_marriages_wife_idTomembers &&
+      m.members_marriages_wife_idTomembers.is_clan !== false
+  );
+  const hasClanHusband = (member.marriages_as_wife || []).some(
+    (m) =>
+      m.members_marriages_husband_idTomembers &&
+      m.members_marriages_husband_idTomembers.is_clan !== false
+  );
+  const isMarriedToClanMember = hasClanWife || hasClanHusband;
+
+  if (!isClan) {
+    if (
+      member.child_type === 'CON_RE' ||
+      member.child_type === 'CON_DAU' ||
+      member.child_type === 'KHAC'
+    ) {
+      return { isClan: false, childType: member.child_type };
+    }
+    if (isMarriedToClanMember || member.child_type === 'CON_DE' || !member.child_type) {
+      const inferred =
+        member.gender === 'NAM'
+          ? 'CON_RE'
+          : member.gender === 'NU'
+            ? 'CON_DAU'
+            : 'KHAC';
+      return { isClan: false, childType: inferred };
+    }
+    return { isClan: false, childType: member.child_type };
+  }
+
+  return {
+    isClan: true,
+    childType: member.child_type || 'CON_DE',
+  };
+};
+
 const resolveVerificationPrompts = ({ linkType = '', childType = '' } = {}) => {
   const normalizedLink = String(linkType || '').toUpperCase();
   const normalizedChild = String(childType || '').toUpperCase();
@@ -309,6 +360,7 @@ const ClaimMemberWizard = ({
   };
 
   const handleSelectMember = (member) => {
+    if (member?.is_claimed) return;
     onFocusZone?.();
     onMemberSelect?.(member);
     emitChange({
@@ -515,13 +567,19 @@ const ClaimMemberWizard = ({
 
           {results.length > 0 && (
             <div className="max-h-72 space-y-2.5 overflow-y-auto pr-1">
-              {results.map((m) => (
+              {results.map((m) => {
+                const isClaimed = m.is_claimed === true;
+                return (
                 <button
                   key={m.id}
                   type="button"
-                  disabled={disabled}
+                  disabled={disabled || isClaimed}
                   onClick={() => handleSelectMember(m)}
-                  className="w-full rounded-2xl border border-slate-200 bg-white p-3.5 text-left shadow-sm transition hover:border-emerald-400 hover:bg-emerald-50/60"
+                  className={`w-full rounded-2xl border p-3.5 text-left shadow-sm transition ${
+                    isClaimed
+                      ? 'cursor-not-allowed border-slate-200 bg-slate-100/80 opacity-75'
+                      : 'border-slate-200 bg-white hover:border-emerald-400 hover:bg-emerald-50/60'
+                  }`}
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
@@ -564,12 +622,19 @@ const ClaimMemberWizard = ({
                       )}
                     </div>
 
-                    <span className="shrink-0 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-black text-white">
-                      Chọn hồ sơ
-                    </span>
+                    {isClaimed ? (
+                      <span className="shrink-0 rounded-xl bg-slate-200 px-3 py-1.5 text-xs font-black text-slate-600">
+                        Đã có tài khoản liên kết
+                      </span>
+                    ) : (
+                      <span className="shrink-0 rounded-xl bg-emerald-600 px-3 py-1.5 text-xs font-black text-white">
+                        Chọn hồ sơ
+                      </span>
+                    )}
                   </div>
                 </button>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
@@ -753,5 +818,5 @@ const ClaimMemberWizard = ({
   );
 };
 
-export { ClaimMemberWizard, resolveVerificationPrompts };
+export { ClaimMemberWizard, resolveVerificationPrompts, resolveMemberClanRelation };
 export default ClaimMemberWizard;

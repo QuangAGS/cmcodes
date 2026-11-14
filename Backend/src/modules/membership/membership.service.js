@@ -1,11 +1,13 @@
 /**
  * ============================================================================
  * PATH       : src/modules/membership/membership.service.js
- * DATETIME   : 2026-11-13T18:05:00+07:00
- * VERSION    : 1.1.2-MULTIHOME-UAT-BUG3-PERSIST-CHILD-TYPE
+ * DATETIME   : 2026-11-14T11:15:00+07:00
+ * VERSION    : 1.2.0-MULTIHOME-UAT-BUG4-PROACTIVE-CHECK
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0 Lát 3] Service xử lý trọn vẹn luồng Multi-Home C1
  *   (Gia nhập dòng họ khác) & C1-S (Lập dòng họ mới):
+ *   + checkMultiHomeEligibility: Kiểm tra chủ động (proactive) ngay khi EEU chọn dòng họ đích
+ *     xem user đã gắn với member nào trong tenant đó chưa hoặc đang có hồ sơ chờ duyệt không.
  *   + submitMultiHomeClaim (C1): Giữ nguyên users.status = DA_DUYET và link họ gốc A.
  *     Tạo onboarding_cases (case_type = 'MEMBER_JOIN', process_kind = 'REGISTER', status = 'SUBMITTED')
  *     với metadata.registration_profile (Claim EM 3 lớp hoặc 21 trường phả hệ).
@@ -13,6 +15,7 @@
  *     Tạo tenants mới (status = 'CHO_DUYET') + onboarding_cases (case_type = 'CLAN_SETUP',
  *     process_kind = 'REGISTER', status = 'SUBMITTED') với hồ sơ người sáng lập.
  *   + approveMultiHomeCase: Phê duyệt / Từ chối (soft/final) hồ sơ C1 & C1-S:
+ *     * Chặn chủ động nếu user đã có liên kết DA_DUYET tại tenant đích trước khi ghi user_member_links.
  *     * Tạo/nối member CHINH_THUC bên dòng họ đích B.
  *     * Tạo user_member_links (status = 'DA_DUYET', is_default = false, role_in_tenant = USER | CLAN_ADMIN).
  *     * Tuyệt đối KHÔNG sửa users.status, users.role, users.tenant_id, KHÔNG ghi users.member_id,
@@ -28,6 +31,11 @@
  *   + Bổ sung approveMultiHomeCase và returnMultiHomeForRevision chuyên biệt cho C1 / C1-S
  *     (link DA_DUYET, is_default = false, giữ nguyên họ A, không ghi users.member_id).
  *   + Sửa getMultiHomeStatus ưu tiên đọc review_note từ onboarding_cases.
+ * - 2026-11-13T18:05:00+07:00 (v1.1.2-MULTIHOME-UAT-BUG3-PERSIST-CHILD-TYPE):
+ *   + Ghi nhận child_type & is_clan khi tạo member CHINH_THUC từ hồ sơ 21 trường.
+ * - 2026-11-14T11:15:00+07:00 (v1.2.0-MULTIHOME-UAT-BUG4-PROACTIVE-CHECK):
+ *   + Fix UAT Bug 4: Thêm checkMultiHomeEligibility(userId, targetTenantId) để kiểm tra chủ động
+ *     ngay khi EEU chọn tenant; chặn sớm trùng (user_id, tenant_id) ở cả submit và approve.
  * ============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -148,6 +156,120 @@ function buildMemberNoteFromProfile(profile = {}) {
 
 const membershipService = {
   /**
+   * Kiểm tra chủ động (Proactive Eligibility Check) trước khi EEU khai báo gia nhập dòng họ:
+   * - Mỗi EEU chỉ được gắn với duy nhất 1 member trong 1 tenant (@@unique([user_id, tenant_id])).
+   * - Trả về eligible = false ngay lập tức nếu user đã có liên kết hoặc đang có hồ sơ chờ duyệt tại tenant đó.
+   */
+  checkMultiHomeEligibility: async (userId, targetTenantId) => {
+    const cleanTenantId = String(targetTenantId || '').trim();
+    if (!cleanTenantId || !UUID_REGEX.test(cleanTenantId)) {
+      throw makeHttpError(
+        400,
+        'INVALID_TENANT_ID',
+        'Mã định danh dòng họ không hợp lệ.'
+      );
+    }
+
+    const tenant = await basePrisma.tenants.findFirst({
+      where: {
+        id: cleanTenantId,
+        deleted_at: null,
+      },
+      select: { id: true, name: true, slug: true, status: true },
+    });
+
+    if (!tenant) {
+      throw makeHttpError(
+        404,
+        'TENANT_NOT_FOUND',
+        'Không tìm thấy dòng họ được chọn.'
+      );
+    }
+
+    const existingLink = await basePrisma.user_member_links.findFirst({
+      where: {
+        user_id: userId,
+        tenant_id: cleanTenantId,
+        deleted_at: null,
+        status: { in: ['DA_DUYET', 'CHO_DUYET', 'DRAFT'] },
+      },
+      include: {
+        member: {
+          select: { id: true, full_name: true, generation: true },
+        },
+      },
+    });
+
+    if (existingLink) {
+      const memberDisplay = existingLink.member?.full_name
+        ? ` (hồ sơ: ${existingLink.member.full_name})`
+        : '';
+      return {
+        eligible: false,
+        reasonCode: 'ALREADY_LINKED_TO_TENANT',
+        linkStatus: existingLink.status,
+        memberId: existingLink.member_id,
+        memberName: existingLink.member?.full_name || null,
+        tenantId: tenant.id,
+        clanName: tenant.name,
+        message:
+          existingLink.status === 'DA_DUYET'
+            ? `Tài khoản của bác đã là thành viên của dòng họ ${tenant.name}${memberDisplay}. Mỗi tài khoản chỉ được gắn với một thành viên trong một dòng họ.`
+            : `Tài khoản của bác đã có liên kết đang chờ xử lý tại dòng họ ${tenant.name}${memberDisplay}.`,
+      };
+    }
+
+    const existingOpenCase = await basePrisma.onboarding_cases.findFirst({
+      where: {
+        user_id: userId,
+        tenant_id: cleanTenantId,
+        deleted_at: null,
+        process_kind: 'REGISTER',
+        status: {
+          in: [
+            'DRAFT',
+            'PROFILE_COMPLETED',
+            'FAMILY_TREE_DRAFT',
+            'SUBMITTED',
+            'UNDER_REVIEW',
+            'NEEDS_REVISION',
+          ],
+        },
+      },
+      orderBy: { created_at: 'desc' },
+      select: { id: true, status: true },
+    });
+
+    if (existingOpenCase) {
+      return {
+        eligible: false,
+        reasonCode: 'DUPLICATE_PENDING_CASE',
+        caseId: existingOpenCase.id,
+        caseStatus: existingOpenCase.status,
+        tenantId: tenant.id,
+        clanName: tenant.name,
+        message: `Bác đã nộp một hồ sơ xin gia nhập dòng họ ${tenant.name} và đang chờ Ban Quản trị xét duyệt. Không thể nộp thêm hồ sơ trùng lặp.`,
+      };
+    }
+
+    if (['BI_KHOA', 'TU_CHOI', 'NGUNG_HAN'].includes(tenant.status)) {
+      return {
+        eligible: false,
+        reasonCode: 'TENANT_INACTIVE',
+        tenantId: tenant.id,
+        clanName: tenant.name,
+        message: `Dòng họ ${tenant.name} hiện đang tạm ngừng tiếp nhận thành viên mới.`,
+      };
+    }
+
+    return {
+      eligible: true,
+      tenantId: tenant.id,
+      clanName: tenant.name,
+    };
+  },
+
+  /**
    * Luồng C1: User đã có tài khoản gửi đơn xin gia nhập dòng họ khác (Tenant B).
    * - Không đổi users.status (giữ DA_DUYET).
    * - Không đụng link của họ gốc A.
@@ -195,20 +317,28 @@ const membershipService = {
       );
     }
 
-    // 1. Kiểm tra đã có liên kết chính thức tại dòng họ B chưa
+    // 1. Kiểm tra chủ động: EEU đã có liên kết thành viên tại dòng họ B chưa (1 user -> tối đa 1 member / tenant)
     const existingLink = await basePrisma.user_member_links.findFirst({
       where: {
         user_id: userId,
         tenant_id: targetTenantId,
         deleted_at: null,
-        status: { in: ['DA_DUYET', 'DRAFT'] },
+        status: { in: ['DA_DUYET', 'CHO_DUYET', 'DRAFT'] },
+      },
+      include: {
+        member: {
+          select: { id: true, full_name: true },
+        },
       },
     });
     if (existingLink) {
+      const memberLabel = existingLink.member?.full_name
+        ? ` (hồ sơ: ${existingLink.member.full_name})`
+        : '';
       throw makeHttpError(
         409,
         'ALREADY_LINKED_TO_TENANT',
-        `Bạn đã là thành viên của dòng họ ${tenant.name}. Hãy dùng bộ chuyển dòng họ trên thanh tiêu đề.`
+        `Tài khoản của bạn đã gắn với một thành viên trong dòng họ ${tenant.name}${memberLabel}. Không thể gia nhập 2 lần vào cùng một dòng họ.`
       );
     }
 
@@ -793,8 +923,18 @@ const membershipService = {
               tenant_id: targetTenantId,
               deleted_at: null,
             },
-            select: { id: true, is_default: true },
+            include: {
+              member: { select: { id: true, full_name: true } },
+            },
           });
+
+          if (existingTenantLink && existingTenantLink.status === 'DA_DUYET') {
+            throw makeHttpError(
+              409,
+              'ALREADY_LINKED_TO_TENANT',
+              `Tài khoản này đã được liên kết với thành viên ${existingTenantLink.member?.full_name || ''} trong dòng họ. Không thể tạo thêm liên kết thứ hai.`
+            );
+          }
 
           if (existingTenantLink) {
             await tx.user_member_links.update({

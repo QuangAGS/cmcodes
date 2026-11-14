@@ -1,9 +1,10 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/features/membership/api/membershipApi.js
- * DATETIME    : 2026-11-13T10:45:00+07:00
- * VERSION     : 1.3.0-MULTIHOME-AMEND02-V15-LAT3-LAT4
+ * DATETIME    : 2026-11-14T11:15:00+07:00
+ * VERSION     : 1.4.0-MULTIHOME-UAT-BUG4-ELIGIBILITY
  * DESCRIPTION : HTTP Client cho phân hệ Membership & Multi-Home (C1 & C1-S).
+ *               - checkEligibility -> GET /membership/eligibility?tenantId=...
  *               - getMyClans -> GET /auth/available-clans
  *               - switchContext -> POST /auth/switch-context
  *               - getMembershipStatus -> GET /membership/status (fallback /onboarding/my-op)
@@ -18,6 +19,8 @@
  * - 2026-11-10T15:55:00+07:00 (v1.1.0): Map cơ bản sang /onboarding/*.
  * - 2026-11-13T10:00:00+07:00 (v1.2.0): Đấu nối /membership/cases, /clan-setup, /status.
  * - 2026-11-13T10:45:00+07:00 (v1.3.0): Thêm approveCase & returnForRevision cho cổng Admin Lát 4.
+ * - 2026-11-14T11:15:00+07:00 (v1.4.0-MULTIHOME-UAT-BUG4-ELIGIBILITY):
+ *   + Thêm checkEligibility(tenantId) gọi GET /membership/eligibility kiểm tra chủ động trùng liên kết.
  * =============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -25,6 +28,13 @@
 import apiClient from '../../../lib/apiClient';
 
 export const membershipApi = {
+  checkEligibility: async (tenantId) => {
+    const response = await apiClient.get('/membership/eligibility', {
+      params: { tenantId },
+    });
+    return response.data?.data ?? response.data;
+  },
+
   getMyClans: async () => {
     const response = await apiClient.get('/auth/available-clans');
     return response.data;

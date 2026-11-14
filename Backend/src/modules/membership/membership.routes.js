@@ -1,10 +1,11 @@
 /**
  * ============================================================================
  * PATH       : src/modules/membership/membership.routes.js
- * DATETIME   : 2026-11-13T10:30:00+07:00
- * VERSION    : 1.1.0-MULTIHOME-AMEND02-V15-LAT3
+ * DATETIME   : 2026-11-14T11:15:00+07:00
+ * VERSION    : 1.2.0-MULTIHOME-UAT-BUG4-PROACTIVE-CHECK
  * DESCRIPTION:
  * - Routes cho luồng C1 & C1-S theo AMEND-RP-OP-2026-02-FE-V1.5.0:
+ *   + GET  /api/membership/eligibility
  *   + GET  /api/membership/status
  *   + POST /api/membership/cases
  *   + POST /api/membership/clan-setup
@@ -16,6 +17,7 @@
  * CHANGELOGS:
  * - 2026-11-13T09:45:00+07:00 (v1.0.0-MULTIHOME-AMEND02-V15-LAT3): Khởi tạo routes C1 & C1-S.
  * - 2026-11-13T10:30:00+07:00 (v1.1.0-MULTIHOME-AMEND02-V15-LAT3): Thêm route approve & return-revision.
+ * - 2026-11-14T11:15:00+07:00 (v1.2.0-MULTIHOME-UAT-BUG4-PROACTIVE-CHECK): Thêm GET /eligibility.
  * ============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -42,6 +44,7 @@ const ADMIN_ROLES = [
   'TRUONG_CHI',
 ];
 
+router.get('/eligibility', verifyToken, asyncHandler(membershipController.checkEligibility));
 router.get('/status', verifyToken, asyncHandler(membershipController.getStatus));
 
 router.post(
