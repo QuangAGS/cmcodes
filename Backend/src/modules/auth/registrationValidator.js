@@ -1,16 +1,20 @@
 /**
  * PATH       : src/modules/auth/registrationValidator.js
- * DATETIME   : 2026-11-13T18:05:00+07:00
- * VERSION    : 1.3.1-MULTIHOME-UAT-BUG3-RELATIONSHIP
+ * DATETIME   : 2026-11-14T14:48:00+07:00
+ * VERSION    : 1.4.0-INTL-PHONE-LIBPHONENUMBER
  * DESCRIPTION:
  * - Căn cứ: AMEND-RP-OP-2026-01-V1.1
  * - [1.2.0]: Bổ sung pattern regex cho email, phone và claimed_member_id (UUID v4)
  *   ngăn chặn triệt để dữ liệu rác và lỗi database "invalid input syntax for type uuid".
+ * - [1.4.0]: Nâng cấp kiểm tra phone theo chuẩn quốc tế libphonenumber-js (ITU-T E.164),
+ *   hỗ trợ cả số Việt Nam (0xxxxxxxxx / +84...) lẫn số kiều bào quốc tế (+1..., +61..., +33...).
  * - Tuân thủ nguyên tắc Q1 (bảo tồn luồng cũ) và Q2 (chuẩn tài liệu kỹ thuật).
  */
 
+const { isValidPhoneNumber, normalizeCanonicalPhone } = require('../../shared/utils/slug.utils');
+
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const PHONE_REGEX = /^(0|\+84)(3|5|7|8|9)[0-9]{8}$/;
+const PHONE_REGEX = /^(0(3|5|7|8|9)[0-9]{8}|\+[1-9][0-9]{6,14})$/;
 const UUID_REGEX = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
 
 const REGISTRATION_SCHEMA = {
@@ -27,9 +31,10 @@ const REGISTRATION_SCHEMA = {
   phone: { 
     type: 'string', 
     required: false, 
-    max: 20, 
-    pattern: PHONE_REGEX, 
-    patternMessage: 'Số điện thoại không đúng định dạng (VD: 0912345678 hoặc +84912345678).' 
+    max: 25, 
+    customValidate: (val) => isValidPhoneNumber(val, 'VN'),
+    normalize: (val) => normalizeCanonicalPhone(val, 'VN') || String(val).trim(),
+    patternMessage: 'Số điện thoại không đúng định dạng quốc gia hoặc quốc tế E.164 (VD: 0912345678 hoặc +14085551234).' 
   },
   email: { 
     type: 'string', 
@@ -142,6 +147,19 @@ function validateRegistrationProfile(data = {}) {
       err.status = 400;
       err.code = 'VALIDATION_FORMAT';
       throw err;
+    }
+
+    // Kiểm tra bằng hàm validate chuyên biệt (VD: libphonenumber-js)
+    if (rule.customValidate && typeof val === 'string') {
+      if (!rule.customValidate(val)) {
+        const err = new Error(rule.patternMessage || `Trường [${key}] sai định dạng.`);
+        err.status = 400;
+        err.code = 'VALIDATION_FORMAT';
+        throw err;
+      }
+      if (typeof rule.normalize === 'function') {
+        val = rule.normalize(val);
+      }
     }
 
     if (rule.type === 'number') {

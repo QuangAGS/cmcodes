@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/auth/auth.service.js
- * DATETIME   : 2026-11-13T18:05:00+07:00
- * VERSION    : 20.9.4-MULTIHOME-UAT-BUG3-PERSIST-CHILD-TYPE
+ * DATETIME   : 2026-11-14T14:48:00+07:00
+ * VERSION    : 20.9.5-INTL-PHONE-LIBPHONENUMBER
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0] Lát 0 + Lát 3 Multi-Home SSOT:
  *   + Lát 0 (C2 & C2-S): registerUser tạo users (CHO_DUYET) + onboarding_cases.metadata trong 1 TX atomic;
@@ -267,10 +267,21 @@ const authService = {
    * Tiến trình xác thực đăng nhập + Assert Order + Multi-Home Context Token (V1.5.0).
    */
   loginUser: async (identifier, password, extraData) => {
+    const rawId = String(identifier || '').trim();
+    const normalizedLoginPhone =
+      rawId && !rawId.includes('@') ? cleanInput(rawId, 'phone') : '';
+    const loginOrClauses = [
+      { email: rawId },
+      { phone: rawId },
+      ...(normalizedLoginPhone && normalizedLoginPhone !== rawId
+        ? [{ phone: normalizedLoginPhone }]
+        : []),
+    ];
+
     // ─── Bước 0: Tìm user kèm danh sách liên kết user_member_links ───
     const user = await basePrisma.users.findFirst({
       where: {
-        OR: [{ email: identifier }, { phone: identifier }],
+        OR: loginOrClauses,
         deleted_at: null,
       },
       include: {
@@ -791,9 +802,9 @@ const authService = {
       return authService.submitRegistrationRevision(payload, extraData);
     }
 
-    const { isNewClan, clanName, description, tenantId, ...userData } = payload;
+    const { isNewClan, clanName, description, tenantId, phoneCountry, ...userData } = payload;
     const { ip_address, user_agent, correlationId: incomingCorrelationId } = extraData;
-    const logIdentifier = cleanInput(userData.phone, 'phone');
+    const logIdentifier = cleanInput(userData.phone, 'phone', phoneCountry || 'VN');
     let transactionResult = null;
 
     const validatedProfile = normalizeIncomingRegistrationProfile(payload, logIdentifier);
@@ -1085,8 +1096,8 @@ const authService = {
     }
   },
 
-  checkIdentity: async (type, value) => {
-    const cleanedValue = cleanInput(value, type);
+  checkIdentity: async (type, value, country = 'VN') => {
+    const cleanedValue = cleanInput(value, type, country || 'VN');
 
     if (!cleanedValue) {
       return {

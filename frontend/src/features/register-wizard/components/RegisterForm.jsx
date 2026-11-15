@@ -1,8 +1,8 @@
 /**
  * PATH: src/features/register-wizard/components/RegisterForm.jsx
  * OLD PATH       : src/features/auth/components/RegisterForm.jsx
- * DATETIME   : <2026-08-01T16:37:00+07:00>
- * VERSION    : 24.7.0-MULTIHOME-AMEND02-V15-LAT1
+ * DATETIME   : 2026-11-14T22:45:00+07:00
+ * VERSION    : 24.8.0-UAT-BUG8-REVISION-NOTE-PROP
  * DESCRIPTION:
  * 24.6.7.R1.9 - PR-OP4:NEEDS_REVISION
  * - PURPOSE 24.6.7.R1.9:
@@ -52,7 +52,7 @@ const resolveInitialRegisterMode = (initialData) => {
     return REGISTER_MODES.CREATE;
   }
 
-  if (initialData?.isNewClan === false) {
+  if (initialData?.isNewClan === false || initialData?.tenantId) {
     return REGISTER_MODES.JOIN;
   }
 
@@ -73,6 +73,7 @@ const RegisterForm = ({
    * PR-OP-4: bổ sung hồ sơ sau NEEDS_REVISION
    */
   isRevision = false,
+  reviewNote = '',
   lockedIdentifier = '',
 
   /**
@@ -195,10 +196,10 @@ const RegisterForm = ({
     reentryContext?.from === 'WaitingPage' &&
     reentryContext?.action === 'edit';
 
-  //PR-OP-4: revision → thẳng form con (mặc định JOIN)
+  //PR-OP-4: revision hoặc quay lại từ WaitingPage → giữ nguyên draft initialData
   const childInitialData =
     isRevision ||
-    (isEditFromWaiting && registerOpenSource === 'draft')
+    (isEditFromWaiting && Boolean(initialData) && registerOpenSource !== 'selector')
       ? initialData
       : null;
 
@@ -236,19 +237,24 @@ const RegisterForm = ({
    * - Preserve original submit semantics.
    * - Join payload must remain isNewClan=false.
    */
+  const effectiveReviewNote = String(
+    reviewNote || initialData?.reviewNote || ''
+  ).trim();
+
   const handleJoinSubmit = (payload) => {
     if (!onRegisterSubmit) return;
 
     onRegisterSubmit({
-        ...payload,
-        isNewClan: false,
-        ...(isRevision
-          ? {
-              isRevision: true,
-              phone: lockedIdentifier || payload.phone || initialData?.phone,
-            }
-          : {}),
-      });
+      ...payload,
+      isNewClan: false,
+      ...(isRevision
+        ? {
+            isRevision: true,
+            reviewNote: effectiveReviewNote || undefined,
+            phone: lockedIdentifier || payload.phone || initialData?.phone,
+          }
+        : {}),
+    });
   };
 
   /**
@@ -266,6 +272,7 @@ const RegisterForm = ({
       ...(isRevision
         ? {
             isRevision: true,
+            reviewNote: effectiveReviewNote || undefined,
             phone: lockedIdentifier || payload.phone || initialData?.phone,
           }
         : {}),
@@ -424,6 +431,7 @@ const RegisterForm = ({
           isSubmitting={isSubmitting}
           lifecycleContext={lifecycleContext}
           isRevision={isRevision}
+          reviewNote={effectiveReviewNote}
           lockedIdentifier={lockedIdentifier || initialData?.phone || ''}
         />
       )}
@@ -438,6 +446,7 @@ const RegisterForm = ({
           isSubmitting={isSubmitting}
           lifecycleContext={lifecycleContext}
           isRevision={isRevision}
+          reviewNote={effectiveReviewNote}
           lockedIdentifier={lockedIdentifier || initialData?.phone || ''}
         />
       )}

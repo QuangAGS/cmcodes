@@ -1,14 +1,18 @@
 /**
  * ============================================================================
  * PATH       : src/middlewares/auth.middleware.js
- * DATETIME   : 2026-11-11T13:05:00+07:00
- * VERSION    : 20.7.1-MULTIHOME-STRICT-HEAVY-WRITE
+ * DATETIME   : 2026-11-14T22:19:00+07:00
+ * VERSION    : 20.7.2-MULTIHOME-UAT-BUG7-SYSADMIN-ROOT-LINK
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.2] Lát 2/7:
- *   + Siết chặt assertActiveLink: Bỏ hoàn toàn bypass ngầm định của SYSTEM_ADMIN
- *     khi thao tác trong một dòng họ (bắt buộc phải có link DA_DUYET tại họ đó).
+ *   + Siết chặt assertActiveLink: Bắt buộc có link DA_DUYET khi thao tác trong
+ *     một dòng họ cụ thể.
+ *   + Fix UAT Bug 7: Khi SYSTEM_ADMIN thao tác tại Root Tenant Trung tâm
+ *     (00000000-0000-0000-0000-000000000000) để duyệt / yêu cầu bổ sung CLAN_SETUP,
+ *     tái kiểm tra trạng thái DA_DUYET trực tiếp trên bảng users thay vì tìm bản ghi
+ *     trong user_member_links tại Root Tenant.
  *   + Hỗ trợ cả 2 dạng: Express Middleware và helper gọi trực tiếp.
- *   + Ném 403 LINK_REVOKED ngay khi link không tồn tại hoặc mất hiệu lực.
+ *   + Ném 403 LINK_REVOKED ngay khi tư cách / link không tồn tại hoặc mất hiệu lực.
  * ============================================================================
  */
 
@@ -109,17 +113,22 @@ const verifyToken = (req, res, next) => {
   }
 };
 
+const ROOT_SYSTEM_TENANT_ID = '00000000-0000-0000-0000-000000000000';
+
 /**
  * Heavy-write Guard: Tái kiểm tra link DA_DUYET trực tiếp trong Database
- * Bỏ hoàn toàn bypass ngầm của SYSTEM_ADMIN khi thao tác trong một dòng họ cụ thể.
+ * - Nếu là SYSTEM_ADMIN thao tác tại Root Tenant Trung tâm (00000000-0000-0000-0000-000000000000):
+ *   xác thực trực tiếp tài khoản SYSTEM_ADMIN còn hiệu lực (status = DA_DUYET, deleted_at = null) trên bảng users.
+ * - Nếu thao tác trong một dòng họ cụ thể: bắt buộc phải có bản ghi user_member_links status = DA_DUYET.
  */
 const assertActiveLink = async (req, res, next) => {
   const isMiddleware = typeof next === 'function';
 
   const userId = req.user?.userId || req.user?.id;
   const activeTenantId = req.user?.activeTenantId || req.user?.tenantId;
+  const isSystemAdmin = req.user?.role === 'SYSTEM_ADMIN';
 
-  if (!userId || !activeTenantId) {
+  if (!userId || (!activeTenantId && !isSystemAdmin)) {
     const err = new Error('Thiếu thông tin nhận diện dòng họ.');
     err.statusCode = 401;
     err.code = 'UNAUTHORIZED';
@@ -127,13 +136,37 @@ const assertActiveLink = async (req, res, next) => {
     throw err;
   }
 
-  // Chỉ cho phép bypass nếu là SYSTEM_ADMIN chạy tác vụ nền toàn cục (không gắn tenant cụ thể)
-  if (req.user?.role === 'SYSTEM_ADMIN' && !activeTenantId) {
-    if (isMiddleware) return next();
-    return null;
-  }
-
   try {
+    if (isSystemAdmin) {
+      const sysAdminUser = await basePrisma.users.findFirst({
+        where: {
+          id: userId,
+          role: 'SYSTEM_ADMIN',
+          status: 'DA_DUYET',
+          deleted_at: null,
+        },
+        select: { id: true, role: true, status: true, tenant_id: true },
+      });
+
+      if (!sysAdminUser) {
+        const err = new Error('Tư cách Quản trị hệ thống không còn hiệu lực.');
+        err.statusCode = 403;
+        err.code = 'LINK_REVOKED';
+        if (isMiddleware) return next(err);
+        throw err;
+      }
+
+      const isRootCentralScope =
+        !activeTenantId ||
+        activeTenantId === ROOT_SYSTEM_TENANT_ID ||
+        (sysAdminUser.tenant_id && activeTenantId === sysAdminUser.tenant_id);
+
+      if (isRootCentralScope) {
+        if (isMiddleware) return next();
+        return sysAdminUser;
+      }
+    }
+
     const link = await basePrisma.user_member_links.findFirst({
       where: {
         user_id: userId,

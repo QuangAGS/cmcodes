@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/auth/auth.controller.js
- * DATETIME   : 2026-11-13T10:42:00+07:00
- * VERSION    : 23.9.0-MULTIHOME-AMEND02-V15-LAT3-LAT4
+ * DATETIME   : 2026-11-14T14:48:00+07:00
+ * VERSION    : 23.9.1-INTL-PHONE-CHECK-IDENTITY
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.2] Lát 1/7 Multi-Home Controller hoàn chỉnh:
  *   + getAvailableClans: Gọi authService.getAvailableClans(userId).
@@ -31,8 +31,8 @@ if (securityConfig.NODE_ENV !== 'production') {
 const authController = {
   checkIdentity: async (req, res) => {
     try {
-      const { type, value } = req.query;
-      const result = await authService.checkIdentity(type, value);
+      const { type, value, country } = req.query;
+      const result = await authService.checkIdentity(type, value, country);
       res.status(200).json({ status: 'success', ...result });
     } catch (error) {
       res.status(400).json({ status: 'error', message: error.message });

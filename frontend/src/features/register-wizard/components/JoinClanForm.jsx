@@ -1,9 +1,13 @@
 /**
  * PATH       : frontend/src/features/register-wizard/components/JoinClanForm.jsx
  * OLD PATH   : src/features/auth/components/JoinClanForm.jsx
- * DATETIME   : 2026-11-13T18:05:00+07:00
- * VERSION    : EGAL-25.X. R6.3.1-MULTIHOME-UAT-BUG3-RELATIONSHIP
+ * DATETIME   : 2026-11-14T22:45:00+07:00
+ * VERSION    : EGAL-25.X. R6.3.4-UAT-BUG8-REVISION-BANNER
  * DESCRIPTION:
+ * - PURPOSE EGAL-25.X. R6.3.2:
+ *    Tích hợp bộ chọn quốc gia (COUNTRY_PHONE_OPTIONS) và chuẩn hóa số điện thoại quốc tế
+ *    ITU-T E.164 bằng libphonenumber-js/min (validatePhoneWithCountry, detectPhoneCountry),
+ *    đồng thời tương thích ngược 100% với số điện thoại Việt Nam (0xxxxxxxxx).
  * - PURPOSE EGAL-25.X. R6.2.2A: 
  *    chỉ gỡ social preferred-channel khỏi JoinClanForm, thêm email optional, 
  *    và giữ WaitingPage/payload ổn định.
@@ -96,6 +100,11 @@ import AttentionZone from '../../../components/AttentionZone.jsx';
 import apiClient from '../../../lib/apiClient.js';
 import { joinClanSchema } from '../utils/joinClanValidation.js';
 import {
+  COUNTRY_PHONE_OPTIONS,
+  validatePhoneWithCountry,
+  detectPhoneCountry,
+} from '../../../shared/utils/validationRules.js';
+import {
   resolveRevisionPhone,
   resolveRevisionEmail,
 } from '../utils/identityHelpers.js';
@@ -134,21 +143,34 @@ const RELATIONSHIP_OPTIONS = [
  */
 const normalizeJoinDraft = (data) => {
   if (!data || typeof data !== 'object') return data || {};
+  const rp =
+    data.registration_profile && typeof data.registration_profile === 'object'
+      ? data.registration_profile
+      : {};
+
+  const resolvedFullName = data.temp_full_name ?? rp.full_name;
+  const resolvedFatherName = data.temp_father_name ?? rp.father_name;
+  const resolvedBirthYear = data.temp_birth_year ?? rp.birth_year;
+  const resolvedRelationship =
+    data.temp_relationship ?? rp.child_type ?? rp.temp_relationship;
+  const resolvedNote = data.temp_note ?? rp.note;
+
   return {
     ...data,
     temp_full_name:
-      data.temp_full_name != null ? String(data.temp_full_name) : '',
+      resolvedFullName != null ? String(resolvedFullName) : '',
     temp_father_name:
-      data.temp_father_name != null ? String(data.temp_father_name) : '',
+      resolvedFatherName != null ? String(resolvedFatherName) : '',
     temp_birth_year:
-      data.temp_birth_year != null && data.temp_birth_year !== ''
-        ? String(data.temp_birth_year)
+      resolvedBirthYear != null && resolvedBirthYear !== ''
+        ? String(resolvedBirthYear)
         : '',
     temp_relationship:
-      data.temp_relationship != null ? String(data.temp_relationship) : '',
-    temp_note: data.temp_note != null ? String(data.temp_note) : '',
+      resolvedRelationship != null ? String(resolvedRelationship) : '',
+    temp_note: resolvedNote != null ? String(resolvedNote) : '',
     phone: data.phone != null ? String(data.phone) : '',
     email: data.email != null ? String(data.email) : '',
+    password: data.password != null ? String(data.password) : '',
     tenantId: data.tenantId || data.tenant_id || '',
     clanName: data.clanName || '',
     tenantSlug: data.tenantSlug || '',
@@ -180,8 +202,12 @@ const JoinClanForm = ({
   runtimeSessionId = 0,
   // PR-OP-4
   isRevision = false,
+  reviewNote = '',
   lockedIdentifier = '',
 }) => {
+  const effectiveReviewNote = String(
+    reviewNote || initialData?.reviewNote || ''
+  ).trim();
   const uiSystem = uiSystemProp || DEFAULT_UI_SYSTEM;
   const effectiveLoading = loading || isSubmitting;
 
@@ -288,6 +314,17 @@ const JoinClanForm = ({
   }));
 
   const [profileErrors, setProfileErrors] = useState({});
+
+  const [phoneCountry, setPhoneCountry] = useState(() =>
+    initialData?.phoneCountry || detectPhoneCountry(initialData?.phone, 'VN')
+  );
+  const checkedPhoneCacheRef = useRef(null);
+  const selectedCountryMeta = useMemo(
+    () =>
+      COUNTRY_PHONE_OPTIONS.find((c) => c.code === phoneCountry) ||
+      COUNTRY_PHONE_OPTIONS[0],
+    [phoneCountry]
+  );
 
   const [phoneRemoteError, setPhoneRemoteError] = useState('');
   const [phoneChecking, setPhoneChecking] = useState(false);
@@ -615,6 +652,8 @@ const JoinClanForm = ({
 
     if (!isEditFromWaiting) {
       reset(JOIN_CLAN_EMPTY_VALUES);
+      setPhoneCountry('VN');
+      checkedPhoneCacheRef.current = null;
       setSearchKeyword('');
       setTenantResults([]);
       setSelectedTenant(null);
@@ -696,6 +735,7 @@ const JoinClanForm = ({
       setAttentionMessage('');
       setPhoneRemoteError('');
       setPhoneChecking(false);
+      checkedPhoneCacheRef.current = null;
       //EGAL-25.X. R6.2.2A: thêm reset email remote error khi reconstruct runtime.
       setEmailRemoteError('');
       setEmailChecking(false);
@@ -717,6 +757,12 @@ const JoinClanForm = ({
     if (!initialData) return;
 
     const n = normalizeJoinDraft(initialData);
+    if (n.phone || initialData?.phoneCountry) {
+      setPhoneCountry(
+        initialData?.phoneCountry || detectPhoneCountry(n.phone, 'VN')
+      );
+      checkedPhoneCacheRef.current = null;
+    }
 
     if (n.tenantId && n.clanName) {
       setSelectedTenant({
@@ -737,6 +783,7 @@ const JoinClanForm = ({
       'temp_note',
       'phone',
       'email',
+      'password',
     ].forEach((key) => {
       if (n[key] !== undefined && n[key] !== '') {
         setValue(key, n[key], { shouldValidate: false, shouldDirty: false });
@@ -829,6 +876,7 @@ const JoinClanForm = ({
       setAttentionMessage('');
 
       if (options.clearPhoneRemoteError) {
+        checkedPhoneCacheRef.current = null;
         setPhoneRemoteError('');
       }
       //EGAL-25.X. R6.2.2A: thêm reset email remote error khi reconstruct runtime.
@@ -949,14 +997,17 @@ const JoinClanForm = ({
   }, [searchKeyword, searchTenant]);
 
   /**
-   * Online phone uniqueness check
-   * - Re-check khi blur và trước transition.
-   * - Nếu trùng, đọc lỗi và route về accountInfo.
+   * Online phone uniqueness check theo quốc gia đã chọn (libphonenumber-js/min)
+   * - Re-check khi blur và trước transition (tái sử dụng cache nếu đã kiểm tra hợp lệ).
+   * - Nếu trùng hoặc sai định dạng quốc gia, đọc lỗi và route về accountInfo.
    */
-    const checkPhoneAvailability = async (phone) => {
-    const normalizedPhone = String(phone || '').trim();
+  const checkPhoneAvailability = async (phone, options = {}) => {
+    const { force = false, showFormatError = false, countryOverride } = options;
+    const activeCountry = countryOverride || phoneCountry;
+    const raw = String(phone || '').trim();
 
-    if (!normalizedPhone || normalizedPhone.length < 10) {
+    if (!raw) {
+      checkedPhoneCacheRef.current = null;
       setPhoneRemoteError('');
       return {
         valid: false,
@@ -964,16 +1015,42 @@ const JoinClanForm = ({
       };
     }
 
+    const phoneFormat = validatePhoneWithCountry(raw, activeCountry);
+    if (!phoneFormat.valid) {
+      checkedPhoneCacheRef.current = null;
+      setPhoneRemoteError(showFormatError ? phoneFormat.message : '');
+      return {
+        valid: false,
+        message: phoneFormat.message,
+      };
+    }
+
+    const normalizedPhone = phoneFormat.normalized;
+    const cached = checkedPhoneCacheRef.current;
+    if (!force && cached && cached.value === normalizedPhone) {
+      setPhoneRemoteError(cached.valid ? '' : cached.message);
+      return {
+        valid: cached.valid,
+        normalized: normalizedPhone,
+        message: cached.message,
+      };
+    }
+
     setPhoneChecking(true);
 
     try {
       const res = await apiClient.get('/auth/check-identity', {
-        params: { type: 'phone', value: normalizedPhone },
+        params: { type: 'phone', value: normalizedPhone, country: activeCountry },
       });
 
       if (res.data?.available === false) {
         const message =
           res.data?.message || 'Số điện thoại này đã được sử dụng.';
+        checkedPhoneCacheRef.current = {
+          value: normalizedPhone,
+          valid: false,
+          message,
+        };
         setPhoneRemoteError(message);
         setAttentionMessage(message);
 
@@ -994,20 +1071,30 @@ const JoinClanForm = ({
 
         return {
           valid: false,
+          normalized: normalizedPhone,
           message,
         };
       }
 
+      checkedPhoneCacheRef.current = {
+        value: normalizedPhone,
+        valid: true,
+        message: '',
+      };
       setPhoneRemoteError('');
 
       return {
         valid: true,
+        normalized: normalizedPhone,
         message: '',
       };
     } catch (err) {
       console.error('[JoinClan][checkPhoneAvailability]', err);
+      checkedPhoneCacheRef.current = null;
       const message =
-        'Không kiểm tra được số điện thoại lúc này. Bác vui lòng thử lại.';
+        err?.response?.status === 429
+          ? 'Bác thao tác kiểm tra hơi nhanh. Vui lòng đợi vài giây rồi thử lại.'
+          : 'Không kiểm tra được số điện thoại lúc này. Bác vui lòng thử lại.';
       setPhoneRemoteError(message);
       setAttentionMessage(message);
       return {
@@ -1074,7 +1161,9 @@ const JoinClanForm = ({
     } catch (err) {
       console.error('[JoinClan][checkEmailAvailability]', err);
       const message =
-        'Không kiểm tra được email lúc này. Bác vui lòng thử lại.';
+        err?.response?.status === 429
+          ? 'Bác thao tác kiểm tra hơi nhanh. Vui lòng đợi vài giây rồi thử lại.'
+          : 'Không kiểm tra được email lúc này. Bác vui lòng thử lại.';
       setEmailRemoteError(message);
       setAttentionMessage(message);
       return {
@@ -1378,6 +1467,19 @@ const JoinClanForm = ({
       return;
     }
 
+    if (!isRevision) {
+      const phoneFormatCheck = validatePhoneWithCountry(
+        latestValues.phone,
+        phoneCountry
+      );
+      if (!phoneFormatCheck.valid) {
+        routeFieldError('phone', phoneFormatCheck.message, 'accountInfo');
+        return;
+      }
+      latestValues.phone = phoneFormatCheck.normalized;
+      setValue('phone', phoneFormatCheck.normalized, { shouldValidate: false });
+    }
+
     if (!latestValues?.password?.trim?.()) {
       routeFieldError('password', 'Bác vui lòng nhập mật khẩu đăng nhập.', 'accountInfo');
       return;
@@ -1657,6 +1759,7 @@ const JoinClanForm = ({
       clanName: selectedTenant.name,
       tenantSlug: selectedTenant.slug || '',
       phone: resolvedPhone,
+      phoneCountry,
       email: resolvedEmail,
       password: latestValues.password,
       gender: builtRegistrationProfile.gender,
@@ -1669,6 +1772,7 @@ const JoinClanForm = ({
       ...(isRevision
         ? {
             isRevision: true,
+            reviewNote: effectiveReviewNote || undefined,
           }
         : {}),
     };
@@ -1832,16 +1936,17 @@ const JoinClanForm = ({
       <form noValidate onSubmit={handleSubmit(() => {})} className="space-y-6">
         <section className="rounded-3xl border border-emerald-100 bg-emerald-50/80 p-5 text-center shadow-sm">
           <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-600">
-            Hồ sơ đăng ký
+            {isRevision ? 'Bổ sung hồ sơ đăng ký' : 'Hồ sơ đăng ký'}
           </p>
 
           <h2 className="mt-2 text-2xl font-black leading-tight text-slate-900">
-            Gia nhập một dòng họ
+            {isRevision ? 'Chỉnh sửa & bổ sung hồ sơ gia nhập' : 'Gia nhập một dòng họ'}
           </h2>
 
           <p className="mx-auto mt-2 max-w-xl text-sm font-semibold leading-relaxed text-slate-600">
-            Bác vui lòng tìm đúng dòng họ, nhập thông tin cá nhân, nhập số điện thoại, email nếu có,
-            và tạo tài khoản để gửi hồ sơ xin gia nhập.
+            {isRevision
+              ? 'Bác vui lòng xem bút phê của Ban Quản trị bên dưới, bổ sung thông tin còn thiếu rồi bấm Tiếp tục rà soát.'
+              : 'Bác vui lòng tìm đúng dòng họ, nhập thông tin cá nhân, nhập số điện thoại, email nếu có, và tạo tài khoản để gửi hồ sơ xin gia nhập.'}
           </p>
 
           <div className="mt-4 flex justify-center">
@@ -1855,6 +1960,29 @@ const JoinClanForm = ({
             />
           </div>
         </section>
+
+        {isRevision && effectiveReviewNote && (
+          <div
+            role="region"
+            aria-label="Bút phê yêu cầu bổ sung của Ban Quản trị"
+            className="rounded-3xl border-2 border-amber-300 bg-amber-50 p-5 text-amber-950 shadow-sm space-y-2"
+            data-testid="join-clan-revision-note"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-black uppercase tracking-wider text-amber-800">
+                Bút phê / Yêu cầu bổ sung từ Ban Quản trị:
+              </p>
+              <AudioHelpButton
+                text={`Yêu cầu bổ sung từ Ban Quản trị: ${effectiveReviewNote}`}
+                label="Nghe bút phê"
+                variant="soft"
+              />
+            </div>
+            <p className="whitespace-pre-wrap text-sm font-bold leading-relaxed text-amber-950">
+              {effectiveReviewNote}
+            </p>
+          </div>
+        )}
 
         {attentionMessage && (
           <AttentionZone
@@ -2123,37 +2251,65 @@ const JoinClanForm = ({
                       Số điện thoại đăng nhập <span className="text-rose-500">*</span>
                     </label>
 
-                    <div className="relative">
-                      <Phone
-                        className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                        size={18}
-                      />
-
-                      <input
-                        {...phoneRegister}
-                        ref={(el) => {
-                          phoneRegister.ref(el);
-                          phoneRef.current = el;
-                        }}
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <select
+                        aria-label="Chọn quốc gia"
+                        value={phoneCountry}
+                        disabled={isRevision || effectiveLoading}
                         onFocus={() => guidedFlow.goToField('accountInfo')}
-                        onBlur={async (e) => {
-                          if (isRevision) return;
-                          await checkPhoneAvailability(e.target.value);
+                        onChange={(e) => {
+                          setPhoneCountry(e.target.value);
+                          checkedPhoneCacheRef.current = null;
+                          clearFieldErrorOnEdit('phone', {
+                            clearPhoneRemoteError: true,
+                          });
                         }}
-                        readOnly={isRevision}
-                        // KHÔNG dùng disabled={isRevision}
-                        className={`pl-11 ${uiSystem.input} ${
+                        className={`sm:w-52 shrink-0 ${uiSystem.select || uiSystem.input} ${
                           isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
                         }`}
-                        placeholder="Số điện thoại chính (10 số)"
-                      />
+                      >
+                        {COUNTRY_PHONE_OPTIONS.map((c) => (
+                          <option key={c.code} value={c.code}>
+                            {c.label}
+                          </option>
+                        ))}
+                      </select>
 
-                      {phoneChecking && (
-                        <Loader2
-                          className="absolute right-4 top-1/2 -translate-y-1/2 animate-spin text-blue-500"
+                      <div className="relative flex-1">
+                        <Phone
+                          className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
                           size={18}
                         />
-                      )}
+
+                        <input
+                          {...phoneRegister}
+                          type="tel"
+                          ref={(el) => {
+                            phoneRegister.ref(el);
+                            phoneRef.current = el;
+                          }}
+                          onFocus={() => guidedFlow.goToField('accountInfo')}
+                          onBlur={async (e) => {
+                            if (isRevision) return;
+                            await checkPhoneAvailability(e.target.value, {
+                              showFormatError: true,
+                            });
+                          }}
+                          readOnly={isRevision}
+                          // KHÔNG dùng disabled={isRevision}
+                          className={`pl-11 ${uiSystem.input} ${
+                            isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
+                          }`}
+                          placeholder={selectedCountryMeta.placeholder}
+                        />
+
+                        {phoneChecking && (
+                          <Loader2
+                            className="absolute right-4 top-1/2 -translate-y-1/2 animate-spin text-blue-500"
+                            size={18}
+                          />
+                        )}
+                      </div>
                     </div>
 
                     {errors.phone && (

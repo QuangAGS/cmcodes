@@ -1,13 +1,13 @@
 /**
  * PATH: src/features/register-wizard/utils/identityHelpers.js
- * DATETIME: 2026-08-05T17:00:00+07:00
- * VERSION: 1.0.0 PR-OP-4
- * DESCRIPTION: PR-OP-4: identity helpers (revision lock)
+ * DATETIME: 2026-11-14T14:48:00+07:00
+ * VERSION: 1.1.0-INTL-PHONE
+ * DESCRIPTION: PR-OP-4: identity helpers (revision lock) — hỗ trợ cả SĐT Việt Nam và quốc tế E.164.
  */
 
 export const looksLikePhone = (v) => {
-  const s = String(v || '').trim();
-  return /^0\d{9,10}$/.test(s) || /^\+?\d{9,15}$/.test(s);
+  const s = String(v || '').trim().replace(/[\s().-]+/g, '');
+  return /^0\d{8,10}$/.test(s) || /^\+?[1-9]\d{6,14}$/.test(s);
 };
 
 export const resolveRevisionPhone = (lockedIdentifier, initialData, currentPhone) => {

@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/pages/AuthPage.jsx
- * DATETIME    : 2026-11-13T09:35:00+07:00
- * VERSION     : 24.7.1-MULTIHOME-AMEND02-V15-LAT2
+ * DATETIME    : 2026-11-14T22:45:00+07:00
+ * VERSION     : 24.8.0-UAT-BUG8-REVISION-NOTE-DISPLAY
  * DESCRIPTION : Trang xác thực (Login / Register / Forgot / Reset).
  *               - Giữ redirect sau login.
  *               - 423 ACCOUNT_CHO_DUYET (canEdit === true): nạp caseMetadata.registration_profile
@@ -19,6 +19,9 @@
  *   + Đọc caseMetadata.registration_profile từ 423 ACCOUNT_CHO_DUYET và nạp đủ vào pendingFormData.
  *   + Chặn riêng 403 ACCOUNT_PERMANENTLY_REJECTED (hard-lock, không hiện nút sửa).
  *   + Reset cờ revision khi bấm Quay lại đăng nhập từ revision-notice.
+ * - 2026-11-14T22:45:00+07:00 (v24.8.0-UAT-BUG8-REVISION-NOTE-DISPLAY):
+ *   + Fix UAT Bug 8: Truyền reviewNote từ revisionContext sang RegisterForm & pendingFormData,
+ *     đồng thời nâng cấp thẻ hiển thị bút phê của Quản trị viên trên màn hình revision-notice.
  * =============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4. Không đổi tên LoginForm. Không đổi redirect sau login.
  */
@@ -43,6 +46,7 @@ import WaitingPage from './WaitingPage.jsx';
 import ResultPage from './ResultPage.jsx';
 
 import { useTts } from '../shared/hooks/useTts.js';
+import AudioHelpButton from '../features/elder-doctrine/components/AudioHelpButton.jsx';
 import { clearMfoClientOnLogin } from '../features/mfo/lib/mfoDraftStore.js';
 
 const extractBackendMessage = (err) => {
@@ -149,6 +153,7 @@ export default function AuthPage() {
       ...(isRev
         ? {
             isRevision: true,
+            reviewNote: revisionContext?.reviewNote || data?.reviewNote || '',
             phone: lockedPhone,
             email: lockedEmail,
             ...(data.registration_profile && typeof data.registration_profile === 'object'
@@ -362,6 +367,7 @@ export default function AuthPage() {
             isSubmitting={isSubmitting}
             initialData={pendingFormData}
             isRevision={registerRevisionMode}
+            reviewNote={revisionContext?.reviewNote || pendingFormData?.reviewNote || ''}
             lockedIdentifier={revisionContext?.identifier || ''}
             reentryContext={reentryContext}
             runtimeVersion={runtimeVersion}
@@ -408,9 +414,35 @@ export default function AuthPage() {
         )}
 
         {view === 'revision-notice' && revisionContext && (
-          <div className="space-y-4 text-center">
-            <h2 className="text-xl font-bold text-gray-900">Hồ sơ cần bổ sung</h2>
-            <p className="text-gray-700">{revisionContext.reviewNote || 'Ban quản trị yêu cầu bổ sung thông tin.'}</p>
+          <div className="space-y-5">
+            <div className="text-center space-y-1">
+              <span className="inline-block rounded-full bg-amber-100 px-3 py-1 text-xs font-black uppercase tracking-wider text-amber-800">
+                Yêu cầu bổ sung hồ sơ
+              </span>
+              <h2 className="text-2xl font-black text-slate-900">
+                Hồ sơ cần chỉnh sửa, bổ sung
+              </h2>
+              <p className="text-xs font-semibold text-slate-500">
+                Bác vui lòng đọc kỹ bút phê dưới đây trước khi mở biểu mẫu cập nhật.
+              </p>
+            </div>
+
+            <div className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 text-left text-amber-950 shadow-sm space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-black uppercase tracking-wider text-amber-800">
+                  Bút phê của Quản trị viên:
+                </p>
+                <AudioHelpButton
+                  text={`Bút phê của Quản trị viên: ${revisionContext.reviewNote || 'Ban quản trị yêu cầu bổ sung thông tin.'}`}
+                  label="Nghe bút phê"
+                  variant="soft"
+                />
+              </div>
+              <p className="whitespace-pre-wrap text-sm font-bold leading-relaxed text-amber-950">
+                {revisionContext.reviewNote || 'Ban quản trị yêu cầu bổ sung thông tin.'}
+              </p>
+            </div>
+
             {revisionContext.canEdit !== false && (
               <button
                 type="button"
@@ -481,6 +513,7 @@ export default function AuthPage() {
                           ? String(snap.birth_year)
                           : snap.temp_birth_year || '',
                     temp_relationship:
+                      profile.child_type ||
                       profile.temp_relationship ||
                       snap.temp_relationship ||
                       snap.relationship ||
@@ -492,15 +525,16 @@ export default function AuthPage() {
                     clanName: snap.clanName || meta.clanName || '',
                     description: snap.description || meta.description || '',
                     tenantSlug: snap.tenantSlug || meta.tenantSlug || '',
+                    reviewNote: revisionContext?.reviewNote || '',
                     isRevision: true,
                     isNewClan,
                   });
                   setRegisterRevisionMode(true);
                   setView('register');
                 }}
-                className="w-full py-3 min-h-[48px] bg-amber-600 text-white font-bold rounded-2xl"
+                className="w-full py-3.5 min-h-[48px] bg-amber-600 hover:bg-amber-700 text-white font-black rounded-2xl shadow-md transition"
               >
-                Bổ sung hồ sơ ngay
+                Bổ sung hồ sơ ngay →
               </button>
             )}
             <button
