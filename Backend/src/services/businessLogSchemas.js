@@ -1,7 +1,13 @@
 /**
  * PATH: src/services/businessLogSchemas.js
- * DATETIME: 2026-09-18T11:30:00+07:00
- * VERSION: 1.4.0-L6-ENUM
+ * DATETIME: 2026-11-19T09:54:00+07:00
+ * VERSION: 1.5.0-AMEND-RP-OP-2026-03-SPRINT2
+ * CHANGELOGS:
+ * - 2026-11-19T09:54:00+07:00 (v1.5.0-AMEND-RP-OP-2026-03-SPRINT2):
+ *   + Bổ sung schema validation cho ONBOARDING_REVISION_REQUEST, ONBOARDING_APPROVE,
+ *     ONBOARDING_FINAL_REJECT, ONBOARDING_CASE_REOPEN, ONBOARDING_CASE_EXPIRE,
+ *     ONBOARDING_REFERRAL_REQUEST, ONBOARDING_REFERRAL_DECIDE, ONBOARDING_BENEFICIARY_CONSENT,
+ *     ONBOARDING_QA_UNLOCK, ONBOARDING_CLAIM_DISPUTED và TOKEN_INVALIDATED [FUNC-02][FUNC-08][FUNC-10].
  * DESCRIPTION: MFO Ledge + Notification_events
  * Data contract metadata BPL theo process_type.
  *   PR-2: USER_APPROVAL giữ action / status_* / case_id / is_final / admin_note
@@ -696,6 +702,133 @@ const BusinessLogSchemas = {
       origin_member_id: payload.origin_member_id || null,
       member_id: payload.member_id,
       member_name: payload.member_name || null,
+    };
+  },
+
+  // =========================================================================
+  // ONBOARDING PHASE 2 SCHEMAS (AMEND-RP-OP-2026-03-BASELINE v7.0)
+  // =========================================================================
+
+  ONBOARDING_REVISION_REQUEST: (payload = {}) => {
+    if (!payload.case_id) {
+      throw new Error('ONBOARDING_REVISION_REQUEST requires case_id');
+    }
+    return {
+      case_id: payload.case_id,
+      branch_id: payload.branch_id || null,
+      revision_reason: payload.revision_reason || null,
+      referrer_member_id: payload.referrer_member_id || null,
+      reason: payload.reason || null,
+      revision_request: payload.revision_request || null,
+    };
+  },
+
+  ONBOARDING_APPROVE: (payload = {}) => {
+    return {
+      case_id: payload.case_id || null,
+      previous_status: payload.previous_status || null,
+      review_note: payload.review_note || null,
+      approved_at: payload.approved_at || null,
+      process_kind: payload.process_kind || null,
+      case_type: payload.case_type || null,
+      member_status: payload.member_status || null,
+      user_role: payload.user_role || null,
+      tenant_status: payload.tenant_status || null,
+    };
+  },
+
+  ONBOARDING_FINAL_REJECT: (payload = {}) => {
+    if (!payload.case_id || !payload.reason) {
+      throw new Error('ONBOARDING_FINAL_REJECT requires case_id and reason');
+    }
+    return {
+      case_id: payload.case_id,
+      branch_id: payload.branch_id || null,
+      reason: payload.reason,
+      reopenable: false,
+    };
+  },
+
+  ONBOARDING_CASE_REOPEN: (payload = {}) => {
+    if (!payload.case_id) {
+      throw new Error('ONBOARDING_CASE_REOPEN requires case_id');
+    }
+    return {
+      case_id: payload.case_id,
+      note: payload.note || null,
+    };
+  },
+
+  ONBOARDING_CASE_EXPIRE: (payload = {}) => {
+    if (!payload.case_id) {
+      throw new Error('ONBOARDING_CASE_EXPIRE requires case_id');
+    }
+    return {
+      case_id: payload.case_id,
+      previous_status: payload.previous_status || null,
+    };
+  },
+
+  ONBOARDING_REFERRAL_REQUEST: (payload = {}) => {
+    if (!payload.case_id) {
+      throw new Error('ONBOARDING_REFERRAL_REQUEST requires case_id');
+    }
+    return {
+      case_id: payload.case_id,
+      referrer_member_id: payload.referrer_member_id || null,
+      referrer_user_id: payload.referrer_user_id || null,
+    };
+  },
+
+  ONBOARDING_REFERRAL_DECIDE: (payload = {}) => {
+    if (!payload.case_id) {
+      throw new Error('ONBOARDING_REFERRAL_DECIDE requires case_id');
+    }
+    return {
+      case_id: payload.case_id,
+      decision: payload.decision || null,
+      referrer_member_id: payload.referrer_member_id || null,
+    };
+  },
+
+  ONBOARDING_BENEFICIARY_CONSENT: (payload = {}) => {
+    if (!payload.case_id) {
+      throw new Error('ONBOARDING_BENEFICIARY_CONSENT requires case_id');
+    }
+    return {
+      case_id: payload.case_id,
+      consent_status: payload.consent_status || null,
+      beneficiary_user_id: payload.beneficiary_user_id || null,
+    };
+  },
+
+  ONBOARDING_QA_UNLOCK: (payload = {}) => {
+    if (!payload.case_id) {
+      throw new Error('ONBOARDING_QA_UNLOCK requires case_id');
+    }
+    return {
+      case_id: payload.case_id,
+      unlocked_by: payload.unlocked_by || null,
+    };
+  },
+
+  ONBOARDING_CLAIM_DISPUTED: (payload = {}) => {
+    if (!payload.case_id) {
+      throw new Error('ONBOARDING_CLAIM_DISPUTED requires case_id');
+    }
+    return {
+      case_id: payload.case_id,
+      primary_member_id: payload.primary_member_id || null,
+    };
+  },
+
+  TOKEN_INVALIDATED: (payload = {}) => {
+    if (!payload.case_id) {
+      throw new Error('TOKEN_INVALIDATED requires case_id');
+    }
+    return {
+      case_id: payload.case_id,
+      terminal_status: payload.terminal_status || null,
     };
   },
 

@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : src/modules/membership/membership.controller.js
- * DATETIME   : 2026-11-14T11:15:00+07:00
- * VERSION    : 1.2.0-MULTIHOME-UAT-BUG4-PROACTIVE-CHECK
+ * DATETIME   : 2026-11-19T09:54:00+07:00
+ * VERSION    : 1.3.0-AMEND-RP-OP-2026-03-SPRINT2
  * DESCRIPTION:
  * - HTTP Controller cho phân hệ Multi-Home C1 (/membership/cases) & C1-S (/membership/clan-setup),
  *   bao gồm kiểm tra điều kiện chủ động, nộp đơn, xem trạng thái, bổ sung hồ sơ, mở lại từ chối mềm,
@@ -15,6 +15,10 @@
  *   + Bổ sung approveCase và returnForRevision cho cổng Admin duyệt C1 / C1-S.
  * - 2026-11-14T11:15:00+07:00 (v1.2.0-MULTIHOME-UAT-BUG4-PROACTIVE-CHECK):
  *   + Bổ sung checkEligibility (GET /api/membership/eligibility?tenantId=...).
+ * - 2026-11-19T09:54:00+07:00 (v1.3.0-AMEND-RP-OP-2026-03-SPRINT2):
+ *   + Tích hợp onboardingApprovalGuardService.throwIfReferrerDeceased() tại approveCase
+ *     để ném HTTP 400 sau khi transaction đã commit trạng thái NEEDS_REVISION [FUNC-02].
+ *   + Hỗ trợ err.statusCode từ AppError (409 CONCURRENT_TRANSACTION_LOCKED, 410, 422, 423).
  * ============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -22,6 +26,7 @@
 'use strict';
 
 const membershipService = require('./membership.service');
+const { onboardingApprovalGuardService } = require('../onboarding/onboardingApprovalGuard.service');
 
 const membershipController = {
   checkEligibility: async (req, res) => {
@@ -180,6 +185,9 @@ const membershipController = {
         correlationId: req.correlationId,
       });
 
+      // [FUNC-02] Ném HTTP 400 sau khi transaction đã commit trạng thái NEEDS_REVISION
+      onboardingApprovalGuardService.throwIfReferrerDeceased(result, req.correlationId);
+
       return res.status(200).json({
         status: 'success',
         data: result,
@@ -189,7 +197,7 @@ const membershipController = {
             : 'Đã từ chối hồ sơ Multi-Home.',
       });
     } catch (err) {
-      return res.status(err.status || 500).json({
+      return res.status(err.statusCode || err.status || 500).json({
         status: 'error',
         code: err.code || 'APPROVE_MULTIHOME_CASE_FAILED',
         message: err.message || 'Không thể xét duyệt hồ sơ Multi-Home.',

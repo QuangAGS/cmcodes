@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.controller.js
- * DATETIME: 2026-08-22T15:40:00+07:00
- * VERSION: 1.5.3-FE-OP-B3
+ * DATETIME: 2026-11-19T09:54:00+07:00
+ * VERSION: 1.6.0-AMEND-RP-OP-2026-03-SPRINT2
  * DESCRIPTION: ... + getMyOp + listReviewable + timeline + B3 note/reject/reopen.
  * 1.3.0-W2:
  * - HTTP Adapter cho Onboarding Service (OPD v1.2.0 SEC-compliant).
@@ -17,6 +17,8 @@
  * - 1.4.0-FE-OP-B1 (2026-08-16): getMyOp — không business logic trong controller.
  * - 1.5.2-FE-OP-D1 (2026-08-22): GET /cases/:caseId/timeline.
  * - 1.5.3-FE-OP-B3 (2026-08-22): note bắt buộc approve/revision/reject; finalReject; reopen.
+ * - 1.6.0-AMEND-RP-OP-2026-03-SPRINT2 (2026-11-19): Ném HTTP 400 qua throwIfReferrerDeceased
+ *   khi approveOnboardingCase chuyển case về NEEDS_REVISION do người bảo lãnh qua đời [FUNC-02].
  */
 
 'use strict';
@@ -25,6 +27,7 @@ const crypto = require('crypto');
 const onboardingService = require('./onboarding.service.js');
 const { sendError } = require('../../shared/errors');
 const { getMyOpInstance } = require('./srpf');
+const { onboardingApprovalGuardService } = require('./onboardingApprovalGuard.service');
 
 // ─────────────────────────────────────────────────────────────
 // HELPERS
@@ -271,6 +274,8 @@ async function approveCase(req, res, next) {
     });
 
     res.setHeader('X-Correlation-Id', correlationId);
+    // [FUNC-02] Ném HTTP 400 sau khi transaction đã commit trạng thái NEEDS_REVISION
+    onboardingApprovalGuardService.throwIfReferrerDeceased(result, correlationId);
     return ok(res, result);
   } catch (err) {
     return sendError(res, err);

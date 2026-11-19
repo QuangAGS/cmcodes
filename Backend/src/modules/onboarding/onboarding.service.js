@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.service.js
- * DATETIME   : 2026-11-02T15:30:00+07:00
- * VERSION    : 1.6.0-FTDI-STEP3-DUAL-WRITE
+ * DATETIME   : 2026-11-19T09:54:00+07:00
+ * VERSION    : 1.7.0-AMEND-RP-OP-2026-03-SPRINT2
  * DESCRIPTION:
  * - Tích hợp Dual-write FTDI Bước 3: Đồng bộ quan hệ phụ mẫu vào bảng parentages qua parentage.mapper.js tại mergeProvisionalBranch.
  * - FE-OP-B1-UI2: Cho phép DRAFT member cũng có thể update profile.
@@ -14,6 +14,10 @@
  * - Q2: Header chuẩn.
  *
  * CHANGELOG:
+ * - 2026-11-19T09:54:00+07:00 | 1.7.0 | Sprint 2 (AMEND-RP-OP-2026-03-BASELINE v7.0):
+ *   + Kiểm tra trạng thái sống của referrer trước khi approveOnboardingCase [FUNC-02].
+ *   + Vô hiệu hóa đồng bộ token (beneficiary/referral) khi APPROVED, REJECTED, CANCELLED [FUNC-10]
+ *     và đồng bộ cột reopenable khi REJECTED [NFR-03].
  * - 2026-11-02T15:30:00+07:00 | 1.6.0 | FTDI Step 3 dual-write parentages khi mergeProvisionalBranch.
  * - 1.0.0–1.3.0: Phase 1–3 / OPD v1.1.0.
  * - 1.4.0 (2026-07-21): OPD v1.2.0 + SEC A–E alignment.
@@ -36,6 +40,7 @@
 
 const { creatorStamp } = require('../members/profileAccess.service.js');
 const { syncMemberParentages, flushParentageAudit } = require('../genealogy/parentage.mapper.js');
+const { onboardingApprovalGuardService } = require('./onboardingApprovalGuard.service');
 
 function _assertOpAdminPolicy(onboardingCase, reviewer) {
   const caseType = onboardingCase.case_type;
@@ -1332,6 +1337,23 @@ async function approveOnboardingCase({
     _assertCaseTenantAccess(onboardingCase, reviewer);
     _assertOpAdminPolicy(onboardingCase, reviewer);
 
+    // [FUNC-02] Kiểm tra người bảo lãnh còn sống; nếu đã mất -> đẩy NEEDS_REVISION & commit TX
+    const referrerCheck =
+      await onboardingApprovalGuardService.verifyReferrerOrRequestRevision(tx, {
+        caseData: onboardingCase,
+        actorId: reviewerId,
+      });
+    if (!referrerCheck.success) {
+      return {
+        caseId,
+        status: 'NEEDS_REVISION',
+        earlyAborted: true,
+        reason: referrerCheck.reason,
+        message: referrerCheck.message,
+        correlationId: onboardingCase.correlation_id || correlationId,
+      };
+    }
+
     const caseType = onboardingCase.case_type;
     const processKind = onboardingCase.process_kind;
 
@@ -1347,6 +1369,12 @@ async function approveOnboardingCase({
         review_note: noteText,
         rejection_reason: null,
         revision_request: null,
+        reopenable: false,
+        // [FUNC-10] Vô hiệu hóa đồng bộ toàn bộ token khi kết thúc case
+        beneficiary_token_hash: null,
+        beneficiary_token_expires_at: null,
+        referral_token_hash: null,
+        referral_expires_at: null,
         metadata: {
           ...(onboardingCase.metadata || {}),
           reopenable: false,
@@ -1571,6 +1599,12 @@ async function rejectOnboardingCase({
         reviewed_by: reviewerId,
         reviewed_at: now,
         review_note: noteText,
+        reopenable,
+        // [FUNC-10] Vô hiệu hóa đồng bộ toàn bộ token khi từ chối case
+        beneficiary_token_hash: null,
+        beneficiary_token_expires_at: null,
+        referral_token_hash: null,
+        referral_expires_at: null,
         metadata: {
           ...prevMeta,
           reopenable,
@@ -1892,6 +1926,12 @@ async function cancelOnboardingCase({
       where: { id: caseId },
       data: {
         status: 'CANCELLED',
+        cancelled_at: new Date(),
+        // [FUNC-10] Vô hiệu hóa đồng bộ toàn bộ token khi hủy case
+        beneficiary_token_hash: null,
+        beneficiary_token_expires_at: null,
+        referral_token_hash: null,
+        referral_expires_at: null,
         metadata: {
           ...(onboardingCase.metadata || {}),
           cancelled_at: new Date().toISOString(),

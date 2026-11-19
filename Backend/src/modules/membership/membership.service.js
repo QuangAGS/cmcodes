@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : src/modules/membership/membership.service.js
- * DATETIME   : 2026-11-14T11:15:00+07:00
- * VERSION    : 1.2.0-MULTIHOME-UAT-BUG4-PROACTIVE-CHECK
+ * DATETIME   : 2026-11-19T09:54:00+07:00
+ * VERSION    : 1.3.0-AMEND-RP-OP-2026-03-SPRINT2
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0 Lát 3] Service xử lý trọn vẹn luồng Multi-Home C1
  *   (Gia nhập dòng họ khác) & C1-S (Lập dòng họ mới):
@@ -36,6 +36,13 @@
  * - 2026-11-14T11:15:00+07:00 (v1.2.0-MULTIHOME-UAT-BUG4-PROACTIVE-CHECK):
  *   + Fix UAT Bug 4: Thêm checkMultiHomeEligibility(userId, targetTenantId) để kiểm tra chủ động
  *     ngay khi EEU chọn tenant; chặn sớm trùng (user_id, tenant_id) ở cả submit và approve.
+ * - 2026-11-19T09:54:00+07:00 (v1.3.0-AMEND-RP-OP-2026-03-SPRINT2):
+ *   + Đấu nối Sprint 2 (AMEND-RP-OP-2026-03-BASELINE v7.0) vào approveMultiHomeCase:
+ *     * Strict Lock Ordering 4 bước & tính shouldBeDefault [ARCH-04][FUNC-05].
+ *     * Guard kiểm tra người bảo lãnh còn sống trước khi duyệt [FUNC-02].
+ *     * Thu hồi đồng bộ quyền GUARDIAN & profile_edit_grants khi EU claim [FUNC-07].
+ *     * Raw SQL UPSERT trên user_member_links bypass soft-delete [FUNC-06].
+ *     * Chuyển trạng thái qua StateMachine để dọn token đồng bộ [FUNC-10] & ghi BPL sau khóa [FUNC-08].
  * ============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -50,6 +57,10 @@ const businessLogger = require('../../services/ledger.service');
 const auditService = require('../../services/audit.service');
 const notificationBuilder = require('../notifications/services/notification-builder');
 const { creatorStamp } = require('../members/profileAccess.service.js');
+const { onboardingStateMachineService } = require('../onboarding/onboardingStateMachine.service');
+const { onboardingLockService } = require('../onboarding/onboardingLock.service');
+const { membershipLinkService } = require('./membershipLink.service');
+const { onboardingApprovalGuardService } = require('../onboarding/onboardingApprovalGuard.service');
 
 const VALID_LINK_TYPES = new Set([
   'PRIMARY_PATERNAL',
@@ -678,8 +689,41 @@ const membershipService = {
 
     const C = correlationId || crypto.randomUUID();
 
-    const result = await basePrisma.$transaction(
-      async (tx) => {
+    // Đọc nhẹ thông tin định danh trước khi khóa để giữ đúng thứ tự khóa 4 bước [ARCH-04]
+    const preCase = await basePrisma.onboarding_cases.findFirst({
+      where: {
+        id: caseId,
+        deleted_at: null,
+        process_kind: 'REGISTER',
+      },
+      select: {
+        id: true,
+        user_id: true,
+        primary_member_id: true,
+        metadata: true,
+      },
+    });
+
+    if (!preCase) {
+      throw makeHttpError(404, 'CASE_NOT_FOUND', 'Không tìm thấy hồ sơ xét duyệt.');
+    }
+
+    const preMeta =
+      preCase.metadata && typeof preCase.metadata === 'object' ? preCase.metadata : {};
+    const preProfile =
+      preMeta.registration_profile && typeof preMeta.registration_profile === 'object'
+        ? preMeta.registration_profile
+        : preMeta;
+    const resolvedLockMemberId =
+      targetMemberId || preProfile.claimed_member_id || preCase.primary_member_id || null;
+
+    const result = await onboardingLockService.executeWithStrictLock(
+      {
+        caseId,
+        targetMemberId: resolvedLockMemberId,
+        lockUserId: preCase.user_id,
+      },
+      async (tx, lockCtx) => {
         const openCase = await tx.onboarding_cases.findFirst({
           where: {
             id: caseId,
@@ -755,6 +799,24 @@ const membershipService = {
           );
         }
 
+        // [FUNC-02] Kiểm tra người bảo lãnh còn sống trước khi chốt duyệt; nếu qua đời -> NEEDS_REVISION & commit
+        if (newStatus === 'DA_DUYET') {
+          const referrerCheck =
+            await onboardingApprovalGuardService.verifyReferrerOrRequestRevision(tx, {
+              caseData: openCase,
+              actorId,
+            });
+          if (!referrerCheck.success) {
+            return {
+              earlyAborted: true,
+              reason: referrerCheck.reason,
+              message: referrerCheck.message,
+              caseId: openCase.id,
+              correlationId: openCase.correlation_id || C,
+            };
+          }
+        }
+
         const targetUser = openCase.users;
         const caseMeta =
           openCase.metadata && typeof openCase.metadata === 'object'
@@ -770,6 +832,7 @@ const membershipService = {
         const now = new Date();
         let resolvedMemberId = null;
         let createdNewMember = false;
+        let resolvedIsDefault = false;
 
         if (newStatus === 'DA_DUYET') {
           const claimedMemberId =
@@ -812,6 +875,13 @@ const membershipService = {
                 'Thành viên này trên cây phả hệ đã được liên kết với một tài khoản khác.'
               );
             }
+
+            // [FUNC-07] Thu hồi đồng bộ quyền Giám hộ / Khai hộ khi chính chủ (EU) nhận lại node
+            await membershipLinkService.revokeGuardianOnEuClaim(tx, {
+              tenantId: targetTenantId,
+              targetMemberId: existingEm.id,
+              actorId,
+            });
 
             resolvedMemberId = existingEm.id;
           } else {
@@ -897,25 +967,14 @@ const membershipService = {
             );
           }
 
-          // Ghi user_member_links: nếu user chưa có họ mặc định nào -> is_default = true;
-          // nếu đã có họ gốc A (DA_DUYET, is_default = true) -> is_default = false.
+          // [FUNC-05] & [FUNC-06] Ghi user_member_links qua Raw SQL UPSERT (bypass soft-delete)
+          // sử dụng shouldBeDefault đã tính chính xác dưới khóa #3.
           const assignedRoleInTenant = isClanSetup ? 'CLAN_ADMIN' : 'USER';
           const resolvedLinkType = VALID_LINK_TYPES.has(caseMeta.link_type)
             ? caseMeta.link_type
             : isClanSetup
               ? 'PRIMARY_PATERNAL'
               : 'SPOUSE_FAMILY';
-
-          const existingDefaultLink = await tx.user_member_links.findFirst({
-            where: {
-              user_id: targetUser.id,
-              is_default: true,
-              status: 'DA_DUYET',
-              deleted_at: null,
-            },
-            select: { id: true },
-          });
-          const isFirstDefaultLink = !existingDefaultLink;
 
           const existingTenantLink = await tx.user_member_links.findFirst({
             where: {
@@ -936,36 +995,20 @@ const membershipService = {
             );
           }
 
-          if (existingTenantLink) {
-            await tx.user_member_links.update({
-              where: { id: existingTenantLink.id },
-              data: {
-                member_id: resolvedMemberId,
-                status: 'DA_DUYET',
-                role_in_tenant: assignedRoleInTenant,
-                is_default: existingTenantLink.is_default || isFirstDefaultLink,
-                link_type: resolvedLinkType,
-                approved_by: actorId,
-                approved_at: now,
-                changed_by: actorId,
-              },
-            });
-          } else {
-            await tx.user_member_links.create({
-              data: {
-                user_id: targetUser.id,
-                tenant_id: targetTenantId,
-                member_id: resolvedMemberId,
-                link_type: resolvedLinkType,
-                status: 'DA_DUYET',
-                role_in_tenant: assignedRoleInTenant,
-                is_default: isFirstDefaultLink,
-                approved_by: actorId,
-                approved_at: now,
-                changed_by: actorId,
-              },
-            });
-          }
+          resolvedIsDefault = Boolean(
+            (existingTenantLink && existingTenantLink.is_default) || lockCtx.shouldBeDefault
+          );
+
+          await membershipLinkService.upsertLink(tx, {
+            userId: targetUser.id,
+            tenantId: targetTenantId,
+            memberId: resolvedMemberId,
+            linkType: resolvedLinkType,
+            roleInTenant: assignedRoleInTenant,
+            isDefault: resolvedIsDefault,
+            claimReason: profile.claim_reason || null,
+            approvedBy: actorId,
+          });
 
           // Nếu là C1-S: Kích hoạt Tenant B sang HOAT_DONG + cờ isSandbox = true
           if (isClanSetup && openCase.tenants && openCase.tenants.status === 'CHO_DUYET') {
@@ -988,30 +1031,31 @@ const membershipService = {
             });
           }
 
-          await tx.onboarding_cases.update({
-            where: { id: openCase.id },
-            data: {
-              status: 'APPROVED',
-              approved_at: now,
+          // [FUNC-10] Chuyển trạng thái APPROVED & vô hiệu hóa đồng bộ toàn bộ token
+          await onboardingStateMachineService.transition(tx, {
+            caseRecord: openCase,
+            toState: 'APPROVED',
+            actorId,
+            extraData: {
               reviewed_by: actorId,
               reviewed_at: now,
               review_note: finalReason,
               primary_member_id: resolvedMemberId,
-              changed_by: actorId,
+              reopenable: false,
             },
           });
         } else {
-          // ── Từ chối hồ sơ C1 / C1-S (không ảnh hưởng họ gốc A) ──
-          await tx.onboarding_cases.update({
-            where: { id: openCase.id },
-            data: {
-              status: 'REJECTED',
-              rejected_at: now,
+          // ── Từ chối hồ sơ C1 / C1-S (không ảnh hưởng họ gốc A) [FUNC-10][NFR-03] ──
+          await onboardingStateMachineService.transition(tx, {
+            caseRecord: openCase,
+            toState: 'REJECTED',
+            actorId,
+            extraData: {
               reviewed_by: actorId,
               reviewed_at: now,
               rejection_reason: finalReason,
               review_note: finalReason,
-              changed_by: actorId,
+              reopenable: !finalRejection,
               metadata: {
                 ...caseMeta,
                 is_final_rejection: finalRejection,
@@ -1036,42 +1080,38 @@ const membershipService = {
           }
         }
 
-        await businessLogger.createLog(
-          {
-            correlation_id: C,
-            attempt_no: 1,
-            process_type: 'USER_APPROVAL',
-            actor_type: 'USER',
-            actor_id: actorId,
-            tenant_id: targetTenantId,
-            process_status: 'SUCCESS',
-            context: {
-              target_id: targetUser.id,
-              target_name: snapshotName,
-              attempt_no: 1,
-            },
-            payload: {
-              action:
-                newStatus === 'DA_DUYET'
-                  ? 'APPROVE'
-                  : finalRejection
-                    ? 'FINAL_REJECT'
-                    : 'REJECT',
-              source: isClanSetup ? 'MULTIHOME_C1S' : 'MULTIHOME_C1',
-              admin_note: finalReason,
-              approver_note: finalReason,
-              status_before: 'CHO_DUYET',
-              status_after: newStatus,
-              is_final: newStatus === 'TU_CHOI' ? finalRejection : false,
-              approved_role: isClanSetup ? 'CLAN_ADMIN' : 'USER',
-              resolved_member_id: resolvedMemberId,
-              created_new_member: createdNewMember,
-              case_id: openCase.id,
-              case_status_after: newStatus === 'DA_DUYET' ? 'APPROVED' : 'REJECTED',
-            },
+        // [FUNC-08] Ghi Business Process Log SAU KHI khóa case bước #4 hoàn tất
+        await onboardingLockService.writeProcessLogAfterLock(tx, {
+          correlationId: C,
+          processType: 'USER_APPROVAL',
+          actorType: 'USER',
+          actorId,
+          tenantId: targetTenantId,
+          processStatus: 'SUCCESS',
+          context: {
+            target_id: targetUser.id,
+            target_name: snapshotName,
           },
-          tx
-        );
+          payload: {
+            action:
+              newStatus === 'DA_DUYET'
+                ? 'APPROVE'
+                : finalRejection
+                  ? 'FINAL_REJECT'
+                  : 'REJECT',
+            source: isClanSetup ? 'MULTIHOME_C1S' : 'MULTIHOME_C1',
+            admin_note: finalReason,
+            approver_note: finalReason,
+            status_before: 'CHO_DUYET',
+            status_after: newStatus,
+            is_final: newStatus === 'TU_CHOI' ? finalRejection : false,
+            approved_role: isClanSetup ? 'CLAN_ADMIN' : 'USER',
+            resolved_member_id: resolvedMemberId,
+            created_new_member: createdNewMember,
+            case_id: openCase.id,
+            case_status_after: newStatus === 'DA_DUYET' ? 'APPROVED' : 'REJECTED',
+          },
+        });
 
         await auditService.logAction(
           'CAP_NHAT',
@@ -1098,12 +1138,15 @@ const membershipService = {
           status: newStatus,
           role: isClanSetup ? 'CLAN_ADMIN' : 'USER',
           linkedMemberId: resolvedMemberId,
-          isDefault: false,
+          isDefault: resolvedIsDefault,
           isFinalRejection: newStatus === 'TU_CHOI' ? finalRejection : false,
         };
-      },
-      { maxWait: 5000, timeout: 15000 }
+      }
     );
+
+    if (result && result.earlyAborted) {
+      return result;
+    }
 
     // Thông báo cho người dùng về kết quả hồ sơ Multi-Home
     try {
