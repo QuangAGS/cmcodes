@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : src/modules/onboarding/onboardingLock.service.js
- * DATETIME   : 2026-11-19T09:43:00+07:00
- * VERSION    : 1.0.0-AMEND-RP-OP-2026-03-SPRINT2
+ * DATETIME   : 2026-11-19T12:52:00+07:00
+ * VERSION    : 1.0.1-AMEND-RP-OP-2026-03-SPRINT2
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-03-BASELINE v7.0 - Sprint 2 / Task 2.2]
  *   Cung cấp cơ chế khóa hàng một chiều (Strict Lock Ordering) & ghi log sau khóa:
@@ -20,6 +20,8 @@
  * - 2026-11-19T09:43:00+07:00 (v1.0.0-AMEND-RP-OP-2026-03-SPRINT2):
  *   + Khởi tạo OnboardingLockService sử dụng basePrisma.$transaction để khóa chéo bảng
  *     an toàn không phụ thuộc AsyncLocalStorage tenantContext.
+ * - 2026-11-19T12:52:00+07:00 (v1.0.1-AMEND-RP-OP-2026-03-SPRINT2):
+ *   + Bổ sung nhận diện fallback '55P03' / 'lock timeout' trên err.message khi Prisma bọc lỗi raw query.
  * ============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -108,7 +110,8 @@ class OnboardingLockService {
       });
     } catch (err) {
       const pgCode = err?.meta?.code || err?.code;
-      if (pgCode === '55P03') {
+      const errMsg = typeof err?.message === 'string' ? err.message : '';
+      if (pgCode === '55P03' || errMsg.includes('55P03') || errMsg.includes('lock timeout')) {
         throw new AppError(
           'CONCURRENT_TRANSACTION_LOCKED',
           'Hồ sơ hoặc thành viên này đang được xử lý bởi một giao dịch khác. Vui lòng thử lại sau ít giây.',

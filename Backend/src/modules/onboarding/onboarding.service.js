@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.service.js
- * DATETIME   : 2026-11-19T09:54:00+07:00
- * VERSION    : 1.7.0-AMEND-RP-OP-2026-03-SPRINT2
+ * DATETIME   : 2026-11-19T10:15:00+07:00
+ * VERSION    : 1.7.1-AMEND-RP-OP-2026-03-SPRINT2-LOCK
  * DESCRIPTION:
  * - Tích hợp Dual-write FTDI Bước 3: Đồng bộ quan hệ phụ mẫu vào bảng parentages qua parentage.mapper.js tại mergeProvisionalBranch.
  * - FE-OP-B1-UI2: Cho phép DRAFT member cũng có thể update profile.
@@ -14,6 +14,7 @@
  * - Q2: Header chuẩn.
  *
  * CHANGELOG:
+ * - 2026-11-19T10:15:00+07:00 | 1.7.1 | Bọc approveOnboardingCase trong onboardingLockService.executeWithStrictLock [ARCH-04].
  * - 2026-11-19T09:54:00+07:00 | 1.7.0 | Sprint 2 (AMEND-RP-OP-2026-03-BASELINE v7.0):
  *   + Kiểm tra trạng thái sống của referrer trước khi approveOnboardingCase [FUNC-02].
  *   + Vô hiệu hóa đồng bộ token (beneficiary/referral) khi APPROVED, REJECTED, CANCELLED [FUNC-10]
@@ -41,6 +42,7 @@
 const { creatorStamp } = require('../members/profileAccess.service.js');
 const { syncMemberParentages, flushParentageAudit } = require('../genealogy/parentage.mapper.js');
 const { onboardingApprovalGuardService } = require('./onboardingApprovalGuard.service');
+const { onboardingLockService } = require('./onboardingLock.service');
 
 function _assertOpAdminPolicy(onboardingCase, reviewer) {
   const caseType = onboardingCase.case_type;
@@ -1310,7 +1312,22 @@ async function approveOnboardingCase({
   const db = _clientForRole(reviewer.role);
   const noteText = _requireNote(reviewNote, 'Ghi chú phê duyệt');
 
-  return db.$transaction(async (tx) => {
+  // Đọc nhẹ thông tin định danh trước khi khóa để giữ đúng thứ tự khóa 4 bước [ARCH-04]
+  const preCase = await basePrisma.onboarding_cases.findFirst({
+    where: { id: caseId, deleted_at: null },
+    select: { id: true, user_id: true, primary_member_id: true },
+  });
+  if (!preCase) {
+    throw BusinessError('ONBOARDING_CASE_NOT_FOUND', 'Hồ sơ onboarding không tồn tại.', { statusCode: 404 });
+  }
+
+  return onboardingLockService.executeWithStrictLock(
+    {
+      caseId,
+      targetMemberId: preCase.primary_member_id || null,
+      lockUserId: preCase.user_id || null,
+    },
+    async (tx) => {
     const onboardingCase = await tx.onboarding_cases.findUnique({ where: { id: caseId } });
 
     if (!onboardingCase || onboardingCase.deleted_at) {
@@ -1526,7 +1543,9 @@ async function approveOnboardingCase({
         processKind === 'MEMBER_PROMOTE' ? 'CHINH_THUC' : undefined,
       user_role: nextUserRole || undefined,
     };
-  });
+    },
+    db
+  );
 }
 
 /**
