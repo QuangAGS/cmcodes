@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.controller.js
- * DATETIME: 2026-11-19T09:54:00+07:00
- * VERSION: 1.6.0-AMEND-RP-OP-2026-03-SPRINT2
+ * DATETIME: 2026-11-19T14:15:00+07:00
+ * VERSION: 1.7.0-AMEND-RP-OP-2026-03-SPRINT4
  * DESCRIPTION: ... + getMyOp + listReviewable + timeline + B3 note/reject/reopen.
  * 1.3.0-W2:
  * - HTTP Adapter cho Onboarding Service (OPD v1.2.0 SEC-compliant).
@@ -19,6 +19,8 @@
  * - 1.5.3-FE-OP-B3 (2026-08-22): note bắt buộc approve/revision/reject; finalReject; reopen.
  * - 1.6.0-AMEND-RP-OP-2026-03-SPRINT2 (2026-11-19): Ném HTTP 400 qua throwIfReferrerDeceased
  *   khi approveOnboardingCase chuyển case về NEEDS_REVISION do người bảo lãnh qua đời [FUNC-02].
+ * - 1.7.0-AMEND-RP-OP-2026-03-SPRINT4 (2026-11-19): Bổ sung agreeRules [FUNC-11]
+ *   và confirmBeneficiaryConsent [FUNC-01][FUNC-10].
  */
 
 'use strict';
@@ -28,6 +30,9 @@ const onboardingService = require('./onboarding.service.js');
 const { sendError } = require('../../shared/errors');
 const { getMyOpInstance } = require('./srpf');
 const { onboardingApprovalGuardService } = require('./onboardingApprovalGuard.service');
+const { onboardingConsentAndRulesService } = require('./onboardingConsentAndRules.service');
+const { onboardingLockService } = require('./onboardingLock.service');
+const { basePrisma } = require('../../lib/prisma.js');
 
 // ─────────────────────────────────────────────────────────────
 // HELPERS
@@ -512,8 +517,100 @@ async function getCaseTimeline(req, res, next) {
 // EXPORTS
 // ─────────────────────────────────────────────────────────────
 
+/**
+ * POST /onboarding/cases/:caseId/agree-rules
+ * [FUNC-11] Ghi nhận cam kết nội quy & điều khoản kèm bản chụp snapshot <= 30.000 ký tự.
+ */
+async function agreeRules(req, res) {
+  try {
+    const actor = getActor(req);
+    const correlationId = getCorrelationId(req);
+    const { caseId } = req.params;
+    const { rulesSnapshot, tosVersion, clanRulesVersion } = req.body || {};
+
+    const updated = await onboardingLockService.executeWithStrictLock(
+      { caseId, lockUserId: actor.id },
+      async (tx) => {
+        const caseRecord = await tx.onboarding_cases.findFirst({
+          where: { id: caseId, user_id: actor.id, deleted_at: null },
+        });
+        if (!caseRecord) {
+          throw validationError('Không tìm thấy hồ sơ onboarding của bạn.');
+        }
+        return onboardingConsentAndRulesService.recordRulesAgreement(tx, {
+          caseRecord,
+          rulesSnapshot,
+          tosVersion: tosVersion || '1.0',
+          clanRulesVersion: clanRulesVersion ?? 1,
+          actorId: actor.id,
+        });
+      }
+    );
+
+    res.setHeader('X-Correlation-Id', correlationId);
+    return ok(res, {
+      caseId: updated.id,
+      agreedAt: updated.agreed_at,
+      agreedRulesChecksum: updated.agreed_rules_checksum,
+    });
+  } catch (err) {
+    return sendError(res, err);
+  }
+}
+
+/**
+ * POST /onboarding/cases/:caseId/beneficiary-consent
+ * [FUNC-01] & [FUNC-10] Xác nhận đồng thuận người thụ hưởng qua token một lần dùng.
+ */
+async function confirmBeneficiaryConsent(req, res) {
+  try {
+    const actor = getActor(req);
+    const correlationId = getCorrelationId(req);
+    const { caseId } = req.params;
+    const { token } = req.body || {};
+
+    if (!token || !String(token).trim()) {
+      throw validationError('Mã token xác nhận đồng thuận là bắt buộc.');
+    }
+
+    const preCase = await basePrisma.onboarding_cases.findFirst({
+      where: { id: caseId, deleted_at: null },
+      select: { id: true, user_id: true, primary_member_id: true },
+    });
+
+    const updated = await onboardingLockService.executeWithStrictLock(
+      {
+        caseId,
+        targetMemberId: preCase?.primary_member_id || null,
+        lockUserId: preCase?.user_id || null,
+      },
+      async (tx) => {
+        const caseRecord = await tx.onboarding_cases.findFirst({
+          where: { id: caseId, deleted_at: null },
+        });
+        return onboardingConsentAndRulesService.confirmBeneficiaryConsent(tx, {
+          caseRecord,
+          rawToken: token,
+          actorId: actor.id,
+          correlationId,
+        });
+      }
+    );
+
+    res.setHeader('X-Correlation-Id', correlationId);
+    return ok(res, {
+      caseId: updated.id,
+      beneficiaryConsentStatus: updated.beneficiary_consent_status,
+    });
+  } catch (err) {
+    return sendError(res, err);
+  }
+}
+
 module.exports = {
   createCase,
+  agreeRules,
+  confirmBeneficiaryConsent,
   completeProfile,
   activateClan,
   submitCase,

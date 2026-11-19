@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.routes.js
- * DATETIME   : 2026-08-22T15:40:00+07:00
- * VERSION    : 1.5.3-FE-OP-B3
+ * DATETIME   : 2026-11-19T14:15:00+07:00
+ * VERSION    : 1.6.0-AMEND-RP-OP-2026-03-SPRINT4
  * DESCRIPTION: ... + my-op + reviewable + timeline + reopen.
  * - [1.3.0-W4] PR-W4-1: rate limit write/admin + restrictSuspiciousActivity admin.
  * - Whitelist activate: write limiter only, no abuse guard nặng.
@@ -12,6 +12,8 @@
  * - 1.4.0-FE-OP-B1 (2026-08-16): GET /my-op — verifyToken only, no write limiter.
  * - 1.5.2-FE-OP-D1 (2026-08-22): GET /cases/:caseId/timeline.
  * - 1.5.3-FE-OP-B3 (2026-08-22): POST /cases/:caseId/reopen.
+ * - 1.6.0-AMEND-RP-OP-2026-03-SPRINT4 (2026-11-19): Thêm POST /cases/:caseId/agree-rules [FUNC-11]
+ *   và POST /cases/:caseId/beneficiary-consent [FUNC-01][FUNC-10].
  */
 
 'use strict';
@@ -124,6 +126,18 @@ router.post(
   onboardingWriteRateLimiter,
   verifyToken,
   asyncHandler(ctrl.cancelCase)
+);
+router.post(
+  '/cases/:caseId/agree-rules',
+  onboardingWriteRateLimiter,
+  verifyToken,
+  asyncHandler(ctrl.agreeRules)
+);
+router.post(
+  '/cases/:caseId/beneficiary-consent',
+  onboardingWriteRateLimiter,
+  verifyToken,
+  asyncHandler(ctrl.confirmBeneficiaryConsent)
 );
 
 router.post(
