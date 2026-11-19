@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : src/modules/public/publicSearch.routes.js
- * DATETIME   : 2026-11-14T11:15:00+07:00
- * VERSION    : 1.4.0-MULTIHOME-UAT-BUG4-CLAIMED-FLAG
+ * DATETIME   : 2026-11-19T14:00:00+07:00
+ * VERSION    : 1.5.0-AMEND-RP-OP-2026-03-SPRINT3
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0 & AMEND-RP-OP-2026-03 G2] API công khai cho Guest Claim (C2) & Multi-Home (C1):
  *   1) GET /api/public/tenants/search?q=
@@ -24,6 +24,9 @@
  * - 2026-11-14T11:15:00+07:00 (v1.4.0-MULTIHOME-UAT-BUG4-CLAIMED-FLAG):
  *   + Fix UAT Bug 4: Trả thêm boolean is_claimed (kiểm tra user_member_links status = 'DA_DUYET')
  *     để giao diện khóa sớm nút thành viên đã có chủ sở hữu ngay từ Bước 1.
+ * - 2026-11-19T14:00:00+07:00 (v1.5.0-AMEND-RP-OP-2026-03-SPRINT3):
+ *   + Gắn createPublicSearchGuard (Logic-Tier Rate-Limiter Redis Lua + Fail-Closed Turnstile
+ *     khi Redis down) cho /tenants/search và /tenants/:tenantId/members/claim-search [NFR-02].
  * ============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -39,6 +42,7 @@ const {
   publicSearchRateLimiter,
   publicClaimSearchRateLimiter,
 } = require('../../middlewares/rateLimit.middleware');
+const { createPublicSearchGuard } = require('../../services/logicRateLimiter.service');
 const { UUID_REGEX } = require('../auth/registrationValidator');
 
 /**
@@ -95,6 +99,7 @@ function resolveMemberClanRelation(member) {
 router.get(
   '/tenants/search',
   publicSearchRateLimiter,
+  createPublicSearchGuard({ bucket: 'public_tenants', maxRequests: 30, windowSeconds: 60 }),
   asyncHandler(async (req, res) => {
     const rawQ = req.query.q ?? req.query.keyword ?? '';
     const keyword = String(rawQ).trim();
@@ -139,6 +144,7 @@ router.get(
 router.get(
   '/tenants/:tenantId/members/claim-search',
   publicClaimSearchRateLimiter,
+  createPublicSearchGuard({ bucket: 'public_claim_members', maxRequests: 15, windowSeconds: 60 }),
   asyncHandler(async (req, res) => {
     const { tenantId } = req.params;
     const rawQ = req.query.q ?? req.query.keyword ?? '';

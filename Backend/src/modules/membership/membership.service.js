@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : src/modules/membership/membership.service.js
- * DATETIME   : 2026-11-19T09:54:00+07:00
- * VERSION    : 1.3.0-AMEND-RP-OP-2026-03-SPRINT2
+ * DATETIME   : 2026-11-19T14:00:00+07:00
+ * VERSION    : 1.4.0-AMEND-RP-OP-2026-03-SPRINT3
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0 Lát 3] Service xử lý trọn vẹn luồng Multi-Home C1
  *   (Gia nhập dòng họ khác) & C1-S (Lập dòng họ mới):
@@ -43,6 +43,10 @@
  *     * Thu hồi đồng bộ quyền GUARDIAN & profile_edit_grants khi EU claim [FUNC-07].
  *     * Raw SQL UPSERT trên user_member_links bypass soft-delete [FUNC-06].
  *     * Chuyển trạng thái qua StateMachine để dọn token đồng bộ [FUNC-10] & ghi BPL sau khóa [FUNC-08].
+ * - 2026-11-19T14:00:00+07:00 (v1.4.0-AMEND-RP-OP-2026-03-SPRINT3):
+ *   + Tích hợp assertNoClaimHopping (ngắt mạch >= 2 REJECTED vĩnh viễn / 90 ngày) [NFR-03]
+ *     và assertReferrerCooldown (chặn gửi lại người bảo lãnh trong 7 ngày) [FUNC-09]
+ *     vào submitMultiHomeClaim.
  * ============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -61,6 +65,7 @@ const { onboardingStateMachineService } = require('../onboarding/onboardingState
 const { onboardingLockService } = require('../onboarding/onboardingLock.service');
 const { membershipLinkService } = require('./membershipLink.service');
 const { onboardingApprovalGuardService } = require('../onboarding/onboardingApprovalGuard.service');
+const { onboardingProactiveDefenseService } = require('../onboarding/onboardingProactiveDefense.service');
 
 const VALID_LINK_TYPES = new Set([
   'PRIMARY_PATERNAL',
@@ -326,6 +331,38 @@ const membershipService = {
         'TENANT_NOT_FOUND',
         'Dòng họ không tồn tại hoặc đang tạm ngừng tiếp nhận.'
       );
+    }
+
+    // 0. [NFR-03] Ngắt mạch Claim-Hopping 90 ngày trước khi khởi tạo hồ sơ CLAIM_EXISTING
+    const resolvedClaimMode =
+      payload.claim_mode ||
+      payload.claimMode ||
+      (payload.claimed_member_id || payload.claimedMemberId ? 'CLAIM_EXISTING' : 'CREATE_NEW');
+    await onboardingProactiveDefenseService.assertNoClaimHopping(basePrisma, {
+      userId,
+      tenantId: targetTenantId,
+      claimMode: resolvedClaimMode,
+    });
+
+    // [FUNC-09] Kiểm tra Cooldown 7 ngày nếu người dùng chỉ định người bảo lãnh từ hồ sơ trước
+    const requestedReferrerId =
+      payload.referrer_member_id || payload.referrerMemberId || null;
+    if (requestedReferrerId) {
+      const latestCaseWithHistory = await basePrisma.onboarding_cases.findFirst({
+        where: {
+          user_id: userId,
+          tenant_id: targetTenantId,
+          deleted_at: null,
+        },
+        orderBy: { updated_at: 'desc' },
+        select: { metadata: true },
+      });
+      if (latestCaseWithHistory) {
+        onboardingProactiveDefenseService.assertReferrerCooldown(
+          latestCaseWithHistory,
+          requestedReferrerId
+        );
+      }
     }
 
     // 1. Kiểm tra chủ động: EEU đã có liên kết thành viên tại dòng họ B chưa (1 user -> tối đa 1 member / tenant)

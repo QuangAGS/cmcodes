@@ -1,7 +1,11 @@
 /**
  * PATH       : src/modules/members/member.routes.js
- * DATETIME   : 2026-11-11T13:00:00+07:00
- * VERSION    : 1.9.1-MULTIHOME-VITAL-ROLES-ALIGNED
+ * DATETIME   : 2026-11-19T14:00:00+07:00
+ * VERSION    : 1.10.0-AMEND-RP-OP-2026-03-SPRINT3
+ * CHANGELOGS:
+ * - 2026-11-19T14:00:00+07:00 (v1.10.0-AMEND-RP-OP-2026-03-SPRINT3):
+ *   + Gắn createInAppSearchGuard (Redis Lua + Graceful Degradation sang BoundedLRUCache)
+ *     cho các endpoint tìm kiếm thành viên nội bộ (/names và / có query tìm kiếm) [NFR-02].
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.2] Lát 2/7:
  *   + Đồng bộ checkRole trên PATCH /:id/vital với vital.service:
@@ -20,6 +24,7 @@ const {
   checkRole,
   assertActiveLink,
 } = require('../../middlewares/auth.middleware');
+const { createInAppSearchGuard } = require('../../services/logicRateLimiter.service');
 
 const ADMIN_AND_STEWARD_ROLES = [
   'SYSTEM_ADMIN',
@@ -34,8 +39,23 @@ const ADMIN_AND_STEWARD_ROLES = [
 router.get('/stats/summary', verifyToken, memberController.getStats);
 router.get('/tree/:branchId', verifyToken, memberController.getMemberTree);
 router.get('/focal-tree/:id', verifyToken, memberController.getFocalTree);
-router.get('/names', verifyToken, memberController.getNames);
-router.get('/', verifyToken, memberController.getAll);
+router.get(
+  '/names',
+  verifyToken,
+  createInAppSearchGuard({ bucket: 'member_names', maxRequests: 60, windowSeconds: 60 }),
+  memberController.getNames
+);
+router.get(
+  '/',
+  verifyToken,
+  createInAppSearchGuard({
+    bucket: 'member_list_search',
+    maxRequests: 60,
+    windowSeconds: 60,
+    onlyWhenQueryPresent: true,
+  }),
+  memberController.getAll
+);
 router.get('/:id/profile', verifyToken, memberController.getProfile);
 router.get('/:id', verifyToken, memberController.getById);
 

@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/onboarding/onboarding.service.js
- * DATETIME   : 2026-11-19T10:15:00+07:00
- * VERSION    : 1.7.1-AMEND-RP-OP-2026-03-SPRINT2-LOCK
+ * DATETIME   : 2026-11-19T14:00:00+07:00
+ * VERSION    : 1.8.0-AMEND-RP-OP-2026-03-SPRINT3
  * DESCRIPTION:
  * - Tích hợp Dual-write FTDI Bước 3: Đồng bộ quan hệ phụ mẫu vào bảng parentages qua parentage.mapper.js tại mergeProvisionalBranch.
  * - FE-OP-B1-UI2: Cho phép DRAFT member cũng có thể update profile.
@@ -14,6 +14,7 @@
  * - Q2: Header chuẩn.
  *
  * CHANGELOG:
+ * - 2026-11-19T14:00:00+07:00 | 1.8.0 | Sprint 3 [NFR-03]: Ngắt mạch Claim-Hopping 90 ngày trước khi tạo case CLAIM_EXISTING.
  * - 2026-11-19T10:15:00+07:00 | 1.7.1 | Bọc approveOnboardingCase trong onboardingLockService.executeWithStrictLock [ARCH-04].
  * - 2026-11-19T09:54:00+07:00 | 1.7.0 | Sprint 2 (AMEND-RP-OP-2026-03-BASELINE v7.0):
  *   + Kiểm tra trạng thái sống của referrer trước khi approveOnboardingCase [FUNC-02].
@@ -43,6 +44,7 @@ const { creatorStamp } = require('../members/profileAccess.service.js');
 const { syncMemberParentages, flushParentageAudit } = require('../genealogy/parentage.mapper.js');
 const { onboardingApprovalGuardService } = require('./onboardingApprovalGuard.service');
 const { onboardingLockService } = require('./onboardingLock.service');
+const { onboardingProactiveDefenseService } = require('./onboardingProactiveDefense.service');
 
 function _assertOpAdminPolicy(onboardingCase, reviewer) {
   const caseType = onboardingCase.case_type;
@@ -430,6 +432,15 @@ async function createOnboardingCase({
     if (['BI_KHOA', 'BI_CAM', 'TAM_NGUNG'].includes(user.status)) {
       throw BusinessError('USER_STATUS_BLOCKED', `Tài khoản đang ở trạng thái ${user.status}.`, { statusCode: 403 });
     }
+
+    // 1.5 [NFR-03] Ngắt mạch Claim-Hopping 90 ngày trước khi khởi tạo hồ sơ CLAIM_EXISTING
+    const requestedClaimMode =
+      (metadata && (metadata.claim_mode || metadata.claimMode)) || 'CREATE_NEW';
+    await onboardingProactiveDefenseService.assertNoClaimHopping(tx, {
+      userId,
+      tenantId,
+      claimMode: requestedClaimMode,
+    });
 
     // 2. Không cho tạo case mới nếu đã có case active
     const existing = await _findActiveCase(tx, userId, tenantId);
