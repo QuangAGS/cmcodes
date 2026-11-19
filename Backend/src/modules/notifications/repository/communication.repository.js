@@ -272,6 +272,7 @@ const communicationRepository = {
       name: user.name,
 
       preferred_channel:
+        // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
         user.temp_social_profiles?.channel ||
         null,
     };

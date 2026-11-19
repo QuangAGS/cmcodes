@@ -94,6 +94,7 @@ const createAdmin = async () => {
           role: 'SYSTEM_ADMIN',
           status: 'DA_DUYET',
           phone: process.env.ADMIN_SUPPORT_PHONE || '0913233531',
+          // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
           tenant_id: SYSTEM_GLOBAL_ID,
           changed_by: null,
         },

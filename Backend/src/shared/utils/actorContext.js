@@ -27,6 +27,7 @@ function buildActorContext(req, opts = {}) {
     actor_id: actorId,
     on_behalf_of: onBehalfOf || null,
     correlation_id: req.correlationId || null,
+    // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
     tenant_id: user.tenantId || user.tenant_id || null,
     role: user.role || null,
   };

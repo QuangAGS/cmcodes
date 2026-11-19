@@ -80,6 +80,7 @@ function buildPropagationMetadata({
     registration_type: isNewClan ? 'CREATE_CLAN' : 'JOIN_CLAN',
     user_status: user?.status || null,
     user_role: user?.role || null,
+    // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
     tenant_id: user?.tenant_id || null,
   };
 }

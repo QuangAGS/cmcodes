@@ -35,8 +35,10 @@ function actorOf(user) {
   const role = user?.roleInTenant || user?.role || null;
   return {
     userId: user?.userId || user?.id || null,
+    // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
     tenantId: user?.activeTenantId || user?.tenantId || user?.tenant_id || null,
     role: role ? String(role).toUpperCase() : null,
+    // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
     activeMemberId: user?.activeMemberId || user?.member_id || null,
   };
 }

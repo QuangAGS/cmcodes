@@ -368,7 +368,7 @@ model onboarding_cases {
   id String @id(map: "pk_onboarding_cases") @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
 
   /// Một onboarding case có một root correlation ID riêng.
-  correlation_id String @db.VarChar(36)
+  correlation_id String @unique @db.VarChar(36)
 
   case_type onboarding_case_type
   status    onboarding_case_status @default(DRAFT)
@@ -393,11 +393,43 @@ model onboarding_cases {
 
   metadata Json @default("{}")
 
+  /// 18-Nov-2026-Before AMEND-RP-OP-2026-03-BASELINE 
+  claim_mode       String    @default("CREATE_NEW") @db.VarChar(20)
+  is_disputed      Boolean   @default(false)
+  reopenable       Boolean   @default(true)
+  revision_reason  String?   @db.VarChar(20)
+  otp_verified_at  DateTime? @db.Timestamptz(6)
+  qa_attempt_count Int       @default(0)
+  qa_locked        Boolean   @default(false)
+
+  is_proxy                   Boolean @default(false)
+  beneficiary_user_id        String? @db.VarChar(36)
+  beneficiary_consent_status String  @default("NONE") @db.VarChar(20)
+
+  referrer_member_id String? @db.VarChar(36)
+  referrer_user_id   String? @db.VarChar(36)
+  referral_status    String  @default("NONE") @db.VarChar(20)
+
+  agreed_rules_snapshot String?   @db.Text
+  agreed_at             DateTime? @db.Timestamptz(6)
+
+  clan_scope                   String?   @db.VarChar(20)
+  beneficiary_token_hash       String?   @db.VarChar(64)
+  beneficiary_token_expires_at DateTime? @db.Timestamptz(6)
+  referral_attempt_count       Int       @default(0)
+  referral_token_hash          String?   @db.VarChar(64)
+  referral_decided_at          DateTime? @db.Timestamptz(6)
+  referral_expires_at          DateTime? @db.Timestamptz(6)
+  agreed_tos_version           String?   @db.VarChar(20)
+  agreed_clan_rules_version    Int?
+  agreed_rules_checksum        String?   @db.VarChar(64)
+
   created_at DateTime  @default(now()) @db.Timestamptz(6)
   updated_at DateTime  @updatedAt @db.Timestamptz(6)
   changed_by String?   @db.VarChar(36)
   deleted_at DateTime? @db.Timestamptz(6)
 
+  /// 18-Nov-2026-Before AMEND-RP-OP-2026-03-BASELINE
   process_kind onboarding_process_kind @default(REGISTER) /// để phân biệt RP / OP
 
   users users @relation("UserToOnboardingCases", fields: [user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_onboarding_cases_user")
@@ -412,6 +444,8 @@ model onboarding_cases {
 
   branches branches[] @relation("OnboardingCaseToBranches")
 
+  referrer_member members? @relation("OnboardingCaseReferrer", fields: [referrer_member_id, tenant_id], references: [id, tenant_id], onDelete: Restrict, onUpdate: NoAction)
+
   /// Một case có một root correlation ID.
   @@unique([correlation_id], map: "uq_onboarding_cases_correlation")
   /// Một branch chỉ được làm primary branch cho tối đa một case.
@@ -423,6 +457,12 @@ model onboarding_cases {
   @@index([created_at(sort: Desc)], map: "idx_onboarding_created_at")
   @@index([deleted_at], map: "idx_onboarding_deleted_at")
   @@index([user_id, process_kind, status], map: "idx_onboarding_user_kind_status")
+  /// 18-Nov-2026-Before AMEND-RP-OP-2026-03-BASELINE: Indexes bắt buộc
+  @@index([user_id, status], map: "idx_onboarding_quota_lookup")
+  @@index([user_id, tenant_id, claim_mode, status, reopenable, updated_at], map: "idx_onboarding_claim_hopping")
+  @@index([referrer_user_id, referral_status], map: "idx_onboarding_referrer_status")
+  @@index([beneficiary_user_id], map: "idx_onboarding_beneficiary")
+  @@index([tenant_id, claim_mode, primary_member_id, status], map: "idx_onboarding_dispute_lookup")
 }
 
 model events {
@@ -721,6 +761,9 @@ model members {
 
   parent_union_id String?    @db.VarChar(36)
   parent_union    marriages? @relation("MemberParentUnion", fields: [parent_union_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_members_parent_union")
+
+  /// 18-Nov-2026-Before AMEND-RP-OP-2026-03-BASELINE 
+  onboarding_cases_as_referrer onboarding_cases[] @relation("OnboardingCaseReferrer")
 
   @@unique([id, tenant_id], name: "id_tenant_id") ///Phục vụ MUTATE
   @@index([tenant_id], map: "idx_members_tenant")
@@ -1254,6 +1297,10 @@ model clan_profiles {
   changed_by         String?   @db.VarChar(36)
   deleted_at         DateTime? @db.Timestamptz(6)
 
+  /// 18-Nov-2026-Before AMEND-RP-OP-2026-03-BASELINE 
+  clan_rules_version Int  @default(1)
+  security_questions Json @default("[]")
+
   tenants tenants @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_clan_profiles_tenant")
 
   @@index([deleted_at], map: "idx_clan_profiles_deleted_at")
@@ -1344,7 +1391,8 @@ model profile_edit_grants {
   target_member_id  String               @db.VarChar(36)
   target_branch_id  String?              @db.VarChar(36)
   grantor_member_id String?              @db.VarChar(36)
-  grantee_member_id String               @db.VarChar(36)
+  grantee_member_id String?              @db.VarChar(36) /// 18-Nov-2026-Before AMEND-RP-OP-2026-03-BASELINE 
+  grantee_user_id   String?              @db.VarChar(36)
   scope             profile_grant_scope  @default(PROFILE)
   status            profile_grant_status @default(CHO_DUYET)
   expires_at        DateTime?            @db.Timestamptz(6)
@@ -1359,6 +1407,7 @@ model profile_edit_grants {
   @@index([tenant_id])
   @@index([target_member_id])
   @@index([grantee_member_id])
+  @@index([grantee_user_id], map: "idx_peg_grantee_user")
   @@map("profile_edit_grants")
 }
 
@@ -1936,6 +1985,14 @@ enum business_process_type {
   ONBOARDING_CASE_EXPIRE // Job hết hạn: → EXPIRED
   //   soft-reject quá hạn có thể log FINAL path / cập nhật reopenable
 
+  // ── Onboarding Phase 2 — Bảo lãnh, Khai hộ, QA, Tranh chấp & Token ──
+  ONBOARDING_REFERRAL_REQUEST
+  ONBOARDING_REFERRAL_DECIDE
+  ONBOARDING_BENEFICIARY_CONSENT
+  ONBOARDING_QA_UNLOCK
+  ONBOARDING_CLAIM_DISPUTED
+  TOKEN_INVALIDATED
+
   // ── Onboarding — merge vào cây chính ──────────────────────
   ONBOARDING_MERGE_START // Bắt đầu merge (case → MERGING)
   ONBOARDING_BRANCH_MERGE // Ghép nhánh dự bị vào cây CHINH_THUC
@@ -1995,6 +2052,7 @@ enum onboarding_case_type {
 /// Đây là trạng thái của TOÀN BỘ HỒ SƠ / BUSINESS CASE.
 enum onboarding_case_status {
   DRAFT /// User đang điền hồ sơ hoặc lưu nháp.
+  PENDING_VERIFICATION /// Chờ xác thực OTP / Bảo lãnh / Đồng thuận (Phase 2).
   PROFILE_COMPLETED /// Đã hoàn tất dữ liệu hồ sơ cốt lõi và đã tạo Member dự bị.
   FAMILY_TREE_DRAFT /// Đang xây dựng cây gia đình nhỏ / provisional branch.
   SUBMITTED /// User đã gửi hồ sơ; từ đây branch bị khóa chỉnh sửa.

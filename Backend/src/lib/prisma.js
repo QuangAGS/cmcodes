@@ -341,6 +341,7 @@ async function assertSameTenantLink(client, userId, memberId) {
   });
   if (!user || !member) throw new Error('S0.3 User hoặc member không tồn tại.');
 
+  // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
   const isDefaultTenant = user.tenant_id && user.tenant_id === member.tenant_id;
   if (!isDefaultTenant) {
     const hasLink = await client.user_member_links.findFirst({
@@ -359,10 +360,12 @@ async function assertSameTenantLink(client, userId, memberId) {
 
 async function linkUserToMember(client, userId, memberId) {
   await assertSameTenantLink(client, userId, memberId);
+  // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
   return client.users.update({ where: { id: userId }, data: { member_id: memberId } });
 }
 
 async function unlinkUserFromMember(client, userId) {
+  // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
   return client.users.update({ where: { id: userId }, data: { member_id: null } });
 }
 

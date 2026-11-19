@@ -31,11 +31,13 @@ function actorIdOf(user) {
 
 /** AMEND-02 V1.2: Ưu tiên activeTenantId */
 function tenantIdOf(user) {
+  // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
   return user && (user.activeTenantId || user.tenantId || user.tenant_id || null);
 }
 
 /** AMEND-02 V1.2: Ưu tiên activeMemberId */
 function memberIdOf(user) {
+  // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
   return user && (user.activeMemberId || user.member_id || user.memberId || null);
 }
 

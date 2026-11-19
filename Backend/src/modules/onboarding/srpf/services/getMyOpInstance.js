@@ -121,11 +121,13 @@ async function getMyOpInstance(input = {}) {
     },
   });
 
+  // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
   if (!user || !user.member_id) {
     return emptyPayload();
   }
 
   const member = await client.members.findFirst({
+    // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
     where: { id: user.member_id, deleted_at: null },
     select: {
       id: true,
@@ -145,6 +147,7 @@ async function getMyOpInstance(input = {}) {
     return emptyPayload();
   }
 
+  // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
   const tenantId = user.tenant_id || member.tenant_id;
   if (!tenantId) {
     return emptyPayload();

@@ -525,7 +525,9 @@ async function completeMemberProfile({
     }
 
     // 2. Nếu user đã có member_id chính thức → chặn
+    // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
     if (user.member_id) {
+      // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
       const existingMember = await tx.members.findUnique({ where: { id: user.member_id } });
       if (existingMember && existingMember.status === 'CHINH_THUC') {
         throw BusinessError('ALREADY_ONBOARDED', 'Tài khoản đã được liên kết thành viên chính thức.', { statusCode: 400 });
@@ -589,9 +591,11 @@ async function completeMemberProfile({
 
     // 5. Tạo hoặc cập nhật Member dự bị
     let member;
+    // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
     if (user.member_id) {
       // Đã có member DU_BI từ lần trước → update
       member = await tx.members.update({
+        // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
         where: { id: user.member_id },
         data: {
           full_name: formData.full_name || user.name || user.full_name,
@@ -615,6 +619,7 @@ async function completeMemberProfile({
           status: 'DU_BI',
           role: 'THANH_VIEN',
           changed_by: userId,
+          // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
           ...creatorStamp({ id: userId, member_id: user.member_id || null }),
         },
       });
@@ -622,6 +627,7 @@ async function completeMemberProfile({
       // Gán users.member_id
       await tx.users.update({
         where: { id: userId },
+        // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
         data: { member_id: member.id },
       });
     }
@@ -670,6 +676,7 @@ async function completeMemberProfile({
     await _writeAuditLog(tx, {
       tableName: 'members',
       recordId: member.id,
+      // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
       action: user.member_id ? 'CAP_NHAT' : 'THEM_MOI',
       newData: {
         full_name: member.full_name,
@@ -731,6 +738,7 @@ async function executeClanActivation({
     const user = await tx.users.findUnique({ where: { id: userId } });
     _assertActorUsable(user); // SEC: không CHO_DUYET / BI_KHOA...
 
+    // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
     if (user.tenant_id && user.tenant_id !== tenantId && user.role !== 'SYSTEM_ADMIN') {
       throw BusinessError(
         'TENANT_MISMATCH',

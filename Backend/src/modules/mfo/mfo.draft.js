@@ -21,6 +21,7 @@ function actorIdOf(user) {
   return user && (user.id || user.userId);
 }
 function tenantIdOf(user) {
+  // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
   return user && (user.tenant_id || user.tenantId || null);
 }
 

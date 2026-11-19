@@ -416,7 +416,9 @@ const authService = {
         ...profileFromCase,
         phone: user.phone || null,
         email: user.email || null,
+        // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
         tenant_id: user.tenant_id || null,
+        // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
         tenantId: user.tenant_id || null,
         clanName: user.tenants?.name || null,
         tenantSlug: user.tenants?.slug || null,
@@ -516,6 +518,7 @@ const authService = {
     }
 
     if (user.role === 'SYSTEM_ADMIN') {
+      // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
       const rootTenantId = user.tenant_id || '00000000-0000-0000-0000-000000000000';
 
       const token = jwt.sign(
@@ -562,6 +565,7 @@ const authService = {
     }
 
     // Tuyệt đối KHÔNG fallback sang user.member_id; SSOT duy nhất là activeLink
+    // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
     const activeTenantId = activeLink ? activeLink.tenant_id : (user.tenant_id || null);
     const activeMemberId = activeLink ? activeLink.member_id : null;
     const activeLinkStatus = activeLink ? activeLink.status : null;
@@ -782,6 +786,7 @@ const authService = {
     return jwt.sign(
       {
         userId: user.id,
+        // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
         tenantId: user.tenant_id,
         role: user.role,
         status: user.status,
@@ -855,6 +860,7 @@ const authService = {
               email: userData.email ? cleanInput(userData.email, 'email') : null,
               phone: logIdentifier,
               password: hashedPassword,
+              // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
               tenant_id: tid,
               role: isNewClan ? 'CLAN_ADMIN' : 'VIEWER',
               status: 'CHO_DUYET',
@@ -1781,10 +1787,12 @@ const authService = {
               : rawCaseMeta; // Fallback to raw meta if directly stored
 
           // 1. Kiểm tra liên kết thực tế trên user_member_links (SSOT)
+          // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
           const activeLink = user.tenant_id
             ? await basePrisma.user_member_links.findFirst({
                 where: {
                   user_id: user.id,
+                  // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
                   tenant_id: user.tenant_id,
                   deleted_at: null,
                 },
@@ -1796,10 +1804,12 @@ const authService = {
           const memberIdToInspect =
             activeLink?.member_id || profile.claimed_member_id || null;
 
+          // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
           if (memberIdToInspect && user.tenant_id) {
             const rawMember = await basePrisma.members.findFirst({
               where: {
                 id: memberIdToInspect,
+                // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
                 tenant_id: user.tenant_id,
                 deleted_at: null,
               },
@@ -1883,6 +1893,7 @@ const authService = {
             profile.child_type ||
             profile.temp_relationship ||
             rawCaseMeta.link_type ||
+            // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
             user.temp_relationship ||
             'CON_DE';
 
@@ -1903,10 +1914,12 @@ const authService = {
             updated_at: user.updated_at,
             temp_snapshot: {
               full_name:
+                // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
                 profile.full_name || user.temp_full_name || user.name || 'Chưa khai báo',
               alias: profile.alias || null,
               gender: profile.gender || 'NAM',
               birth_year:
+                // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
                 profile.birth_year || user.temp_birth_year || 'Chưa khai báo',
               birth_month: profile.birth_month || null,
               birth_day: profile.birth_day || null,
@@ -1916,21 +1929,26 @@ const authService = {
               generation: profile.generation || null,
               member_role: profile.member_role || 'THANH_VIEN',
               branch_name:
+                // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
                 profile.branch_name || user.temp_branch_name || 'Chưa khai báo',
               father_name:
+                // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
                 profile.father_name || user.temp_father_name || 'Chưa khai báo',
               mother_name: profile.mother_name || null,
               grandfather_name:
                 profile.grandfather_name ||
+                // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
                 user.temp_grandfather_name ||
                 'Chưa khai báo',
               grandmother_name: profile.grandmother_name || null,
+              // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
               address: profile.address || user.temp_address || 'Chưa khai báo',
               is_clan: effectiveIsClan,
               is_clan: effectiveIsClan,
               relationship: resolvedRelationship,
               child_type: effectiveChildType,
               link_type: rawCaseMeta.link_type || null,
+              // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
               note: profile.note || user.temp_note || 'Không có ghi chú',
               claimed_member_id: profile.claimed_member_id || null,
               proof_documents: profile.proof_documents || [],
@@ -3628,6 +3646,7 @@ const authService = {
         select: {
           id: true,
           status: true,
+          // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
           tenant_id: true,
           role: true,
           phone: true,
@@ -3637,10 +3656,12 @@ const authService = {
 
       if (
         user.role === 'CLAN_ADMIN' &&
+        // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
         user.tenant_id &&
         (description !== undefined || clanName !== undefined)
       ) {
         const tenantRow = await tx.tenants.findFirst({
+          // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
           where: { id: user.tenant_id, deleted_at: null },
           select: { id: true, status: true, name: true, description: true },
         });
@@ -3683,6 +3704,7 @@ const authService = {
                 },
                 user.id,
                 'REVISION_SUBMIT_TENANT',
+                // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
                 user.tenant_id,
                 C,
                 tx
@@ -3754,6 +3776,7 @@ const authService = {
             process_type: 'USER_APPROVAL',
             actor_type: 'USER',
             actor_id: user.id,
+            // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
             tenant_id: user.tenant_id,
             process_status: 'SUCCESS',
             context: {
@@ -3788,6 +3811,7 @@ const authService = {
           { status: 'CHO_DUYET', revision: true },
           user.id,
           'REVISION_SUBMIT',
+          // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
           user.tenant_id,
           C,
           tx

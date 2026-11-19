@@ -739,6 +739,7 @@ const authController = {
       const aggregatedCollection = usersArray.map((user) => {
         if (!user) return user;
         const actualUser = user.userData || user;
+        // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
         const snapshot = actualUser.temp_snapshot || user.temp_snapshot || {};
         const actualTenant = actualUser.tenant || user.tenant || null;
         const actualMember = actualUser.member_profile || user.member_profile || null;
@@ -755,6 +756,7 @@ const authController = {
           temp_snapshot: snapshot,
           name: actualUser.name || user.name || '',
           temp_full_name:
+            // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
             snapshot.full_name || user.temp_full_name || actualUser.name || 'Thành viên chưa đặt tên',
           phone: actualUser.phone || user.phone || 'Chưa có số',
           email: actualUser.email || user.email || 'Chưa có email',

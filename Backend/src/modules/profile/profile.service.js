@@ -225,13 +225,19 @@ async function resolveMemberActor(reqUser) {
   let activeTenantId = reqUser?.activeTenantId || reqUser?.tenantId;
   let activeMemberId = reqUser?.activeMemberId;
 
+  // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
   if (!activeTenantId && user.tenant_id) {
+    // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
     console.warn(`⚠️ [resolveMemberActor] Cảnh báo: Token thiếu activeTenantId, fallback về users.tenant_id (${user.tenant_id})`, { userId });
+    // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
     activeTenantId = user.tenant_id;
   }
 
+  // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
   if (!activeMemberId && user.member_id) {
+    // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
     console.warn(`⚠️ [resolveMemberActor] Cảnh báo: Token thiếu activeMemberId, fallback về users.member_id (${user.member_id})`, { userId });
+    // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
     activeMemberId = user.member_id;
   }
 
