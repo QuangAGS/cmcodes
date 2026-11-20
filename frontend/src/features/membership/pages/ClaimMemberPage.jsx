@@ -1,39 +1,31 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/features/membership/pages/ClaimMemberPage.jsx
- * DATETIME    : 2026-11-14T11:15:00+07:00
- * VERSION     : 2.3.0-MULTIHOME-UAT-BUG4-PROACTIVE-GUARD
+ * DATETIME    : 2026-11-20T06:30:00+07:00
+ * VERSION     : 2.4.0-PHASE2-SPRINT-FE2
  * DESCRIPTION : Trang Gia nhập dòng họ & Nhận diện nhân thân trên sổ họ:
- *               - Không hỏi lại SĐT, Email, Mật khẩu (kế thừa từ phiên đăng nhập).
- *               - Không gọi /auth/register; nộp về POST /api/membership/cases
- *                 (hoặc POST /api/membership/cases/:caseId/revision khi mode=revision).
- *               - Kiểm tra chủ động (proactive) ngay khi EEU chọn dòng họ đích qua
- *                 availableClans + GET /api/membership/eligibility?tenantId=...: nếu EEU đã gắn
- *                 member trong tenant đó hoặc đang có hồ sơ chờ duyệt thì chặn ngay từ Bước 1.
- *               - Phân tách rõ 3 chế độ theo URL query ?mode=:
- *                 1. Mặc định (không có mode=add-clan): Giữ nguyên dòng họ đang active của phiên
- *                    để user chưa có activeMemberId nhận hồ sơ (EM) hoặc khai 21 trường ngay tại họ đó.
- *                 2. mode=add-clan (Luồng C1 Multi-Home từ HeaderClanSwitcher): Mở bộ tìm kiếm
- *                    dòng họ công khai (GET /api/public/tenants/search?q= với Authorization: '')
- *                    để chọn họ B, sau đó tra cứu EM hoặc khai báo 21 trường.
- *                 3. mode=revision&caseId=...: Tải dữ liệu hồ sơ cũ kèm review_note và gửi bổ sung.
+ *               - [IMPL-PLAN-FE-PHASE2-V1.8-ISO29148 - Sprint FE-2]:
+ *                 + Thay thế toàn bộ toast tự tắt bằng PersistentMessageBanner duy nhất
+ *                   (hiển thị Mã tra cứu X-Correlation-Id fallback "Không có") [ARCH-02].
+ *                 + Dùng BlockingLoadingOverlay hợp nhất duy nhất cho mọi thao tác async [ARCH-04].
+ *                 + Xử lý HTTP 403 CLAIM_HOPPING_DETECTED: khóa gửi CLAIM_EM và cung cấp
+ *                   nút chuyển nhanh sang khai báo mới 21 trường (CREATE_NEW) [NFR-03, TC-FE-13].
+ *                 + Lọc và đồng bộ Cooldown bảo lãnh 7 ngày từ metadata.referral_history
+ *                   và xử lý lỗi HTTP 400 REFERRER_COOLDOWN_ACTIVE [FUNC-09, TC-FE-09].
+ *                 + Xử lý HTTP 423 ONBOARDING_QA_LOCKED & trạng thái qa_locked từ hồ sơ:
+ *                   tắt form QA và hiển thị huy hiệu "Khóa QA (3 lần sai) - Chờ Ban Quản trị"
+ *                   [FUNC-03, TC-FE-03].
+ *                 + Xử lý HTTP 409 CONCURRENT_TRANSACTION_LOCKED (Keep State + Thử lại)
+ *                   và 409 ALREADY_LINKED_TO_TENANT [ARCH-01, TC-FE-06, TC-FE-14].
+ *                 + Tích hợp AudioHelpButton & ZoneVoiceButton (Elder Support) [NFR-FE-02].
+ *               - Bảo toàn nguyên vẹn 3 chế độ URL (?mode=mặc định, add-clan, revision)
+ *                 và kiểm tra chủ động checkEligibility.
  * =============================================================================
  * CHANGELOGS:
  * - 2026-11-10T11:40:00+07:00 (v1.1.0-CLAIM-MEMBER-WIZARD-AMEND-FULL): Bản gốc.
  * - 2026-11-13T10:00:00+07:00 (v2.0.0-MULTIHOME-AMEND02-V15-LAT3): Tích hợp C1 Multi-Home.
- * - 2026-11-13T10:30:00+07:00 (v2.1.0-MULTIHOME-AMEND02-V15-LAT3):
- *   + Sửa mặc định modeParam về rỗng (''); chỉ bật tìm kiếm chọn họ khác khi mode=add-clan.
- *   + Tự động giữ dòng họ hiện tại của phiên khi truy cập /membership/claim mặc định.
- * - 2026-11-13T15:34:00+07:00 (v2.2.0-MULTIHOME-UAT-BUG1-CONTEXT-PROMPTS):
- *   + Truyền linkType và isMultiHome={true} xuống ClaimMemberWizard để hiển thị 3 câu hỏi
- *     xác minh theo đúng ngữ cảnh quan hệ (Nhà dâu/rể, Họ ngoại, Nuôi dưỡng, Trực hệ).
- *   + Tự động chuyển linkType sang SPOUSE_FAMILY / GUARDIAN khi chọn hồ sơ CON_DAU / CON_RE / CON_NUOI.
- *   + Không ghi đè câu trả lời Lớp 1 vào father_name khi ở ngữ cảnh SPOUSE_FAMILY.
- * - 2026-11-13T18:05:00+07:00 (v2.2.1-MULTIHOME-UAT-BUG3-RELATIONSHIP):
- *   + Đóng gói child_type & temp_relationship vào registration_profile cho nhánh NEW_PROFILE_21.
- * - 2026-11-14T11:15:00+07:00 (v2.3.0-MULTIHOME-UAT-BUG4-PROACTIVE-GUARD):
- *   + Fix UAT Bug 4: Kiểm tra chủ động qua membershipApi.checkEligibility & availableClans ngay khi
- *     EEU chọn dòng họ; hiển thị nhãn trạng thái trên kết quả tìm kiếm và chặn sớm trước Bước 2.
+ * - 2026-11-14T11:15:00+07:00 (v2.3.0-MULTIHOME-UAT-BUG4-PROACTIVE-GUARD): Proactive Guard.
+ * - 2026-11-20T06:30:00+07:00 (v2.4.0-PHASE2-SPRINT-FE2): Triển khai Sprint FE-2 ISO 29148.
  * =============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -51,17 +43,24 @@ import {
   ArrowRightLeft,
   ExternalLink,
 } from 'lucide-react';
-import { toast } from 'sonner';
 
 import { useAuth } from '../../../context/AuthContext';
 import apiClient from '../../../lib/apiClient';
 import { membershipApi } from '../api/membershipApi';
-import ClaimMemberWizard, { resolveVerificationPrompts } from '../components/ClaimMemberWizard';
+import ClaimMemberWizard, {
+  resolveVerificationPrompts,
+} from '../components/ClaimMemberWizard';
 import RegistrationProfileForm from '../components/RegistrationProfileForm';
 import {
   LINK_TYPE_LABELS,
   ELDER_MEMBERSHIP_MESSAGES,
 } from '../constants/membershipLabels';
+import { CLAIM_MODES } from '../../onboarding/constants/onboardingPhase2Contracts';
+import PersistentMessageBanner from '../../../components/common/PersistentMessageBanner';
+import BlockingLoadingOverlay from '../../../components/common/BlockingLoadingOverlay';
+import AudioHelpButton from '../../elder-doctrine/components/AudioHelpButton';
+import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton';
+import { extractApiErrorInfo } from '../../../shared/hooks/useTurnstileFailClosed';
 
 const C1_LINK_TYPES = [
   'SPOUSE_FAMILY',
@@ -75,7 +74,14 @@ const C1_LINK_TYPES = [
 export const ClaimMemberPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const { user, activeContext, availableClans, refreshContext, switchContext, isSwitchingContext } = useAuth();
+  const {
+    user,
+    activeContext,
+    availableClans,
+    refreshContext,
+    switchContext,
+    isSwitchingContext,
+  } = useAuth();
 
   const caseId = searchParams.get('caseId');
   const modeParam = searchParams.get('mode') || '';
@@ -99,7 +105,6 @@ export const ClaimMemberPage = () => {
   const currentSessionTenantSlug =
     currentSessionClan?.clanSlug || user?.tenant?.slug || '';
 
-  // Dòng họ đích: nếu không phải mode=add-clan và không phải revision, mặc định dùng dòng họ hiện tại của phiên
   const [tenantQuery, setTenantQuery] = useState('');
   const [tenantResults, setTenantResults] = useState([]);
   const [tenantLoading, setTenantLoading] = useState(false);
@@ -118,7 +123,6 @@ export const ClaimMemberPage = () => {
   );
   const searchTimerRef = useRef(null);
 
-  // Đồng bộ lại selectedTenant khi đổi mode trên URL hoặc sau khi loadUser hoàn tất
   useEffect(() => {
     if (isRevisionMode) return;
     if (isAddClanMode) {
@@ -182,10 +186,16 @@ export const ClaimMemberPage = () => {
   const [loadingRevision, setLoadingRevision] = useState(false);
   const [checkingEligibility, setCheckingEligibility] = useState(false);
   const [eligibilityBlock, setEligibilityBlock] = useState(null);
-  const [errorMsg, setErrorMsg] = useState('');
   const [revisionFeedback, setRevisionFeedback] = useState('');
 
-  // Bản đồ các dòng họ EEU đã tham gia hoặc đang có hồ sơ mở
+  // Trạng thái phòng vệ Phase 2 (Sprint FE-2)
+  const [bannerState, setBannerState] = useState(null);
+  const [isQaLocked, setIsQaLocked] = useState(false);
+  const [qaFailedAttempts, setQaFailedAttempts] = useState(0);
+  const [isClaimHoppingBlocked, setIsClaimHoppingBlocked] = useState(false);
+  const [referralHistory, setReferralHistory] = useState([]);
+  const [cooldownReferrerIds, setCooldownReferrerIds] = useState([]);
+
   const existingClanByTenantId = React.useMemo(() => {
     const map = new Map();
     for (const c of availableClans || []) {
@@ -276,11 +286,21 @@ export const ClaimMemberPage = () => {
           setLinkType(data.linkType);
         }
 
+        // Đồng bộ trạng thái khóa QA & lịch sử từ chối bảo lãnh 7 ngày từ metadata [FUNC-03, FUNC-09]
+        const meta = data.caseMetadata || data.metadata || {};
+        if (data.qaLocked === true || data.qa_locked === true || meta.qa_locked === true) {
+          setIsQaLocked(true);
+          setQaFailedAttempts(Number(data.qaFailedAttempts || data.qa_failed_attempts || 3));
+        }
+        if (Array.isArray(meta.referral_history)) {
+          setReferralHistory(meta.referral_history);
+        }
+
         const rp =
           data.registration_profile &&
           typeof data.registration_profile === 'object'
             ? data.registration_profile
-            : data.caseMetadata?.registration_profile || {};
+            : meta.registration_profile || {};
 
         if (rp.claim_mode === 'CLAIM_EM' || rp.claimed_member_id) {
           setEntryMode('CLAIM_EM');
@@ -291,6 +311,7 @@ export const ClaimMemberPage = () => {
         setProfileDraft((prev) => ({
           ...prev,
           ...rp,
+          metadata: meta,
           temp_relationship:
             rp.child_type || rp.temp_relationship || prev.temp_relationship,
           claimed_member_summary:
@@ -302,10 +323,13 @@ export const ClaimMemberPage = () => {
       .catch((err) => {
         console.error('[ClaimMemberPage] Load revision error:', err);
         if (!cancelled) {
-          setErrorMsg(
-            err?.response?.data?.message ||
-              'Không tải được dữ liệu hồ sơ cần chỉnh sửa.'
-          );
+          const info = extractApiErrorInfo(err);
+          setBannerState({
+            type: 'error',
+            title: 'Không tải được hồ sơ cần chỉnh sửa',
+            message: info.message,
+            correlationId: info.correlationId,
+          });
         }
       })
       .finally(() => {
@@ -351,23 +375,46 @@ export const ClaimMemberPage = () => {
     }, 400);
 
     return () => clearTimeout(searchTimerRef.current);
-  }, [tenantQuery, isAddClanMode, isRevisionMode, selectedTenant]);
+  }, [tenantQuery, isAddClanMode, isRevisionMode, selectedTenant, existingClanByTenantId]);
+
+  const showValidationBanner = (message) => {
+    setBannerState({
+      type: 'error',
+      title: 'Thông tin hồ sơ chưa đầy đủ',
+      message,
+      correlationId: 'Không có',
+    });
+  };
 
   const validateAndBuildPayload = () => {
     setProfileErrors({});
-    setErrorMsg('');
+    setBannerState(null);
 
     if (!selectedTenant?.id) {
-      setErrorMsg('Bác vui lòng tìm và chọn dòng họ cần gia nhập trước.');
+      showValidationBanner('Bác vui lòng tìm và chọn dòng họ cần gia nhập trước.');
       return null;
     }
 
     if (!isRevisionMode && eligibilityBlock) {
-      setErrorMsg(eligibilityBlock.message);
+      showValidationBanner(eligibilityBlock.message);
       return null;
     }
 
     if (entryMode === 'CLAIM_EM') {
+      if (isClaimHoppingBlocked) {
+        showValidationBanner(
+          'Chức năng nhận diện thành viên có sẵn đang tạm khóa do từ chối nhiều lần trong 90 ngày. Bác vui lòng chuyển sang "Cách 2 (Khai báo mới)".'
+        );
+        return null;
+      }
+
+      if (isQaLocked) {
+        showValidationBanner(
+          'Hồ sơ đã tạm khóa tự động xác thực do trả lời chưa khớp 3 lần liên tiếp và đang chờ Ban Quản trị xem xét thủ công.'
+        );
+        return null;
+      }
+
       const emId = String(profileDraft.claimed_member_id || '').trim();
       const emSum = profileDraft.claimed_member_summary || {};
       const ver = profileDraft.claim_verification || {};
@@ -382,25 +429,25 @@ export const ClaimMemberPage = () => {
       if (!emId) {
         const msg = 'Bác vui lòng tìm và chọn hồ sơ của mình trên cây gia phả.';
         setProfileErrors({ claimed_member_id: msg });
-        setErrorMsg(msg);
+        showValidationBanner(msg);
         return null;
       }
       if (!l1) {
         const msg = activePrompts.layer1MissingError;
         setProfileErrors({ layer1_lineage: msg });
-        setErrorMsg(msg);
+        showValidationBanner(msg);
         return null;
       }
       if (!l2) {
         const msg = activePrompts.layer2MissingError;
         setProfileErrors({ layer2_branch_origin: msg });
-        setErrorMsg(msg);
+        showValidationBanner(msg);
         return null;
       }
       if (!l3) {
         const msg = activePrompts.layer3MissingError;
         setProfileErrors({ layer3_guarantor_note: msg });
-        setErrorMsg(msg);
+        showValidationBanner(msg);
         return null;
       }
 
@@ -410,7 +457,11 @@ export const ClaimMemberPage = () => {
         tenantId: selectedTenant.id,
         clanName: selectedTenant.name,
         link_type: linkType,
+        claim_mode: CLAIM_MODES.CLAIM_EXISTING,
         claimed_member_id: emId,
+        ...(profileDraft.referrer_member_id
+          ? { referrer_member_id: profileDraft.referrer_member_id }
+          : {}),
         registration_profile: {
           claim_mode: 'CLAIM_EM',
           claimed_member_id: emId,
@@ -437,7 +488,7 @@ export const ClaimMemberPage = () => {
       };
     }
 
-    // Nhánh 2: Khai báo mới 21 trường
+    // Nhánh 2: Khai báo mới 21 trường (CREATE_NEW)
     const fName = String(profileDraft.full_name || '').trim();
     const faName = String(profileDraft.father_name || '').trim();
     const noteText = String(profileDraft.note || '').trim();
@@ -445,19 +496,19 @@ export const ClaimMemberPage = () => {
     if (!fName) {
       const msg = 'Bác vui lòng nhập họ và tên khai sinh.';
       setProfileErrors({ full_name: msg });
-      setErrorMsg(msg);
+      showValidationBanner(msg);
       return null;
     }
     if (!faName) {
       const msg = 'Bác vui lòng nhập họ và tên Cha để Ban Quản trị đối chiếu.';
       setProfileErrors({ father_name: msg });
-      setErrorMsg(msg);
+      showValidationBanner(msg);
       return null;
     }
     if (!noteText) {
       const msg = 'Bác vui lòng nhập lời nhắn gửi Ban Quản trị xác minh.';
       setProfileErrors({ note: msg });
-      setErrorMsg(msg);
+      showValidationBanner(msg);
       return null;
     }
 
@@ -465,6 +516,7 @@ export const ClaimMemberPage = () => {
       tenantId: selectedTenant.id,
       clanName: selectedTenant.name,
       link_type: linkType,
+      claim_mode: CLAIM_MODES.CREATE_NEW,
       registration_profile: {
         claim_mode: 'NEW_PROFILE_21',
         child_type: String(profileDraft.temp_relationship || 'CON_DE').trim(),
@@ -519,7 +571,7 @@ export const ClaimMemberPage = () => {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     const payload = validateAndBuildPayload();
     if (!payload) return;
 
@@ -528,10 +580,8 @@ export const ClaimMemberPage = () => {
       let res;
       if (isRevisionMode && caseId) {
         res = await membershipApi.submitRevision(caseId, payload);
-        toast.success('Đã gửi hồ sơ bổ sung thành công!');
       } else {
         res = await membershipApi.submitClaim(payload);
-        toast.success('Đã gửi hồ sơ xin gia nhập dòng họ!');
         if ('speechSynthesis' in window) {
           const utterance = new SpeechSynthesisUtterance(
             ELDER_MEMBERSHIP_MESSAGES.CLAIM_SUBMITTED
@@ -545,7 +595,20 @@ export const ClaimMemberPage = () => {
         await refreshContext();
       }
 
-      const targetCaseId = res?.data?.caseId || caseId || '';
+      const targetCaseId = res?.data?.caseId || res?.caseId || caseId || '';
+      const correlationId =
+        res?._correlationId || res?.data?.correlationId || 'Không có';
+
+      setBannerState({
+        type: 'success',
+        title: isRevisionMode
+          ? 'Đã gửi hồ sơ bổ sung thành công'
+          : 'Đã gửi hồ sơ xin gia nhập dòng họ',
+        message:
+          'Hồ sơ của bác đã được ghi nhận an toàn. Hệ thống đang chuyển tới trang theo dõi trạng thái hồ sơ.',
+        correlationId,
+      });
+
       navigate(
         targetCaseId
           ? `/membership/status?caseId=${encodeURIComponent(targetCaseId)}`
@@ -553,31 +616,130 @@ export const ClaimMemberPage = () => {
       );
     } catch (err) {
       console.error('[ClaimMemberPage] Submit error:', err);
-      const msg =
-        err?.response?.data?.message ||
-        'Không thể gửi hồ sơ gia nhập dòng họ. Bác vui lòng thử lại.';
-      setErrorMsg(msg);
-      toast.error(msg);
+      const info = extractApiErrorInfo(err);
+
+      // 1. [FUNC-03, TC-FE-03] 423 ONBOARDING_QA_LOCKED: tắt form QA, hiện huy hiệu
+      if (info.status === 423 || info.code === 'ONBOARDING_QA_LOCKED') {
+        setIsQaLocked(true);
+        setQaFailedAttempts(3);
+        setBannerState({
+          type: 'warning',
+          title: 'Khóa QA (3 lần sai) - Chờ Ban Quản trị',
+          message: info.message,
+          correlationId: info.correlationId,
+        });
+        return;
+      }
+
+      // Cập nhật số lần thử QA nếu Backend trả về
+      if (typeof info.details?.qa_failed_attempts === 'number') {
+        setQaFailedAttempts(info.details.qa_failed_attempts);
+      }
+
+      // 2. [FUNC-09, TC-FE-09] 400 REFERRER_COOLDOWN_ACTIVE: khóa người bảo lãnh 7 ngày
+      if (info.status === 400 && info.code === 'REFERRER_COOLDOWN_ACTIVE') {
+        if (profileDraft.referrer_member_id) {
+          setCooldownReferrerIds((prev) => [
+            ...new Set([...prev, String(profileDraft.referrer_member_id)]),
+          ]);
+          setProfileDraft((prev) => ({ ...prev, referrer_member_id: '' }));
+        }
+        setBannerState({
+          type: 'warning',
+          title: 'Người bảo lãnh đang trong thời gian chờ 7 ngày',
+          message: info.message,
+          correlationId: info.correlationId,
+        });
+        return;
+      }
+
+      // 3. [NFR-03, TC-FE-13] 403 CLAIM_HOPPING_DETECTED: khóa CLAIM_EM, gợi ý CREATE_NEW
+      if (info.status === 403 && info.code === 'CLAIM_HOPPING_DETECTED') {
+        setIsClaimHoppingBlocked(true);
+        setBannerState({
+          type: 'error',
+          title: 'Tạm khóa chức năng nhận diện thành viên có sẵn',
+          message: info.message,
+          correlationId: info.correlationId,
+          actionButton: (
+            <button
+              type="button"
+              onClick={() => {
+                setEntryMode('NEW_PROFILE_21');
+                setProfileErrors({});
+                setBannerState(null);
+              }}
+              className="min-h-[48px] rounded-xl bg-indigo-600 px-4 py-2.5 text-base font-bold text-white hover:bg-indigo-700"
+            >
+              Chuyển sang Tạo hồ sơ mới (21 trường)
+            </button>
+          ),
+        });
+        return;
+      }
+
+      // 4. [FUNC-06, TC-FE-06] 409 ALREADY_LINKED_TO_TENANT: chuyển thẳng vào không gian dòng họ
+      if (info.status === 409 && info.code === 'ALREADY_LINKED_TO_TENANT') {
+        setBannerState({
+          type: 'warning',
+          title: 'Tài khoản đã liên kết với dòng họ này',
+          message: info.message,
+          correlationId: info.correlationId,
+          actionButton: (
+            <button
+              type="button"
+              disabled={isSwitchingContext}
+              onClick={() => switchContext(selectedTenant.id, '/op')}
+              className="min-h-[48px] inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2.5 text-base font-bold text-white hover:bg-emerald-700"
+            >
+              <ArrowRightLeft size={16} />
+              Vào không gian {selectedTenant.name}
+            </button>
+          ),
+        });
+        return;
+      }
+
+      // 5. [ARCH-01, ARCH-04, TC-FE-14] 409 CONCURRENT_TRANSACTION_LOCKED / 429:
+      // Giữ nguyên toàn bộ form state, hiện nút "Thử lại ngay"
+      setBannerState({
+        type: info.status === 409 || info.status === 429 ? 'warning' : 'error',
+        title:
+          info.status === 409
+            ? 'Hồ sơ đang được xử lý ở phiên khác'
+            : 'Không thể gửi hồ sơ gia nhập',
+        message: info.message,
+        correlationId: info.correlationId,
+        actionButton:
+          info.status === 409 || info.status === 429 ? (
+            <button
+              type="button"
+              onClick={() => handleSubmit()}
+              className="min-h-[48px] rounded-xl bg-amber-600 px-4 py-2.5 text-base font-bold text-white hover:bg-amber-700"
+            >
+              Thử lại ngay
+            </button>
+          ) : null,
+      });
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  if (loadingRevision) {
-    return (
-      <div className="flex min-h-[60vh] flex-col items-center justify-center p-6">
-        <Loader2 className="h-10 w-10 animate-spin text-emerald-600" />
-        <p className="mt-3 text-sm font-bold text-slate-600">
-          Đang tải thông tin hồ sơ cần bổ sung...
-        </p>
-      </div>
-    );
-  }
-
   return (
-    <div className="mx-auto my-6 max-w-3xl px-4 pb-16">
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-xl sm:p-8">
-        <div className="mb-6 flex items-center justify-between border-b border-slate-100 pb-4">
+    <div className="mx-auto my-6 max-w-3xl px-3 sm:px-4 pb-16">
+      {/* Vòng quay chặn màn hình hợp nhất duy nhất [ARCH-04] */}
+      <BlockingLoadingOverlay
+        isOpen={isSubmitting || loadingRevision}
+        message={
+          loadingRevision
+            ? 'Đang tải thông tin hồ sơ cần bổ sung...'
+            : 'Đang gửi hồ sơ xin gia nhập dòng họ...'
+        }
+      />
+
+      <div className="rounded-3xl border border-slate-200 bg-white p-5 sm:p-8 shadow-xl">
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 pb-4">
           <div>
             <span className="text-xs font-black uppercase tracking-widest text-emerald-600">
               {isRevisionMode
@@ -593,59 +755,85 @@ export const ClaimMemberPage = () => {
                   ? 'Gia nhập dòng họ khác'
                   : 'Nhận hồ sơ trên sổ họ'}
             </h1>
-            <p className="mt-1 text-xs font-medium text-slate-500">
+            <p className="mt-1 text-base font-medium text-slate-600">
               Tài khoản <strong>{user?.phone || user?.email}</strong> được giữ
               nguyên thông tin định danh hiện tại.
             </p>
           </div>
 
-          <button
-            type="button"
-            onClick={() => navigate('/op')}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 hover:bg-slate-50"
-          >
-            <ArrowLeft size={15} />
-            Quay lại
-          </button>
+          <div className="flex items-center gap-2">
+            <AudioHelpButton
+              text="Trang gia nhập dòng họ và nhận diện nhân thân. Bác chọn dòng họ đích, chọn hình thức nhận hồ sơ đã có trên cây hoặc khai báo mới 21 trường, sau đó bấm nút gửi hồ sơ."
+              label="Nghe hướng dẫn"
+              variant="soft"
+            />
+            <button
+              type="button"
+              onClick={() => navigate('/op')}
+              className="min-h-[48px] inline-flex items-center gap-1.5 rounded-xl border border-slate-200 px-4 py-2 text-base font-bold text-slate-700 hover:bg-slate-50"
+            >
+              <ArrowLeft size={16} />
+              Quay lại
+            </button>
+          </div>
         </div>
+
+        {/* Banner thông báo nghiệp vụ hợp nhất duy nhất (hiển thị X-Correlation-Id) [ARCH-02] */}
+        {bannerState && (
+          <PersistentMessageBanner
+            type={bannerState.type}
+            title={bannerState.title}
+            message={bannerState.message}
+            correlationId={bannerState.correlationId}
+            actionButton={bannerState.actionButton}
+            onClose={() => setBannerState(null)}
+          />
+        )}
 
         {revisionFeedback && (
           <div className="mb-6 rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 text-amber-950">
-            <p className="text-xs font-black uppercase tracking-wider text-amber-800">
-              Góp ý từ Ban Quản trị dòng họ:
-            </p>
-            <p className="mt-1 whitespace-pre-wrap text-sm font-bold">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-xs font-black uppercase tracking-wider text-amber-800">
+                Góp ý từ Ban Quản trị dòng họ:
+              </p>
+              <AudioHelpButton
+                text={`Góp ý từ Ban Quản trị: ${revisionFeedback}`}
+                label="Nghe góp ý"
+                variant="soft"
+              />
+            </div>
+            <p className="mt-1 whitespace-pre-wrap text-base font-bold">
               {revisionFeedback}
             </p>
-          </div>
-        )}
-
-        {errorMsg && (
-          <div className="mb-6 flex items-start gap-2.5 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-800">
-            <AlertCircle size={18} className="mt-0.5 shrink-0" />
-            <span>{errorMsg}</span>
           </div>
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6" noValidate>
           {/* BƯỚC 1: THÔNG TIN DÒNG HỌ (CHỈ BẬT TÌM HỌ KHÁC KHI mode=add-clan) */}
           <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-            <div className="flex items-center justify-between gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <h2 className="text-sm font-black uppercase tracking-wider text-slate-700">
                 {isAddClanMode
                   ? 'Bước 1: Chọn dòng họ khác muốn gia nhập'
                   : 'Dòng họ đang thực hiện nhận hồ sơ'}
               </h2>
-              {!isAddClanMode && !isRevisionMode && (
-                <button
-                  type="button"
-                  onClick={() => navigate('/membership/claim?mode=add-clan')}
-                  className="inline-flex items-center gap-1 text-xs font-black text-emerald-700 hover:underline"
-                >
-                  <PlusCircle size={14} />
-                  Gia nhập dòng họ khác?
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                <ZoneVoiceButton
+                  visible
+                  text="Chọn dòng họ đích và mối quan hệ của bác với dòng họ này."
+                  label="Nghe"
+                />
+                {!isAddClanMode && !isRevisionMode && (
+                  <button
+                    type="button"
+                    onClick={() => navigate('/membership/claim?mode=add-clan')}
+                    className="min-h-[48px] inline-flex items-center gap-1.5 px-3 text-base font-black text-emerald-700 hover:underline"
+                  >
+                    <PlusCircle size={16} />
+                    Gia nhập dòng họ khác?
+                  </button>
+                )}
+              </div>
             </div>
 
             {isAddClanMode && !selectedTenant ? (
@@ -660,10 +848,10 @@ export const ClaimMemberPage = () => {
                     value={tenantQuery}
                     onChange={(e) => {
                       setTenantQuery(e.target.value);
-                      setErrorMsg('');
+                      setBannerState(null);
                     }}
                     placeholder="Gõ tên dòng họ cần gia nhập (tối thiểu 2 ký tự)..."
-                    className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-10 text-sm text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                    className="min-h-[48px] w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-10 text-base text-slate-900 outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                   />
                   {tenantLoading && (
                     <Loader2
@@ -688,9 +876,9 @@ export const ClaimMemberPage = () => {
                           type="button"
                           onClick={() => {
                             setSelectedTenant(t);
-                            setErrorMsg('');
+                            setBannerState(null);
                           }}
-                          className={`flex w-full items-center justify-between rounded-2xl border p-3.5 text-left shadow-sm transition ${
+                          className={`min-h-[48px] flex w-full items-center justify-between rounded-2xl border p-3.5 text-left shadow-sm transition ${
                             isAlreadyMember
                               ? 'border-amber-200 bg-amber-50/60 hover:border-amber-300'
                               : isPending
@@ -711,16 +899,16 @@ export const ClaimMemberPage = () => {
                               <Landmark size={20} />
                             </div>
                             <div>
-                              <p className="text-sm font-black text-slate-900">
+                              <p className="text-base font-black text-slate-900">
                                 {t.name}
                               </p>
                               {t.slug && (
-                                <p className="text-xs text-slate-500">
+                                <p className="text-sm text-slate-500">
                                   Mã định danh: {t.slug}
                                 </p>
                               )}
                               {isAlreadyMember && (
-                                <p className="mt-0.5 text-xs font-bold text-amber-800">
+                                <p className="mt-0.5 text-sm font-bold text-amber-800">
                                   Đã gắn hồ sơ:{' '}
                                   {linkInfo.memberName || 'Thành viên chính thức'}
                                 </p>
@@ -728,7 +916,7 @@ export const ClaimMemberPage = () => {
                             </div>
                           </div>
                           <span
-                            className={`rounded-xl px-3 py-1.5 text-xs font-black ${
+                            className={`rounded-xl px-3 py-1.5 text-sm font-black ${
                               isAlreadyMember
                                 ? 'bg-amber-100 text-amber-900'
                                 : isPending
@@ -749,9 +937,9 @@ export const ClaimMemberPage = () => {
                 )}
               </div>
             ) : selectedTenant ? (
-              <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950">
                 <div>
-                  <p className="text-[11px] font-black uppercase tracking-wider text-emerald-700">
+                  <p className="text-xs font-black uppercase tracking-wider text-emerald-700">
                     {isAddClanMode ? 'Dòng họ xin gia nhập' : 'Dòng họ hiện tại'}
                   </p>
                   <p className="text-lg font-black text-slate-900">
@@ -769,7 +957,7 @@ export const ClaimMemberPage = () => {
                         claimed_member_summary: null,
                       }));
                     }}
-                    className="rounded-xl border border-emerald-300 bg-white px-3 py-1.5 text-xs font-black text-emerald-800 hover:bg-emerald-100"
+                    className="min-h-[48px] rounded-xl border border-emerald-300 bg-white px-4 py-2 text-base font-black text-emerald-800 hover:bg-emerald-100"
                   >
                     Đổi dòng họ
                   </button>
@@ -779,14 +967,14 @@ export const ClaimMemberPage = () => {
 
             {/* Chọn mối quan hệ liên kết với dòng họ đích */}
             <div>
-              <label className="mb-1 block text-xs font-black text-slate-700">
+              <label className="mb-1.5 block text-base font-black text-slate-700">
                 Quan hệ của bạn với dòng họ này
               </label>
               <select
                 value={linkType}
                 disabled={isSubmitting}
                 onChange={(e) => setLinkType(e.target.value)}
-                className="w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-900 outline-none focus:border-emerald-500"
+                className="min-h-[48px] w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-base font-semibold text-slate-900 outline-none focus:border-emerald-500"
               >
                 {C1_LINK_TYPES.map((code) => {
                   const meta = LINK_TYPE_LABELS[code];
@@ -801,8 +989,8 @@ export const ClaimMemberPage = () => {
           </div>
 
           {checkingEligibility && selectedTenant?.id && (
-            <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-600">
-              <Loader2 size={16} className="animate-spin text-emerald-600" />
+            <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-base font-bold text-slate-600">
+              <Loader2 size={18} className="animate-spin text-emerald-600" />
               <span>Đang kiểm tra điều kiện gia nhập tại {selectedTenant.name}...</span>
             </div>
           )}
@@ -815,7 +1003,7 @@ export const ClaimMemberPage = () => {
                   <p className="text-xs font-black uppercase tracking-wider text-rose-700">
                     Không thể gửi thêm hồ sơ tại dòng họ này
                   </p>
-                  <p className="text-sm font-bold leading-relaxed">
+                  <p className="text-base font-bold leading-relaxed">
                     {eligibilityBlock.message}
                   </p>
                 </div>
@@ -828,9 +1016,9 @@ export const ClaimMemberPage = () => {
                       type="button"
                       disabled={isSwitchingContext}
                       onClick={() => switchContext(eligibilityBlock.tenantId, '/op')}
-                      className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
+                      className="min-h-[48px] inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-base font-black text-white shadow-sm hover:bg-emerald-700 disabled:opacity-50"
                     >
-                      <ArrowRightLeft size={15} />
+                      <ArrowRightLeft size={16} />
                       {isSwitchingContext
                         ? 'Đang chuyển dòng họ...'
                         : `Chuyển sang ${eligibilityBlock.clanName}`}
@@ -847,9 +1035,9 @@ export const ClaimMemberPage = () => {
                           : `/membership/status?tenantId=${encodeURIComponent(eligibilityBlock.tenantId)}`
                       )
                     }
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-black text-white shadow-sm hover:bg-blue-700"
+                    className="min-h-[48px] inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2.5 text-base font-black text-white shadow-sm hover:bg-blue-700"
                   >
-                    <ExternalLink size={15} />
+                    <ExternalLink size={16} />
                     Xem trạng thái hồ sơ đang chờ
                   </button>
                 )}
@@ -860,9 +1048,9 @@ export const ClaimMemberPage = () => {
                     onClick={() => {
                       setSelectedTenant(null);
                       setEligibilityBlock(null);
-                      setErrorMsg('');
+                      setBannerState(null);
                     }}
-                    className="inline-flex items-center gap-1.5 rounded-xl border border-rose-300 bg-white px-4 py-2.5 text-xs font-black text-rose-800 hover:bg-rose-100"
+                    className="min-h-[48px] inline-flex items-center gap-1.5 rounded-xl border border-rose-300 bg-white px-4 py-2.5 text-base font-black text-rose-800 hover:bg-rose-100"
                   >
                     Chọn dòng họ khác
                   </button>
@@ -873,138 +1061,183 @@ export const ClaimMemberPage = () => {
 
           {/* BƯỚC 2: CHỌN CLAIM EM HOẶC KHAI BÁO 21 TRƯỜNG */}
           {!eligibilityBlock && (
-          <div className="space-y-4">
-            <h2 className="text-sm font-black uppercase tracking-wider text-slate-700">
-              {isAddClanMode
-                ? 'Bước 2: Nhận diện nhân thân trên sổ họ'
-                : 'Chọn hình thức nhận diện nhân thân'}
-            </h2>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-sm font-black uppercase tracking-wider text-slate-700">
+                  {isAddClanMode
+                    ? 'Bước 2: Nhận diện nhân thân trên sổ họ'
+                    : 'Chọn hình thức nhận diện nhân thân'}
+                </h2>
+                <ZoneVoiceButton
+                  visible
+                  text="Bác chọn Cách 1 nếu tên của bác đã có trên cây gia phả, hoặc chọn Cách 2 nếu bác chưa có tên trên cây để khai báo hồ sơ mới."
+                  label="Nghe"
+                />
+              </div>
 
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <button
-                type="button"
-                disabled={isSubmitting}
-                onClick={() => {
-                  setEntryMode('CLAIM_EM');
-                  setProfileErrors({});
-                  setErrorMsg('');
-                }}
-                className={`rounded-2xl border p-4 text-left transition ${
-                  entryMode === 'CLAIM_EM'
-                    ? 'border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm'
-                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                <p className="text-xs font-black uppercase tracking-wider text-emerald-700">
-                  Cách 1 (Khuyên dùng)
-                </p>
-                <p className="mt-1 text-sm font-black">
-                  Đã có tên trong sổ họ (Nhận hồ sơ)
-                </p>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  Tra cứu tên bạn trên cây (bao gồm cả con rể/con dâu) và trả
-                  lời 3 lớp gia mật.
-                </p>
-              </button>
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div>
+                  <button
+                    type="button"
+                    disabled={isSubmitting || isClaimHoppingBlocked}
+                    onClick={() => {
+                      setEntryMode('CLAIM_EM');
+                      setProfileErrors({});
+                      setBannerState(null);
+                    }}
+                    className={`min-h-[48px] w-full rounded-2xl border p-4 text-left transition ${
+                      isClaimHoppingBlocked
+                        ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
+                        : entryMode === 'CLAIM_EM'
+                          ? 'border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                  >
+                    <p className="text-xs font-black uppercase tracking-wider text-emerald-700">
+                      Cách 1 (Khuyên dùng)
+                    </p>
+                    <p className="mt-1 text-base font-black">
+                      Đã có tên trong sổ họ (Nhận hồ sơ)
+                    </p>
+                    <p className="mt-0.5 text-sm text-slate-600">
+                      Tra cứu tên bạn trên cây (bao gồm cả con rể/con dâu) và trả
+                      lời 3 lớp gia mật.
+                    </p>
+                  </button>
+                  {isClaimHoppingBlocked && (
+                    <p className="mt-1.5 text-base font-semibold text-rose-700">
+                      Tạm khóa do từ chối nhiều lần trong 90 ngày.
+                    </p>
+                  )}
+                </div>
 
-              <button
-                type="button"
-                disabled={isSubmitting}
-                onClick={() => {
-                  setEntryMode('NEW_PROFILE_21');
-                  setProfileErrors({});
-                  setErrorMsg('');
-                }}
-                className={`rounded-2xl border p-4 text-left transition ${
-                  entryMode === 'NEW_PROFILE_21'
-                    ? 'border-indigo-600 bg-indigo-50 text-indigo-950 shadow-sm'
-                    : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                }`}
-              >
-                <p className="text-xs font-black uppercase tracking-wider text-indigo-700">
-                  Cách 2 (Khai báo mới)
-                </p>
-                <p className="mt-1 text-sm font-black">
-                  Chưa có tên trên cây (21 trường)
-                </p>
-                <p className="mt-0.5 text-xs text-slate-500">
-                  Điền đầy đủ thông tin nhân thân để Ban Quản trị đối soát và
-                  thêm vào cây.
-                </p>
-              </button>
-            </div>
+                <button
+                  type="button"
+                  disabled={isSubmitting}
+                  onClick={() => {
+                    setEntryMode('NEW_PROFILE_21');
+                    setProfileErrors({});
+                    setBannerState(null);
+                  }}
+                  className={`min-h-[48px] rounded-2xl border p-4 text-left transition ${
+                    entryMode === 'NEW_PROFILE_21'
+                      ? 'border-indigo-600 bg-indigo-50 text-indigo-950 shadow-sm'
+                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
+                >
+                  <p className="text-xs font-black uppercase tracking-wider text-indigo-700">
+                    Cách 2 (Khai báo mới)
+                  </p>
+                  <p className="mt-1 text-base font-black">
+                    Chưa có tên trên cây (21 trường)
+                  </p>
+                  <p className="mt-0.5 text-sm text-slate-600">
+                    Điền đầy đủ thông tin nhân thân để Ban Quản trị đối soát và
+                    thêm vào cây.
+                  </p>
+                </button>
+              </div>
 
-            {entryMode === 'CLAIM_EM' ? (
-              selectedTenant?.id ? (
-                <ClaimMemberWizard
-                  tenantId={selectedTenant.id}
-                  tenantName={selectedTenant.name}
-                  linkType={linkType}
-                  isMultiHome={true}
+              {entryMode === 'CLAIM_EM' ? (
+                selectedTenant?.id ? (
+                  <ClaimMemberWizard
+                    tenantId={selectedTenant.id}
+                    tenantName={selectedTenant.name}
+                    linkType={linkType}
+                    isMultiHome={true}
+                    value={profileDraft}
+                    disabled={isSubmitting}
+                    errors={profileErrors}
+                    qaLocked={isQaLocked}
+                    qaFailedAttempts={qaFailedAttempts}
+                    claimHoppingBlocked={isClaimHoppingBlocked}
+                    referralHistory={referralHistory}
+                    cooldownReferrerIds={cooldownReferrerIds}
+                    onSwitchToCreateNew={() => {
+                      setEntryMode('NEW_PROFILE_21');
+                      setProfileErrors({});
+                      setBannerState(null);
+                    }}
+                    onMemberSelect={(pickedMember) => {
+                      const ct = String(pickedMember?.child_type || '').toUpperCase();
+                      if (
+                        ct === 'CON_DAU' ||
+                        ct === 'CON_RE' ||
+                        pickedMember?.is_clan === false
+                      ) {
+                        setLinkType('SPOUSE_FAMILY');
+                      } else if (ct === 'CON_NUOI' || ct === 'CON_DO_DAU') {
+                        setLinkType('GUARDIAN');
+                      }
+                    }}
+                    onChange={(nextDraft) => {
+                      setProfileDraft(nextDraft);
+                      setProfileErrors({});
+                      setBannerState(null);
+                    }}
+                  />
+                ) : (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-base font-bold text-amber-800">
+                    Bác vui lòng tìm và chọn dòng họ ở Bước 1 trước để tra cứu
+                    danh sách thành viên trên cây.
+                  </div>
+                )
+              ) : (
+                <RegistrationProfileForm
                   value={profileDraft}
                   disabled={isSubmitting}
                   errors={profileErrors}
-                  onMemberSelect={(pickedMember) => {
-                    const ct = String(pickedMember?.child_type || '').toUpperCase();
-                    if (ct === 'CON_DAU' || ct === 'CON_RE') {
-                      setLinkType('SPOUSE_FAMILY');
-                    } else if (ct === 'CON_NUOI' || ct === 'CON_DO_DAU') {
-                      setLinkType('GUARDIAN');
-                    }
-                  }}
                   onChange={(nextDraft) => {
                     setProfileDraft(nextDraft);
                     setProfileErrors({});
-                    setErrorMsg('');
+                    setBannerState(null);
                   }}
                 />
-              ) : (
-                <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold text-amber-800">
-                  Bác vui lòng tìm và chọn dòng họ ở Bước 1 trước để tra cứu
-                  danh sách thành viên trên cây.
-                </div>
-              )
-            ) : (
-              <RegistrationProfileForm
-                value={profileDraft}
-                disabled={isSubmitting}
-                errors={profileErrors}
-                onChange={(nextDraft) => {
-                  setProfileDraft(nextDraft);
-                  setProfileErrors({});
-                  setErrorMsg('');
-                }}
-              />
-            )}
-          </div>
+              )}
+            </div>
           )}
 
-          <button
-            type="submit"
-            disabled={
-              isSubmitting ||
-              checkingEligibility ||
-              Boolean(eligibilityBlock) ||
-              !selectedTenant?.id
-            }
-            className="flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-4 text-base font-black text-white shadow-lg transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >
-            {isSubmitting ? (
-              <>
-                <Loader2 size={20} className="animate-spin" />
-                <span>Đang gửi hồ sơ...</span>
-              </>
-            ) : (
-              <>
-                <CheckCircle2 size={20} />
-                <span>
-                  {isRevisionMode
-                    ? 'Gửi lại hồ sơ bổ sung'
-                    : 'Gửi hồ sơ xin gia nhập dòng họ'}
-                </span>
-              </>
+          <div>
+            <button
+              type="submit"
+              disabled={
+                isSubmitting ||
+                checkingEligibility ||
+                Boolean(eligibilityBlock) ||
+                !selectedTenant?.id ||
+                (entryMode === 'CLAIM_EM' && (isQaLocked || isClaimHoppingBlocked))
+              }
+              className="min-h-[48px] flex w-full items-center justify-center gap-2 rounded-2xl bg-emerald-600 py-4 text-base font-black text-white shadow-lg transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:text-slate-600"
+            >
+              {isSubmitting ? (
+                <>
+                  <Loader2 size={20} className="animate-spin" />
+                  <span>Đang gửi hồ sơ...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 size={20} />
+                  <span>
+                    {isRevisionMode
+                      ? 'Gửi lại hồ sơ bổ sung'
+                      : 'Gửi hồ sơ xin gia nhập dòng họ'}
+                  </span>
+                </>
+              )}
+            </button>
+
+            {/* Inline helper text >= 16px bên dưới nút disabled (cấm dùng tooltip) */}
+            {entryMode === 'CLAIM_EM' && isQaLocked && (
+              <p className="mt-2 text-base font-semibold text-amber-900">
+                Hồ sơ đang tạm khóa xác thực tự động (3 lần sai) và chờ Ban Quản trị duyệt thủ công.
+              </p>
             )}
-          </button>
+            {entryMode === 'CLAIM_EM' && isClaimHoppingBlocked && (
+              <p className="mt-2 text-base font-semibold text-rose-700">
+                Chức năng nhận hồ sơ có sẵn đang tạm khóa. Bác vui lòng chọn &ldquo;Cách 2 (Khai báo mới)&rdquo; ở phía trên.
+              </p>
+            )}
+          </div>
         </form>
       </div>
     </div>

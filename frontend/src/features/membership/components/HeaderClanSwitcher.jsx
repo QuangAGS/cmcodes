@@ -1,14 +1,19 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/features/membership/components/HeaderClanSwitcher.jsx
- * DATETIME    : 2026-11-12T21:50:00+07:00
- * VERSION     : 1.4.0-MULTIHOME-AMEND02-V15-LAT3
+ * DATETIME    : 2026-11-20T06:55:00+07:00
+ * VERSION     : 1.5.0-PHASE2-SPRINT-FE3-DEFAULT-CLAN
  * DESCRIPTION : Dropdown Multi-Home trên header.
  *               - Mỗi họ: "Thành viên" -> /op (hoặc /membership/status nếu CHO_DUYET / TU_CHOI).
  *               - Nếu roleInTenant là admin (CLAN_ADMIN, SYSTEM_ADMIN, TRUONG_*) và DA_DUYET -> thêm "Quản trị" -> /admin.
  *               - Khác tenant: switchContext(tenantId, path) -> window.location.href = path.
  *               - Cùng tenant: chỉ gọi navigate(path), không gọi switchContext thừa.
  *               - Bổ sung 2 lối rẽ Multi-Home: "+ Gia nhập dòng họ khác" (C1) và "+ Lập dòng họ mới" (C1-S).
+ *               - [FUNC-05, TC-FE-05] Đồng bộ cờ dòng họ mặc định (`is_default` / `isDefault`):
+ *                 + Chuẩn hóa đọc cả isDefault (camelCase) và is_default (snake_case).
+ *                 + Ưu tiên sắp xếp dòng họ mặc định lên đầu danh sách.
+ *                 + Cho phép đặt dòng họ đã duyệt (DA_DUYET) làm dòng họ mặc định và đồng bộ
+ *                   lại phiên qua refreshContext() + PersistentMessageBanner + BlockingLoadingOverlay.
  * =============================================================================
  * CHANGELOGS:
  * - 2026-11-10T22:00:00+07:00 (v1.3.0): Chọn tenant và vai trò.
@@ -18,13 +23,20 @@
  * - 2026-11-12T21:50:00+07:00 (v1.4.0-MULTIHOME-AMEND02-V15-LAT3):
  *   + Thêm nút "+ Gia nhập dòng họ khác" -> /membership/claim?mode=add-clan.
  *   + Thêm nút "+ Lập dòng họ mới" -> /membership/setup.
+ * - 2026-11-20T06:55:00+07:00 (v1.5.0-PHASE2-SPRINT-FE3-DEFAULT-CLAN):
+ *   + Đồng bộ is_default / isDefault [FUNC-05, TC-FE-05] và PersistentMessageBanner.
  * =============================================================================
+ * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../../context/AuthContext';
+import apiClient from '../../../lib/apiClient';
 import { getLinkTypeMeta } from '../constants/membershipLabels';
+import PersistentMessageBanner from '../../../components/common/PersistentMessageBanner';
+import BlockingLoadingOverlay from '../../../components/common/BlockingLoadingOverlay';
+import { extractApiErrorInfo } from '../../../shared/hooks/useTurnstileFailClosed';
 
 const ADMIN_ROLES = new Set([
   'SYSTEM_ADMIN',
@@ -40,6 +52,12 @@ const getRoleInTenant = (clan) =>
 
 const isAdminRole = (role) => ADMIN_ROLES.has(role);
 
+/**
+ * [FUNC-05, TC-FE-05] Chuẩn hóa cờ dòng họ mặc định (hỗ trợ cả camelCase và snake_case từ Backend)
+ */
+const isClanDefault = (clan) =>
+  Boolean(clan?.isDefault === true || clan?.is_default === true);
+
 const resolveMemberEntryPath = (clan) => {
   const st = String(clan?.status || 'DA_DUYET').toUpperCase();
   if (st === 'DRAFT') return '/op/mfo/plan';
@@ -54,11 +72,13 @@ export const HeaderClanSwitcher = () => {
     activeContext,
     availableClans,
     switchContext,
+    refreshContext,
     isSwitchingContext,
   } = useAuth();
 
   const [isOpen, setIsOpen] = useState(false);
-  const [error, setError] = useState('');
+  const [bannerState, setBannerState] = useState(null);
+  const [settingDefaultTenantId, setSettingDefaultTenantId] = useState('');
   const dropdownRef = useRef(null);
 
   useEffect(() => {
@@ -71,24 +91,72 @@ export const HeaderClanSwitcher = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  if (!user || !availableClans || availableClans.length === 0) {
+  // [FUNC-05] Sắp xếp ưu tiên dòng họ mặc định (is_default = true) lên đầu danh sách
+  const orderedClans = useMemo(() => {
+    if (!Array.isArray(availableClans)) return [];
+    return [...availableClans].sort((a, b) => {
+      const aDef = isClanDefault(a) ? 1 : 0;
+      const bDef = isClanDefault(b) ? 1 : 0;
+      return bDef - aDef;
+    });
+  }, [availableClans]);
+
+  if (!user || orderedClans.length === 0) {
     return null;
   }
 
   const currentClan =
-    availableClans.find((c) => c.tenantId === activeContext?.activeTenantId) ||
-    availableClans[0];
+    orderedClans.find((c) => c.tenantId === activeContext?.activeTenantId) ||
+    orderedClans.find((c) => isClanDefault(c)) ||
+    orderedClans[0];
 
+  const currentIsDefault = isClanDefault(currentClan);
   const currentRole = getRoleInTenant(currentClan);
   const currentLinkMeta = getLinkTypeMeta(activeContext?.linkType || currentClan?.linkType);
   const currentIsAdmin = isAdminRole(currentRole);
+
+  /**
+   * [FUNC-05, TC-FE-05] Đặt dòng họ đã duyệt làm dòng họ mặc định (is_default = true)
+   * và đồng bộ lại ngữ cảnh từ Backend qua refreshContext().
+   */
+  const handleSetDefaultClan = async (clan) => {
+    if (!clan?.tenantId || settingDefaultTenantId) return;
+    setBannerState(null);
+    setSettingDefaultTenantId(clan.tenantId);
+
+    try {
+      const res = await apiClient.post('/membership/default-clan', {
+        tenantId: clan.tenantId,
+      });
+      if (typeof refreshContext === 'function') {
+        await refreshContext();
+      }
+      setBannerState({
+        type: 'success',
+        title: 'Đã cập nhật dòng họ mặc định',
+        message: `Dòng họ ${clan.clanName} đã được đặt làm dòng họ mặc định của bác.`,
+        correlationId:
+          res?.data?._correlationId || res?.data?.correlationId || 'Không có',
+      });
+    } catch (err) {
+      const info = extractApiErrorInfo(err);
+      setBannerState({
+        type: info.status === 409 ? 'warning' : 'error',
+        title: 'Chưa thể cập nhật dòng họ mặc định',
+        message: info.message,
+        correlationId: info.correlationId,
+      });
+    } finally {
+      setSettingDefaultTenantId('');
+    }
+  };
 
   /**
    * Xử lý chuyển đổi ngữ cảnh hoặc đổi vai trò tác nghiệp
    */
   const enterClanAs = async (clan, path) => {
     try {
-      setError('');
+      setBannerState(null);
       const sameTenant = clan.tenantId === activeContext?.activeTenantId;
 
       if (!sameTenant) {
@@ -102,7 +170,13 @@ export const HeaderClanSwitcher = () => {
       navigate(path, { replace: true });
     } catch (err) {
       console.error('Không thể chuyển dòng họ / vai trò:', err);
-      setError(err?.response?.data?.message || 'Không thể chuyển. Vui lòng thử lại.');
+      const info = extractApiErrorInfo(err);
+      setBannerState({
+        type: 'error',
+        title: 'Không thể chuyển dòng họ',
+        message: info.message,
+        correlationId: info.correlationId,
+      });
     }
   };
 
@@ -111,13 +185,18 @@ export const HeaderClanSwitcher = () => {
    * Không gọi switchContext hay auth/register để bảo toàn phiên của họ gốc.
    */
   const handleMultiHomeAction = (targetPath) => {
-    setError('');
+    setBannerState(null);
     setIsOpen(false);
     navigate(targetPath);
   };
 
   return (
     <div className="relative inline-block text-left" ref={dropdownRef}>
+      <BlockingLoadingOverlay
+        isOpen={Boolean(settingDefaultTenantId)}
+        message="Đang đồng bộ dòng họ mặc định..."
+      />
+
       <button
         type="button"
         disabled={isSwitchingContext}
@@ -126,7 +205,7 @@ export const HeaderClanSwitcher = () => {
         title="Bấm để đổi dòng họ hoặc vai trò"
       >
         <div className="flex items-center gap-2 text-left">
-          {currentClan?.isDefault && (
+          {currentIsDefault && (
             <span className="text-amber-500 font-bold" title="Dòng họ mặc định">
               ★
             </span>
@@ -149,22 +228,34 @@ export const HeaderClanSwitcher = () => {
       </button>
 
       {isOpen && (
-        <div className="absolute right-0 z-50 w-80 mt-2 origin-top-right bg-white rounded-2xl shadow-2xl ring-1 ring-black ring-opacity-10 focus:outline-none">
-          <div className="px-4 py-3 bg-gray-50 rounded-t-2xl">
+        <div className="absolute right-0 z-50 w-80 sm:w-96 mt-2 origin-top-right bg-white rounded-2xl shadow-2xl ring-1 ring-black ring-opacity-10 focus:outline-none">
+          <div className="px-4 py-3 bg-gray-50 rounded-t-2xl flex items-center justify-between">
             <span className="text-xs font-bold text-gray-500 uppercase tracking-wider">
-              Dòng họ của bạn ({availableClans.length})
+              Dòng họ của bạn ({orderedClans.length})
+            </span>
+            <span className="text-xs font-semibold text-amber-700">
+              ★ Mặc định
             </span>
           </div>
 
-          {error && (
-            <div className="px-4 py-2 text-sm text-red-700 bg-red-50">{error}</div>
+          {bannerState && (
+            <div className="px-3 pt-3">
+              <PersistentMessageBanner
+                type={bannerState.type}
+                title={bannerState.title}
+                message={bannerState.message}
+                correlationId={bannerState.correlationId}
+                onClose={() => setBannerState(null)}
+              />
+            </div>
           )}
 
           <div className="py-2 max-h-80 overflow-y-auto">
-            {availableClans.map((clan) => {
+            {orderedClans.map((clan) => {
               const role = getRoleInTenant(clan);
               const linkStatus = String(clan?.status || 'DA_DUYET').toUpperCase();
               const isApproved = linkStatus === 'DA_DUYET';
+              const clanDefault = isClanDefault(clan);
               const admin = isApproved && isAdminRole(role);
               const isSelected = clan.tenantId === activeContext?.activeTenantId;
               const linkMeta = getLinkTypeMeta(clan.linkType);
@@ -179,15 +270,20 @@ export const HeaderClanSwitcher = () => {
                 >
                   <div className="flex items-start justify-between gap-2">
                     <div>
-                      <div className="flex items-center gap-1.5">
-                        {clan.isDefault && (
-                          <span className="text-amber-500 text-sm font-bold" title="Dòng họ mặc định">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {clanDefault && (
+                          <span className="text-amber-500 text-base font-bold" title="Dòng họ mặc định">
                             ★
                           </span>
                         )}
                         <span className="text-base font-semibold text-gray-900 leading-snug">
                           {clan.clanName}
                         </span>
+                        {clanDefault && (
+                          <span className="inline-block px-2 py-0.5 rounded-md bg-amber-100 text-amber-900 font-bold text-xs">
+                            Mặc định
+                          </span>
+                        )}
                       </div>
                       <div className="text-xs text-gray-500 mt-0.5 flex items-center gap-2">
                         <span>Vai trò: {role}</span>
@@ -213,7 +309,7 @@ export const HeaderClanSwitcher = () => {
                       type="button"
                       disabled={isSwitchingContext}
                       onClick={() => enterClanAs(clan, memberEntryPath)}
-                      className="w-full text-left px-3 py-2 min-h-[44px] rounded-xl bg-white border border-gray-200 hover:border-blue-400 hover:bg-blue-50 text-sm font-semibold text-gray-800 transition-colors"
+                      className="w-full text-left px-3 py-2 min-h-[48px] rounded-xl bg-white border border-gray-200 hover:border-blue-400 hover:bg-blue-50 text-base font-semibold text-gray-800 transition-colors"
                     >
                       {linkStatus === 'CHO_DUYET' || linkStatus === 'TU_CHOI'
                         ? 'Xem trạng thái hồ sơ gia nhập'
@@ -224,9 +320,19 @@ export const HeaderClanSwitcher = () => {
                         type="button"
                         disabled={isSwitchingContext}
                         onClick={() => enterClanAs(clan, '/admin')}
-                        className="w-full text-left px-3 py-2 min-h-[44px] rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-sm font-semibold transition-colors"
+                        className="w-full text-left px-3 py-2 min-h-[48px] rounded-xl bg-slate-900 text-white hover:bg-slate-800 text-base font-semibold transition-colors"
                       >
                         Vào với tư cách Quản trị
+                      </button>
+                    )}
+                    {isApproved && !clanDefault && orderedClans.length > 1 && (
+                      <button
+                        type="button"
+                        disabled={isSwitchingContext || Boolean(settingDefaultTenantId)}
+                        onClick={() => handleSetDefaultClan(clan)}
+                        className="w-full text-left px-3 py-2 min-h-[48px] rounded-xl bg-amber-50 border border-amber-200 hover:bg-amber-100 text-base font-semibold text-amber-900 transition-colors"
+                      >
+                        ☆ Đặt làm dòng họ mặc định
                       </button>
                     )}
                   </div>
@@ -240,7 +346,7 @@ export const HeaderClanSwitcher = () => {
               type="button"
               disabled={isSwitchingContext}
               onClick={() => handleMultiHomeAction('/membership/claim?mode=add-clan')}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 min-h-[44px] rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-sm transition-colors"
+              className="w-full flex items-center justify-center gap-2 px-3 py-2.5 min-h-[48px] rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-base font-bold shadow-sm transition-colors"
             >
               <span>+ Gia nhập dòng họ khác</span>
             </button>
@@ -248,12 +354,12 @@ export const HeaderClanSwitcher = () => {
               type="button"
               disabled={isSwitchingContext}
               onClick={() => handleMultiHomeAction('/membership/setup')}
-              className="w-full flex items-center justify-center gap-2 px-3 py-2 min-h-[40px] rounded-xl bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-xs font-bold transition-colors"
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 min-h-[48px] rounded-xl bg-white hover:bg-indigo-50 text-indigo-700 border border-indigo-200 text-base font-bold transition-colors"
             >
               <span>+ Lập dòng họ mới</span>
             </button>
             {currentIsAdmin && (
-              <div className="pt-1 text-[11px] text-gray-500 text-center">
+              <div className="pt-1 text-xs text-gray-500 text-center">
                 Đang ở: <span className="font-semibold">{currentClan?.clanName}</span> (có thể vào Thành viên hoặc Quản trị)
               </div>
             )}

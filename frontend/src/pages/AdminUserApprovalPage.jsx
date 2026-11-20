@@ -45,6 +45,9 @@ import AppFooterNav from '../components/shell/AppFooterNav.jsx';
 import { resolveFooterNav } from '../lib/resolveFooterNav.js';
 import AudioHelpButton from '../features/elder-doctrine/components/AudioHelpButton.jsx';
 import { ADMIN_APPROVAL_RP_HELP } from '../features/admin/constants/adminMessages.js';
+import PersistentMessageBanner from '../components/common/PersistentMessageBanner.jsx';
+import BlockingLoadingOverlay from '../components/common/BlockingLoadingOverlay.jsx';
+import { extractApiErrorInfo } from '../shared/hooks/useTurnstileFailClosed.js';
 
 const STATUS_BADGES = {
   CHO_DUYET: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -139,6 +142,7 @@ const AdminUserApprovalPage = () => {
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [showFilters, setShowFilters] = useState(false); // Toggle bộ lọc trên mobile
+  const [bannerState, setBannerState] = useState(null);
 
   // State lưu trữ các "Mối quan tâm" (Bộ lọc động)
   const [filters, setFilters] = useState({
@@ -315,6 +319,7 @@ const AdminUserApprovalPage = () => {
   // Xử lý nộp quyết định thay đổi trạng thái (C2/C2-S qua /auth/*; C1/C1-S qua /membership/cases/:caseId/*)
   const handleApprovalSubmit = async (formData) => {
     setSubmitting(true);
+    setBannerState(null);
     try {
       const userId = selectedUser.id;
       const caseId = selectedUser.caseId || null;
@@ -322,14 +327,26 @@ const AdminUserApprovalPage = () => {
       const adminNote = (formData.adminNote || '').trim();
 
       if (!adminNote) {
-        toast.error('Vui lòng nhập bút phê / ghi chú.');
+        setBannerState({
+          type: 'warning',
+          mode: 'inline',
+          title: 'Thiếu bút phê quản trị',
+          message: 'Vui lòng nhập bút phê / ghi chú.',
+          correlationId: 'Không có',
+        });
         return;
       }
 
       if (isMultiHome) {
         if (formData.newStatus === 'RETURN_FOR_REVISION') {
           await membershipApi.returnForRevision(caseId, { adminNote });
-          toast.success('Đã yêu cầu bổ sung hồ sơ Multi-Home (trả về sửa).');
+          setBannerState({
+            type: 'success',
+            mode: 'inline',
+            title: 'Đã yêu cầu bổ sung hồ sơ',
+            message: 'Đã yêu cầu bổ sung hồ sơ Multi-Home (trả về sửa).',
+            correlationId: 'Không có',
+          });
         } else {
           await membershipApi.approveCase(caseId, {
             newStatus: formData.newStatus,
@@ -337,13 +354,17 @@ const AdminUserApprovalPage = () => {
             isFinalRejection: formData.isFinalRejection === true,
             targetMemberId: formData.targetMemberId || undefined,
           });
-          toast.success(
-            formData.isFinalRejection
+          setBannerState({
+            type: 'success',
+            mode: 'inline',
+            title: 'Đã cập nhật hồ sơ thành công',
+            message: formData.isFinalRejection
               ? 'Đã gắn từ chối lần cuối cho hồ sơ Multi-Home.'
               : formData.newStatus === 'DA_DUYET'
                 ? 'Đã duyệt hồ sơ gia nhập dòng họ (Multi-Home) thành công!'
-                : 'Đã từ chối hồ sơ Multi-Home.'
-          );
+                : 'Đã từ chối hồ sơ Multi-Home.',
+            correlationId: 'Không có',
+          });
         }
       } else {
         // Luồng C2 / C2-S (Guest mới đăng ký)
@@ -353,7 +374,13 @@ const AdminUserApprovalPage = () => {
             caseId: caseId || undefined,
             adminNote,
           });
-          toast.success('Đã yêu cầu bổ sung hồ sơ (trả về sửa).');
+          setBannerState({
+            type: 'success',
+            mode: 'inline',
+            title: 'Đã yêu cầu bổ sung hồ sơ',
+            message: 'Đã yêu cầu bổ sung hồ sơ (trả về sửa).',
+            correlationId: 'Không có',
+          });
         } else {
           await apiClient.post('/auth/process-approval', {
             userId,
@@ -363,11 +390,15 @@ const AdminUserApprovalPage = () => {
             targetMemberId: formData.targetMemberId || undefined,
             isFinalRejection: formData.isFinalRejection === true,
           });
-          toast.success(
-            formData.isFinalRejection
+          setBannerState({
+            type: 'success',
+            mode: 'inline',
+            title: 'Đã cập nhật trạng thái tài khoản',
+            message: formData.isFinalRejection
               ? 'Đã gắn từ chối lần cuối.'
-              : 'Cập nhật trạng thái tài khoản thành công!'
-          );
+              : 'Cập nhật trạng thái tài khoản thành công!',
+            correlationId: 'Không có',
+          });
         }
       }
 
@@ -375,9 +406,44 @@ const AdminUserApprovalPage = () => {
       fetchReviewableUsers(filters);
     } catch (err) {
       console.error('❌ [Submit Approval Error]:', err);
-      toast.error(
-        err.response?.data?.message || 'Thao tác xử lý hồ sơ thất bại.'
-      );
+      const info = extractApiErrorInfo(err);
+
+      // [FUNC-02, TC-FE-02] 400 REFERRER_DECEASED -> Banner modal + refetch
+      if (info.status === 400 && info.code === 'REFERRER_DECEASED') {
+        setSelectedUser(null);
+        setBannerState({
+          type: 'warning',
+          mode: 'modal',
+          title: 'Hồ sơ lùi về NEEDS_REVISION',
+          message: `Hồ sơ lùi về NEEDS_REVISION. ${info.message}`,
+          correlationId: info.correlationId,
+        });
+        fetchReviewableUsers(filters);
+        return;
+      }
+
+      // [ARCH-01, ARCH-04, TC-FE-14] 409 CONCURRENT_TRANSACTION_LOCKED:
+      // Không đóng selectedUser để giữ nguyên toàn bộ state form Admin vừa nhập!
+      setBannerState({
+        type: info.status === 409 ? 'warning' : 'error',
+        mode: 'inline',
+        title:
+          info.status === 409
+            ? 'Hồ sơ đang được xử lý đồng thời'
+            : 'Thao tác xử lý hồ sơ thất bại',
+        message: info.message,
+        correlationId: info.correlationId,
+        actionButton:
+          info.status === 409 ? (
+            <button
+              type="button"
+              onClick={() => handleApprovalSubmit(formData)}
+              className="min-h-[48px] rounded-xl bg-amber-600 px-4 py-2 text-base font-bold text-white"
+            >
+              Thử lại ngay
+            </button>
+          ) : null,
+      });
     } finally {
       setSubmitting(false);
     }
@@ -394,6 +460,10 @@ const AdminUserApprovalPage = () => {
   if (selectedUser) {
     return (
       <div className="min-h-screen bg-slate-50">
+        <BlockingLoadingOverlay
+          isOpen={submitting}
+          message="Đang lưu quyết định phê duyệt vào Sổ Cái..."
+        />
         <div className="max-w-[480px] mx-auto">
           <TenantHeader
             tenant={sessionTenant}
@@ -402,12 +472,26 @@ const AdminUserApprovalPage = () => {
           <div className="px-4 py-6">
           <div className="mb-6">
             <button
-              onClick={() => setSelectedUser(null)}
-              className="inline-flex items-center gap-2 text-sm font-black text-slate-600 hover:text-indigo-600 transition"
+              onClick={() => {
+                setBannerState(null);
+                setSelectedUser(null);
+              }}
+              className="min-h-[48px] inline-flex items-center gap-2 text-base font-black text-slate-700 hover:text-indigo-600 transition"
             >
-              <ChevronLeft size={16} /> Quay lại bảng điều khiển
+              <ChevronLeft size={18} /> Quay lại bảng điều khiển
             </button>
           </div>
+          {bannerState && (
+            <PersistentMessageBanner
+              type={bannerState.type}
+              mode={bannerState.mode}
+              title={bannerState.title}
+              message={bannerState.message}
+              correlationId={bannerState.correlationId}
+              actionButton={bannerState.actionButton}
+              onClose={() => setBannerState(null)}
+            />
+          )}
           <UserApprovalForm
             userData={selectedUser}
             loading={submitting}
@@ -432,6 +516,17 @@ const AdminUserApprovalPage = () => {
         />
 
         <div className="px-4 py-6">
+        {bannerState && (
+          <PersistentMessageBanner
+            type={bannerState.type}
+            mode={bannerState.mode}
+            title={bannerState.title}
+            message={bannerState.message}
+            correlationId={bannerState.correlationId}
+            actionButton={bannerState.actionButton}
+            onClose={() => setBannerState(null)}
+          />
+        )}
         {/* HEADER ĐỒNG BỘ AUTH_PAGE */}
         <div className="mb-8 text-center">
           <div className="mb-2 flex justify-end">

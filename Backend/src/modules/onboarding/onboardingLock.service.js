@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : src/modules/onboarding/onboardingLock.service.js
- * DATETIME   : 2026-11-19T12:52:00+07:00
- * VERSION    : 1.0.1-AMEND-RP-OP-2026-03-SPRINT2
+ * DATETIME   : 2026-11-19T14:32:00+07:00
+ * VERSION    : 1.0.2-AMEND-RP-OP-2026-03-SPRINT4-HARDENING
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-03-BASELINE v7.0 - Sprint 2 / Task 2.2]
  *   Cung cấp cơ chế khóa hàng một chiều (Strict Lock Ordering) & ghi log sau khóa:
@@ -22,6 +22,9 @@
  *     an toàn không phụ thuộc AsyncLocalStorage tenantContext.
  * - 2026-11-19T12:52:00+07:00 (v1.0.1-AMEND-RP-OP-2026-03-SPRINT2):
  *   + Bổ sung nhận diện fallback '55P03' / 'lock timeout' trên err.message khi Prisma bọc lỗi raw query.
+ * - 2026-11-19T14:32:00+07:00 (v1.0.2-AMEND-RP-OP-2026-03-SPRINT4-HARDENING):
+ *   + Cấu hình { maxWait: 5000, timeout: 15000 } cho Prisma interactive transaction để luồng giữ khóa
+ *     không bị Prisma cắt sớm ở mốc 5000ms trong khi Postgres xử lý SET LOCAL lock_timeout = '5s'.
  * ============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -107,7 +110,7 @@ class OnboardingLockService {
           shouldBeDefault,
           lockedAt: new Date(),
         });
-      });
+      }, { maxWait: 5000, timeout: 15000 });
     } catch (err) {
       const pgCode = err?.meta?.code || err?.code;
       const errMsg = typeof err?.message === 'string' ? err.message : '';

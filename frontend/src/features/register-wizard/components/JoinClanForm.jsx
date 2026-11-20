@@ -1,64 +1,36 @@
 /**
  * PATH       : frontend/src/features/register-wizard/components/JoinClanForm.jsx
  * OLD PATH   : src/features/auth/components/JoinClanForm.jsx
- * DATETIME   : 2026-11-14T22:45:00+07:00
- * VERSION    : EGAL-25.X. R6.3.4-UAT-BUG8-REVISION-BANNER
+ * DATETIME   : 2026-11-20T06:20:00+07:00
+ * VERSION    : EGAL-25.X. R6.4.0-PHASE2-SPRINT-FE2
  * DESCRIPTION:
+ * - PURPOSE EGAL-25.X. R6.4.0-PHASE2-SPRINT-FE2 (IMPL-PLAN-FE-PHASE2-V1.8-ISO29148):
+ *    1. Gắn useTurnstileFailClosed (src/shared/hooks/useTurnstileFailClosed.js) cho
+ *       public search (/public/tenants/search & claim-search): tự động kích hoạt
+ *       Turnstile khi nhận 403 TURNSTILE_REQUIRED/FAILED [NFR-02], tự động gọi lại
+ *       API tối đa 1 lần sau khi tick xanh [TC-FE-12], và tự reset widget (không
+ *       auto-retry) nếu CAPTCHA thất bại.
+ *    2. Hiển thị nhãn ngoại tộc (Con dâu / Con rể) khi is_clan === false và khóa
+ *       chọn sớm nếu is_claimed === true (kèm inline helper text >= 16px) [ARCH-03, TC-FE-15].
+ *    3. Multi-Home Bypass OTP [FUNC-04, TC-FE-04]: Khi user.status === 'DA_DUYET'
+ *       (hoặc isApprovedMultiHome), ẩn hoàn toàn UI bước/khối OTP và cho phép gửi
+ *       hồ sơ gia nhập trực tiếp.
+ *    4. Hợp nhất PersistentMessageBanner (kèm X-Correlation-Id fallback "Không có")
+ *       và BlockingLoadingOverlay cho các lỗi Phase 2 (403 Claim-Hopping, 409 LCK
+ *       Keep State, 409 Already Linked, 429 Rate Limit).
  * - PURPOSE EGAL-25.X. R6.3.2:
  *    Tích hợp bộ chọn quốc gia (COUNTRY_PHONE_OPTIONS) và chuẩn hóa số điện thoại quốc tế
  *    ITU-T E.164 bằng libphonenumber-js/min (validatePhoneWithCountry, detectPhoneCountry),
  *    đồng thời tương thích ngược 100% với số điện thoại Việt Nam (0xxxxxxxxx).
- * - PURPOSE EGAL-25.X. R6.2.2A: 
- *    chỉ gỡ social preferred-channel khỏi JoinClanForm, thêm email optional, 
+ * - PURPOSE EGAL-25.X. R6.2.2A:
+ *    chỉ gỡ social preferred-channel khỏi JoinClanForm, thêm email optional,
  *    và giữ WaitingPage/payload ổn định.
  * - PURPOSE EGAL-24.6.7.R3.3: New doctrine:
-      1. Keep `GuidedFieldWrapper` only as UI/AZ shell.
-      2. Remove old guided doctrine:
-        - no `StepCoachBar`
-        - no `useGuidedFlow`
-        - no `useProactiveVoiceGuidance`
-        - no forced sequential navigation
-        - no blur auto-move
-      3. User may freely touch/focus any AZ.
-      4. Validation happens on submit only.
-      5. Error must:
-        - show in the correct inline message area
-        - be read aloud
-        - route/focus to the correct field/AZ
-      6. Only one message source should be visible at a time:
-        - lock countdown overrides backend error
-        - success/pending overrides error
-      7. Native browser validation must not block React validation:
-        - use `noValidate`
-        - remove `required` from inputs handled by React validation
-
-      ## CAPTCHA doctrine
-      Shared captcha package is the target:
-      - `useCaptchaZone`
-      - `CaptchaAttentionField`
-      - `captchaZone.service.js`
-      Rules:
-      - missing token = non-destructive
-      - expired/error/backend invalid = destructive reset/remount allowed
-      - consumed token must not be reused
-      - submit payload uses `captchaCheck.token || captchaZone.getToken()`
-      Status:
-      - LoginForm: OK
-      - ForgotPasswordForm: OK
-      - VerifyResetCodeForm: now OK with shared captcha zone
-      - ChangePasswordForm: no captcha
- * - PURPOSE 24.6.7.R1.9:
- *    - Chỉ WaitingPage/Edit mới được truyền draft initialData xuống form con.
- *    - Fresh RegisterForm -> Join/Create phải là fresh session.
- * - EGAL-6.5.3: Lifecycle-safe JoinClanForm.
- * - EGAL-24.6.7.R1.5: Tách CAPTCHA thành guided field riêng để TTS đọc đúng hướng dẫn xác minh.
- * - Patch từ VERSION 24.1.0.
- * - Tích hợp validationGate.service.js để hard-validate trước khi chuyển WaitingPage.
- * - Tích hợp runtimeInvalidation.service.js để chống stale validation/runtime state.
- * - Re-check phone online ngay trước transition.
- * - Consume lifecycleContext từ RegisterForm/AuthPage.
- * - Preserve schema/API/payload/Turnstile/Honeypot/auth flow.
- * - Tuân thủ Q1/Q2.
+ *    1. Keep `GuidedFieldWrapper` only as UI/AZ shell.
+ *    2. User may freely touch/focus any AZ.
+ *    3. Validation happens on submit only.
+ *    4. Native browser validation must not block React validation (`noValidate`).
+ * - Tuân thủ Q1/Q2/Q3/Q4.
  */
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
@@ -73,11 +45,11 @@ import {
   Eye,
   EyeOff,
   User,
-  Mail, // EGAL-25.X. R6.2.2A: thêm icon mail cho email optional field.
+  Mail,
   AlertCircle,
+  ShieldCheck,
 } from 'lucide-react';
 
-// Shared captcha zone (R3.3 doctrine). giữ context, bỏ legacy noise
 import AudioHelpButton from '../../elder-doctrine/components/AudioHelpButton.jsx';
 import { ttsMessages } from '../../../features/elder-doctrine/constants/ttsMessages.js';
 
@@ -110,12 +82,21 @@ import {
 } from '../utils/identityHelpers.js';
 import { useTts } from '../../../shared/hooks/useTts.js';
 import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx';
-// Dùng shared captcha zone thay vì Turnstile component riêng. ------------------
 import useCaptchaZone from '../../elder-doctrine/hooks/useCaptchaZone.js';
 import CaptchaAttentionField from '../../elder-doctrine/components/CaptchaAttentionField.jsx';
-import ClaimMemberWizard from '../../membership/components/ClaimMemberWizard.jsx';
+import ClaimMemberWizard, {
+  resolveMemberClanRelation,
+} from '../../membership/components/ClaimMemberWizard.jsx';
 import RegistrationProfileForm from '../../membership/components/RegistrationProfileForm.jsx';
-// -------------------------------------------------------------------------------------------
+
+// Sprint FE-1 & FE-2 Phase 2 Contracts, Banner, Overlay & Fail-Closed Turnstile Hook
+import { CLAIM_MODES } from '../../onboarding/constants/onboardingPhase2Contracts.js';
+import PersistentMessageBanner from '../../../components/common/PersistentMessageBanner.jsx';
+import BlockingLoadingOverlay from '../../../components/common/BlockingLoadingOverlay.jsx';
+import useTurnstileFailClosed, {
+  isTurnstileChallengeError,
+  extractApiErrorInfo,
+} from '../../../shared/hooks/useTurnstileFailClosed.js';
 
 /**
  * Static option maps
@@ -131,11 +112,6 @@ const RELATIONSHIP_OPTIONS = [
   { value: 'CON_DO_DAU', label: 'Con đỡ đầu' },
   { value: 'KHAC', label: 'Khác' },
 ];
-
-/**
- * Default visual system for JoinClanForm.
- * Parent có thể override qua uiSystem nhưng flow/validation không phụ thuộc UI class.
- */
 
 /**
  * PR-OP-4: chuẩn hóa draft revision / Waiting edit
@@ -182,11 +158,11 @@ const DEFAULT_UI_SYSTEM = {
   section: 'space-y-4 rounded-3xl border border-slate-100 bg-white p-4 shadow-sm',
   label: 'text-sm font-black text-slate-700',
   input:
-    'w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100',
+    'w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100',
   select:
-    'w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100',
+    'w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100',
   buttonSecondary:
-    'flex-1 rounded-3xl border border-slate-200 bg-white px-4 py-4 text-sm font-black text-slate-700 transition hover:bg-slate-50',
+    'flex-1 rounded-3xl border border-slate-200 bg-white px-4 py-4 text-base font-black text-slate-700 transition hover:bg-slate-50',
   footer: 'flex gap-3 pt-8',
 };
 
@@ -204,6 +180,10 @@ const JoinClanForm = ({
   isRevision = false,
   reviewNote = '',
   lockedIdentifier = '',
+  // Phase 2 Multi-Home Bypass OTP [FUNC-04, TC-FE-04]
+  currentUser = null,
+  isApprovedMultiHome = false,
+  onNavigateToClan,
 }) => {
   const effectiveReviewNote = String(
     reviewNote || initialData?.reviewNote || ''
@@ -212,13 +192,20 @@ const JoinClanForm = ({
   const effectiveLoading = loading || isSubmitting;
 
   /**
-   * Local UI state
-   * - searchKeyword/tenantResults: phục vụ tìm và chọn dòng họ.
-   * - selectedTenant: authority cho dòng họ đã chọn.
-   * - selectedChannel: authority cho kênh liên lạc.
-   * - attentionMessage: một thông báo đỏ tại một thời điểm.
+   * [FUNC-04, TC-FE-04] Multi-Home Bypass OTP:
+   * Điều kiện kích hoạt: user.status === 'DA_DUYET'.
+   * Hành vi: Ẩn hoàn toàn bước/khối xác thực OTP và cho phép submit trực tiếp.
    */
-  //const [step, setStep] = useState(1);
+  const isMultiHomeBypassOtp = Boolean(
+    isApprovedMultiHome ||
+      currentUser?.status === 'DA_DUYET' ||
+      lifecycleContext?.userStatus === 'DA_DUYET' ||
+      initialData?.userStatus === 'DA_DUYET'
+  );
+
+  /**
+   * Local UI state
+   */
   const step = 1;
   const [searchKeyword, setSearchKeyword] = useState(initialData?.clanName || '');
   const [tenantResults, setTenantResults] = useState([]);
@@ -226,10 +213,10 @@ const JoinClanForm = ({
   const [selectedTenant, setSelectedTenant] = useState(
     initialData?.tenantId
       ? {
-        id: initialData.tenantId,
-        name: initialData.clanName,
-        slug: initialData.tenantSlug || '',
-      }
+          id: initialData.tenantId,
+          name: initialData.clanName,
+          slug: initialData.tenantSlug || '',
+        }
       : null,
   );
 
@@ -315,6 +302,11 @@ const JoinClanForm = ({
 
   const [profileErrors, setProfileErrors] = useState({});
 
+  // Trạng thái Phase 2: PersistentMessageBanner, Rate Limit 429, Claim-Hopping 403
+  const [phase2Banner, setPhase2Banner] = useState(null);
+  const [searchRateLimitSeconds, setSearchRateLimitSeconds] = useState(0);
+  const [isClaimHoppingBlocked, setIsClaimHoppingBlocked] = useState(false);
+
   const [phoneCountry, setPhoneCountry] = useState(() =>
     initialData?.phoneCountry || detectPhoneCountry(initialData?.phone, 'VN')
   );
@@ -328,24 +320,22 @@ const JoinClanForm = ({
 
   const [phoneRemoteError, setPhoneRemoteError] = useState('');
   const [phoneChecking, setPhoneChecking] = useState(false);
-  /* EGAL-25 R6.2.2A: ---------------------------------- 
-   * nhưng UI chỉ dùng selectedChannel làm authority.
-  const [selectedChannel, setSelectedChannel] = useState(
-    initialData?.preferredChannel || 'zalo'
-  );
-  ------------------------------------------------ */
   const [emailRemoteError, setEmailRemoteError] = useState('');
   const [emailChecking, setEmailChecking] = useState(false);
 
   const [showPassword, setShowPassword] = useState(false);
   const [attentionMessage, setAttentionMessage] = useState('');
   const { speak } = useTts();
-  /**
-   * Mandatory speech helper
-   * - Dùng speak() thay vì speakError() để ổn định hơn trên Safari.
-   * - rate 0.82 là tốc độ dễ nghe cho elder UX.
-   * - Chỉ dùng cho lỗi/attention bắt buộc phải đọc.
-   */
+
+  // Đếm ngược thời gian khóa tìm kiếm khi dính HTTP 429 [NFR-02]
+  useEffect(() => {
+    if (searchRateLimitSeconds <= 0) return undefined;
+    const timer = setInterval(() => {
+      setSearchRateLimitSeconds((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [searchRateLimitSeconds]);
+
   const speakMandatoryError = useCallback(
     (text, options = {}) => {
       if (!text) return false;
@@ -357,11 +347,9 @@ const JoinClanForm = ({
     },
     [speak],
   );
+
   /**
-   * Shared captcha runtime
-   * - Không dùng Turnstile local state.
-   * - Token được validate tại nextStep().
-   * - Token chỉ consume sau khi payload đã chuyển sang WaitingPage/submit flow an toàn.
+   * Shared captcha runtime (for final form submit)
    */
   const captchaZone = useCaptchaZone({
     zoneId: 'captcha',
@@ -369,17 +357,7 @@ const JoinClanForm = ({
     debugName: 'JOIN_CLAN',
     debug: import.meta.env.DEV || import.meta.env.VITE_DEBUG_MODE === 'true',
   });
-  /**
-   * <2026-05-15T16:00:00+07:00>
-   * EGAL-6.6.1:
-   * Critical attention message must be spoken every time,
-   * even when the same validation error repeats.
-   *
-   * Q1/Q2 safe:
-   * - UI guidance only
-   * - no validation change
-   * - no payload/API change
-   */
+
   const speakCriticalAttention = useCallback(
     (message) => {
       if (!message) return;
@@ -396,14 +374,9 @@ const JoinClanForm = ({
 
   /**
    * Field refs for precise routing
-   * - routeFieldError() dùng refs này để scroll/focus đúng field.
-   * - Không dùng để điều khiển forced flow.
    */
   const searchTimerRef = useRef(null);
-  /**
-   * R3.3
-   * Field refs for precise focus routing.
-   */
+  const lastPublicSearchKeywordRef = useRef('');
   const tenantSearchRef = useRef(null);
   const fullNameRef = useRef(null);
   const fatherNameRef = useRef(null);
@@ -411,17 +384,11 @@ const JoinClanForm = ({
   const relationshipRef = useRef(null);
   const noteRef = useRef(null);
   const phoneRef = useRef(null);
-  const emailRef = useRef(null); // EGAL-25.X. R6.2.2A: thêm ref cho email optional field.
+  const emailRef = useRef(null);
   const passwordRef = useRef(null);
 
   const lastLifecycleVersionRef = useRef(lifecycleContext?.runtimeVersion || 0);
 
-  /**
-   * Fresh default values
-   * - Fresh Register → JoinClanForm luôn trắng.
-   * - WaitingPage/Edit mới được restore initialData.
-   * - preferredChannel mặc định là zalo để không rỗng payload.
-   */
   const JOIN_CLAN_EMPTY_VALUES = {
     tenantId: '',
     clanName: '',
@@ -430,27 +397,12 @@ const JoinClanForm = ({
     temp_birth_year: '',
     temp_relationship: '',
     temp_note: '',
-    /*
-      preferredChannel: 'zalo',
-      temp_social_profiles: {
-        channel: 'zalo',
-      },
-      phone: '',
-      password: '',
-     */
-    //EGAL-25.X. R6.2.2A
     email: '',
     phone: '',
     password: '',
     hp_field: '',
   };
 
-  /**
-   * React Hook Form contract
-   * - Validation chỉ chạy khi submit.
-   * - Sau submit lỗi, sửa field sẽ revalidate field đó.
-   * - Native browser validation bị tắt ở <form noValidate>.
-   */
   const {
     register,
     handleSubmit,
@@ -463,18 +415,7 @@ const JoinClanForm = ({
     formState: { errors },
   } = useForm({
     resolver: zodResolver(joinClanSchema),
-
-    /**
-     * EGAL-24.6.7.R3.3
-     * Validation authoritative on submit.
-     * Error shown after submit attempt.
-     */
     mode: 'onSubmit',
-
-    /**
-     * Sau submit đầu tiên:
-     * sửa field sẽ validate lại field đó.
-     */
     reValidateMode: 'onChange',
     defaultValues: {
       ...JOIN_CLAN_EMPTY_VALUES,
@@ -483,53 +424,15 @@ const JoinClanForm = ({
   });
 
   const formValues = watch();
-  /** EGAL-25.X. R6.2.2A ----------------------------------
-   * Contact channel UI map
-   * - selectedChannel là state authority.
-   * - useEffect bên dưới sync selectedChannel vào RHF values.
-
-    const channels = {
-      zalo: {
-        name: 'Zalo',
-        color: 'bg-blue-600',
-        icon: '💬',
-        link: 'https://zalo.me/',
-      },
-      telegram: {
-        name: 'Telegram',
-        color: 'bg-sky-500',
-        icon: '✈️',
-        link: 'https://t.me/',
-      },
-      whatsapp: {
-        name: 'WhatsApp',
-        color: 'bg-green-600',
-        icon: '📱',
-        link: 'https://wa.me/',
-      },
-    };
-    const currentChannel = channels[selectedChannel];
-    * ------------------------------------------------ 
-  */
 
   const showAzVoiceButton = (zoneId) => guidedFlow.activeField === zoneId;
 
-  /**
-   * Per-zone voice guidance text
-   * - ZoneVoiceButton đọc text của AZ đang active.
-   * - Không tự động đọc khi focus, chỉ đọc khi user bấm "Nghe".
-   */
   const zoneHelpText = useMemo(
     () => ({
       clanSearch: ttsMessages?.joinClan?.clanSearch || 'Bác nhập tên dòng họ cần tìm.',
       personalInfo:
         ttsMessages?.joinClan?.personalInfo ||
         'Bác nhập thông tin cá nhân để Ban quản trị xác minh.',
-      /* --- EGAL-25.X R6.2.2A
-        contactChannel:
-        ttsMessages?.joinClan?.contactChannel ||
-        'Bác chọn kênh liên lạc thuận tiện nhất.',
-        -------------------------------------------------- */
       accountInfo:
         ttsMessages?.joinClan?.accountInfo ||
         'Bác nhập số điện thoại, email nếu có, và mật khẩu để tạo tài khoản đăng nhập.',
@@ -542,11 +445,6 @@ const JoinClanForm = ({
     [],
   );
 
-  /**
-   * Attention zone model
-   * - useGuidedFlow chỉ còn dùng để biết AZ active/completed.
-   * - Không còn forced sequential navigation.
-   */
   const guidedSteps = useMemo(
     () => [
       {
@@ -563,17 +461,6 @@ const JoinClanForm = ({
           'Bác nhập thông tin cá nhân để Ban quản trị xác minh.',
         nextLabel: 'Tiếp theo: tạo thông tin đăng nhập.',
       },
-      /* --- EGAL-25.X R6.2.2A
-        {
-          fieldKey: 'contactChannel',
-          title: 'Chọn kênh liên lạc',
-          description:
-            ttsMessages?.joinClan?.contactChannel ||
-            'Bác chọn kênh liên lạc thuận tiện nhất.',
-          nextLabel: 'Tiếp theo: tạo thông tin đăng nhập.',
-        },
-      -------------------------------------------------- */
-
       {
         fieldKey: 'accountInfo',
         title: 'Tạo thông tin đăng nhập',
@@ -582,13 +469,6 @@ const JoinClanForm = ({
           'Bác nhập số điện thoại và mật khẩu để tạo tài khoản đăng nhập.',
         nextLabel: 'Tiếp theo: xác minh.',
       },
-      /**
-       * <2026-05-16T20:30:00+07:00>
-       * VERSION: 24.6.7.R1.5
-       * PURPOSE:
-       * - CAPTCHA có guided field riêng để proactive voice guidance đọc đúng.
-       * - Không thay đổi Turnstile, validation, payload hoặc API contract.
-       */
       {
         fieldKey: 'captcha',
         title: 'Xác minh',
@@ -612,41 +492,9 @@ const JoinClanForm = ({
     initialStepIndex: 0,
     initialFieldKey: 'clanSearch',
     enabled: true,
-
-    /**
-     * <2026-05-17T10:00:00+07:00>
-     * VERSION: 24.6.7.R1.9
-     * PURPOSE:
-     * - JoinClanForm trong Register flow không restore activeField cũ.
-     * - Refresh hoặc quay lại từ selector luôn bắt đầu lại từ clanSearch.
-     */
     persistRecovery: false,
   });
 
-  /**
-   * <2026-05-15T15:00:00+07:00>
-   * EGAL-6.6:
-   * Fresh mount MUST always begin from step 1/4.
-   * Prevent stale attention restoration after refresh
-   * or Login -> Register transition.
-   *
-   * Q1/Q2 safe:
-   * only UI guidance reset.
-   * no business logic change.
-   */
-  /**
-   * <2026-05-17T10:00:00+07:00>
-   * VERSION: 24.6.7.R1.9
-   * PURPOSE:
-   * - Fresh runtime boundary cho JoinClanForm.
-   * - Không giữ captchaToken, attentionMessage, online phone check,
-   *   completedFields hoặc activeField cũ.
-   */
-  /**
-   * Fresh runtime boundary
-   * - Khi user mở JoinClanForm từ selector, reset draft runtime.
-   * - Không giữ captcha, attention, online check, activeField cũ.
-   */
   useEffect(() => {
     const isEditFromWaiting = !!initialData;
 
@@ -658,6 +506,8 @@ const JoinClanForm = ({
       setTenantResults([]);
       setSelectedTenant(null);
       setClaimMode('CLAIM_EM');
+      setIsClaimHoppingBlocked(false);
+      setPhase2Banner(null);
       setProfileErrors({});
       setProfileDraft({
         full_name: '',
@@ -712,18 +562,6 @@ const JoinClanForm = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runtimeSessionId]);
 
-  /**
-   * <2026-05-15T00:00:00+07:00>
-   * EGAL-6.5.3:
-   * Re-entry reconstruction.
-   * Khi quay lại từ WaitingPage/Edit, chỉ giữ draft values.
-   * Runtime authority phải reset/recompute.
-   */
-  /**
-   * WaitingPage/Edit reconstruction
-   * - Giữ draft values qua initialData.
-   * - Chỉ reset runtime authority: attention, captcha, activeField.
-   */
   useEffect(() => {
     const nextVersion = lifecycleContext?.runtimeVersion || 0;
     const versionChanged = nextVersion !== lastLifecycleVersionRef.current;
@@ -736,7 +574,6 @@ const JoinClanForm = ({
       setPhoneRemoteError('');
       setPhoneChecking(false);
       checkedPhoneCacheRef.current = null;
-      //EGAL-25.X. R6.2.2A: thêm reset email remote error khi reconstruct runtime.
       setEmailRemoteError('');
       setEmailChecking(false);
 
@@ -820,21 +657,6 @@ const JoinClanForm = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialData, setValue]);
 
-  /* -----  EGAL-25.X. R6.2.2A
-  useEffect(() => {
-    setValue('preferredChannel', selectedChannel, {
-      shouldValidate: true,
-      shouldDirty: true,
-    });
-
-    setValue(
-      'temp_social_profiles',
-      { channel: selectedChannel },
-      { shouldValidate: true, shouldDirty: true }
-    );
-  }, [selectedChannel, setValue]);
-  -------------------------------------------------- */
-
   const applyInvalidationPlan = useCallback(
     (plan) => {
       if (!plan?.invalidated) return;
@@ -865,11 +687,6 @@ const JoinClanForm = ({
     [applyInvalidationPlan],
   );
 
-  /**   Helper
-   * Clear field error on user edit
-   * - Xoá inline error và attention message khi user bắt đầu sửa field.
-   * - Đồng thời invalidate runtime liên quan.
-   */
   const clearFieldErrorOnEdit = useCallback(
     (fieldName, options = {}) => {
       clearErrors(fieldName);
@@ -879,7 +696,6 @@ const JoinClanForm = ({
         checkedPhoneCacheRef.current = null;
         setPhoneRemoteError('');
       }
-      //EGAL-25.X. R6.2.2A: thêm reset email remote error khi reconstruct runtime.
       if (options.clearEmailRemoteError) {
         setEmailRemoteError('');
       }
@@ -889,11 +705,6 @@ const JoinClanForm = ({
     [clearErrors, invalidateRuntimeForField],
   );
 
-  /**
-   * Focus router
-   * - Map field name thật sang DOM ref.
-   * - Dùng cho error routing, không dùng cho guided progression.
-   */
   const focusFieldByName = useCallback((fieldName) => {
     const refMap = {
       clanSearch: tenantSearchRef,
@@ -905,7 +716,7 @@ const JoinClanForm = ({
       temp_relationship: relationshipRef,
       temp_note: noteRef,
       phone: phoneRef,
-      email: emailRef, // EGAL-25.X. R6.2.2A: thêm email vào ref map.
+      email: emailRef,
       password: passwordRef,
     };
 
@@ -923,13 +734,6 @@ const JoinClanForm = ({
     });
   }, []);
 
-  /**
-   * Error routing authority
-   * - Hiển thị attentionMessage.
-   * - Chuyển active AZ.
-   * - Scroll/focus đúng field.
-   * - Delay đọc 250ms để Safari không nuốt tiếng.
-   */
   const routeFieldError = useCallback(
     (fieldName, message, attentionField) => {
       const finalMessage =
@@ -955,38 +759,130 @@ const JoinClanForm = ({
   );
 
   /**
-   * Tenant search
-   * - Debounced qua searchTimerRef.
-   * - Chỉ tìm khi keyword đủ dài.
+   * [NFR-02, TC-FE-12] Public Search dòng họ tích hợp Turnstile Fail-Closed:
+   * - Gửi kèm header 'X-Turnstile-Token' nếu đã có token từ useTurnstileFailClosed.
+   * - Khi gặp 403 TURNSTILE_REQUIRED / FAILED -> hiển thị widget Turnstile và thông báo qua
+   *   PersistentMessageBanner; sau khi tick xanh tự động gọi lại tối đa 1 lần.
+   * - Khi gặp 429 *_RATE_LIMITED -> giữ nguyên từ khóa (Keep State), khóa ô tìm kiếm theo giây chờ.
    */
-  const searchTenant = useCallback(async (keyword) => {
-    const q = keyword?.trim();
+  const searchTenantRef = useRef(null);
 
-    if (!q || q.length < 2) {
-      setTenantResults([]);
-      return;
-    }
-
-    setTenantLoading(true);
-
-    try {
-      const res = await apiClient.get('/public/tenants/search', {
-        params: { q },
-      });
-      setTenantResults(res.data?.data || []);
-    } catch (err) {
-      try {
-        const fallbackRes = await apiClient.get('/tenants/search', {
-          params: { q, field: 'name' },
+  const publicSearchTurnstile = useTurnstileFailClosed({
+    onVerifySuccess: (verifiedToken) => {
+      if (lastPublicSearchKeywordRef.current && searchTenantRef.current) {
+        searchTenantRef.current(lastPublicSearchKeywordRef.current, {
+          turnstileToken: verifiedToken,
+          isAutoRetry: true,
         });
-        setTenantResults(fallbackRes.data?.data || []);
-      } catch (_) {
-        setTenantResults([]);
       }
-    } finally {
-      setTenantLoading(false);
-    }
-  }, []);
+    },
+    onVerifyError: (captchaErr) => {
+      // TC-FE-12 Scenario 2: Báo lỗi qua PersistentMessageBanner, reset widget, KHÔNG auto-retry
+      setPhase2Banner({
+        type: 'error',
+        title: 'Xác thực bảo mật chưa thành công',
+        message: captchaErr?.message,
+        correlationId: 'Không có',
+      });
+    },
+  });
+
+  const searchTenant = useCallback(
+    async (keyword, options = {}) => {
+      const { turnstileToken: overrideToken, isAutoRetry = false } = options;
+      const q = keyword?.trim();
+
+      if (!q || q.length < 2) {
+        setTenantResults([]);
+        return;
+      }
+
+      if (searchRateLimitSeconds > 0 && !isAutoRetry) {
+        return;
+      }
+
+      lastPublicSearchKeywordRef.current = q;
+      if (!isAutoRetry) {
+        publicSearchTurnstile.resetRetryBudget();
+      }
+
+      setTenantLoading(true);
+      const activeToken =
+        overrideToken || publicSearchTurnstile.turnstileToken || '';
+      const requestHeaders = activeToken
+        ? { 'X-Turnstile-Token': activeToken }
+        : {};
+
+      try {
+        const res = await apiClient.get('/public/tenants/search', {
+          params: { q },
+          headers: requestHeaders,
+        });
+        setTenantResults(res.data?.data || []);
+        setPhase2Banner(null);
+        publicSearchTurnstile.dismissChallenge();
+      } catch (err) {
+        // 1. Bắt 403 Turnstile Fail-Closed [NFR-02, TC-FE-12]
+        if (isTurnstileChallengeError(err)) {
+          const info = extractApiErrorInfo(err);
+          publicSearchTurnstile.triggerChallenge();
+          setPhase2Banner({
+            type: 'warning',
+            title: 'Yêu cầu xác minh bảo mật tìm kiếm',
+            message: info.message,
+            correlationId: info.correlationId,
+          });
+          setTenantResults([]);
+          return;
+        }
+
+        // 2. Bắt 429 Rate Limit [NFR-02, ARCH-01]
+        const info = extractApiErrorInfo(err);
+        if (info.status === 429) {
+          const retryAfter = Number(
+            info.details?.retryAfter || info.details?.retry_after || 30
+          );
+          setSearchRateLimitSeconds(retryAfter > 0 ? retryAfter : 30);
+          setPhase2Banner({
+            type: 'warning',
+            title: 'Tạm giới hạn tần suất tìm kiếm',
+            message: info.message,
+            correlationId: info.correlationId,
+          });
+          return;
+        }
+
+        // Fallback endpoint nội bộ nếu public search trả lỗi khác 403/429
+        try {
+          const fallbackRes = await apiClient.get('/tenants/search', {
+            params: { q, field: 'name' },
+            headers: requestHeaders,
+          });
+          setTenantResults(fallbackRes.data?.data || []);
+          setPhase2Banner(null);
+        } catch (fallbackErr) {
+          if (isTurnstileChallengeError(fallbackErr)) {
+            const fbInfo = extractApiErrorInfo(fallbackErr);
+            publicSearchTurnstile.triggerChallenge();
+            setPhase2Banner({
+              type: 'warning',
+              title: 'Yêu cầu xác minh bảo mật tìm kiếm',
+              message: fbInfo.message,
+              correlationId: fbInfo.correlationId,
+            });
+          }
+          setTenantResults([]);
+        }
+      } finally {
+        setTenantLoading(false);
+      }
+    },
+    [searchRateLimitSeconds, publicSearchTurnstile]
+  );
+
+  useEffect(() => {
+    searchTenantRef.current = searchTenant;
+  }, [searchTenant]);
 
   useEffect(() => {
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
@@ -998,8 +894,6 @@ const JoinClanForm = ({
 
   /**
    * Online phone uniqueness check theo quốc gia đã chọn (libphonenumber-js/min)
-   * - Re-check khi blur và trước transition (tái sử dụng cache nếu đã kiểm tra hợp lệ).
-   * - Nếu trùng hoặc sai định dạng quốc gia, đọc lỗi và route về accountInfo.
    */
   const checkPhoneAvailability = async (phone, options = {}) => {
     const { force = false, showFormatError = false, countryOverride } = options;
@@ -1091,8 +985,9 @@ const JoinClanForm = ({
     } catch (err) {
       console.error('[JoinClan][checkPhoneAvailability]', err);
       checkedPhoneCacheRef.current = null;
+      const info = extractApiErrorInfo(err);
       const message =
-        err?.response?.status === 429
+        info.status === 429
           ? 'Bác thao tác kiểm tra hơi nhanh. Vui lòng đợi vài giây rồi thử lại.'
           : 'Không kiểm tra được số điện thoại lúc này. Bác vui lòng thử lại.';
       setPhoneRemoteError(message);
@@ -1106,7 +1001,6 @@ const JoinClanForm = ({
     }
   };
 
-  // EGAL-25.X. R6.2.2A: thêm online check cho email optional field.
   const checkEmailAvailability = async (email) => {
     const normalizedEmail = String(email || '').trim();
 
@@ -1160,8 +1054,9 @@ const JoinClanForm = ({
       };
     } catch (err) {
       console.error('[JoinClan][checkEmailAvailability]', err);
+      const info = extractApiErrorInfo(err);
       const message =
-        err?.response?.status === 429
+        info.status === 429
           ? 'Bác thao tác kiểm tra hơi nhanh. Vui lòng đợi vài giây rồi thử lại.'
           : 'Không kiểm tra được email lúc này. Bác vui lòng thử lại.';
       setEmailRemoteError(message);
@@ -1187,33 +1082,10 @@ const JoinClanForm = ({
     });
 
     setAttentionMessage('');
+    setPhase2Banner(null);
 
     guidedFlow.markCompleted('clanSearch');
   };
-
-  /**
-   * <2026-05-16T20:30:00+07:00>
-   * VERSION: 24.6.7.R1.5
-   * PURPOSE:
-   * - Khi Turnstile xác minh xong, đánh dấu guided field CAPTCHA là completed.
-   * - Giữ nguyên captchaToken và accountInfo completion logic hiện có.
-  const handleTurnstileVerify = (token) => {
-    setCaptchaToken(token);
-    setAttentionMessage('');
-
-    guidedFlow.markCompleted('captcha');
-
-    const values = getValues();
-
-    if (
-      values?.phone?.trim?.() &&
-      values?.password?.trim?.() &&
-      !phoneRemoteError
-    ) {
-      guidedFlow.markCompleted('accountInfo');
-    }
-  };
-  */
 
   const hasCoreRequiredData = (values) => {
     return (
@@ -1240,11 +1112,6 @@ const JoinClanForm = ({
     ) {
       return 'personalInfo';
     }
-    /* --- EGAL-25.X. R6.2.2A
-      if (gateTarget?.field === 'preferredChannel') {
-        return 'contactChannel';
-      }
-    -------------------------------------------------- */
 
     if (['phone', 'email', 'password'].includes(gateTarget?.field)) {
       return 'accountInfo';
@@ -1260,20 +1127,90 @@ const JoinClanForm = ({
       return 'personalInfo';
     }
 
-    // if (!selectedChannel) return 'contactChannel'; // EGAL-25.X. R6.2.2A
-
     return 'accountInfo';
   };
 
   /**
-   * Submit-gated transition to WaitingPage
-   * Authority duy nhất trước khi chuyển review:
-   * 1. Sync selectedTenant/selectedChannel vào latestValues.
-   * 2. Validate required fields.
-   * 3. Re-check phone online.
-   * 4. Validate captcha token.
-   * 5. Run validation gate.
-   * 6. Build finalPayload đầy đủ.
+   * Xử lý lỗi nghiệp vụ Phase 2 khi submit (403 Claim-Hopping, 409 LCK Keep State, 409 Already Linked)
+   */
+  const handleSubmissionApiError = useCallback(
+    (err) => {
+      const info = extractApiErrorInfo(err);
+
+      // 1. [NFR-03, TC-FE-13] 403 CLAIM_HOPPING_DETECTED: khóa CLAIM_EXISTING, gợi ý CREATE_NEW
+      if (info.status === 403 && info.code === 'CLAIM_HOPPING_DETECTED') {
+        setIsClaimHoppingBlocked(true);
+        setPhase2Banner({
+          type: 'error',
+          title: 'Tạm khóa nhận diện thành viên có sẵn',
+          message: info.message,
+          correlationId: info.correlationId,
+          actionButton: (
+            <button
+              type="button"
+              onClick={() => {
+                setClaimMode('NEW_PROFILE_21');
+                setProfileErrors({});
+                setPhase2Banner(null);
+                guidedFlow.goToField('personalInfo');
+              }}
+              className="min-h-[48px] rounded-xl bg-indigo-600 px-4 py-2.5 text-base font-bold text-white hover:bg-indigo-700"
+            >
+              Chuyển sang Khai báo hồ sơ mới (CREATE_NEW)
+            </button>
+          ),
+        });
+        return;
+      }
+
+      // 2. [FUNC-06, TC-FE-06] 409 ALREADY_LINKED_TO_TENANT: nút chuyển thẳng vào dòng họ
+      if (info.status === 409 && info.code === 'ALREADY_LINKED_TO_TENANT') {
+        setPhase2Banner({
+          type: 'warning',
+          title: 'Tài khoản đã liên kết với dòng họ này',
+          message: info.message,
+          correlationId: info.correlationId,
+          actionButton:
+            typeof onNavigateToClan === 'function' ? (
+              <button
+                type="button"
+                onClick={() => onNavigateToClan(selectedTenant?.id)}
+                className="min-h-[48px] rounded-xl bg-emerald-600 px-4 py-2.5 text-base font-bold text-white hover:bg-emerald-700"
+              >
+                Vào không gian dòng họ
+              </button>
+            ) : null,
+        });
+        return;
+      }
+
+      // 3. [ARCH-01, ARCH-04, TC-FE-14] 409 CONCURRENT_TRANSACTION_LOCKED / 429:
+      // Giữ nguyên toàn bộ form state, hiện nút "Thử lại ngay"
+      setPhase2Banner({
+        type: info.status === 409 || info.status === 429 ? 'warning' : 'error',
+        title:
+          info.status === 409
+            ? 'Hồ sơ đang được xử lý đồng thời'
+            : 'Không thể gửi hồ sơ gia nhập',
+        message: info.message,
+        correlationId: info.correlationId,
+        actionButton: (
+          <button
+            type="button"
+            onClick={() => nextStep()}
+            className="min-h-[48px] rounded-xl bg-amber-600 px-4 py-2.5 text-base font-bold text-white hover:bg-amber-700"
+          >
+            Thử lại ngay
+          </button>
+        ),
+      });
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [guidedFlow, onNavigateToClan, selectedTenant?.id]
+  );
+
+  /**
+   * Submit-gated transition to WaitingPage / Direct Submit (Bypass OTP)
    */
   const nextStep = async () => {
     if (selectedTenant?.id) {
@@ -1289,18 +1226,6 @@ const JoinClanForm = ({
         shouldDirty: true,
       });
     }
-    /* EGAL-25.X. R6.2.2A: selectedChannel là authority cho contact channel, sync vào RHF value để validation gate check.
-      setValue('preferredChannel', selectedChannel, {
-        shouldValidate: true,
-        shouldDirty: true,
-      });
-
-      setValue(
-        'temp_social_profiles',
-        { channel: selectedChannel },
-        { shouldValidate: true, shouldDirty: true }
-      );
-    ------------------------------------------------ */
 
     setValue('hp_field', formValues.hp_field || '', {
       shouldValidate: true,
@@ -1312,12 +1237,9 @@ const JoinClanForm = ({
       tenantId: selectedTenant?.id || '',
       clanName: selectedTenant?.name || '',
       tenantSlug: selectedTenant?.slug || '',
-      /* preferredChannel: selectedChannel, // EGAL-25.X. R6.2.2A: 
-        temp_social_profiles: { channel: selectedChannel },
-        */
       hp_field: formValues.hp_field || '',
     };
-    // PR-OP-4: ép string trước validate (tránh number.prefill fail .trim)
+
     latestValues.temp_birth_year =
       latestValues.temp_birth_year != null && latestValues.temp_birth_year !== ''
         ? String(latestValues.temp_birth_year).trim()
@@ -1332,7 +1254,6 @@ const JoinClanForm = ({
         ? String(latestValues.email).trim()
         : '';
 
-    // PR-OP-4: identity — không gán email vào phone khi login bằng email
     if (isRevision) {
       latestValues.phone = resolveRevisionPhone(
         lockedIdentifier,
@@ -1362,6 +1283,13 @@ const JoinClanForm = ({
       return;
     }
 
+    if (claimMode === 'CLAIM_EM' && isClaimHoppingBlocked) {
+      const msg =
+        'Chức năng nhận diện thành viên có sẵn đang tạm khóa do bị từ chối nhiều lần trong 90 ngày. Bác vui lòng chuyển sang "Khai báo hồ sơ mới".';
+      routeFieldError('personalInfo', msg, 'personalInfo');
+      return;
+    }
+
     setProfileErrors({});
 
     if (claimMode === 'CLAIM_EM') {
@@ -1373,7 +1301,8 @@ const JoinClanForm = ({
       const l3 = String(ver.layer3_guarantor_note || '').trim();
 
       if (!emId) {
-        const msg = 'Bác vui lòng tìm và chọn hồ sơ của mình trên cây gia phả (hoặc chuyển sang Khai báo mới 21 trường).';
+        const msg =
+          'Bác vui lòng tìm và chọn hồ sơ của mình trên cây gia phả (hoặc chuyển sang Khai báo mới 21 trường).';
         setProfileErrors({ claimed_member_id: msg });
         routeFieldError('personalInfo', msg, 'personalInfo');
         return;
@@ -1485,38 +1414,6 @@ const JoinClanForm = ({
       return;
     }
 
-    /**
-     * <2026-05-15T00:00:00+07:00>
-     * EGAL-6.5.3:
-     * Fresh online re-check trước transition.
-     * Không tin phoneRemoteError cũ.
-     
-    const phoneCheck = await checkPhoneAvailability(latestValues.phone);
-
-    if (!phoneCheck.valid) {
-      routeFieldError(
-        'phone',
-        phoneCheck.message || 'Số điện thoại cần được kiểm tra lại.',
-        'accountInfo'
-      );
-      guidedFlow.unmarkCompleted('accountInfo');
-      return;
-    }
-
-    const emailCheck = await checkEmailAvailability(latestValues.email);
-
-    if (!emailCheck.valid) {
-      routeFieldError(
-        'email',
-        emailCheck.message || 'Email cần được kiểm tra lại.',
-        'accountInfo'
-      );
-      guidedFlow.unmarkCompleted('accountInfo');
-      return;
-    }
-    */
-
-    // PR-OP-4: revision — phone/email đã thuộc user, không check uniqueness
     if (!isRevision) {
       const phoneCheck = await checkPhoneAvailability(latestValues.phone);
 
@@ -1612,8 +1509,8 @@ const JoinClanForm = ({
       routeFieldError(
         targetField,
         target.message ||
-        fieldSpecificMessage ||
-        'Thông tin hồ sơ chưa đầy đủ hoặc chưa đúng. Bác vui lòng kiểm tra lại các mục được báo lỗi trên màn hình.',
+          fieldSpecificMessage ||
+          'Thông tin hồ sơ chưa đầy đủ hoặc chưa đúng. Bác vui lòng kiểm tra lại các mục được báo lỗi trên màn hình.',
         attentionField,
       );
 
@@ -1630,9 +1527,9 @@ const JoinClanForm = ({
       return;
     }
     setAttentionMessage('');
+    setPhase2Banner(null);
 
-    // PR-OP-4: ép phone/email/tenant từ draft khi revision (không phụ thuộc field editable)
-        const resolvedPhone = isRevision
+    const resolvedPhone = isRevision
       ? resolveRevisionPhone(lockedIdentifier, initialData, latestValues.phone)
       : latestValues.phone || '';
 
@@ -1752,7 +1649,7 @@ const JoinClanForm = ({
                 : {},
           };
 
-    // AMEND-RP-OP-2026-02 V1.5.0: Payload sạch chỉ mang registration_profile / claimed_member_id, KHÔNG rải temp_*
+    // AMEND-RP-OP-2026-02 V1.5.0 + Phase 2 Contracts [CLAIM_MODES, FUNC-04]
     const finalPayload = {
       isNewClan: false,
       tenantId: selectedTenant.id,
@@ -1763,6 +1660,12 @@ const JoinClanForm = ({
       email: resolvedEmail,
       password: latestValues.password,
       gender: builtRegistrationProfile.gender,
+      claim_mode:
+        claimMode === 'CLAIM_EM'
+          ? CLAIM_MODES.CLAIM_EXISTING
+          : CLAIM_MODES.CREATE_NEW,
+      bypass_otp: isMultiHomeBypassOtp,
+      skipOtpVerification: isMultiHomeBypassOtp,
       ...(builtRegistrationProfile.claimed_member_id
         ? { claimed_member_id: builtRegistrationProfile.claimed_member_id }
         : {}),
@@ -1777,26 +1680,30 @@ const JoinClanForm = ({
         : {}),
     };
 
-    if (onGoToWaiting) {
-      onGoToWaiting(finalPayload);
-      return;
-    }
+    try {
+      // [FUNC-04, TC-FE-04] Multi-Home Bypass OTP: ưu tiên submit trực tiếp nếu có onSubmit
+      if (isMultiHomeBypassOtp && typeof onSubmit === 'function') {
+        await onSubmit(finalPayload);
+        captchaZone.consume({ guidedFlow });
+        return;
+      }
 
-    if (typeof onSubmit === 'function') {
-      await onSubmit(finalPayload);
-    }
+      if (onGoToWaiting) {
+        onGoToWaiting(finalPayload);
+        return;
+      }
 
-    captchaZone.consume({ guidedFlow });
-
-    if (onSubmit) {
-      onSubmit(finalPayload);
+      if (typeof onSubmit === 'function') {
+        await onSubmit(finalPayload);
+        captchaZone.consume({ guidedFlow });
+      }
+    } catch (submitErr) {
+      handleSubmissionApiError(submitErr);
     }
   };
 
   /**
    * Field registrations
-   * - Tách register object để gắn chung RHF ref + DOM ref.
-   * - Mỗi onChange chỉ clear lỗi và invalidate runtime, không auto progression.
    */
   const fullNameRegister = register('temp_full_name', {
     onChange: () => clearFieldErrorOnEdit('temp_full_name'),
@@ -1832,7 +1739,6 @@ const JoinClanForm = ({
       }),
   });
 
-  // EGAL-25.X. R6.2.2A: thêm email optional field vào form và validation gate, nhưng không bắt buộc phải nhập.
   const emailRegister = register('email', {
     onChange: () =>
       clearFieldErrorOnEdit('email', {
@@ -1846,8 +1752,6 @@ const JoinClanForm = ({
 
   /**
    * Action footer
-   * - isStep1=true bắt buộc dùng button type="button" gọi nextStep().
-   * - Không được bypass bằng native submit vì sẽ thiếu finalPayload.
    */
   const ActionFooter = ({ isStep1 }) => (
     <div className="pt-8">
@@ -1871,20 +1775,40 @@ const JoinClanForm = ({
           <button
             type="button"
             onClick={nextStep}
-            disabled={effectiveLoading || phoneChecking || emailChecking}
-            className={`w-full py-4 rounded-3xl font-bold transition-all ${effectiveLoading || phoneChecking || emailChecking
-                ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+            disabled={
+              effectiveLoading ||
+              phoneChecking ||
+              emailChecking ||
+              (claimMode === 'CLAIM_EM' && isClaimHoppingBlocked)
+            }
+            className={`min-h-[48px] w-full py-4 text-base rounded-3xl font-bold transition-all ${
+              effectiveLoading ||
+              phoneChecking ||
+              emailChecking ||
+              (claimMode === 'CLAIM_EM' && isClaimHoppingBlocked)
+                ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
                 : 'bg-emerald-600 text-white hover:bg-emerald-700'
-              }`}
+            }`}
           >
-            {phoneChecking || emailChecking ? 'Đang kiểm tra...' : 'Tiếp tục rà soát →'}
+            {phoneChecking || emailChecking
+              ? 'Đang kiểm tra...'
+              : isMultiHomeBypassOtp
+                ? 'Gửi hồ sơ gia nhập ngay (Bỏ qua OTP) →'
+                : 'Tiếp tục rà soát →'}
           </button>
+
+          {/* Inline helper text >= 16px bên dưới nút disabled (cấm dùng tooltip) */}
+          {claimMode === 'CLAIM_EM' && isClaimHoppingBlocked && (
+            <p className="mt-2 text-base font-semibold text-rose-700">
+              Chức năng nhận diện thành viên có sẵn tạm khóa do từ chối nhiều lần trong 90 ngày. Bác vui lòng chọn &ldquo;Cách 2 (Khai báo mới)&rdquo; ở phía trên.
+            </p>
+          )}
         </GuidedFieldWrapper>
       ) : (
         <button
           type="submit"
           disabled={effectiveLoading}
-          className="flex-[2] py-4 bg-emerald-600 text-white rounded-3xl font-bold"
+          className="min-h-[48px] flex-[2] py-4 bg-emerald-600 text-white rounded-3xl text-base font-bold"
         >
           {effectiveLoading ? (
             <Loader2 className="animate-spin mx-auto" size={20} />
@@ -1896,8 +1820,27 @@ const JoinClanForm = ({
     </div>
   );
 
+  // Tính nhãn ngoại tộc nếu thành viên đang chọn là is_clan === false [ARCH-03]
+  const selectedMemberRelation = profileDraft.claimed_member_summary
+    ? resolveMemberClanRelation(profileDraft.claimed_member_summary)
+    : null;
+  const selectedMemberNonClanBadge =
+    selectedMemberRelation && !selectedMemberRelation.isClan
+      ? selectedMemberRelation.childType === 'CON_DAU'
+        ? 'Con dâu'
+        : selectedMemberRelation.childType === 'CON_RE'
+          ? 'Con rể'
+          : 'Con rể / Con dâu'
+      : null;
+
   return (
     <div className={uiSystem.container}>
+      {/* Vòng quay chặn màn hình hợp nhất duy nhất [ARCH-04] */}
+      <BlockingLoadingOverlay
+        isOpen={effectiveLoading}
+        message="Đang xử lý hồ sơ xin gia nhập dòng họ..."
+      />
+
       <style>
         {`
           @keyframes egalAttentionSoftFlash {
@@ -1943,7 +1886,7 @@ const JoinClanForm = ({
             {isRevision ? 'Chỉnh sửa & bổ sung hồ sơ gia nhập' : 'Gia nhập một dòng họ'}
           </h2>
 
-          <p className="mx-auto mt-2 max-w-xl text-sm font-semibold leading-relaxed text-slate-600">
+          <p className="mx-auto mt-2 max-w-xl text-base font-semibold leading-relaxed text-slate-600">
             {isRevision
               ? 'Bác vui lòng xem bút phê của Ban Quản trị bên dưới, bổ sung thông tin còn thiếu rồi bấm Tiếp tục rà soát.'
               : 'Bác vui lòng tìm đúng dòng họ, nhập thông tin cá nhân, nhập số điện thoại, email nếu có, và tạo tài khoản để gửi hồ sơ xin gia nhập.'}
@@ -1960,6 +1903,33 @@ const JoinClanForm = ({
             />
           </div>
         </section>
+
+        {/* [FUNC-04, TC-FE-04] Huy hiệu thông báo Multi-Home Bypass OTP khi user.status === 'DA_DUYET' */}
+        {isMultiHomeBypassOtp && (
+          <div
+            role="status"
+            data-testid="multi-home-bypass-otp-notice"
+            className="flex items-start gap-3 rounded-3xl border-2 border-emerald-300 bg-emerald-50 p-4 text-emerald-950"
+          >
+            <ShieldCheck size={22} className="mt-0.5 shrink-0 text-emerald-700" />
+            <div className="text-base font-semibold">
+              Tài khoản của bác đã được phê duyệt trước đó: Hệ thống tự động{' '}
+              <strong>bỏ qua bước xác thực mã OTP</strong> khi nộp hồ sơ gia nhập.
+            </div>
+          </div>
+        )}
+
+        {/* Banner thông báo nghiệp vụ hợp nhất duy nhất (hiển thị Mã tra cứu X-Correlation-Id) */}
+        {phase2Banner && (
+          <PersistentMessageBanner
+            type={phase2Banner.type}
+            title={phase2Banner.title}
+            message={phase2Banner.message}
+            correlationId={phase2Banner.correlationId}
+            actionButton={phase2Banner.actionButton}
+            onClose={() => setPhase2Banner(null)}
+          />
+        )}
 
         {isRevision && effectiveReviewNote && (
           <div
@@ -1978,7 +1948,7 @@ const JoinClanForm = ({
                 variant="soft"
               />
             </div>
-            <p className="whitespace-pre-wrap text-sm font-bold leading-relaxed text-amber-950">
+            <p className="whitespace-pre-wrap text-base font-bold leading-relaxed text-amber-950">
               {effectiveReviewNote}
             </p>
           </div>
@@ -1999,7 +1969,7 @@ const JoinClanForm = ({
             data-testid="join-clan-attention-message"
           >
             <AlertCircle size={20} className="mt-0.5 shrink-0" />
-            <span className="text-sm font-bold leading-relaxed">{attentionMessage}</span>
+            <span className="text-base font-bold leading-relaxed">{attentionMessage}</span>
           </AttentionZone>
         )}
 
@@ -2032,7 +2002,7 @@ const JoinClanForm = ({
                     />
 
                     {isRevision && selectedTenant ? (
-                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm">
+                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-base">
                         Dòng họ: <span className="font-semibold">{selectedTenant.name}</span>
                         <input type="hidden" {...register('tenantId')} />
                       </div>
@@ -2040,6 +2010,7 @@ const JoinClanForm = ({
                       <input
                         ref={tenantSearchRef}
                         type="text"
+                        disabled={searchRateLimitSeconds > 0}
                         value={searchKeyword}
                         onChange={(e) => {
                           setSearchKeyword(e.target.value);
@@ -2048,7 +2019,7 @@ const JoinClanForm = ({
                           guidedFlow.goToField('clanSearch');
                         }}
                         onFocus={() => guidedFlow.goToField('clanSearch')}
-                        className={`pl-11 ${uiSystem.input}`}
+                        className={`min-h-[48px] pl-11 ${uiSystem.input} disabled:bg-slate-100 disabled:text-slate-500`}
                         placeholder="Gõ tên dòng họ hoặc định danh."
                       />
                     )}
@@ -2060,6 +2031,30 @@ const JoinClanForm = ({
                       />
                     )}
                   </div>
+
+                  {/* Inline helper text >= 16px khi dính Rate Limit 429 trên Public Search */}
+                  {searchRateLimitSeconds > 0 && (
+                    <p className="mt-1.5 text-base font-semibold text-amber-800" role="status">
+                      Ô tìm kiếm tạm khóa do thao tác quá nhanh. Vui lòng thử lại sau {searchRateLimitSeconds} giây.
+                    </p>
+                  )}
+
+                  {/* [NFR-02, TC-FE-12] Khung Cloudflare Turnstile Fail-Closed cho Public Search */}
+                  {publicSearchTurnstile.isChallengeVisible && (
+                    <div
+                      className="mt-3 rounded-2xl border-2 border-amber-400 bg-amber-50 p-4"
+                      role="region"
+                      aria-label="Xác minh bảo mật tìm kiếm dòng họ"
+                    >
+                      <p className="mb-2 text-base font-bold text-amber-950">
+                        Bác vui lòng tích vào ô xác nhận bên dưới để tiếp tục tìm kiếm dòng họ:
+                      </p>
+                      <div
+                        ref={publicSearchTurnstile.containerRef}
+                        className="min-h-[65px]"
+                      />
+                    </div>
+                  )}
                 </div>
 
                 {!selectedTenant && tenantResults.length > 0 && (
@@ -2069,7 +2064,7 @@ const JoinClanForm = ({
                         key={tenant.id}
                         type="button"
                         onClick={() => handleSelectTenant(tenant)}
-                        className="w-full rounded-3xl border border-slate-100 bg-white p-4 text-left shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50"
+                        className="min-h-[48px] w-full rounded-3xl border border-slate-100 bg-white p-4 text-left shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50"
                       >
                         <div className="flex items-center gap-3">
                           <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
@@ -2077,8 +2072,8 @@ const JoinClanForm = ({
                           </div>
 
                           <div>
-                            <p className="font-black text-slate-900">{tenant.name}</p>
-                            <p className="mt-1 text-xs text-slate-500">Bấm để chọn dòng họ này</p>
+                            <p className="text-base font-black text-slate-900">{tenant.name}</p>
+                            <p className="mt-1 text-sm text-slate-500">Bấm để chọn dòng họ này</p>
                           </div>
                         </div>
                       </button>
@@ -2102,7 +2097,7 @@ const JoinClanForm = ({
                           invalidateRuntimeForField('tenantId');
                           guidedFlow.goToField('clanSearch');
                         }}
-                        className="mt-3 text-sm font-bold text-emerald-700 underline"
+                        className="mt-3 min-h-[48px] px-3 py-2 text-base font-bold text-emerald-700 underline"
                       >
                         Chọn lại dòng họ
                       </button>
@@ -2130,38 +2125,54 @@ const JoinClanForm = ({
               }
             >
               <div className={uiSystem.section}>
-                <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-slate-400">
-                  <User size={18} />
-                  Nhận diện nhân thân trong dòng họ
-                </h3>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-slate-500">
+                    <User size={18} />
+                    Nhận diện nhân thân trong dòng họ
+                  </h3>
+                  {selectedMemberNonClanBadge && (
+                    <span className="rounded-lg border border-indigo-300 bg-indigo-100 px-2.5 py-0.5 text-base font-bold text-indigo-900">
+                      {selectedMemberNonClanBadge}
+                    </span>
+                  )}
+                </div>
 
                 {/* Bộ chọn 2 nhánh C2 theo AMEND-RP-OP-2026-02 V1.5.0 */}
                 <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                  <button
-                    type="button"
-                    disabled={effectiveLoading}
-                    onClick={() => {
-                      setClaimMode('CLAIM_EM');
-                      setProfileErrors({});
-                      setAttentionMessage('');
-                      guidedFlow.goToField('personalInfo');
-                    }}
-                    className={`rounded-2xl border p-3.5 text-left transition ${
-                      claimMode === 'CLAIM_EM'
-                        ? 'border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm'
-                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <p className="text-xs font-black uppercase tracking-wider text-emerald-700">
-                      Cách 1 (Khuyên dùng)
-                    </p>
-                    <p className="mt-1 text-sm font-black">
-                      Đã có tên trên cây gia phả
-                    </p>
-                    <p className="mt-0.5 text-xs font-medium text-slate-500">
-                      Tìm hồ sơ có sẵn và trả lời 3 lớp gia mật để nhận liên kết.
-                    </p>
-                  </button>
+                  <div>
+                    <button
+                      type="button"
+                      disabled={effectiveLoading || isClaimHoppingBlocked}
+                      onClick={() => {
+                        setClaimMode('CLAIM_EM');
+                        setProfileErrors({});
+                        setAttentionMessage('');
+                        guidedFlow.goToField('personalInfo');
+                      }}
+                      className={`min-h-[48px] w-full rounded-2xl border p-3.5 text-left transition ${
+                        isClaimHoppingBlocked
+                          ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
+                          : claimMode === 'CLAIM_EM'
+                            ? 'border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <p className="text-xs font-black uppercase tracking-wider text-emerald-700">
+                        Cách 1 (Khuyên dùng)
+                      </p>
+                      <p className="mt-1 text-base font-black">
+                        Đã có tên trên cây gia phả
+                      </p>
+                      <p className="mt-0.5 text-sm font-medium text-slate-600">
+                        Tìm hồ sơ có sẵn (bao gồm cả con rể/con dâu) và trả lời 3 lớp gia mật.
+                      </p>
+                    </button>
+                    {isClaimHoppingBlocked && (
+                      <p className="mt-1.5 text-base font-semibold text-rose-700">
+                        Tạm khóa do từ chối nhiều lần trong 90 ngày.
+                      </p>
+                    )}
+                  </div>
 
                   <button
                     type="button"
@@ -2172,7 +2183,7 @@ const JoinClanForm = ({
                       setAttentionMessage('');
                       guidedFlow.goToField('personalInfo');
                     }}
-                    className={`rounded-2xl border p-3.5 text-left transition ${
+                    className={`min-h-[48px] rounded-2xl border p-3.5 text-left transition ${
                       claimMode === 'NEW_PROFILE_21'
                         ? 'border-indigo-600 bg-indigo-50 text-indigo-950 shadow-sm'
                         : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
@@ -2181,10 +2192,10 @@ const JoinClanForm = ({
                     <p className="text-xs font-black uppercase tracking-wider text-indigo-700">
                       Cách 2 (Khai báo mới)
                     </p>
-                    <p className="mt-1 text-sm font-black">
+                    <p className="mt-1 text-base font-black">
                       Chưa có tên trên cây (21 trường)
                     </p>
-                    <p className="mt-0.5 text-xs font-medium text-slate-500">
+                    <p className="mt-0.5 text-sm font-medium text-slate-600">
                       Điền đầy đủ hồ sơ nhân thân & tiền nhân 3 đời để lập mới.
                     </p>
                   </button>
@@ -2198,6 +2209,12 @@ const JoinClanForm = ({
                       value={profileDraft}
                       disabled={effectiveLoading}
                       errors={profileErrors}
+                      claimHoppingBlocked={isClaimHoppingBlocked}
+                      onSwitchToCreateNew={() => {
+                        setClaimMode('NEW_PROFILE_21');
+                        setProfileErrors({});
+                        setPhase2Banner(null);
+                      }}
                       onFocusZone={() => guidedFlow.goToField('personalInfo')}
                       onChange={(nextDraft) => {
                         setProfileDraft(nextDraft);
@@ -2206,7 +2223,7 @@ const JoinClanForm = ({
                       }}
                     />
                   ) : (
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold text-amber-800">
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-base font-bold text-amber-800">
                       Bác vui lòng tìm và chọn dòng họ ở mục phía trên trước để
                       tra cứu danh sách thành viên trên cây.
                     </div>
@@ -2264,7 +2281,7 @@ const JoinClanForm = ({
                             clearPhoneRemoteError: true,
                           });
                         }}
-                        className={`sm:w-52 shrink-0 ${uiSystem.select || uiSystem.input} ${
+                        className={`min-h-[48px] sm:w-52 shrink-0 ${uiSystem.select || uiSystem.input} ${
                           isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
                         }`}
                       >
@@ -2296,8 +2313,7 @@ const JoinClanForm = ({
                             });
                           }}
                           readOnly={isRevision}
-                          // KHÔNG dùng disabled={isRevision}
-                          className={`pl-11 ${uiSystem.input} ${
+                          className={`min-h-[48px] pl-11 ${uiSystem.input} ${
                             isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
                           }`}
                           placeholder={selectedCountryMeta.placeholder}
@@ -2313,15 +2329,14 @@ const JoinClanForm = ({
                     </div>
 
                     {errors.phone && (
-                      <p className="text-xs font-bold text-rose-600">{errors.phone.message}</p>
+                      <p className="text-base font-bold text-rose-600">{errors.phone.message}</p>
                     )}
 
                     {phoneRemoteError && (
-                      <p className="text-rose-600 text-xs mt-1">{phoneRemoteError}</p>
+                      <p className="text-rose-600 text-base mt-1">{phoneRemoteError}</p>
                     )}
                   </div>
 
-                  {/* EGAL-25.X. R6.2.2A */}
                   <div className="space-y-1">
                     <label className={uiSystem.label}>
                       Email <span className="text-slate-400">(không bắt buộc)</span>
@@ -2345,8 +2360,7 @@ const JoinClanForm = ({
                           await checkEmailAvailability(e.target.value);
                         }}
                         readOnly={isRevision}
-                        //disabled={isRevision}
-                        className={`pl-11 ${uiSystem.input} ${
+                        className={`min-h-[48px] pl-11 ${uiSystem.input} ${
                           isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
                         }`}
                         placeholder="Email (không bắt buộc)"
@@ -2354,11 +2368,11 @@ const JoinClanForm = ({
                     </div>
 
                     {errors.email && (
-                      <p className="text-xs font-bold text-rose-600">{errors.email.message}</p>
+                      <p className="text-base font-bold text-rose-600">{errors.email.message}</p>
                     )}
 
                     {emailRemoteError && (
-                      <p className="text-xs font-bold text-rose-600">{emailRemoteError}</p>
+                      <p className="text-base font-bold text-rose-600">{emailRemoteError}</p>
                     )}
                   </div>
 
@@ -2380,22 +2394,21 @@ const JoinClanForm = ({
                         onFocus={() => guidedFlow.goToField('accountInfo')}
                         placeholder="Nhập mật khẩu"
                         autoComplete="new-password"
-                        className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-10 text-sm text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                        className="min-h-[48px] w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-12 text-base text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                       />
 
                       <button
                         type="button"
                         onClick={() => setShowPassword((prev) => !prev)}
-                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 transition hover:text-slate-700"
+                        className="min-h-[48px] min-w-[48px] flex items-center justify-center absolute right-1 top-1/2 -translate-y-1/2 text-slate-500 transition hover:text-slate-700"
                         aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-                        title={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                       >
                         {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                       </button>
                     </div>
 
                     {errors.password && (
-                      <p className="text-xs font-bold text-rose-600">{errors.password.message}</p>
+                      <p className="text-base font-bold text-rose-600">{errors.password.message}</p>
                     )}
                   </div>
 
@@ -2432,7 +2445,7 @@ const JoinClanForm = ({
                 type="button"
                 onClick={onBackToRegister}
                 disabled={effectiveLoading}
-                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-3xl border border-slate-200 bg-white px-4 py-4 text-sm font-black text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="min-h-[48px] mt-4 inline-flex w-full items-center justify-center gap-2 rounded-3xl border border-slate-200 bg-white px-4 py-4 text-base font-black text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Quay lại chọn hình thức đăng ký
               </button>

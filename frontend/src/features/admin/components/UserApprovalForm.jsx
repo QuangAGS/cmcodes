@@ -29,7 +29,8 @@
  */
 
 import React, { useState } from 'react';
-import { User, Shield, Network, ChevronDown, ChevronUp, Save, X } from 'lucide-react';
+import { User, Shield, Network, ChevronDown, ChevronUp, Save, X, Lock } from 'lucide-react';
+import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx';
 import { resolveVerificationPrompts } from '../../membership/components/ClaimMemberWizard.jsx';
 
 const RELATIONSHIP_DISPLAY_LABELS = {
@@ -209,14 +210,17 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
     setOpenBlocks((prev) => ({ ...prev, [key]: !prev[key] }));
   };
 
+  const [localValidationMsg, setLocalValidationMsg] = useState('');
+
   const handleLocalSubmit = (e) => {
     e.preventDefault();
+    setLocalValidationMsg('');
     if (!formState.adminNote || formState.adminNote.trim() === '') {
-      alert('Vui lòng nhập Bút phê / Ghi chú của Admin trước khi lưu Sổ Cái.');
+      setLocalValidationMsg('Vui lòng nhập Bút phê / Ghi chú của Admin trước khi lưu Sổ Cái.');
       return;
     }
     if (!formState.newStatus) {
-      alert('Trạng thái hiện tại không cho phép thao tác tại form này.');
+      setLocalValidationMsg('Trạng thái hiện tại không cho phép thao tác tại form này.');
       return;
     }
 
@@ -230,7 +234,7 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
     }
 
     if (newStatus === 'TU_CHOI' && isFinalRejection && !confirmFinalStep2) {
-      alert('Vui lòng tích xác nhận bước 2 cho quyết định Từ chối vĩnh viễn.');
+      setLocalValidationMsg('Vui lòng tích xác nhận bước 2 cho quyết định Từ chối vĩnh viễn.');
       return;
     }
 
@@ -257,6 +261,32 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
       onSubmit={handleLocalSubmit}
       className="space-y-4 text-slate-900 font-sans animate-fadeIn"
     >
+      {/* CẢNH BÁO KHÓA QA 3 LẦN SAI [FUNC-03] */}
+      {(userCore.qa_locked === true ||
+        raw.qa_locked === true ||
+        caseMetadata.qa_locked === true) && (
+        <div
+          role="alert"
+          data-testid="user-approval-qa-locked-warning"
+          className="rounded-2xl border-2 border-amber-400 bg-amber-50 p-4 text-amber-950 space-y-1.5"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="inline-flex items-center gap-2 text-base font-black text-amber-900">
+              <Lock size={18} className="text-amber-700" />
+              Cảnh báo: Khóa QA (3 lần sai) - Chờ duyệt thủ công
+            </span>
+            <ZoneVoiceButton
+              visible
+              text="Hồ sơ này đang bị khóa câu hỏi bảo mật do nhập sai 3 lần liên tiếp. Quản trị viên cần kiểm tra và duyệt thủ công."
+              label="Nghe"
+            />
+          </div>
+          <p className="text-sm font-semibold text-amber-900">
+            Ứng viên đã nhập chưa khớp câu hỏi bảo mật 3 lần liên tiếp.
+          </p>
+        </div>
+      )}
+
       {/* BANNERS PHÂN LOẠI HỒ SƠ (AMEND-RP-OP-2026-02 V1.5.0 Mục 7) */}
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm space-y-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -899,6 +929,15 @@ const UserApprovalForm = ({ userData, onSubmit, onCancel, loading }) => {
           </div>
         )}
       </div>
+
+      {localValidationMsg && (
+        <div
+          role="alert"
+          className="rounded-2xl border border-rose-300 bg-rose-50 p-3.5 text-base font-bold text-rose-800"
+        >
+          {localValidationMsg}
+        </div>
+      )}
 
       <div className="flex items-center justify-end gap-3 pt-2">
         <button

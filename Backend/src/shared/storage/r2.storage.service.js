@@ -1,7 +1,11 @@
 /**
  * PATH       : src/shared/storage/r2.storage.service.js
- * DATETIME   : 2026-09-03T19:45:00+07:00
- * VERSION    : 1.4.1-R2-NAME-SMART
+ * DATETIME   : 2026-11-19T14:28:00+07:00
+ * VERSION    : 1.5.0-AMEND-RP-OP-2026-03-SPRINT4
+ * CHANGELOGS:
+ * - 2026-11-19T14:28:00+07:00 (v1.5.0-AMEND-RP-OP-2026-03-SPRINT4):
+ *   + Bổ sung deleteObjectsByPrefix (ListObjectsV2 + DeleteObjects batch) phục vụ
+ *     hard-delete dữ liệu tạm staging/<caseId>/ trên Cloudflare R2 [ARCH-05].
  * DESCRIPTION:
  * - Key ổn định: {tenantId}/{uuid}{ext} — không nhét tên gốc vào Key.
  * - Tên: NFC. Multer latin1 → UTF-8 chỉ khi chuỗi còn 0–255; đã Unicode thì giữ.
@@ -18,11 +22,14 @@ const { Readable } = require('stream');
 const {
   PutObjectCommand,
   DeleteObjectCommand,
+  DeleteObjectsCommand,
+  ListObjectsV2Command,
   HeadObjectCommand,
   GetObjectCommand,
 } = require('@aws-sdk/client-s3');
 const { getSignedUrl } = require('@aws-sdk/s3-request-presigner');
 
+const { checkR2Config } = require('../../config/r2.config');
 const { getR2Client } = require('./r2.client');
 
 const PROVIDER = 'CLOUDFLARE_R2';
@@ -266,6 +273,82 @@ async function resolveReadUrl(storageKey, storedFileUrl = null, expiresIn = 3600
   return { url: null, mode: 'none' };
 }
 
+/**
+ * [ARCH-05] Xóa cứng toàn bộ object vật lý trên Cloudflare R2 theo tiền tố staging/<caseId>/.
+ * Bắt buộc prefix bắt đầu bằng 'staging/' và >= 12 ký tự để tránh xóa nhầm dữ liệu chính thức.
+ *
+ * @param {string} prefix
+ * @param {object} [options]
+ * @param {object|null} [options.s3Client=null]
+ * @param {string|null} [options.bucket=null]
+ */
+async function deleteObjectsByPrefix(prefix, { s3Client = null, bucket = null } = {}) {
+  const normalizedPrefix = String(prefix || '').trim();
+  if (!normalizedPrefix.startsWith('staging/') || normalizedPrefix.length < 12) {
+    const err = new Error(
+      `[R2] Prefix staging không hợp lệ để xóa hàng loạt: "${normalizedPrefix}"`
+    );
+    err.code = 'R2_INVALID_STAGING_PREFIX';
+    err.statusCode = 400;
+    throw err;
+  }
+
+  let client = s3Client;
+  let targetBucket = bucket;
+
+  if (!client) {
+    const cfgStatus = checkR2Config();
+    if (!cfgStatus.ok) {
+      return {
+        deletedCount: 0,
+        skipped: true,
+        reason: 'R2_NOT_CONFIGURED',
+        prefix: normalizedPrefix,
+      };
+    }
+    const r2 = getR2Client();
+    client = r2.client;
+    targetBucket = targetBucket || r2.config.bucket;
+  }
+
+  let deletedCount = 0;
+  let continuationToken = undefined;
+
+  do {
+    const listOut = await client.send(
+      new ListObjectsV2Command({
+        Bucket: targetBucket,
+        Prefix: normalizedPrefix,
+        ContinuationToken: continuationToken,
+      })
+    );
+
+    const contents = Array.isArray(listOut?.Contents) ? listOut.Contents : [];
+    const keys = contents.map((item) => item && item.Key).filter(Boolean);
+
+    if (keys.length > 0) {
+      await client.send(
+        new DeleteObjectsCommand({
+          Bucket: targetBucket,
+          Delete: {
+            Objects: keys.map((Key) => ({ Key })),
+            Quiet: true,
+          },
+        })
+      );
+      deletedCount += keys.length;
+    }
+
+    continuationToken = listOut?.IsTruncated ? listOut.NextContinuationToken : undefined;
+  } while (continuationToken);
+
+  return {
+    deletedCount,
+    skipped: false,
+    prefix: normalizedPrefix,
+  };
+}
+
 module.exports = {
   PROVIDER,
   sanitizeFileName,
@@ -275,6 +358,7 @@ module.exports = {
   buildPublicUrl,
   uploadObject,
   deleteObject,
+  deleteObjectsByPrefix,
   headObject,
   getObjectStream,
   getPresignedGetUrl,

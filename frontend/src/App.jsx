@@ -1,20 +1,26 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/App.jsx
- * DATETIME    : 2026-11-13T11:05:00+07:00
- * VERSION     : 3.6.0-MULTIHOME-AMEND02-V15-LAT3
- * DESCRIPTION : Định tuyến ứng dụng Gia Phả Số chuẩn AMEND-RP-OP-2026-02 V1.5.0:
+ * DATETIME    : 2026-11-20T07:00:00+07:00
+ * VERSION     : 3.7.0-PHASE2-SPRINT-FE3
+ * DESCRIPTION : Định tuyến ứng dụng Gia Phả Số chuẩn AMEND-RP-OP-2026-02 V1.5.0
+ *               & IMPL-PLAN-FE-PHASE2-V1.8-ISO29148:
  *               - AdminProtectedRoute: Thẩm định quyền theo activeContext.roleInTenant
  *                 (hoặc role trên token của link), không bị trói buộc bởi user.role cũ.
  *               - Mount HeaderClanSwitcher và SandboxModeBanner trên AppLayout.
  *               - Khai tử SelectTenantPage: Chuyển hướng vĩnh viễn về /op.
  *               - Bổ sung route /membership/setup cho luồng lập dòng họ mới (C1-S).
+ *               - [Sprint FE-3, FUNC-01, FUNC-10] Đăng ký route công khai 1 lần dùng
+ *                 /onboarding/beneficiary-consent và /onboarding/beneficiary-consent/:token
+ *                 cho BeneficiaryConsentPage.jsx.
  * =============================================================================
  * CHANGELOGS:
  * - 2026-11-11T18:00:00+07:00 (v3.5.0-APP-SELECT-TENANT-REMOVED-FINAL):
  *   + Gỡ SelectTenantPage, thẩm định quyền Admin theo roleInTenant.
  * - 2026-11-13T11:05:00+07:00 (v3.6.0-MULTIHOME-AMEND02-V15-LAT3):
  *   + Import ClanSetupPage và gắn route /membership/setup bọc bởi OpProtectedRoute.
+ * - 2026-11-20T07:00:00+07:00 (v3.7.0-PHASE2-SPRINT-FE3):
+ *   + Import lazy BeneficiaryConsentPage và đăng ký route /onboarding/beneficiary-consent.
  * =============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -38,6 +44,7 @@ const HomePage = lazy(() => import('./pages/HomePage.jsx'));
 const AuthPage = lazy(() => import('./pages/AuthPage.jsx'));
 const TreePage = lazy(() => import('./pages/TreePage.jsx'));
 const WaitingPage = lazy(() => import('./pages/WaitingPage.jsx'));
+const BeneficiaryConsentPage = lazy(() => import('./pages/BeneficiaryConsentPage.jsx'));
 const AdminUserApprovalPage = lazy(() => import('./pages/AdminUserApprovalPage.jsx'));
 const AdminMfoPlanPage = lazy(() => import('./pages/AdminMfoPlanPage.jsx'));
 const AdminWorkSelectorPage = lazy(() => import('./pages/AdminWorkSelectorPage.jsx'));
@@ -144,6 +151,16 @@ const AppRouter = () => {
       <Routes>
         <Route path="/" element={<HomePage />} />
         <Route path="/auth" element={<AuthPage />} />
+
+        {/* Đồng thuận Người được khai hộ (Magic Link 1 lần dùng - UC-03) */}
+        <Route
+          path="/onboarding/beneficiary-consent"
+          element={<BeneficiaryConsentPage />}
+        />
+        <Route
+          path="/onboarding/beneficiary-consent/:token"
+          element={<BeneficiaryConsentPage />}
+        />
 
         {/* Membership */}
         <Route

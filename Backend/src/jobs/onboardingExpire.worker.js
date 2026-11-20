@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : src/jobs/onboardingExpire.worker.js
- * DATETIME   : 2026-11-19T14:18:00+07:00
- * VERSION    : 1.1.1-AMEND-RP-OP-2026-03-SPRINT4
+ * DATETIME   : 2026-11-19T14:28:00+07:00
+ * VERSION    : 1.2.0-AMEND-RP-OP-2026-03-SPRINT4
  * DESCRIPTION:
  * - PR-W5-2 & [AMEND-RP-OP-2026-03-BASELINE v7.0 - Sprint 4]:
  *   + Expire onboarding cases quá hạn (updated_at + 30d).
@@ -22,6 +22,9 @@
  * - 1.1.1-AMEND-RP-OP-2026-03-SPRINT4 (2026-11-19):
  *   + Truyền đầy đủ payload { case_id, previous_status, user_id } và context cho writeBpl
  *     để khớp hợp đồng schemaValidator ONBOARDING_CASE_EXPIRE trong bpl.service.js.
+ * - 1.2.0-AMEND-RP-OP-2026-03-SPRINT4 (2026-11-19):
+ *   + Gọi deleteObjectsByPrefix (hard-delete R2 staging objects) ngoài TX DB; cập nhật
+ *     cleanup_status = CLEANED hoặc FAILED vào metadata.staging_cleanup [ARCH-05].
  * ============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -34,6 +37,7 @@ const { writeBpl } = require('../services/bpl.service');
 const { buildJobActorContext } = require('../shared/utils/actorContext');
 const { BPL_ACTIONS } = require('../shared/constants/bplActions');
 const { mergeOnboardingMetadata } = require('../types/metadata');
+const { deleteObjectsByPrefix } = require('../shared/storage/r2.storage.service');
 
 const DEFAULTS = {
   batchSize: 100,
@@ -71,24 +75,50 @@ async function claimExpiredCases(options = {}) {
 }
 
 /**
- * 1 case: EXPIRED + dọn token đồng bộ [FUNC-10] + PENDING notif + BPL trong cùng TX.
+ * 1 case: Hard-delete staging R2 [ARCH-05] + EXPIRED + dọn token đồng bộ [FUNC-10] + PENDING notif + BPL.
  */
-async function expireOne(caseRow) {
+async function expireOne(caseRow, options = {}) {
   const correlationId =
     caseRow.correlation_id || crypto.randomUUID();
 
+  const prevMeta =
+    caseRow.metadata && typeof caseRow.metadata === 'object' ? caseRow.metadata : {};
+
+  let stagingResult = null;
+  let nextMeta = prevMeta;
+
+  if (
+    prevMeta.staging_cleanup &&
+    typeof prevMeta.staging_cleanup === 'object' &&
+    prevMeta.staging_cleanup.prefix
+  ) {
+    try {
+      const delOut = await deleteObjectsByPrefix(prevMeta.staging_cleanup.prefix, {
+        s3Client: options.s3Client || null,
+        bucket: options.bucket || null,
+      });
+      stagingResult = {
+        status: 'CLEANED',
+        deletedCount: delOut.deletedCount || 0,
+        skipped: Boolean(delOut.skipped),
+      };
+    } catch (r2Err) {
+      stagingResult = {
+        status: 'FAILED',
+        deletedCount: 0,
+        error: r2Err.message || 'R2_CLEANUP_FAILED',
+      };
+    }
+
+    nextMeta = mergeOnboardingMetadata(prevMeta, {
+      staging_cleanup: {
+        prefix: prevMeta.staging_cleanup.prefix,
+        cleanup_status: stagingResult.status,
+      },
+    });
+  }
+
   return basePrisma.$transaction(async (tx) => {
-    const prevMeta =
-      caseRow.metadata && typeof caseRow.metadata === 'object' ? caseRow.metadata : {};
-    const nextMeta =
-      prevMeta.staging_cleanup && typeof prevMeta.staging_cleanup === 'object'
-        ? mergeOnboardingMetadata(prevMeta, {
-            staging_cleanup: {
-              ...prevMeta.staging_cleanup,
-              cleanup_status: 'CLEANED',
-            },
-          })
-        : prevMeta;
 
     const updated = await tx.onboarding_cases.updateMany({
       where: {
@@ -156,6 +186,7 @@ async function expireOne(caseRow) {
         case_id: caseRow.id,
         previous_status: caseRow.status,
         user_id: caseRow.user_id,
+        ...(stagingResult ? { staging_cleanup_result: stagingResult } : {}),
       },
       tx,
     });
@@ -177,7 +208,7 @@ async function runOnce(options = {}) {
   const results = [];
   for (const row of claimed) {
     try {
-      results.push(await expireOne(row));
+      results.push(await expireOne(row, options));
     } catch (err) {
       console.error(`[onboardingExpire] fail case=${row.id}`, err.message);
       results.push({ id: row.id, ok: false, reason: err.message });
