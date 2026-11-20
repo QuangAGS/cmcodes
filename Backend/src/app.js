@@ -1,22 +1,21 @@
 /**
  * PATH       : src/app.js
- * DATETIME   : 2026-11-13T09:50:00+07:00
- * VERSION    : 21.9.0-MULTIHOME-AMEND02-V15-LAT3
+ * DATETIME   : 2026-11-20T17:30:00+07:00
+ * VERSION    : 21.10.0-UAT-BUG5-CORS-FIX
  * DESCRIPTION:
+ * - [21.10.0-UAT-BUG5-CORS-FIX] Bổ sung X-Turnstile-Token và X-Correlation-Id
+ *   vào allowedHeaders và exposedHeaders của cấu hình CORS để sửa lỗi UAT Bug 5
+ *   (CORS error chặn preflight OPTIONS khi Frontend gửi custom headers).
  * - [21.9.0-MULTIHOME-AMEND02-V15-LAT3] Mount /api/membership (membership.routes) cho luồng C1 & C1-S.
  * - [21.8.0-MULTIHOME-AMEND02-V15-LAT1] Mount /api/public (publicSearch.routes) cho Guest Claim.
  * - [21.7.0-W2] Wave 2 PR-W2-3: Early tenant 404 → next(err) dual-contract CED.
  * - Production Hardening: Security Headers & CORS.
- * - Bảo tồn toàn bộ logic cũ (Q1).
- * - Tuân thủ Q2.
+ * - Bảo tồn toàn bộ logic cũ (Q1, Q2, Q3, Q4).
  *
  * CHANGELOG:
- * - 21.5.1 (2026-07-16): Production Hardening + securityConfig gateway.
- * - 21.5.2 (2026-07-20): Add /api/onboarding + CORS header x-correlation-id.
- * - 21.6.0-W1 (2026-07-22): Wave 1 PR-2 — Correlation FIRST + CED createGlobalErrorHandler({ legacy: true }).
- * - 21.7.0-W2 (2026-07-25): Early tenant 404 dual-contract (PR-W2-3).
  * - 21.8.0-MULTIHOME-AMEND02-V15-LAT1 (2026-11-12): Mount /api/public cho Guest Claim search.
  * - 21.9.0-MULTIHOME-AMEND02-V15-LAT3 (2026-11-13): Mount /api/membership cho Multi-Home C1 & C1-S.
+ * - 21.10.0-UAT-BUG5-CORS-FIX (2026-11-20): Fix CORS allowedHeaders cho Turnstile và CorrelationId.
  */
 
 const express = require('express');
@@ -26,11 +25,7 @@ const helmet = require('helmet');
 const { basePrisma, tenantContext } = require('./lib/prisma.js');
 
 // === PRODUCTION HARDENING: VALIDATE ENV ===
-// const { validateEnv } = require('./config/validateEnv'); // đã được tích hợp vào securityConfig.js.
 const securityConfig = require('./config/securityConfig');
-
-// validateEnv(); // không sử dụng nữa.
-// ==========================================
 
 // === CED Kernel (Wave 0) ===
 const { createGlobalErrorHandler } = require('./shared/errors');
@@ -104,8 +99,8 @@ app.use(
      * Config Gateway:
      * - ALLOWED_ORIGINS lấy từ .env qua securityConfig.
      * - Không hard-code domain tại app.js nữa.
-     * <2026-07-20T21:17:00+07:00>
-     * - Thêm x-correlation-id cho Onboarding traceability (OPD v1.1.0).
+     * <2026-07-20T21:17:00+07:00> & <2026-11-20T17:30:00+07:00>
+     * - Thêm x-correlation-id và X-Turnstile-Token cho Onboarding (UAT Bug 5).
      */
     origin: securityConfig.ALLOWED_ORIGINS,
     credentials: true,
@@ -114,10 +109,17 @@ app.use(
       'Content-Type',
       'Authorization',
       'x-tenant-slug',
+      'X-Correlation-Id',
       'x-correlation-id',
+      'X-Turnstile-Token',
+      'X-Requested-With',
     ],
+    exposedHeaders: ['X-Correlation-Id', 'x-correlation-id'],
   })
 );
+
+// [21.10.0-UAT-BUG5-CORS-FIX] Phản hồi 204 ngay lập tức cho preflight OPTIONS
+app.options('*', cors());
 
 app.use(express.json());
 
@@ -154,7 +156,7 @@ app.get('/', (req, res) =>
   res.json({
     status: 'Online',
     app: securityConfig.APP_NAME,
-    version: '21.6.0-W1',
+    version: '21.10.0-UAT-BUG5-CORS-FIX',
     environment: securityConfig.NODE_ENV,
   })
 );

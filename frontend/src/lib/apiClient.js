@@ -1,15 +1,16 @@
 /**
  * =============================================================================
  * PATH       : src/lib/apiClient.js
- * DATETIME   : 2026-11-20T08:15:00+07:00
- * VERSION    : 14.4.0-PHASE2-ISO29148-UAT-BUG2-FIX
+ * DATETIME   : 2026-11-20T08:20:00+07:00
+ * VERSION    : 14.4.1-PHASE2-ISO29148-PROXY-SYNC
  * DESCRIPTION: Chuẩn hóa axios instance cho Gia Phả Số:
- *              - Khôi phục baseURL chuẩn (VITE_API_URL || VITE_API_BASE_URL || 'http://localhost:10000/api'),
- *                timeout 30000ms, xử lý FormData multipart và dọn phiên 401.
- *              - Tích hợp HTTP Interceptor Phase 2 [ARCH-02, TC-FE-08]: trích xuất
- *                header 'x-correlation-id' và ánh xạ mã lỗi thân thiện qua PHASE2_ERROR_MAP
- *                trên chính đối tượng lỗi Axios (giữ nguyên error.response cho toàn bộ
- *                hệ thống cũ và mới).
+ *              - Đồng bộ baseURL với vite.config.js proxy ('/api' -> http://localhost:10000),
+ *                ưu tiên VITE_API_URL / VITE_API_BASE_URL nếu cấu hình riêng.
+ *              - Đọc token từ 'auth_token' || 'token', tôn trọng Authorization: ''
+ *                cho API công khai, xử lý FormData multipart và dọn phiên 401.
+ *              - Trích xuất 'x-correlation-id' [ARCH-02, TC-FE-08] và ánh xạ mã lỗi
+ *                thân thiện qua PHASE2_ERROR_MAP trên chính đối tượng lỗi Axios
+ *                (bảo toàn error.response cho AuthContext và các màn hình hiện hành).
  * =============================================================================
  * CHANGELOGS:
  * - 14.2.0-AUTH-INTERCEPTOR (2026-09-28): Interceptor 401, chỉ xóa token.
@@ -20,12 +21,10 @@
  * - 1.1.0-ISO29148 (2026-11-19T17:00:00+07:00):
  *   + HTTP Interceptor bắt lỗi và trích xuất X-Correlation-Id chuẩn Phase 2.S.
  * - 2026-11-20T08:15:00+07:00 (v14.4.0-PHASE2-ISO29148-UAT-BUG2-FIX):
- *   + Fix UAT Bug 2 (POST http://localhost:3000/api/auth/login 404 Not Found):
- *     Khôi phục baseURL mặc định 'http://localhost:10000/api' (ưu tiên VITE_API_URL,
- *     fallback VITE_API_BASE_URL) và đọc token từ auth_token || token.
- *   + Khôi phục xử lý FormData multipart và dọn phiên 401.
- *   + Giữ nguyên error.response khi reject để tương thích 100% với AuthContext và
- *     các trang hiện hành, đồng thời gắn correlationId, statusCode, mappedAction.
+ *   + Khôi phục đọc token auth_token || token, FormData, 401 và error.response.
+ * - 2026-11-20T08:20:00+07:00 (v14.4.1-PHASE2-ISO29148-PROXY-SYNC):
+ *   + Đồng bộ baseURL mặc định về '/api' để đi qua proxy của vite.config.js
+ *     (tránh CORS với custom headers X-Turnstile-Token & X-Correlation-Id).
  * =============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -39,7 +38,7 @@ const apiClient = axios.create({
   baseURL:
     import.meta.env.VITE_API_URL ||
     import.meta.env.VITE_API_BASE_URL ||
-    'http://localhost:10000/api',
+    '/api',
 
   timeout: API_REQUEST_TIMEOUT,
 
@@ -55,7 +54,14 @@ apiClient.interceptors.request.use(
       Object.prototype.hasOwnProperty.call(config.headers, 'Authorization') &&
       config.headers.Authorization === '';
 
-    if (!hasExplicitEmptyAuth) {
+    if (hasExplicitEmptyAuth) {
+      if (typeof config.headers.delete === 'function') {
+        config.headers.delete('Authorization');
+      } else {
+        delete config.headers.Authorization;
+        delete config.headers.authorization;
+      }
+    } else {
       const token =
         localStorage.getItem('auth_token') ||
         localStorage.getItem('token');
@@ -81,7 +87,7 @@ apiClient.interceptors.request.use(
 );
 
 /**
- * <2026-09-28T08:00:00+07:00> & <2026-11-20T08:15:00+07:00>
+ * <2026-09-28T08:00:00+07:00> & <2026-11-20T08:20:00+07:00>
  * Purpose:
  * - Trích xuất X-Correlation-Id cho cả response thành công và lỗi [ARCH-02, TC-FE-08].
  * - Bắt lỗi 401 tập trung: dọn sạch phiên hết hạn và chuyển hướng về /auth?mode=login.

@@ -839,10 +839,9 @@ const JoinClanForm = ({
     setTenantLoading(true);
     const activeToken =
       overrideToken || turnstileCtrl?.turnstileToken || '';
-    const requestHeaders = {
-      Authorization: '',
-      ...(activeToken ? { 'X-Turnstile-Token': activeToken } : {}),
-    };
+    const requestHeaders = activeToken
+      ? { 'X-Turnstile-Token': activeToken }
+      : {};
 
     try {
       const res = await apiClient.get('/public/tenants/search', {
@@ -853,9 +852,10 @@ const JoinClanForm = ({
       setPhase2Banner(null);
       publicSearchTurnstileRef.current?.dismissChallenge?.();
     } catch (err) {
+      const info = extractApiErrorInfo(err);
+
       // 1. Bắt 403 Turnstile Fail-Closed [NFR-02, TC-FE-12]
       if (isTurnstileChallengeError(err)) {
-        const info = extractApiErrorInfo(err);
         publicSearchTurnstileRef.current?.triggerChallenge?.();
         setPhase2Banner({
           type: 'warning',
@@ -868,7 +868,6 @@ const JoinClanForm = ({
       }
 
       // 2. Bắt 429 Rate Limit [NFR-02, ARCH-01]
-      const info = extractApiErrorInfo(err);
       if (info.status === 429) {
         const retryAfter = Number(
           info.details?.retryAfter || info.details?.retry_after || 30
@@ -883,27 +882,15 @@ const JoinClanForm = ({
         return;
       }
 
-      // Fallback endpoint nội bộ nếu public search trả lỗi khác 403/429
-      try {
-        const fallbackRes = await apiClient.get('/tenants/search', {
-          params: { q, field: 'name' },
-          headers: requestHeaders,
-        });
-        setTenantResults(fallbackRes.data?.data || []);
-        setPhase2Banner(null);
-      } catch (fallbackErr) {
-        if (isTurnstileChallengeError(fallbackErr)) {
-          const fbInfo = extractApiErrorInfo(fallbackErr);
-          publicSearchTurnstileRef.current?.triggerChallenge?.();
-          setPhase2Banner({
-            type: 'warning',
-            title: 'Yêu cầu xác minh bảo mật tìm kiếm',
-            message: fbInfo.message,
-            correlationId: fbInfo.correlationId,
-          });
-        }
-        setTenantResults([]);
-      }
+      // 3. Mọi lỗi còn lại (kể cả CORS / Network Error): dừng tại 1 request duy nhất,
+      // không gọi fallback /tenants/search và hiển thị thông báo rõ ràng trên Banner.
+      setTenantResults([]);
+      setPhase2Banner({
+        type: 'error',
+        title: 'Không thể tìm kiếm dòng họ',
+        message: info.message,
+        correlationId: info.correlationId,
+      });
     } finally {
       setTenantLoading(false);
     }
