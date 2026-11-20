@@ -370,6 +370,11 @@ const ClaimMemberWizard = ({
     },
   });
 
+  const claimSearchTurnstileRef = useRef(claimSearchTurnstile);
+  claimSearchTurnstileRef.current = claimSearchTurnstile;
+  const rateLimitCountdownRef = useRef(rateLimitCountdown);
+  rateLimitCountdownRef.current = rateLimitCountdown;
+
   useEffect(() => {
     if (propTenantId || internalTenant) return;
     const q = String(tenantQuery || '').trim();
@@ -412,20 +417,31 @@ const ClaimMemberWizard = ({
         return;
       }
 
-      if (rateLimitCountdown > 0 && !isAutoRetry) {
+      if (rateLimitCountdownRef.current > 0 && !isAutoRetry) {
         return;
       }
 
       lastClaimSearchKeywordRef.current = q;
+      const turnstileCtrl = claimSearchTurnstileRef.current;
+
+      if (
+        !isAutoRetry &&
+        turnstileCtrl?.isChallengeVisible &&
+        !overrideToken &&
+        !turnstileCtrl?.turnstileToken
+      ) {
+        return;
+      }
+
       if (!isAutoRetry) {
-        claimSearchTurnstile.resetRetryBudget();
+        turnstileCtrl?.resetRetryBudget?.();
       }
 
       setSearching(true);
       setSearchError('');
 
       const activeToken =
-        overrideToken || claimSearchTurnstile.turnstileToken || '';
+        overrideToken || turnstileCtrl?.turnstileToken || '';
       const headers = { Authorization: '' };
       if (activeToken) {
         headers['X-Turnstile-Token'] = activeToken;
@@ -443,7 +459,7 @@ const ClaimMemberWizard = ({
         // [ARCH-03] Không lọc is_clan=false ở client
         setResults(Array.isArray(list) ? list : []);
         setWizardBanner(null);
-        claimSearchTurnstile.dismissChallenge();
+        claimSearchTurnstileRef.current?.dismissChallenge?.();
         if (Array.isArray(list) && list.length === 0) {
           setSearchError(
             'Không tìm thấy thành viên chính thức nào khớp từ khóa. Bác có thể thử tên khác hoặc chọn "Khai báo mới 21 trường".'
@@ -453,7 +469,7 @@ const ClaimMemberWizard = ({
         // 1. Bắt 403 Turnstile Fail-Closed [NFR-02, TC-FE-12]
         if (isTurnstileChallengeError(err)) {
           const info = extractApiErrorInfo(err);
-          claimSearchTurnstile.triggerChallenge();
+          claimSearchTurnstileRef.current?.triggerChallenge?.();
           setWizardBanner({
             type: 'warning',
             title: 'Yêu cầu xác minh bảo mật tìm kiếm',
@@ -490,7 +506,7 @@ const ClaimMemberWizard = ({
         setSearching(false);
       }
     },
-    [activeTenantId, rateLimitCountdown, claimSearchTurnstile]
+    [activeTenantId]
   );
 
   useEffect(() => {
@@ -498,7 +514,7 @@ const ClaimMemberWizard = ({
   }, [executeSearch]);
 
   useEffect(() => {
-    if (selectedMemberId) return;
+    if (selectedMemberId) return undefined;
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
     searchTimerRef.current = setTimeout(() => {
       executeSearch(searchQuery);

@@ -388,6 +388,7 @@ const JoinClanForm = ({
   const passwordRef = useRef(null);
 
   const lastLifecycleVersionRef = useRef(lifecycleContext?.runtimeVersion || 0);
+  const lastRuntimeSessionIdRef = useRef(null);
 
   const JOIN_CLAN_EMPTY_VALUES = {
     tenantId: '',
@@ -541,23 +542,34 @@ const JoinClanForm = ({
       });
     }
 
-    requestAnimationFrame(() => {
+    const isInitialMount = lastRuntimeSessionIdRef.current === null;
+    lastRuntimeSessionIdRef.current = runtimeSessionId;
+
+    // UAT Bug 3.2: Đưa màn hình về đầu trang khi mở form đăng ký gia nhập
+    if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+
+    // UAT Bug 3.1: Chỉ remount Turnstile khi runtimeSessionId thực sự thay đổi sau lần mount đầu,
+    // tránh hủy ngang iframe normal?lang=auto vừa khởi tạo.
+    if (!isInitialMount) {
       captchaZone.reset({
         reason: 'runtime-reset',
         remount: true,
       });
-      setAttentionMessage('');
-      setPhoneRemoteError('');
-      setPhoneChecking(false);
+    }
 
-      if (guidedFlow.resetGuidedFlow) {
-        guidedFlow.resetGuidedFlow();
-      } else if (guidedFlow.resetFlow) {
-        guidedFlow.resetFlow();
-      }
+    setAttentionMessage('');
+    setPhoneRemoteError('');
+    setPhoneChecking(false);
 
-      guidedFlow.goToField('clanSearch');
-    });
+    if (guidedFlow.resetGuidedFlow) {
+      guidedFlow.resetGuidedFlow();
+    } else if (guidedFlow.resetFlow) {
+      guidedFlow.resetFlow();
+    }
+
+    guidedFlow.goToField('clanSearch');
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runtimeSessionId]);
@@ -787,110 +799,130 @@ const JoinClanForm = ({
     },
   });
 
-  const searchTenant = useCallback(
-    async (keyword, options = {}) => {
-      const { turnstileToken: overrideToken, isAutoRetry = false } = options;
-      const q = keyword?.trim();
+  // Giữ ref ổn định cho Turnstile & RateLimit để searchTenant không bao giờ bị tái tạo gây loop
+  const publicSearchTurnstileRef = useRef(publicSearchTurnstile);
+  publicSearchTurnstileRef.current = publicSearchTurnstile;
+  const searchRateLimitSecondsRef = useRef(searchRateLimitSeconds);
+  searchRateLimitSecondsRef.current = searchRateLimitSeconds;
 
-      if (!q || q.length < 2) {
+  const searchTenant = useCallback(async (keyword, options = {}) => {
+    const { turnstileToken: overrideToken, isAutoRetry = false } = options;
+    const q = keyword?.trim();
+
+    if (!q || q.length < 2) {
+      setTenantResults([]);
+      return;
+    }
+
+    if (searchRateLimitSecondsRef.current > 0 && !isAutoRetry) {
+      return;
+    }
+
+    lastPublicSearchKeywordRef.current = q;
+    const turnstileCtrl = publicSearchTurnstileRef.current;
+
+    // Nếu widget Turnstile đang mở chờ người dùng tích và chưa có token mới,
+    // lưu từ khóa mới vào ref và đợi người dùng tick xanh thay vì bắn request 403 lặp lại.
+    if (
+      !isAutoRetry &&
+      turnstileCtrl?.isChallengeVisible &&
+      !overrideToken &&
+      !turnstileCtrl?.turnstileToken
+    ) {
+      return;
+    }
+
+    if (!isAutoRetry) {
+      turnstileCtrl?.resetRetryBudget?.();
+    }
+
+    setTenantLoading(true);
+    const activeToken =
+      overrideToken || turnstileCtrl?.turnstileToken || '';
+    const requestHeaders = {
+      Authorization: '',
+      ...(activeToken ? { 'X-Turnstile-Token': activeToken } : {}),
+    };
+
+    try {
+      const res = await apiClient.get('/public/tenants/search', {
+        params: { q },
+        headers: requestHeaders,
+      });
+      setTenantResults(res.data?.data || []);
+      setPhase2Banner(null);
+      publicSearchTurnstileRef.current?.dismissChallenge?.();
+    } catch (err) {
+      // 1. Bắt 403 Turnstile Fail-Closed [NFR-02, TC-FE-12]
+      if (isTurnstileChallengeError(err)) {
+        const info = extractApiErrorInfo(err);
+        publicSearchTurnstileRef.current?.triggerChallenge?.();
+        setPhase2Banner({
+          type: 'warning',
+          title: 'Yêu cầu xác minh bảo mật tìm kiếm',
+          message: info.message,
+          correlationId: info.correlationId,
+        });
         setTenantResults([]);
         return;
       }
 
-      if (searchRateLimitSeconds > 0 && !isAutoRetry) {
+      // 2. Bắt 429 Rate Limit [NFR-02, ARCH-01]
+      const info = extractApiErrorInfo(err);
+      if (info.status === 429) {
+        const retryAfter = Number(
+          info.details?.retryAfter || info.details?.retry_after || 30
+        );
+        setSearchRateLimitSeconds(retryAfter > 0 ? retryAfter : 30);
+        setPhase2Banner({
+          type: 'warning',
+          title: 'Tạm giới hạn tần suất tìm kiếm',
+          message: info.message,
+          correlationId: info.correlationId,
+        });
         return;
       }
 
-      lastPublicSearchKeywordRef.current = q;
-      if (!isAutoRetry) {
-        publicSearchTurnstile.resetRetryBudget();
-      }
-
-      setTenantLoading(true);
-      const activeToken =
-        overrideToken || publicSearchTurnstile.turnstileToken || '';
-      const requestHeaders = activeToken
-        ? { 'X-Turnstile-Token': activeToken }
-        : {};
-
+      // Fallback endpoint nội bộ nếu public search trả lỗi khác 403/429
       try {
-        const res = await apiClient.get('/public/tenants/search', {
-          params: { q },
+        const fallbackRes = await apiClient.get('/tenants/search', {
+          params: { q, field: 'name' },
           headers: requestHeaders,
         });
-        setTenantResults(res.data?.data || []);
+        setTenantResults(fallbackRes.data?.data || []);
         setPhase2Banner(null);
-        publicSearchTurnstile.dismissChallenge();
-      } catch (err) {
-        // 1. Bắt 403 Turnstile Fail-Closed [NFR-02, TC-FE-12]
-        if (isTurnstileChallengeError(err)) {
-          const info = extractApiErrorInfo(err);
-          publicSearchTurnstile.triggerChallenge();
+      } catch (fallbackErr) {
+        if (isTurnstileChallengeError(fallbackErr)) {
+          const fbInfo = extractApiErrorInfo(fallbackErr);
+          publicSearchTurnstileRef.current?.triggerChallenge?.();
           setPhase2Banner({
             type: 'warning',
             title: 'Yêu cầu xác minh bảo mật tìm kiếm',
-            message: info.message,
-            correlationId: info.correlationId,
+            message: fbInfo.message,
+            correlationId: fbInfo.correlationId,
           });
-          setTenantResults([]);
-          return;
         }
-
-        // 2. Bắt 429 Rate Limit [NFR-02, ARCH-01]
-        const info = extractApiErrorInfo(err);
-        if (info.status === 429) {
-          const retryAfter = Number(
-            info.details?.retryAfter || info.details?.retry_after || 30
-          );
-          setSearchRateLimitSeconds(retryAfter > 0 ? retryAfter : 30);
-          setPhase2Banner({
-            type: 'warning',
-            title: 'Tạm giới hạn tần suất tìm kiếm',
-            message: info.message,
-            correlationId: info.correlationId,
-          });
-          return;
-        }
-
-        // Fallback endpoint nội bộ nếu public search trả lỗi khác 403/429
-        try {
-          const fallbackRes = await apiClient.get('/tenants/search', {
-            params: { q, field: 'name' },
-            headers: requestHeaders,
-          });
-          setTenantResults(fallbackRes.data?.data || []);
-          setPhase2Banner(null);
-        } catch (fallbackErr) {
-          if (isTurnstileChallengeError(fallbackErr)) {
-            const fbInfo = extractApiErrorInfo(fallbackErr);
-            publicSearchTurnstile.triggerChallenge();
-            setPhase2Banner({
-              type: 'warning',
-              title: 'Yêu cầu xác minh bảo mật tìm kiếm',
-              message: fbInfo.message,
-              correlationId: fbInfo.correlationId,
-            });
-          }
-          setTenantResults([]);
-        }
-      } finally {
-        setTenantLoading(false);
+        setTenantResults([]);
       }
-    },
-    [searchRateLimitSeconds, publicSearchTurnstile]
-  );
+    } finally {
+      setTenantLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     searchTenantRef.current = searchTenant;
   }, [searchTenant]);
 
   useEffect(() => {
+    if (selectedTenant || isRevision) return undefined;
     if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
 
-    searchTimerRef.current = setTimeout(() => searchTenant(searchKeyword), 450);
+    searchTimerRef.current = setTimeout(() => {
+      searchTenant(searchKeyword);
+    }, 450);
 
     return () => clearTimeout(searchTimerRef.current);
-  }, [searchKeyword, searchTenant]);
+  }, [searchKeyword, selectedTenant, isRevision, searchTenant]);
 
   /**
    * Online phone uniqueness check theo quốc gia đã chọn (libphonenumber-js/min)
@@ -1751,14 +1783,16 @@ const JoinClanForm = ({
   });
 
   /**
-   * Action footer
+   * Action footer JSX (không khai báo component con bên trong render để tránh remount mỗi lần gõ phím;
+   * tắt autoScroll trên submit wrapper để không kéo màn hình xuống cuối trang khi mở form [UAT Bug 3.2]).
    */
-  const ActionFooter = ({ isStep1 }) => (
+  const renderActionFooter = (isStep1) => (
     <div className="pt-8">
       {isStep1 ? (
         <GuidedFieldWrapper
           fieldKey="submit"
           activeField={guidedFlow.activeField}
+          autoScroll={false}
           helperText={
             ttsMessages?.joinClan?.submit || 'Bác bấm nút tiếp tục rà soát để kiểm tra lại hồ sơ.'
           }
@@ -2429,7 +2463,7 @@ const JoinClanForm = ({
               captchaZone={captchaZone}
               guidedFlow={guidedFlow}
               fieldKey="captcha"
-              nextZone="submit"
+              nextZone=""
               disabled={effectiveLoading}
               loading={effectiveLoading}
               elderAssistMode
@@ -2439,7 +2473,7 @@ const JoinClanForm = ({
               onFocus={() => guidedFlow.goToField('captcha')}
             />
 
-            <ActionFooter isStep1={true} />
+            {renderActionFooter(true)}
             {onBackToRegister && (
               <button
                 type="button"

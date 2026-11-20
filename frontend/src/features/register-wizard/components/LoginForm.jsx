@@ -320,12 +320,19 @@ const LoginForm = ({
   ]);
 
   useEffect(() => {
+    const isInitialMount = lastRuntimeSessionIdRef.current === null;
     const sessionChanged =
       runtimeSessionId !== lastRuntimeSessionIdRef.current;
 
     if (!sessionChanged) return;
 
     lastRuntimeSessionIdRef.current = runtimeSessionId;
+
+    // UAT Bug 3.1: Trên lần mount đầu tiên, Turnstile đang khởi tạo mới sẵn (key=0),
+    // không gọi remount 3 lần (rAF + 80ms + 250ms) gây 2 request normal?lang=auto bị canceled.
+    if (isInitialMount) {
+      return undefined;
+    }
 
     const resetLoginRuntime = () => {
       setFormData({
@@ -343,15 +350,8 @@ const LoginForm = ({
       resetCaptchaRuntime({ remount: true });
     };
 
-    requestAnimationFrame(resetLoginRuntime);
-
-    const t1 = window.setTimeout(resetLoginRuntime, 80);
-    const t2 = window.setTimeout(resetLoginRuntime, 250);
-
-    return () => {
-      window.clearTimeout(t1);
-      window.clearTimeout(t2);
-    };
+    resetLoginRuntime();
+    return undefined;
   }, [runtimeSessionId]);
 
   useEffect(() => {

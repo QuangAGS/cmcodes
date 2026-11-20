@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : frontend/src/shared/hooks/useTurnstileFailClosed.js
- * DATETIME   : 2026-11-20T06:15:00+07:00
- * VERSION    : 1.2.0-phase2-fe1-ssot
+ * DATETIME   : 2026-11-20T16:15:00+07:00
+ * VERSION    : 1.3.0-phase2-uat-bug4-fix
  * DESCRIPTION:
  * - Custom React Hook dùng chung (src/shared/hooks) quản lý xác thực
  *   Cloudflare Turnstile theo cơ chế Fail-Closed [NFR-02] cho các API
@@ -18,11 +18,16 @@
  * - 2026-11-20T06:15:00+07:00 (v1.2.0-phase2-fe1-ssot):
  *   + Đồng bộ 100% với SSOT onboardingPhase2Contracts.js & apiClient.js (statusCode/code).
  *   + Bổ sung extractApiErrorInfo() chuẩn hóa correlationId fallback "Không có".
+ * - 2026-11-20T16:15:00+07:00 (v1.3.0-phase2-uat-bug4-fix):
+ *   + Fix UAT Bug 4: Memoize object trả về của hook bằng useMemo để tránh tạo
+ *     tham chiếu mới mỗi lần re-render gây vòng lặp useEffect vô hạn ở form gọi.
+ *   + Chỉ reset widget trong triggerChallenge() nếu đã có token cũ bị BE từ chối,
+ *     không phá hủy widget đang mở chờ người dùng tích xác nhận.
  * ============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { PHASE2_ERROR_MAP } from '../../features/onboarding/constants/phase2ErrorMap.js';
 
 /**
@@ -122,6 +127,8 @@ export default function useTurnstileFailClosed({
   const widgetIdRef = useRef(null);
   // Bộ đếm số lần đã auto-retry API trong cùng 1 chu kỳ request (chống infinite loop)
   const retryCountRef = useRef(0);
+  const isChallengeVisibleRef = useRef(false);
+  const turnstileTokenRef = useRef(null);
 
   const onVerifySuccessRef = useRef(onVerifySuccess);
   const onVerifyErrorRef = useRef(onVerifyError);
@@ -152,6 +159,7 @@ export default function useTurnstileFailClosed({
   }, []);
 
   const resetTurnstile = useCallback(() => {
+    turnstileTokenRef.current = null;
     setTurnstileToken(null);
     if (
       widgetIdRef.current !== null &&
@@ -177,12 +185,19 @@ export default function useTurnstileFailClosed({
 
   /**
    * Kích hoạt hiển thị thử thách Turnstile khi nhận 403 TURNSTILE_REQUIRED / FAILED [NFR-02].
+   * Nếu widget đã hiển thị và chưa có token (người dùng đang chuẩn bị tích), giữ nguyên widget
+   * để tránh reload iframe liên tục. Chỉ reset nếu token đã dùng bị BE báo lỗi.
    */
   const triggerChallenge = useCallback(() => {
+    const hadPreviousToken = Boolean(turnstileTokenRef.current);
+    const wasAlreadyVisible = isChallengeVisibleRef.current;
+
+    turnstileTokenRef.current = null;
     setTurnstileToken(null);
+    isChallengeVisibleRef.current = true;
     setIsChallengeVisible(true);
 
-    if (widgetIdRef.current !== null) {
+    if (wasAlreadyVisible && hadPreviousToken && widgetIdRef.current !== null) {
       resetTurnstile();
     }
   }, [resetTurnstile]);
@@ -192,7 +207,9 @@ export default function useTurnstileFailClosed({
    */
   const dismissChallenge = useCallback(() => {
     removeTurnstileWidget();
+    isChallengeVisibleRef.current = false;
     setIsChallengeVisible(false);
+    turnstileTokenRef.current = null;
     setTurnstileToken(null);
     setCaptchaError(null);
     retryCountRef.current = 0;
@@ -255,6 +272,7 @@ export default function useTurnstileFailClosed({
           callback: (verifiedToken) => {
             if (isCancelled) return;
             setCaptchaError(null);
+            turnstileTokenRef.current = verifiedToken;
             setTurnstileToken(verifiedToken);
 
             // Chỉ tự động gọi lại API tối đa 1 lần / request [Section 0.8] (TC-FE-12 Scenario 1)
@@ -268,6 +286,7 @@ export default function useTurnstileFailClosed({
           'error-callback': (errorCode) => {
             if (isCancelled) return;
             // TC-FE-12 Scenario 2: Báo lỗi, tự động reset widget và KHÔNG auto-retry API
+            turnstileTokenRef.current = null;
             setTurnstileToken(null);
             const failError = {
               code: TURNSTILE_CHALLENGE_CODES.TURNSTILE_FAILED,
@@ -284,6 +303,7 @@ export default function useTurnstileFailClosed({
           },
           'expired-callback': () => {
             if (isCancelled) return;
+            turnstileTokenRef.current = null;
             setTurnstileToken(null);
             const expiredError = {
               code: 'TURNSTILE_TOKEN_EXPIRED',
@@ -323,16 +343,28 @@ export default function useTurnstileFailClosed({
     };
   }, [isChallengeVisible, siteKey, theme, size, removeTurnstileWidget, resetTurnstile]);
 
-  return {
-    isChallengeVisible,
-    isWidgetReady,
-    turnstileToken,
-    captchaError,
-    containerRef,
-    triggerChallenge,
-    resetTurnstile,
-    resetRetryBudget,
-    dismissChallenge,
-    canAutoRetry: retryCountRef.current < MAX_AUTO_RETRY_PER_REQUEST,
-  };
+  return useMemo(
+    () => ({
+      isChallengeVisible,
+      isWidgetReady,
+      turnstileToken,
+      captchaError,
+      containerRef,
+      triggerChallenge,
+      resetTurnstile,
+      resetRetryBudget,
+      dismissChallenge,
+      canAutoRetry: retryCountRef.current < MAX_AUTO_RETRY_PER_REQUEST,
+    }),
+    [
+      isChallengeVisible,
+      isWidgetReady,
+      turnstileToken,
+      captchaError,
+      triggerChallenge,
+      resetTurnstile,
+      resetRetryBudget,
+      dismissChallenge,
+    ]
+  );
 }

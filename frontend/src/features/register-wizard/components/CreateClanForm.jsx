@@ -354,6 +354,7 @@ const CreateClanForm = ({
   );
 
   const lastLifecycleVersionRef = useRef(lifecycleContext?.runtimeVersion || 0);
+  const lastRuntimeSessionIdRef = useRef(null);
   /**
    * <2026-05-17T10:00:00+07:00>
    * VERSION: 24.6.7.R1.9
@@ -588,34 +589,42 @@ const CreateClanForm = ({
    * - activeField
    */
   useEffect(() => {
-    requestAnimationFrame(() => {
+    const isInitialMount = lastRuntimeSessionIdRef.current === null;
+    lastRuntimeSessionIdRef.current = runtimeSessionId;
+
+    if (typeof window !== 'undefined' && typeof window.scrollTo === 'function') {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+
+    if (!isInitialMount) {
       captchaZone.reset();
-      setAttentionMessage('');
-      setAttentionField('');
-      setOnlineErrors({
-        phone: '',
-        email: '',
-      });
+    }
 
-      setIsChecking({
-        phone: false,
-        email: false,
-      });
-
-      securityInfoCompletedInSessionRef.current = false;
-      checkedIdentityCacheRef.current = { phone: null, email: null };
-      if (!initialData?.phone) {
-        setPhoneCountry('VN');
-      }
-
-      if (guidedFlow.resetGuidedFlow) {
-        guidedFlow.resetGuidedFlow();
-      } else if (guidedFlow.resetFlow) {
-        guidedFlow.resetFlow();
-      }
-
-      guidedFlow.goToField('clanInfo');
+    setAttentionMessage('');
+    setAttentionField('');
+    setOnlineErrors({
+      phone: '',
+      email: '',
     });
+
+    setIsChecking({
+      phone: false,
+      email: false,
+    });
+
+    securityInfoCompletedInSessionRef.current = false;
+    checkedIdentityCacheRef.current = { phone: null, email: null };
+    if (!initialData?.phone) {
+      setPhoneCountry('VN');
+    }
+
+    if (guidedFlow.resetGuidedFlow) {
+      guidedFlow.resetGuidedFlow();
+    } else if (guidedFlow.resetFlow) {
+      guidedFlow.resetFlow();
+    }
+
+    guidedFlow.goToField('clanInfo');
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runtimeSessionId]);
@@ -1538,11 +1547,12 @@ const CreateClanForm = ({
    * Must call nextStep().
    * Never bypass using native submit.
    */
-  const ActionFooter = () => (
+  const renderActionFooter = () => (
     <div className="pt-8">
       <GuidedFieldWrapper
         fieldKey="submit"
         activeField={guidedFlow.activeField}
+        autoScroll={false}
         helperText={
           ttsMessages?.createClan?.submit ||
           'Bác bấm nút tiếp tục rà soát để kiểm tra lại hồ sơ.'
@@ -2252,7 +2262,7 @@ const CreateClanForm = ({
               captchaZone={captchaZone}
               guidedFlow={guidedFlow}
               fieldKey="captcha"
-              nextZone="submit"
+              nextZone=""
               disabled={effectiveLoading}
               loading={effectiveLoading}
               elderAssistMode
@@ -2262,7 +2272,7 @@ const CreateClanForm = ({
               onFocus={() => guidedFlow.goToField('captcha')}
             />
 
-            <ActionFooter />
+            {renderActionFooter()}
             {onBackToRegister && (
               <button
                 type="button"
