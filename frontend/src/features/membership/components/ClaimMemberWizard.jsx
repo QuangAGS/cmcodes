@@ -40,12 +40,15 @@ import {
   AlertCircle,
   Landmark,
   Lock,
+  Phone,
 } from 'lucide-react';
 import apiClient from '../../../lib/apiClient.js';
-import { REFERRER_COOLDOWN_DAYS } from '../../onboarding/constants/onboardingPhase2Contracts.js';
+import { COUNTRY_PHONE_OPTIONS } from '../../../shared/utils/validationRules.js';
+import { getPhase2UserMessage } from '../../onboarding/constants/phase2MessageCatalog.js';
 import PersistentMessageBanner from '../../../components/common/PersistentMessageBanner.jsx';
 import BlockingLoadingOverlay from '../../../components/common/BlockingLoadingOverlay.jsx';
-import AudioHelpButton from '../../elder-doctrine/components/AudioHelpButton.jsx';
+import CollapsibleDetailCard from '../../../components/common/CollapsibleDetailCard.jsx';
+import KeyValueDetailTable from '../../../components/common/KeyValueDetailTable.jsx';
 import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx';
 import useTurnstileFailClosed, {
   isTurnstileChallengeError,
@@ -67,7 +70,7 @@ const CHILD_TYPE_LABELS = {
   CON_RIENG: 'Con riêng',
 };
 
-const SEVEN_DAYS_MS = REFERRER_COOLDOWN_DAYS * 24 * 60 * 60 * 1000;
+
 
 /**
  * Suy diễn tư cách Nội tộc / Ngoại tộc (is_clan) và vai vế (child_type) từ members + marriages.
@@ -133,25 +136,19 @@ const getNonClanDisplayBadge = (member) => {
 };
 
 /**
- * [FUNC-09, TC-FE-09] Kiểm tra người bảo lãnh có nằm trong thời gian Cooldown 7 ngày hay không
- * dựa trên metadata.referral_history = [{ referrer_id, status: 'DECLINED', decided_at }]
+ * [UAT-IMP3 Bổ sung 3] Diễn giải đầy đủ thuộc tính members.is_clan cho bảng chi tiết 2 cột.
  */
-const checkReferrerCooldown = (referrerId, referralHistory = [], extraBlockedIds = new Set()) => {
-  if (!referrerId) return false;
-  if (extraBlockedIds.has(String(referrerId))) return true;
-  if (!Array.isArray(referralHistory) || referralHistory.length === 0) return false;
-
-  const now = Date.now();
-  return referralHistory.some((item) => {
-    const id = String(item?.referrer_id || item?.referrer_member_id || '');
-    if (id !== String(referrerId)) return false;
-    const st = String(item?.status || item?.decision || '').toUpperCase();
-    if (st !== 'DECLINED' && st !== 'REJECTED') return false;
-    if (!item?.decided_at) return true;
-    const elapsed = now - new Date(item.decided_at).getTime();
-    return elapsed >= 0 && elapsed < SEVEN_DAYS_MS;
-  });
+const resolveClanRelationDetailText = (member) => {
+  const relation = resolveMemberClanRelation(member);
+  if (!relation.isClan) {
+    if (relation.childType === 'CON_DAU') return 'Thành viên ngoại tộc (Con dâu)';
+    if (relation.childType === 'CON_RE') return 'Thành viên ngoại tộc (Con rể)';
+    return 'Thành viên ngoại tộc (Con rể / Con dâu)';
+  }
+  return 'Thành viên trong họ (Nội tộc)';
 };
+
+
 
 const resolveVerificationPrompts = ({ linkType = '', childType = '' } = {}) => {
   const normalizedLink = String(linkType || '').toUpperCase();
@@ -283,7 +280,9 @@ const ClaimMemberWizard = ({
   referrerCandidates = [],
   cooldownReferrerIds = [],
   onSwitchToCreateNew,
+  focusRequest = null,
 }) => {
+  const wizardRootRef = useRef(null);
   const [internalTenant, setInternalTenant] = useState(null);
   const [tenantQuery, setTenantQuery] = useState('');
   const [tenantResults, setTenantResults] = useState([]);
@@ -301,6 +300,48 @@ const ClaimMemberWizard = ({
   const [rateLimitCountdown, setRateLimitCountdown] = useState(0);
   const searchTimerRef = useRef(null);
   const lastClaimSearchKeywordRef = useRef('');
+  const step1CardRef = useRef(null);
+  const step2CardRef = useRef(null);
+  const step3CardRef = useRef(null);
+
+  const [step1Collapsed, setStep1Collapsed] = useState(false);
+  const [step2Collapsed, setStep2Collapsed] = useState(false);
+  const [step3Collapsed, setStep3Collapsed] = useState(false);
+
+  // [UAT-Bug 6] Tự động mở đúng Card Bước 1 / Bước 2 và cuộn/focus tới trường bị lỗi
+  useEffect(() => {
+    const targetField = focusRequest?.field;
+    if (!targetField) return undefined;
+
+    if (targetField === 'claimed_member_id') {
+      setStep1Collapsed(false);
+    } else if (
+      [
+        'referrer_name',
+        'referrer_phone',
+        'layer1_lineage',
+        'layer2_branch_origin',
+        'layer3_guarantor_note',
+      ].includes(targetField)
+    ) {
+      setStep2Collapsed(false);
+    } else {
+      return undefined;
+    }
+
+    const timer = window.setTimeout(() => {
+      const container = wizardRootRef.current || document;
+      const el =
+        container.querySelector(`[data-field-key="${targetField}"]`) ||
+        document.querySelector(`[data-field-key="${targetField}"]`);
+      if (el) {
+        el.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+        el.focus?.({ preventScroll: true });
+      }
+    }, 140);
+
+    return () => window.clearTimeout(timer);
+  }, [focusRequest?.field, focusRequest?.tick]);
 
   const selectedMember = value?.claimed_member_summary || null;
   const selectedMemberId = value?.claimed_member_id || selectedMember?.id || '';
@@ -310,21 +351,12 @@ const ClaimMemberWizard = ({
     layer2_branch_origin: '',
     layer3_guarantor_note: '',
   };
-  const selectedReferrerId = value?.referrer_member_id || '';
-
-  // Kết hợp metadata.referral_history từ props và từ value.metadata
-  const mergedReferralHistory = useMemo(() => {
-    const fromValue = Array.isArray(value?.metadata?.referral_history)
-      ? value.metadata.referral_history
-      : [];
-    const fromProp = Array.isArray(referralHistory) ? referralHistory : [];
-    return [...fromProp, ...fromValue];
-  }, [referralHistory, value?.metadata?.referral_history]);
-
-  const extraCooldownSet = useMemo(
-    () => new Set((cooldownReferrerIds || []).map((id) => String(id))),
-    [cooldownReferrerIds]
-  );
+  const referrerName = value?.referrer_name || '';
+  const referrerPhone = value?.referrer_phone || '';
+  const referrerPhoneCountry = value?.referrer_phone_country || 'VN';
+  const selectedRefCountryMeta =
+    COUNTRY_PHONE_OPTIONS.find((c) => c.code === referrerPhoneCountry) ||
+    COUNTRY_PHONE_OPTIONS[0];
 
   // Trạng thái khóa QA 3 lần sai [FUNC-03, TC-FE-03]
   const effectiveQaLocked = Boolean(qaLocked || value?.qa_locked);
@@ -361,11 +393,13 @@ const ClaimMemberWizard = ({
       }
     },
     onVerifyError: (captchaErr) => {
-      setWizardBanner({
-        type: 'error',
-        title: 'Xác thực bảo mật chưa thành công',
+      const msgObj = getPhase2UserMessage('TURNSTILE_FAILED', {
         message: captchaErr?.message,
-        correlationId: 'Không có',
+      });
+      setWizardBanner({
+        type: msgObj.type,
+        title: msgObj.title,
+        message: msgObj.message,
       });
     },
   });
@@ -404,7 +438,6 @@ const ClaimMemberWizard = ({
   useEffect(() => {
     setResults([]);
     setSearchError('');
-    setWizardBanner(null);
   }, [activeTenantId]);
 
   const executeSearch = useCallback(
@@ -458,23 +491,24 @@ const ClaimMemberWizard = ({
         const list = res.data?.data || [];
         // [ARCH-03] Không lọc is_clan=false ở client
         setResults(Array.isArray(list) ? list : []);
-        setWizardBanner(null);
         claimSearchTurnstileRef.current?.dismissChallenge?.();
         if (Array.isArray(list) && list.length === 0) {
           setSearchError(
-            'Không tìm thấy thành viên chính thức nào khớp từ khóa. Bác có thể thử tên khác hoặc chọn "Khai báo mới 21 trường".'
+            'Không tìm thấy thành viên chính thức nào khớp từ khóa. Bác có thể thử tên khác hoặc chọn khai báo hồ sơ mới.'
           );
         }
       } catch (err) {
         // 1. Bắt 403 Turnstile Fail-Closed [NFR-02, TC-FE-12]
         if (isTurnstileChallengeError(err)) {
           const info = extractApiErrorInfo(err);
+          const msgObj = getPhase2UserMessage('TURNSTILE_REQUIRED', {
+            message: info.message,
+          });
           claimSearchTurnstileRef.current?.triggerChallenge?.();
           setWizardBanner({
-            type: 'warning',
-            title: 'Yêu cầu xác minh bảo mật tìm kiếm',
-            message: info.message,
-            correlationId: info.correlationId,
+            type: msgObj.type,
+            title: msgObj.title,
+            message: msgObj.message,
           });
           setResults([]);
           return;
@@ -485,20 +519,24 @@ const ClaimMemberWizard = ({
           const retryAfter = Number(
             info.details?.retryAfter || info.details?.retry_after || 30
           );
+          const msgObj = getPhase2UserMessage('CLAIM_SEARCH_RATE_LIMITED', {
+            message: info.message,
+          });
           setRateLimitCountdown(retryAfter > 0 ? retryAfter : 30);
           setWizardBanner({
-            type: 'warning',
-            title: 'Tạm giới hạn tần suất tra cứu thành viên',
-            message: info.message,
-            correlationId: info.correlationId,
+            type: msgObj.type,
+            title: msgObj.title,
+            message: msgObj.message,
           });
         } else {
-          setSearchError(info.message);
-          setWizardBanner({
-            type: 'error',
-            title: 'Không tra cứu được danh sách thành viên',
+          const msgObj = getPhase2UserMessage(info.code, {
             message: info.message,
-            correlationId: info.correlationId,
+          });
+          setSearchError(msgObj.message);
+          setWizardBanner({
+            type: msgObj.type,
+            title: msgObj.title,
+            message: msgObj.message,
           });
         }
         setResults([]);
@@ -532,8 +570,8 @@ const ClaimMemberWizard = ({
   };
 
   const handleSelectMember = (member) => {
-    // [ARCH-03, TC-FE-15] Khóa chọn sớm nếu is_claimed === true hoặc bị chặn Claim-Hopping
-    if (member?.is_claimed === true || claimHoppingBlocked) return;
+    // [UAT-IMP3 Bổ sung 2] Không khóa chọn sớm theo is_claimed để tránh suy ngược tài khoản
+    if (!member || claimHoppingBlocked) return;
     onFocusZone?.();
     onMemberSelect?.(member);
     const relation = resolveMemberClanRelation(member);
@@ -556,10 +594,20 @@ const ClaimMemberWizard = ({
         layer3_guarantor_note: verification.layer3_guarantor_note || '',
       },
     });
+
+    // [UAT-IMP2] Giữ nguyên Card Bước 1 phía trên, mở Card Bước 2 và cuộn mượt tới Bước 2
+    setStep2Collapsed(false);
+    window.setTimeout(() => {
+      step2CardRef.current?.scrollIntoView?.({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 120);
   };
 
   const handleResetSelection = () => {
     onFocusZone?.();
+    setStep1Collapsed(false);
     emitChange({
       claim_mode: 'CLAIM_EM',
       claimed_member_id: '',
@@ -583,6 +631,8 @@ const ClaimMemberWizard = ({
 
   const isAllLayersComplete =
     Boolean(selectedMemberId) &&
+    Boolean(String(referrerName || '').trim()) &&
+    Boolean(String(referrerPhone || '').trim()) &&
     Boolean(String(verification.layer1_lineage || '').trim()) &&
     Boolean(String(verification.layer2_branch_origin || '').trim()) &&
     Boolean(String(verification.layer3_guarantor_note || '').trim());
@@ -590,23 +640,11 @@ const ClaimMemberWizard = ({
   const selectedMemberBadge = getNonClanDisplayBadge(selectedMember);
 
   return (
-    <div className="space-y-5">
+    <div ref={wizardRootRef} className="space-y-5">
       <BlockingLoadingOverlay
         isOpen={searching || tenantSearching}
         message="Đang tra cứu danh sách thành viên trên phả đồ..."
       />
-
-      {/* Header trợ lý giọng nói cho quy trình Claim [NFR-FE-02, TC-FE-18] */}
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-slate-200 bg-white px-4 py-3">
-        <span className="text-base font-bold text-slate-800">
-          Trợ lý hướng dẫn nhận hồ sơ
-        </span>
-        <AudioHelpButton
-          text="Bác tìm tên của mình trên cây gia phả. Các vị trí đã có tài khoản liên kết sẽ bị khóa chọn. Nếu bác là con dâu hoặc con rể, hệ thống vẫn hiển thị để bác chọn. Sau đó bác nhập 3 lớp thông tin xác minh để Ban Quản trị đối chiếu."
-          label="Nghe hướng dẫn"
-          variant="soft"
-        />
-      </div>
 
       {/* [FUNC-03, TC-FE-03] Huy hiệu khóa QA sau 3 lần trả lời sai (423 ONBOARDING_QA_LOCKED) */}
       {effectiveQaLocked && (
@@ -616,12 +654,9 @@ const ClaimMemberWizard = ({
           className="rounded-2xl border-2 border-amber-500 bg-amber-50 p-4 text-amber-950 space-y-2"
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <span className="inline-flex items-center gap-2 rounded-xl bg-amber-800 px-3 py-1.5 text-base font-black text-white">
+            <span className="inline-flex items-center gap-2 rounded-xl bg-amber-800 px-3.5 py-2 text-base font-bold text-white">
               <Lock size={18} />
-              Khóa QA (3 lần sai) - Chờ Ban Quản trị
-            </span>
-            <span className="text-base font-bold text-amber-900">
-              Chờ duyệt thủ công
+              Đã chuyển Ban Quản trị xem xét trực tiếp
             </span>
           </div>
           <p className="text-base font-medium leading-relaxed text-amber-900">
@@ -644,57 +679,25 @@ const ClaimMemberWizard = ({
             <button
               type="button"
               onClick={onSwitchToCreateNew}
-              className="min-h-[48px] rounded-xl bg-indigo-600 px-4 py-2.5 text-base font-bold text-white hover:bg-indigo-700"
+              className="min-h-[48px] h-12 rounded-xl bg-indigo-600 px-5 text-base font-bold text-white hover:bg-indigo-700 whitespace-nowrap"
             >
-              Chuyển sang Tạo hồ sơ mới (CREATE_NEW)
+              Chuyển sang Khai báo hồ sơ mới
             </button>
           )}
         </div>
       )}
 
-      {/* Banner thông báo nghiệp vụ hợp nhất duy nhất (kèm X-Correlation-Id) */}
+      {/* [UAT-IMP1] Banner thông báo lớp trên cùng (nền mờ đậm che gần toàn màn hình + tự động đọc) */}
       {wizardBanner && (
         <PersistentMessageBanner
           type={wizardBanner.type}
+          mode={wizardBanner.mode || 'fullscreen'}
+          autoSpeak
           title={wizardBanner.title}
           message={wizardBanner.message}
-          correlationId={wizardBanner.correlationId}
           onClose={() => setWizardBanner(null)}
         />
       )}
-
-      {/* Thanh tiến trình 3 bước trực quan */}
-      <div className="grid grid-cols-3 gap-2 rounded-2xl bg-slate-100 p-1.5 text-center text-sm sm:text-base font-black">
-        <div
-          className={`rounded-xl py-2.5 transition ${
-            !selectedMemberId
-              ? 'bg-white text-emerald-700 shadow-sm'
-              : 'text-emerald-700'
-          }`}
-        >
-          1. Tìm trên cây
-        </div>
-        <div
-          className={`rounded-xl py-2.5 transition ${
-            selectedMemberId && !isAllLayersComplete
-              ? 'bg-white text-emerald-700 shadow-sm'
-              : isAllLayersComplete
-                ? 'text-emerald-700'
-                : 'text-slate-500'
-          }`}
-        >
-          {prompts.step2Label}
-        </div>
-        <div
-          className={`rounded-xl py-2.5 transition ${
-            isAllLayersComplete
-              ? 'bg-emerald-600 text-white shadow-sm'
-              : 'text-slate-500'
-          }`}
-        >
-          3. Xác nhận
-        </div>
-      </div>
 
       {/* BƯỚC 0 (Nếu chưa chọn dòng họ từ bên ngoài): TÌM DÒNG HỌ */}
       {!propTenantId && (
@@ -761,487 +764,488 @@ const ClaimMemberWizard = ({
         </div>
       )}
 
-      {/* BƯỚC 1: TÌM THÀNH VIÊN TRÊN CÂY */}
-      {!selectedMemberId ? (
-        <div className="space-y-3 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-          <div className="flex items-start justify-between gap-2">
-            <div className="space-y-1">
-              <label className="text-base font-black text-slate-800">
-                Bước 1: Tìm tên của bác trên cây gia phả{' '}
-                {activeTenantName ? `(${activeTenantName})` : ''}{' '}
-                <span className="text-rose-500">*</span>
-              </label>
-              <p className="text-base font-medium text-slate-600">
-                Gõ tối thiểu 2 chữ cái họ tên hoặc tên tự để tra cứu thành viên
-                chính thức (bao gồm cả con dâu, con rể) đã có trên sổ họ.
-              </p>
-            </div>
-            <ZoneVoiceButton
-              visible
-              text="Bác gõ họ tên của mình vào ô tìm kiếm bên dưới để tìm vị trí trên cây gia phả."
-              label="Nghe"
-            />
-          </div>
+      {/* CARD BƯỚC 1: TÌM & CHỌN THÀNH VIÊN TRONG SỔ HỌ (Card 2 dòng / 3 cột chuẩn UAT-IMP3) */}
+      <div ref={step1CardRef}>
+        <CollapsibleDetailCard
+          title={`Bước 1: Tìm tên của bác trong sổ họ ${activeTenantName || ''}`}
+          statusLabel={selectedMemberId ? 'Đã chọn' : 'Chưa chọn'}
+          statusVariant={selectedMemberId ? 'complete' : 'default'}
+          voiceText={`Bước 1: Tìm tên của bác trong sổ họ ${activeTenantName || 'đã chọn'}. Bác gõ họ tên của mình vào ô tìm kiếm, sau đó bấm Mở ra trên thẻ kết quả để xem thông tin chi tiết và chọn hồ sơ.`}
+          expanded={!step1Collapsed}
+          onToggle={(next) => setStep1Collapsed(!next)}
+        >
+          <div className="space-y-3">
+            {selectedMemberId && (
+              <div className="space-y-3 rounded-2xl border border-emerald-200 bg-emerald-50/90 p-4 text-emerald-950">
+                <div className="flex items-center gap-2 text-emerald-800">
+                  <UserCheck size={20} className="shrink-0" />
+                  <span className="text-base font-bold">
+                    Hồ sơ trong sổ họ bác đã chọn
+                  </span>
+                </div>
 
-          <div className="relative">
-            <Search
-              size={18}
-              className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-            />
-            <input
-              type="text"
-              value={searchQuery}
-              disabled={disabled || !activeTenantId || rateLimitCountdown > 0}
-              onFocus={() => onFocusZone?.()}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder={
-                activeTenantId
-                  ? 'Ví dụ: Nguyễn Văn An...'
-                  : 'Vui lòng chọn dòng họ trước...'
-              }
-              className="min-h-[48px] w-full rounded-xl border border-slate-300 bg-white py-3 pl-11 pr-10 text-base text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-200 disabled:text-slate-600"
-            />
-            {searching && (
-              <Loader2
-                size={18}
-                className="absolute right-4 top-1/2 -translate-y-1/2 animate-spin text-emerald-600"
-              />
+                <KeyValueDetailTable
+                  rows={[
+                    { label: 'Họ và tên', value: selectedMember?.full_name },
+                    ...(selectedMember?.alias
+                      ? [{ label: 'Tên tự / Tên hiệu', value: selectedMember.alias }]
+                      : []),
+                    {
+                      label: 'Quan hệ dòng họ',
+                      value: resolveClanRelationDetailText(selectedMember),
+                    },
+                    ...(selectedMember?.generation != null
+                      ? [{ label: 'Đời thứ', value: `Đời thứ ${selectedMember.generation}` }]
+                      : []),
+                    ...(selectedMember?.branch_name
+                      ? [{ label: 'Chi / Nhánh', value: selectedMember.branch_name }]
+                      : []),
+                    ...(selectedMember?.birth_year
+                      ? [{ label: 'Năm sinh', value: selectedMember.birth_year }]
+                      : []),
+                    ...(selectedMember?.father_name
+                      ? [{ label: 'Họ tên Cha', value: selectedMember.father_name }]
+                      : []),
+                    ...(selectedMember?.mother_name
+                      ? [{ label: 'Họ tên Mẹ', value: selectedMember.mother_name }]
+                      : []),
+                  ]}
+                  notes={
+                    selectedMember?.note
+                      ? [{ label: 'Ghi chú', value: selectedMember.note }]
+                      : []
+                  }
+                />
+
+                <button
+                  type="button"
+                  disabled={disabled}
+                  onClick={handleResetSelection}
+                  className="min-h-[48px] h-12 w-full inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-400 bg-white px-4 text-base font-bold text-emerald-800 whitespace-nowrap transition hover:bg-emerald-100"
+                >
+                  <RotateCcw size={18} />
+                  <span>Chọn lại người khác</span>
+                </button>
+              </div>
             )}
-          </div>
 
-          {/* Inline helper text >= 16px khi bị Rate Limit 429 */}
-          {rateLimitCountdown > 0 && (
-            <p className="text-base font-semibold text-amber-800" role="status">
-              Tạm khóa tra cứu do thao tác quá nhanh. Vui lòng thử lại sau {rateLimitCountdown} giây.
-            </p>
-          )}
+            {!selectedMemberId && (
+              <>
+                <p className="text-base font-medium text-slate-600">
+                  Gõ tối thiểu 2 chữ cái họ tên hoặc tên tự để tra cứu thành viên
+                  chính thức (bao gồm cả con dâu, con rể) đã có trong sổ họ.
+                </p>
 
-          {/* [NFR-02, TC-FE-12] Khung Turnstile Fail-Closed cho claim-search */}
-          {claimSearchTurnstile.isChallengeVisible && (
-            <div
-              className="rounded-2xl border-2 border-amber-400 bg-amber-50 p-4"
-              role="region"
-              aria-label="Xác minh bảo mật tra cứu thành viên"
-            >
-              <p className="mb-2 text-base font-bold text-amber-950">
-                Bác vui lòng tích vào ô xác nhận bên dưới để tiếp tục tra cứu thành viên:
-              </p>
-              <div
-                ref={claimSearchTurnstile.containerRef}
-                className="min-h-[65px]"
-              />
-            </div>
-          )}
+                <div className="relative">
+                  <Search
+                    size={18}
+                    className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                  />
+                  <input
+                    type="text"
+                    data-field-key="claimed_member_id"
+                    value={searchQuery}
+                    disabled={disabled || !activeTenantId || rateLimitCountdown > 0}
+                    onFocus={() => onFocusZone?.()}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder={
+                      activeTenantId
+                        ? 'Ví dụ: Nguyễn Văn An...'
+                        : 'Vui lòng chọn dòng họ trước...'
+                    }
+                    className="min-h-[48px] h-12 w-full rounded-xl border border-slate-300 bg-white pl-11 pr-10 text-base text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 disabled:bg-slate-200 disabled:text-slate-600"
+                  />
+                  {searching && (
+                    <Loader2
+                      size={18}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 animate-spin text-emerald-600"
+                    />
+                  )}
+                </div>
 
-          {errors.claimed_member_id && (
-            <p className="text-base font-bold text-rose-600">
-              {errors.claimed_member_id}
-            </p>
-          )}
+                {rateLimitCountdown > 0 && (
+                  <p className="text-base font-semibold text-amber-800" role="status">
+                    Tạm khóa tra cứu do thao tác quá nhanh. Vui lòng thử lại sau {rateLimitCountdown} giây.
+                  </p>
+                )}
 
-          {searchError && (
-            <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-base font-semibold text-amber-900">
-              <AlertCircle size={18} className="mt-0.5 shrink-0" />
-              <span>{searchError}</span>
-            </div>
-          )}
-
-          {results.length > 0 && (
-            <div className="max-h-96 space-y-2.5 overflow-y-auto pr-1">
-              {results.map((m) => {
-                const isClaimed = m.is_claimed === true;
-                const relation = resolveMemberClanRelation(m);
-                const nonClanOrChildLabel = getNonClanDisplayBadge(m);
-                const isCardDisabled = disabled || isClaimed || claimHoppingBlocked;
-
-                return (
+                {claimSearchTurnstile.isChallengeVisible && (
                   <div
-                    key={m.id}
-                    className={`w-full rounded-2xl border p-4 text-left shadow-sm transition ${
-                      isClaimed || claimHoppingBlocked
-                        ? 'border-slate-300 bg-slate-100'
-                        : 'border-slate-200 bg-white hover:border-emerald-400 hover:bg-emerald-50/60'
-                    }`}
+                    className="rounded-2xl border-2 border-amber-400 bg-amber-50 p-4"
+                    role="region"
+                    aria-label="Xác nhận an toàn tra cứu thành viên"
                   >
-                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                      <div>
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="text-lg font-black text-slate-900">
-                            {m.full_name}
-                            {m.alias ? (
-                              <span className="ml-2 text-base font-bold text-slate-600">
-                                (Tự/Hiệu: {m.alias})
-                              </span>
-                            ) : null}
-                          </p>
-                          {/* [ARCH-03, TC-FE-15] Nhãn ngoại tộc (Con dâu / Con rể) */}
-                          {nonClanOrChildLabel && (
-                            <span
-                              className={`rounded-lg px-2.5 py-0.5 text-base font-bold ${
-                                !relation.isClan
-                                  ? 'border border-indigo-300 bg-indigo-100 text-indigo-900'
-                                  : 'bg-amber-50 text-amber-900'
+                    <p className="mb-2 text-base font-bold text-amber-950">
+                      Bác vui lòng tích vào ô xác nhận bên dưới để tiếp tục tra cứu thành viên:
+                    </p>
+                    <div
+                      ref={claimSearchTurnstile.containerRef}
+                      className="min-h-[65px]"
+                    />
+                  </div>
+                )}
+
+                {errors.claimed_member_id && (
+                  <p className="text-base font-bold text-rose-600">
+                    {errors.claimed_member_id}
+                  </p>
+                )}
+
+                {searchError && (
+                  <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-base font-semibold text-amber-900">
+                    <AlertCircle size={18} className="mt-0.5 shrink-0" />
+                    <span>{searchError}</span>
+                  </div>
+                )}
+
+                {/* Kết quả tìm kiếm: Card 2 dòng / 3 cột + Bảng chi tiết 2 cột (italic) + Text Area + members.is_clan */}
+                {results.length > 0 && (
+                  <div className="max-h-[32rem] space-y-3 overflow-y-auto pr-1">
+                    {results.map((m) => {
+                      const relation = resolveMemberClanRelation(m);
+                      const clanRelationText = resolveClanRelationDetailText(m);
+                      const isCardDisabled = disabled || claimHoppingBlocked;
+                      const cardTitle = m.alias
+                        ? `${m.full_name} (Tự/Hiệu: ${m.alias})`
+                        : m.full_name;
+                      const rowVoiceText = [
+                        m.full_name,
+                        clanRelationText,
+                        m.generation != null ? `Đời thứ ${m.generation}` : null,
+                        m.branch_name ? `Chi ${m.branch_name}` : null,
+                        m.birth_year ? `Sinh năm ${m.birth_year}` : null,
+                        m.father_name ? `Cha là ${m.father_name}` : null,
+                        m.mother_name ? `Mẹ là ${m.mother_name}` : null,
+                        m.note ? `Ghi chú: ${m.note}` : null,
+                      ]
+                        .filter(Boolean)
+                        .join('. ');
+
+                      const detailRows = [
+                        { label: 'Họ và tên', value: m.full_name },
+                        ...(m.alias
+                          ? [{ label: 'Tên tự / Tên hiệu', value: m.alias }]
+                          : []),
+                        { label: 'Quan hệ dòng họ', value: clanRelationText },
+                        ...(m.generation != null
+                          ? [{ label: 'Đời thứ', value: `Đời thứ ${m.generation}` }]
+                          : []),
+                        ...(m.branch_name
+                          ? [{ label: 'Chi / Nhánh', value: m.branch_name }]
+                          : []),
+                        ...(m.birth_year
+                          ? [{ label: 'Năm sinh', value: m.birth_year }]
+                          : []),
+                        ...(m.father_name
+                          ? [{ label: 'Họ tên Cha', value: m.father_name }]
+                          : []),
+                        ...(m.mother_name
+                          ? [{ label: 'Họ tên Mẹ', value: m.mother_name }]
+                          : []),
+                      ];
+                      const detailNotes = m.note
+                        ? [{ label: 'Ghi chú', value: m.note }]
+                        : [];
+
+                      return (
+                        <CollapsibleDetailCard
+                          key={m.id}
+                          title={cardTitle}
+                          statusLabel={relation.isClan ? 'Nội tộc' : 'Ngoại tộc'}
+                          statusVariant={relation.isClan ? 'complete' : 'pending'}
+                          voiceText={rowVoiceText}
+                          defaultExpanded={false}
+                        >
+                          <div className="space-y-3">
+                            <KeyValueDetailTable
+                              rows={detailRows}
+                              notes={detailNotes}
+                            />
+
+                            <button
+                              type="button"
+                              disabled={isCardDisabled}
+                              onClick={() => handleSelectMember(m)}
+                              className={`min-h-[48px] h-12 w-full rounded-xl px-4 text-base font-bold whitespace-nowrap transition ${
+                                isCardDisabled
+                                  ? 'cursor-not-allowed bg-slate-300 text-slate-700'
+                                  : 'bg-emerald-600 text-white hover:bg-emerald-700'
                               }`}
                             >
-                              {nonClanOrChildLabel}
-                            </span>
-                          )}
-                        </div>
+                              Chọn hồ sơ này
+                            </button>
+                          </div>
+                        </CollapsibleDetailCard>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+        </CollapsibleDetailCard>
+      </div>
 
-                        <div className="mt-1.5 flex flex-wrap gap-2 text-base font-semibold text-slate-700">
-                          {m.generation != null && (
-                            <span className="rounded-lg bg-indigo-50 px-2.5 py-0.5 text-indigo-800">
-                              Đời thứ {m.generation}
-                            </span>
-                          )}
-                          {m.branch_name && (
-                            <span className="rounded-lg bg-slate-100 px-2.5 py-0.5 text-slate-800">
-                              Chi: {m.branch_name}
-                            </span>
-                          )}
-                          {m.birth_year && (
-                            <span className="rounded-lg bg-slate-100 px-2.5 py-0.5 text-slate-800">
-                              Sinh năm {m.birth_year}
-                            </span>
-                          )}
-                        </div>
+      {/* CARD BƯỚC 2: XÁC MINH THÔNG TIN NHÂN THÂN (Card 2 dòng / 3 cột chuẩn UAT-IMP3) */}
+      {Boolean(selectedMemberId) && (
+        <div ref={step2CardRef}>
+          <CollapsibleDetailCard
+            title={prompts.sectionTitle}
+            statusLabel={isAllLayersComplete ? 'Hoàn chỉnh' : 'Chưa hoàn chỉnh'}
+            statusVariant={isAllLayersComplete ? 'complete' : 'pending'}
+            voiceText={`${prompts.sectionTitle}. ${prompts.layer1Label}. ${prompts.layer2Label}. ${prompts.layer3Label}.`}
+            expanded={!step2Collapsed}
+            onToggle={(next) => setStep2Collapsed(!next)}
+          >
+            <div className="space-y-4">
+              {/* Xác nhận giới tính */}
+              <div className="space-y-1.5">
+                <label className="text-base font-bold text-slate-800">
+                  Xác nhận giới tính <span className="text-rose-500">*</span>
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {GENDER_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => emitChange({ gender: opt.value })}
+                      className={`min-h-[48px] h-12 rounded-xl border text-base font-bold whitespace-nowrap transition ${
+                        gender === opt.value
+                          ? 'border-emerald-600 bg-emerald-600 text-white'
+                          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
-                        {(m.father_name || m.mother_name) && (
-                          <p className="mt-1.5 text-base font-medium text-slate-600">
-                            {m.father_name ? `Cha: ${m.father_name}` : ''}
-                            {m.father_name && m.mother_name ? ' • ' : ''}
-                            {m.mother_name ? `Mẹ: ${m.mother_name}` : ''}
-                          </p>
-                        )}
-                      </div>
+              {/* [UAT-IMP4 Mục 6b] Người giới thiệu trong họ BẮT BUỘC (*) — tự nhập, cấm tra cứu sổ họ */}
+              <div className="space-y-3.5 rounded-xl border border-amber-200 bg-amber-50/60 p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-base font-bold text-amber-950">
+                    Người giới thiệu trong họ{' '}
+                    <span className="font-bold text-rose-600">*</span>
+                  </p>
+                  <ZoneVoiceButton
+                    visible
+                    text="Bác bắt buộc nhập họ và tên cùng số điện thoại của người thân trong họ giới thiệu bác để Ban Quản trị liên hệ xác minh."
+                    label="Nghe"
+                  />
+                </div>
 
-                      <div className="shrink-0">
-                        <button
-                          type="button"
-                          disabled={isCardDisabled}
-                          onClick={() => handleSelectMember(m)}
-                          className={`min-h-[48px] w-full sm:w-auto rounded-xl px-4 py-2.5 text-base font-black transition ${
-                            isCardDisabled
-                              ? 'cursor-not-allowed bg-slate-300 text-slate-700'
-                              : 'bg-emerald-600 text-white hover:bg-emerald-700'
-                          }`}
-                        >
-                          {isClaimed ? 'Không thể chọn' : 'Chọn hồ sơ'}
-                        </button>
-                      </div>
+                <div>
+                  <label className="block text-base font-normal text-slate-600 mb-1.5">
+                    Họ và tên người giới thiệu{' '}
+                    <span className="font-bold text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    data-field-key="referrer_name"
+                    disabled={disabled}
+                    value={referrerName}
+                    onFocus={() => onFocusZone?.()}
+                    onChange={(e) =>
+                      emitChange({ referrer_name: e.target.value })
+                    }
+                    placeholder="Nhập họ tên người thân trong họ giới thiệu bác"
+                    className="min-h-[48px] h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-base font-bold text-slate-900 placeholder:font-normal placeholder:text-slate-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                  />
+                  {errors.referrer_name && (
+                    <p className="mt-1 text-base font-bold text-rose-600">
+                      {errors.referrer_name}
+                    </p>
+                  )}
+                </div>
+
+                <div>
+                  <label className="block text-base font-normal text-slate-600 mb-1.5">
+                    Số điện thoại người giới thiệu{' '}
+                    <span className="font-bold text-rose-600">*</span>
+                  </label>
+                  <div className="flex flex-row items-center gap-2">
+                    <select
+                      aria-label="Chọn mã quốc gia số điện thoại người giới thiệu"
+                      disabled={disabled}
+                      value={referrerPhoneCountry}
+                      onFocus={() => onFocusZone?.()}
+                      onChange={(e) =>
+                        emitChange({ referrer_phone_country: e.target.value })
+                      }
+                      className="min-h-[48px] h-12 w-[124px] sm:w-[136px] shrink-0 rounded-xl border border-slate-300 bg-white px-2.5 text-base font-bold text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                    >
+                      {COUNTRY_PHONE_OPTIONS.map((c) => (
+                        <option key={c.code} value={c.code}>
+                          {c.shortLabel || c.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    <div className="relative flex-1 min-w-0">
+                      <Phone
+                        size={18}
+                        className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                      />
+                      <input
+                        type="tel"
+                        data-field-key="referrer_phone"
+                        disabled={disabled}
+                        value={referrerPhone}
+                        onFocus={() => onFocusZone?.()}
+                        onChange={(e) =>
+                          emitChange({ referrer_phone: e.target.value })
+                        }
+                        placeholder={selectedRefCountryMeta.placeholder}
+                        className="min-h-[48px] h-12 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-4 text-base font-bold text-slate-900 placeholder:font-normal placeholder:text-slate-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                      />
                     </div>
+                  </div>
+                  {errors.referrer_phone && (
+                    <p className="mt-1 text-base font-bold text-rose-600">
+                      {errors.referrer_phone}
+                    </p>
+                  )}
+                </div>
+              </div>
 
-                    {/* [ARCH-03, TC-FE-15] Bắt buộc dùng inline helper text >= 16px thay cho tooltip */}
-                    {isClaimed && (
-                      <p className="mt-2 text-base font-bold text-rose-700">
-                        Đã có tài khoản liên kết
+              {/* 3 LỚP XÁC MINH THEO NGỮ CẢNH QUAN HỆ */}
+              {effectiveQaLocked ? (
+                <div className="rounded-2xl border-2 border-amber-400 bg-amber-50 p-4 text-base font-semibold text-amber-950">
+                  Phần đối chiếu câu hỏi tự động đã tạm khóa do chưa khớp sau 3 lần thử. Hồ sơ của bác đã được chuyển tới Ban Quản trị dòng họ xem xét trực tiếp.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {effectiveQaAttempts > 0 && effectiveQaAttempts < 3 && (
+                    <p className="rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-base font-bold text-amber-950">
+                      Lưu ý: Hồ sơ đã có {effectiveQaAttempts}/3 lần đối chiếu chưa khớp. Còn {3 - effectiveQaAttempts} lần thử trước khi chuyển sang duyệt trực tiếp.
+                    </p>
+                  )}
+
+                  {/* Lớp 1 */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="flex items-center gap-1.5 text-base font-bold text-slate-800">
+                        <Users size={16} className="text-indigo-600" />
+                        {prompts.layer1Label}{' '}
+                        <span className="text-rose-500">*</span>
+                      </label>
+                      <ZoneVoiceButton
+                        visible
+                        text={prompts.layer1Placeholder}
+                        label="Nghe"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      data-field-key="layer1_lineage"
+                      disabled={disabled}
+                      value={verification.layer1_lineage || ''}
+                      onFocus={() => onFocusZone?.()}
+                      onChange={(e) =>
+                        handleLayerChange('layer1_lineage', e.target.value)
+                      }
+                      placeholder={prompts.layer1Placeholder}
+                      className="min-h-[48px] h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-base text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                    />
+                    {errors.layer1_lineage && (
+                      <p className="text-base font-bold text-rose-600">
+                        {errors.layer1_lineage}
                       </p>
                     )}
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      ) : (
-        /* BƯỚC 2 & BƯỚC 3: HIỂN THỊ HỒ SƠ ĐÃ CHỌN + NGƯỜI BẢO LÃNH (COOLDOWN 7D) + 3 LỚP XÁC MINH */
-        <div className="space-y-4">
-          <div className="rounded-2xl border border-emerald-200 bg-emerald-50/90 p-4 text-emerald-950">
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-              <div className="flex items-start gap-3">
-                <div className="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-emerald-600 text-white">
-                  <UserCheck size={20} />
-                </div>
-                <div>
-                  <p className="text-xs font-black uppercase tracking-widest text-emerald-700">
-                    Hồ sơ trên cây xin nhận
-                  </p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="text-lg font-black text-slate-900">
-                      {selectedMember?.full_name}
-                    </p>
-                    {selectedMemberBadge && (
-                      <span className="rounded-lg border border-indigo-300 bg-indigo-100 px-2.5 py-0.5 text-base font-bold text-indigo-900">
-                        {selectedMemberBadge}
-                      </span>
+
+                  {/* Lớp 2 */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="flex items-center gap-1.5 text-base font-bold text-slate-800">
+                        <MapPin size={16} className="text-indigo-600" />
+                        {prompts.layer2Label}{' '}
+                        <span className="text-rose-500">*</span>
+                      </label>
+                      <ZoneVoiceButton
+                        visible
+                        text={prompts.layer2Placeholder}
+                        label="Nghe"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      data-field-key="layer2_branch_origin"
+                      disabled={disabled}
+                      value={verification.layer2_branch_origin || ''}
+                      onFocus={() => onFocusZone?.()}
+                      onChange={(e) =>
+                        handleLayerChange('layer2_branch_origin', e.target.value)
+                      }
+                      placeholder={prompts.layer2Placeholder}
+                      className="min-h-[48px] h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-base text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                    />
+                    {errors.layer2_branch_origin && (
+                      <p className="text-base font-bold text-rose-600">
+                        {errors.layer2_branch_origin}
+                      </p>
                     )}
                   </div>
-                  <p className="mt-0.5 text-base font-semibold text-slate-700">
-                    {[
-                      selectedMember?.generation != null
-                        ? `Đời thứ ${selectedMember.generation}`
-                        : null,
-                      selectedMember?.branch_name
-                        ? `Chi: ${selectedMember.branch_name}`
-                        : null,
-                      selectedMember?.birth_year
-                        ? `Sinh năm ${selectedMember.birth_year}`
-                        : null,
-                      selectedMember?.father_name
-                        ? `Cha: ${selectedMember.father_name}`
-                        : null,
-                    ]
-                      .filter(Boolean)
-                      .join(' • ') || 'Thành viên chính thức trên cây'}
-                  </p>
-                </div>
-              </div>
 
-              <button
-                type="button"
-                disabled={disabled}
-                onClick={handleResetSelection}
-                className="min-h-[48px] inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl border border-emerald-300 bg-white px-4 py-2 text-base font-black text-emerald-800 transition hover:bg-emerald-100"
-              >
-                <RotateCcw size={16} />
-                Chọn lại
-              </button>
-            </div>
-          </div>
-
-          {/* Xác nhận giới tính */}
-          <div className="space-y-1.5">
-            <label className="text-sm font-black uppercase tracking-wider text-slate-700">
-              Xác nhận giới tính <span className="text-rose-500">*</span>
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {GENDER_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  disabled={disabled}
-                  onClick={() => emitChange({ gender: opt.value })}
-                  className={`min-h-[48px] rounded-xl border py-2.5 text-base font-black transition ${
-                    gender === opt.value
-                      ? 'border-emerald-600 bg-emerald-600 text-white'
-                      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* [FUNC-09, TC-FE-09] Chọn người bảo lãnh trong họ (lọc Cooldown 7 ngày từ metadata.referral_history) */}
-          {Array.isArray(referrerCandidates) && referrerCandidates.length > 0 && (
-            <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4">
-              <div className="flex items-center justify-between gap-2">
-                <label className="text-base font-black text-slate-800">
-                  Chọn thành viên bảo lãnh trong họ
-                </label>
-                <ZoneVoiceButton
-                  visible
-                  text="Chọn một thành viên trong họ để xác nhận bảo lãnh. Người từng từ chối bảo lãnh trong 7 ngày qua sẽ tạm khóa chọn."
-                  label="Nghe"
-                />
-              </div>
-
-              <div className="space-y-2.5">
-                {referrerCandidates.map((cand) => {
-                  const inCooldown = checkReferrerCooldown(
-                    cand.id,
-                    mergedReferralHistory,
-                    extraCooldownSet
-                  );
-                  const candBadge = getNonClanDisplayBadge(cand);
-                  const isChosen =
-                    String(selectedReferrerId) === String(cand.id);
-
-                  return (
-                    <div
-                      key={cand.id}
-                      className={`rounded-xl border p-3.5 ${
-                        inCooldown
-                          ? 'border-slate-300 bg-slate-100'
-                          : isChosen
-                            ? 'border-emerald-600 bg-emerald-50'
-                            : 'border-slate-200 bg-white'
-                      }`}
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                        <div>
-                          <span className="text-base font-black text-slate-900">
-                            {cand.full_name}
-                          </span>
-                          {candBadge && (
-                            <span className="ml-2 rounded-lg bg-indigo-100 px-2 py-0.5 text-sm font-bold text-indigo-900">
-                              {candBadge}
-                            </span>
-                          )}
-                        </div>
-                        <button
-                          type="button"
-                          disabled={disabled || inCooldown}
-                          onClick={() =>
-                            emitChange({ referrer_member_id: cand.id })
-                          }
-                          className={`min-h-[48px] rounded-xl px-4 py-2 text-base font-bold ${
-                            inCooldown
-                              ? 'cursor-not-allowed bg-slate-300 text-slate-700'
-                              : isChosen
-                                ? 'bg-emerald-700 text-white'
-                                : 'border border-emerald-600 bg-white text-emerald-800 hover:bg-emerald-50'
-                          }`}
-                        >
-                          {inCooldown
-                            ? 'Tạm khóa chọn'
-                            : isChosen
-                              ? 'Đã chọn bảo lãnh'
-                              : 'Chọn người bảo lãnh'}
-                        </button>
-                      </div>
-
-                      {/* [FUNC-09, TC-FE-09] Inline helper text >= 16px bên dưới nút, cấm tooltip */}
-                      {inCooldown && (
-                        <p className="mt-2 text-base font-bold text-rose-700">
-                          Đã từ chối bảo lãnh. Thử lại sau 7 ngày
-                        </p>
-                      )}
+                  {/* Lớp 3 */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <label className="flex items-center gap-1.5 text-base font-bold text-slate-800">
+                        <MessageSquareText size={16} className="text-indigo-600" />
+                        {prompts.layer3Label}{' '}
+                        <span className="text-rose-500">*</span>
+                      </label>
+                      <ZoneVoiceButton
+                        visible
+                        text={prompts.layer3Placeholder}
+                        label="Nghe"
+                      />
                     </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* 3 LỚP XÁC MINH THEO NGỮ CẢNH QUAN HỆ (Tắt hoàn toàn nếu effectiveQaLocked === true) [FUNC-03] */}
-          {effectiveQaLocked ? (
-            <div className="rounded-2xl border-2 border-amber-400 bg-amber-50 p-4 text-base font-semibold text-amber-950">
-              Biểu mẫu xác minh 3 lớp đã tạm khóa do trả lời chưa khớp 3 lần. Bác vui lòng chờ Ban Quản trị dòng họ kiểm duyệt thủ công.
-            </div>
-          ) : (
-            <div className="space-y-4 rounded-2xl border border-indigo-100 bg-indigo-50/40 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2 text-indigo-900">
-                <div className="flex items-center gap-2">
-                  <ShieldCheck size={20} className="text-indigo-600" />
-                  <h4 className="text-base font-black">
-                    {prompts.sectionTitle}
-                  </h4>
+                    <textarea
+                      data-field-key="layer3_guarantor_note"
+                      disabled={disabled}
+                      value={verification.layer3_guarantor_note || ''}
+                      onFocus={() => onFocusZone?.()}
+                      onChange={(e) =>
+                        handleLayerChange('layer3_guarantor_note', e.target.value)
+                      }
+                      placeholder={prompts.layer3Placeholder}
+                      className="min-h-[96px] w-full resize-none rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+                    />
+                    {errors.layer3_guarantor_note && (
+                      <p className="text-base font-bold text-rose-600">
+                        {errors.layer3_guarantor_note}
+                      </p>
+                    )}
+                  </div>
                 </div>
-                <ZoneVoiceButton
-                  visible
-                  text={`${prompts.sectionTitle}. ${prompts.layer1Label}. ${prompts.layer2Label}. ${prompts.layer3Label}.`}
-                  label="Nghe"
-                />
-              </div>
-
-              {effectiveQaAttempts > 0 && effectiveQaAttempts < 3 && (
-                <p className="rounded-xl border border-amber-300 bg-amber-50 px-3.5 py-2.5 text-base font-bold text-amber-950">
-                  Lưu ý: Hồ sơ đã có {effectiveQaAttempts}/3 lần đối chiếu chưa khớp. Còn {3 - effectiveQaAttempts} lần thử trước khi chuyển sang duyệt thủ công.
-                </p>
               )}
-
-              {/* Lớp 1 */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <label className="flex items-center gap-1.5 text-base font-black text-slate-800">
-                    <Users size={16} className="text-indigo-600" />
-                    {prompts.layer1Label}{' '}
-                    <span className="text-rose-500">*</span>
-                  </label>
-                  <ZoneVoiceButton
-                    visible
-                    text={prompts.layer1Placeholder}
-                    label="Nghe"
-                  />
-                </div>
-                <input
-                  type="text"
-                  disabled={disabled}
-                  value={verification.layer1_lineage || ''}
-                  onFocus={() => onFocusZone?.()}
-                  onChange={(e) =>
-                    handleLayerChange('layer1_lineage', e.target.value)
-                  }
-                  placeholder={prompts.layer1Placeholder}
-                  className="min-h-[48px] w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                />
-                {errors.layer1_lineage && (
-                  <p className="text-base font-bold text-rose-600">
-                    {errors.layer1_lineage}
-                  </p>
-                )}
-              </div>
-
-              {/* Lớp 2 */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <label className="flex items-center gap-1.5 text-base font-black text-slate-800">
-                    <MapPin size={16} className="text-indigo-600" />
-                    {prompts.layer2Label}{' '}
-                    <span className="text-rose-500">*</span>
-                  </label>
-                  <ZoneVoiceButton
-                    visible
-                    text={prompts.layer2Placeholder}
-                    label="Nghe"
-                  />
-                </div>
-                <input
-                  type="text"
-                  disabled={disabled}
-                  value={verification.layer2_branch_origin || ''}
-                  onFocus={() => onFocusZone?.()}
-                  onChange={(e) =>
-                    handleLayerChange('layer2_branch_origin', e.target.value)
-                  }
-                  placeholder={prompts.layer2Placeholder}
-                  className="min-h-[48px] w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                />
-                {errors.layer2_branch_origin && (
-                  <p className="text-base font-bold text-rose-600">
-                    {errors.layer2_branch_origin}
-                  </p>
-                )}
-              </div>
-
-              {/* Lớp 3 */}
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <label className="flex items-center gap-1.5 text-base font-black text-slate-800">
-                    <MessageSquareText size={16} className="text-indigo-600" />
-                    {prompts.layer3Label}{' '}
-                    <span className="text-rose-500">*</span>
-                  </label>
-                  <ZoneVoiceButton
-                    visible
-                    text={prompts.layer3Placeholder}
-                    label="Nghe"
-                  />
-                </div>
-                <textarea
-                  disabled={disabled}
-                  value={verification.layer3_guarantor_note || ''}
-                  onFocus={() => onFocusZone?.()}
-                  onChange={(e) =>
-                    handleLayerChange('layer3_guarantor_note', e.target.value)
-                  }
-                  placeholder={prompts.layer3Placeholder}
-                  className="min-h-[96px] w-full resize-none rounded-xl border border-slate-300 bg-white px-4 py-3 text-base text-slate-900 outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
-                />
-                {errors.layer3_guarantor_note && (
-                  <p className="text-base font-bold text-rose-600">
-                    {errors.layer3_guarantor_note}
-                  </p>
-                )}
-              </div>
             </div>
-          )}
+          </CollapsibleDetailCard>
+        </div>
+      )}
 
-          {/* BƯỚC 3: THẺ XÁC NHẬN SẴN SÀNG */}
-          {!effectiveQaLocked && isAllLayersComplete && (
-            <div className="flex items-center gap-2.5 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3.5 text-base font-bold text-emerald-800">
-              <CheckCircle2 size={20} className="shrink-0 text-emerald-600" />
-              <span>
-                Bước 3: Đã hoàn tất {prompts.step3SummaryLabel} cho hồ sơ{' '}
-                <strong>{selectedMember?.full_name}</strong>.{' '}
-                {isMultiHome
-                  ? 'Bác bấm nút "Gửi hồ sơ xin gia nhập dòng họ" bên dưới để hoàn tất.'
-                  : 'Bác tiếp tục hoàn thiện thông tin tài khoản bên dưới để rà soát và gửi đơn.'}
-              </span>
-            </div>
-          )}
+      {/* CARD BƯỚC 3: THẺ XÁC NHẬN SẴN SÀNG (Card 2 dòng / 3 cột chuẩn UAT-IMP3) */}
+      {Boolean(selectedMemberId) && !effectiveQaLocked && isAllLayersComplete && (
+        <div ref={step3CardRef}>
+          <CollapsibleDetailCard
+            title="Bước 3: Hoàn tất xác minh nhân thân"
+            statusLabel="Hoàn chỉnh"
+            statusVariant="complete"
+            voiceText={`Đã hoàn tất ${prompts.step3SummaryLabel} cho hồ sơ ${selectedMember?.full_name || ''}.`}
+            expanded={!step3Collapsed}
+            onToggle={(next) => setStep3Collapsed(!next)}
+          >
+            <p className="text-base font-semibold leading-relaxed text-emerald-950">
+              Đã hoàn tất {prompts.step3SummaryLabel} cho hồ sơ{' '}
+              <strong>{selectedMember?.full_name}</strong>.{' '}
+              {isMultiHome
+                ? 'Bác bấm nút "Gửi hồ sơ xin gia nhập dòng họ" bên dưới để hoàn tất.'
+                : 'Bác tiếp tục hoàn thiện bước "Thông tin tài khoản đăng nhập" bên dưới để rà soát và gửi đơn.'}
+            </p>
+          </CollapsibleDetailCard>
         </div>
       )}
     </div>

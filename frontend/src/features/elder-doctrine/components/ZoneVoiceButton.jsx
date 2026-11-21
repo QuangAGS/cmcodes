@@ -132,11 +132,13 @@ export default function ZoneVoiceButton({
       title={label}
       className={[
         'egal-zone-voice-button',
-        'inline-flex items-center gap-1.5',
-        'rounded-full border',
+        'min-h-[48px] h-12',
+        'inline-flex items-center justify-center gap-1.5',
+        'rounded-xl border',
         'border-blue-200 bg-blue-50',
-        'px-3 py-1.5',
-        'text-sm font-medium text-blue-700',
+        'px-4',
+        'text-base font-bold text-blue-700',
+        'whitespace-nowrap',
         'transition-all duration-200',
         'hover:bg-blue-100',
         'active:scale-[0.98]',

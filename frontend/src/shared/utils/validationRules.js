@@ -13,21 +13,21 @@ import { z } from 'zod';
 import { parsePhoneNumberFromString } from 'libphonenumber-js/min';
 
 export const COUNTRY_PHONE_OPTIONS = [
-  { code: 'VN', dialCode: '+84', label: '🇻🇳 Việt Nam (+84)', placeholder: '0912 345 678' },
-  { code: 'US', dialCode: '+1', label: '🇺🇸 Hoa Kỳ (+1)', placeholder: '(408) 555-1234' },
-  { code: 'CA', dialCode: '+1', label: '🇨🇦 Canada (+1)', placeholder: '(416) 555-1234' },
-  { code: 'AU', dialCode: '+61', label: '🇦🇺 Úc (+61)', placeholder: '0412 345 678' },
-  { code: 'FR', dialCode: '+33', label: '🇫🇷 Pháp (+33)', placeholder: '06 12 34 56 78' },
-  { code: 'DE', dialCode: '+49', label: '🇩🇪 Đức (+49)', placeholder: '0151 23456789' },
-  { code: 'GB', dialCode: '+44', label: '🇬🇧 Anh (+44)', placeholder: '07700 900123' },
-  { code: 'JP', dialCode: '+81', label: '🇯🇵 Nhật Bản (+81)', placeholder: '090-1234-5678' },
-  { code: 'KR', dialCode: '+82', label: '🇰🇷 Hàn Quốc (+82)', placeholder: '010-1234-5678' },
-  { code: 'TW', dialCode: '+886', label: '🇹🇼 Đài Loan (+886)', placeholder: '0912 345 678' },
-  { code: 'SG', dialCode: '+65', label: '🇸🇬 Singapore (+65)', placeholder: '8123 4567' },
-  { code: 'TH', dialCode: '+66', label: '🇹🇭 Thái Lan (+66)', placeholder: '081 234 5678' },
-  { code: 'CZ', dialCode: '+420', label: '🇨🇿 Séc (+420)', placeholder: '601 123 456' },
-  { code: 'RU', dialCode: '+7', label: '🇷🇺 Nga (+7)', placeholder: '912 345-67-89' },
-  { code: 'INTL', dialCode: '+', label: '🌐 Quốc gia khác (+...)', placeholder: '+41 79 123 45 67' },
+  { code: 'VN', dialCode: '+84', shortLabel: '🇻🇳 (+84)', label: '🇻🇳 Việt Nam (+84)', placeholder: '0912 345 678' },
+  { code: 'US', dialCode: '+1', shortLabel: '🇺🇸 (+1)', label: '🇺🇸 Hoa Kỳ (+1)', placeholder: '(408) 555-1234' },
+  { code: 'CA', dialCode: '+1', shortLabel: '🇨🇦 (+1)', label: '🇨🇦 Canada (+1)', placeholder: '(416) 555-1234' },
+  { code: 'AU', dialCode: '+61', shortLabel: '🇦🇺 (+61)', label: '🇦🇺 Úc (+61)', placeholder: '0412 345 678' },
+  { code: 'FR', dialCode: '+33', shortLabel: '🇫🇷 (+33)', label: '🇫🇷 Pháp (+33)', placeholder: '06 12 34 56 78' },
+  { code: 'DE', dialCode: '+49', shortLabel: '🇩🇪 (+49)', label: '🇩🇪 Đức (+49)', placeholder: '0151 23456789' },
+  { code: 'GB', dialCode: '+44', shortLabel: '🇬🇧 (+44)', label: '🇬🇧 Anh (+44)', placeholder: '07700 900123' },
+  { code: 'JP', dialCode: '+81', shortLabel: '🇯🇵 (+81)', label: '🇯🇵 Nhật Bản (+81)', placeholder: '090-1234-5678' },
+  { code: 'KR', dialCode: '+82', shortLabel: '🇰🇷 (+82)', label: '🇰🇷 Hàn Quốc (+82)', placeholder: '010-1234-5678' },
+  { code: 'TW', dialCode: '+886', shortLabel: '🇹🇼 (+886)', label: '🇹🇼 Đài Loan (+886)', placeholder: '0912 345 678' },
+  { code: 'SG', dialCode: '+65', shortLabel: '🇸🇬 (+65)', label: '🇸🇬 Singapore (+65)', placeholder: '8123 4567' },
+  { code: 'TH', dialCode: '+66', shortLabel: '🇹🇭 (+66)', label: '🇹🇭 Thái Lan (+66)', placeholder: '081 234 5678' },
+  { code: 'CZ', dialCode: '+420', shortLabel: '🇨🇿 (+420)', label: '🇨🇿 Séc (+420)', placeholder: '601 123 456' },
+  { code: 'RU', dialCode: '+7', shortLabel: '🇷🇺 (+7)', label: '🇷🇺 Nga (+7)', placeholder: '912 345-67-89' },
+  { code: 'INTL', dialCode: '+', shortLabel: '🌐 (+...)', label: '🌐 Quốc gia khác (+...)', placeholder: '+41 79 123 45 67' },
 ];
 
 const SUPPORTED_COUNTRY_SET = new Set(

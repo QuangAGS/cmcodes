@@ -4,6 +4,8 @@
  * VERSION    : 1.0.0
  * DESCRIPTION:
  * - Sprint 3: Tạo component AudioHelpButton dùng chung cho Frontend Accessibility Layer.
+ * - [UAT-IMP3 2026-11-21]: Đồng bộ style nút bấm chuẩn hệ thống (min-h-[48px] h-12,
+ *   bo góc rounded-xl, chữ text-base font-bold, whitespace-nowrap).
  * - Component cho phép người dùng chủ động bấm để nghe hướng dẫn ngắn.
  * - Không tự động đọc khi render.
  * - Không thay đổi business logic, auth flow, validation hoặc UI/UX hiện có.
@@ -41,8 +43,8 @@ export default function AudioHelpButton({
 
   const sizeClass =
     size === 'lg'
-      ? 'px-5 py-4 text-base'
-      : 'px-4 py-3 text-sm';
+      ? 'min-h-[48px] h-12 px-5 text-base'
+      : 'min-h-[48px] h-12 px-4 text-base';
 
   const variantClass =
     variant === 'dark'
@@ -54,7 +56,7 @@ export default function AudioHelpButton({
       <button
         type="button"
         onClick={() => speak(text)}
-        className={`inline-flex items-center justify-center gap-2 rounded-2xl font-black transition-all active:scale-[0.985] ${sizeClass} ${variantClass}`}
+        className={`inline-flex items-center justify-center gap-2 rounded-xl font-bold whitespace-nowrap transition-all active:scale-[0.985] ${sizeClass} ${variantClass}`}
         aria-label={label}
         title={label}
       >
@@ -65,7 +67,7 @@ export default function AudioHelpButton({
       <button
         type="button"
         onClick={stop}
-        className="inline-flex items-center justify-center rounded-2xl border border-slate-200 bg-white px-3 py-3 text-slate-500 transition-all hover:text-slate-900 active:scale-[0.985]"
+        className="min-h-[48px] h-12 min-w-[48px] inline-flex items-center justify-center rounded-xl border border-slate-200 bg-white px-3.5 text-slate-600 transition-all hover:text-slate-900 active:scale-[0.985]"
         aria-label={stopLabel}
         title={stopLabel}
       >

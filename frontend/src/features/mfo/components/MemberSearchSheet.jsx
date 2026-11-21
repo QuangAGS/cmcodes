@@ -1,27 +1,31 @@
 /**
+ * ============================================================================
  * PATH       : frontend/src/features/mfo/components/MemberSearchSheet.jsx
- * DATETIME   : 2026-11-20T06:38:00+07:00
- * VERSION    : 5.1.0-COMPLETE-5L-PHASE2-SPRINT-FE2
+ * DATETIME   : 2026-11-21T09:45:00+07:00
+ * VERSION    : 5.2.0-COMPLETE-5L-PHASE2-UAT-IMP3
  * DESCRIPTION:
  * - Cửa tìm member dùng chung (MFO). Gõ tên → GET q. Cache câu. Làm mới.
- * - [IMPL-PLAN-FE-PHASE2-V1.8-ISO29148 - Sprint FE-2]:
- *   + Xử lý HTTP 429 (In-App Search Rate Limit / LRUCache fallback): tạm khóa
- *     ô input tìm kiếm và nút làm mới, hiển thị đồng hồ đếm ngược giây chờ,
- *     giữ nguyên từ khóa đã nhập (Keep State) [NFR-02, ARCH-01].
- *   + Hiển thị thông báo lỗi hợp nhất qua PersistentMessageBanner (kèm Mã tra cứu
- *     X-Correlation-Id fallback "Không có") và BlockingLoadingOverlay [ARCH-02, ARCH-04].
- *   + Hiển thị nhãn ngoại tộc (Con dâu / Con rể) khi m.is_clan === false [ARCH-03].
- *   + Tích hợp AudioHelpButton & ZoneVoiceButton, nút >= 48px, chữ >= 16px [NFR-FE-02].
+ * - [UAT-IMP3 2026-11-21]:
+ *   + Trình bày từng kết quả tìm kiếm bằng CollapsibleDetailCard (Dòng 1: Họ tên;
+ *     Dòng 2: 3 cột Trạng thái | Nút "Nghe" | Nút "Mở ra"/"Đóng lại"; khi đóng chỉ
+ *     hiện 2 dòng).
+ *   + Khi mở Card, trình bày bằng KeyValueDetailTable 2 cột (cột 1 label italic,
+ *     cột 2 giá trị), bắt buộc đưa thuộc tính members.is_clan vào bảng, và tách
+ *     trường ghi chú (note) thành Text Area.
+ *   + Không tự đóng PersistentMessageBanner khi tìm kiếm lại; chỉ đóng khi EU bấm "Đã hiểu".
+ *   + Đồng bộ style nút bấm (min-h-[48px] h-12 rounded-xl).
  * ============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
 
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx';
 import AudioHelpButton from '../../elder-doctrine/components/AudioHelpButton.jsx';
 import PersistentMessageBanner from '../../../components/common/PersistentMessageBanner.jsx';
 import BlockingLoadingOverlay from '../../../components/common/BlockingLoadingOverlay.jsx';
+import CollapsibleDetailCard from '../../../components/common/CollapsibleDetailCard.jsx';
+import KeyValueDetailTable from '../../../components/common/KeyValueDetailTable.jsx';
+import { getPhase2UserMessage } from '../../onboarding/constants/phase2MessageCatalog.js';
 import { extractApiErrorInfo } from '../../../shared/hooks/useTurnstileFailClosed.js';
 import {
   searchMembers,
@@ -37,13 +41,6 @@ function nameOf(m) {
   return String(m?.full_name || m?.name || '').trim();
 }
 
-function initials(name) {
-  const parts = String(name || '').trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return '?';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
 function genderVi(g) {
   const x = String(g || '').toUpperCase();
   if (x === 'NAM' || x === 'MALE') return 'Nam';
@@ -51,19 +48,30 @@ function genderVi(g) {
   return 'Khác';
 }
 
-function nonClanVi(m) {
-  if (!m || m.is_clan !== false) return null;
-  const x = String(m.gender || '').toUpperCase();
-  if (x === 'NU' || x === 'NỮ' || x === 'FEMALE') return 'Con dâu';
-  if (x === 'NAM' || x === 'MALE') return 'Con rể';
-  return 'Con rể / Con dâu';
+function resolveClanRelationText(m) {
+  if (!m || m.is_clan !== false) {
+    return 'Thành viên trong họ (Nội tộc)';
+  }
+  const ct = String(m.child_type || '').toUpperCase();
+  const g = String(m.gender || '').toUpperCase();
+  if (ct === 'CON_DAU' || g === 'NU' || g === 'NỮ' || g === 'FEMALE') {
+    return 'Thành viên ngoại tộc (Con dâu)';
+  }
+  if (ct === 'CON_RE' || g === 'NAM' || g === 'MALE') {
+    return 'Thành viên ngoại tộc (Con rể)';
+  }
+  return 'Thành viên ngoại tộc (Con rể / Con dâu)';
+}
+
+function resolveClanStatusShort(m) {
+  if (!m || m.is_clan !== false) return 'Nội tộc';
+  return 'Ngoại tộc';
 }
 
 function speakRow(m) {
-  const relBadge = nonClanVi(m);
   const bits = [
     nameOf(m),
-    relBadge ? relBadge : null,
+    resolveClanRelationText(m),
     `Giới tính ${genderVi(m.gender)}`,
     m.birth_year ? `Năm sinh ${m.birth_year}` : 'Chưa rõ năm sinh',
     m.is_alive === false ? 'Đã mất' : 'Còn sống',
@@ -80,12 +88,10 @@ export default function MemberSearchSheet({
 }) {
   const navigate = useNavigate();
   const spec = MEMBER_SEARCH_PRESETS[preset] || MEMBER_SEARCH_PRESETS.assign;
-  // [ARCH-01] Giữ nguyên từ khóa q khi dính Rate Limit 429
   const [q, setQ] = useState('');
   const [hits, setHits] = useState([]);
   const [busy, setBusy] = useState(false);
 
-  // Trạng thái Phase 2: Rate Limit 429 & PersistentMessageBanner
   const [rateLimitSeconds, setRateLimitSeconds] = useState(0);
   const [bannerState, setBannerState] = useState(null);
 
@@ -122,7 +128,6 @@ export default function MemberSearchSheet({
       const cached = readSearchCache(key);
       if (cached) {
         setHits(cached);
-        setBannerState(null);
         return;
       }
     }
@@ -132,7 +137,6 @@ export default function MemberSearchSheet({
       const items = unwrapMembers(res);
       writeSearchCache(key, items);
       setHits(items);
-      setBannerState(null);
     } catch (err) {
       const info = extractApiErrorInfo(err);
       if (info.status === 429) {
@@ -140,19 +144,23 @@ export default function MemberSearchSheet({
           info.details?.retryAfter || info.details?.retry_after || 30
         );
         setRateLimitSeconds(retryAfter > 0 ? retryAfter : 30);
-        setBannerState({
-          type: 'warning',
-          title: 'Tạm giới hạn tần suất tra cứu phả đồ',
+        const msgObj = getPhase2UserMessage('IN_APP_SEARCH_RATE_LIMITED', {
           message: info.message,
-          correlationId: info.correlationId,
+        });
+        setBannerState({
+          type: msgObj.type,
+          title: msgObj.title,
+          message: msgObj.message,
         });
       } else {
         setHits([]);
-        setBannerState({
-          type: 'error',
-          title: 'Không thể tra cứu thành viên trên phả đồ',
+        const msgObj = getPhase2UserMessage(info.code, {
           message: info.message,
-          correlationId: info.correlationId,
+        });
+        setBannerState({
+          type: msgObj.type,
+          title: msgObj.title,
+          message: msgObj.message,
         });
       }
     } finally {
@@ -169,16 +177,16 @@ export default function MemberSearchSheet({
   const isRateLimited = rateLimitSeconds > 0;
 
   return (
-    <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
       <BlockingLoadingOverlay
         isOpen={busy}
         message="Đang tra cứu thành viên trên cây gia phả..."
       />
 
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <span className="text-base font-bold text-slate-700">{spec.title}</span>
+        <span className="text-lg font-bold text-slate-800">{spec.title}</span>
         <AudioHelpButton
-          text="Công cụ tra cứu thành viên trên phả đồ. Nhập họ tên vào ô bên dưới để tìm vị trí trên cây gia phả. Nếu thao tác quá nhanh, hệ thống sẽ tạm khóa ít giây và hiển thị đồng hồ đếm ngược."
+          text="Công cụ tra cứu thành viên trên phả đồ. Nhập họ tên vào ô bên dưới để tìm vị trí trên cây gia phả. Bấm Mở ra trên từng thẻ kết quả để xem thông tin chi tiết."
           label="Nghe hướng dẫn"
           variant="soft"
         />
@@ -189,14 +197,13 @@ export default function MemberSearchSheet({
           type={bannerState.type}
           title={bannerState.title}
           message={bannerState.message}
-          correlationId={bannerState.correlationId}
           onClose={() => setBannerState(null)}
         />
       )}
 
       <label className="block">
         <input
-          className="min-h-[48px] w-full rounded-2xl border border-slate-300 px-4 py-3 text-base font-semibold text-slate-800 disabled:bg-slate-100 disabled:text-slate-500"
+          className="min-h-[48px] h-12 w-full rounded-xl border border-slate-300 px-4 text-base font-semibold text-slate-800 disabled:bg-slate-100 disabled:text-slate-500"
           value={q}
           disabled={isRateLimited}
           onChange={(e) => setQ(e.target.value)}
@@ -213,7 +220,7 @@ export default function MemberSearchSheet({
       <p className="mt-2 text-base font-normal text-slate-600">{spec.hint}</p>
       <button
         type="button"
-        className="mt-2 min-h-[48px] w-full rounded-2xl border border-slate-300 bg-white text-base font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+        className="mt-2 min-h-[48px] h-12 w-full rounded-xl border border-slate-300 bg-white px-4 text-base font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
         disabled={busy || isRateLimited || q.trim().length < 2}
         onClick={() => {
           clearSearchCache(key);
@@ -228,25 +235,36 @@ export default function MemberSearchSheet({
       </button>
 
       {shown.length ? (
-        <ul className="mt-3 max-h-[24rem] space-y-2.5 overflow-y-auto rounded-2xl border border-slate-200 p-2">
+        <div className="mt-3 max-h-[28rem] space-y-3 overflow-y-auto pr-1">
           {shown.map((m) => {
             const nm = nameOf(m);
             if (!nm) return null;
-            const relBadge = nonClanVi(m);
+            const detailRows = [
+              { label: 'Họ và tên', value: nm },
+              { label: 'Quan hệ dòng họ', value: resolveClanRelationText(m) },
+              { label: 'Giới tính', value: genderVi(m.gender) },
+              { label: 'Năm sinh', value: m.birth_year || 'Chưa rõ' },
+              { label: 'Tình trạng', value: m.is_alive === false ? 'Đã mất' : 'Còn sống' },
+              ...(m.generation != null ? [{ label: 'Đời thứ', value: `Đời ${m.generation}` }] : []),
+              ...(m.branch_name ? [{ label: 'Chi / Nhánh', value: m.branch_name }] : []),
+            ];
+            const detailNotes = m.note ? [{ label: 'Ghi chú', value: m.note }] : [];
+
             return (
-              <li key={m.id}>
-                <div className="flex items-start gap-3 rounded-2xl bg-slate-100 px-3 py-2.5">
-                  <div className="flex w-16 shrink-0 flex-col items-center gap-1.5">
-                    <span className="flex h-12 w-12 items-center justify-center rounded-full bg-indigo-100 text-base font-black text-indigo-700">
-                      {initials(nm)}
-                    </span>
-                    <span onClick={(e) => e.stopPropagation()} role="presentation">
-                      <ZoneVoiceButton visible text={speakRow(m)} label="Nghe" />
-                    </span>
-                  </div>
+              <CollapsibleDetailCard
+                key={m.id}
+                title={nm}
+                statusLabel={resolveClanStatusShort(m)}
+                statusVariant={m.is_clan === false ? 'pending' : 'complete'}
+                voiceText={speakRow(m)}
+                defaultExpanded={false}
+              >
+                <div className="space-y-3">
+                  <KeyValueDetailTable rows={detailRows} notes={detailNotes} />
+
                   <button
                     type="button"
-                    className="min-h-[48px] min-w-0 flex-1 text-left"
+                    className="min-h-[48px] h-12 w-full rounded-xl bg-emerald-600 px-4 text-base font-bold text-white hover:bg-emerald-700"
                     onClick={() => {
                       if (typeof onLeaveToPreview === 'function') onLeaveToPreview(q);
                       const path =
@@ -256,30 +274,13 @@ export default function MemberSearchSheet({
                       navigate(path);
                     }}
                   >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-base font-bold text-slate-900">{nm}</span>
-                      {relBadge && (
-                        <span className="rounded-lg border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-sm font-bold text-indigo-800">
-                          {relBadge}
-                        </span>
-                      )}
-                    </div>
-                    <span className="mt-0.5 block text-base font-normal text-slate-600">
-                      Giới tính: {genderVi(m.gender)} · Năm sinh:{' '}
-                      {m.birth_year || 'chưa rõ'} ·{' '}
-                      {m.is_alive === false ? 'Đã mất' : 'Còn sống'}
-                    </span>
-                    {m.note ? (
-                      <span className="mt-0.5 block whitespace-pre-wrap break-words text-base font-normal text-slate-600">
-                        Ghi chú: {m.note}
-                      </span>
-                    ) : null}
+                    Mở hồ sơ trên phả đồ
                   </button>
                 </div>
-              </li>
+              </CollapsibleDetailCard>
             );
           })}
-        </ul>
+        </div>
       ) : null}
 
       {!busy && q.trim().length >= 2 && !shown.length && !bannerState ? (

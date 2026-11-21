@@ -85,6 +85,7 @@ import {
 } from '../../elder-doctrine/services/runtimeInvalidation.service.js';
 
 import AttentionZone from  '../../../components/AttentionZone.jsx';
+import CollapsibleDetailCard from '../../../components/common/CollapsibleDetailCard.jsx';
 
 import apiClient from '../../../lib/apiClient.js';
 import { createClanSchema } from '../utils/createClanValidation.js';
@@ -392,6 +393,7 @@ const CreateClanForm = ({
     watch,
     trigger,
     getValues,
+    getFieldState,
     reset,
     formState: { errors },
   } = useForm({
@@ -1436,10 +1438,28 @@ const CreateClanForm = ({
       onlineErrors,
       localValidation: async () => {
         const valid = await trigger();
+        const freshErrors = {};
+        [
+          'clanName',
+          'description',
+          'temp_full_name',
+          'temp_father_name',
+          'temp_birth_year',
+          'temp_relationship',
+          'temp_note',
+          'phone',
+          'email',
+          'password',
+        ].forEach((fKey) => {
+          const st = getFieldState(fKey);
+          if (st?.error) {
+            freshErrors[fKey] = st.error;
+          }
+        });
 
         return {
           valid,
-          errors,
+          errors: Object.keys(freshErrors).length > 0 ? freshErrors : errors,
         };
       },
       metadata: {
@@ -1452,13 +1472,15 @@ const CreateClanForm = ({
     if (!gateResult.allowed) {
       const target = buildValidationAttentionTarget(gateResult);
       const attentionField = getAttentionFieldFromGate(target, latestValues);
+      const targetField = target.field || attentionField;
+      const freshMsg = targetField ? getFieldState(targetField)?.error?.message : '';
 
-      speakCriticalAttention(
-        target.message ||
+      routeFieldError(
+        targetField,
+        freshMsg ||
+          target.message ||
           'Thông tin hồ sơ chưa đầy đủ hoặc chưa đúng. Bác vui lòng kiểm tra lại các mục được báo lỗi trên màn hình.'
       );
-
-      guidedFlow.goToField(attentionField);
       return;
     }
 
@@ -1570,9 +1592,9 @@ const CreateClanForm = ({
           type="button"
           onClick={nextStep}
           disabled={effectiveLoading || isPendingCheck}
-          className={`w-full py-4 rounded-3xl font-bold transition-all ${
+          className={`min-h-[48px] h-12 w-full px-5 rounded-xl text-base font-bold whitespace-nowrap transition-all ${
             effectiveLoading || isPendingCheck
-              ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+              ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
               : 'bg-amber-600 text-white hover:bg-amber-700'
           }`}
         >
@@ -1742,15 +1764,15 @@ const CreateClanForm = ({
               }
               completed={guidedFlow.isCompleted('clanInfo')}
             >
-              <div
-                ref={clanInfoRef}
-                className={uiSystem.section}
-              >
-                <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-slate-400">
-                  <Landmark size={18} />
-                  Thông tin dòng họ
-                </h3>
-
+              <div ref={clanInfoRef}>
+                <CollapsibleDetailCard
+                  title="Thông tin dòng họ"
+                  statusLabel={guidedFlow.isCompleted('clanInfo') ? 'Hoàn chỉnh' : 'Chưa hoàn chỉnh'}
+                  statusVariant={guidedFlow.isCompleted('clanInfo') ? 'complete' : 'pending'}
+                  voiceText={zoneHelpText.clanInfo}
+                  defaultExpanded={true}
+                  disabled={effectiveLoading}
+                >
                 <div className="space-y-4">
                   <div className="space-y-1">
                     <label className={uiSystem.label}>
@@ -1794,12 +1816,13 @@ const CreateClanForm = ({
                     />
 
                     {errors.description && (
-                      <p className="text-xs font-bold text-rose-600">
+                      <p className="text-base font-bold text-rose-600">
                         {errors.description.message}
                       </p>
                     )}
                   </div>
                 </div>
+                </CollapsibleDetailCard>
               </div>
             </GuidedFieldWrapper>
 
@@ -1820,15 +1843,15 @@ const CreateClanForm = ({
               }
               completed={guidedFlow.isCompleted('personalInfo')}
             >
-              <div
-                ref={personalInfoRef}
-                className={uiSystem.section}
-              >
-                <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-slate-400">
-                  <User size={18} />
-                  Thông tin quản trị viên
-                </h3>
-
+              <div ref={personalInfoRef}>
+                <CollapsibleDetailCard
+                  title="Thông tin quản trị viên"
+                  statusLabel={guidedFlow.isCompleted('personalInfo') ? 'Hoàn chỉnh' : 'Chưa hoàn chỉnh'}
+                  statusVariant={guidedFlow.isCompleted('personalInfo') ? 'complete' : 'pending'}
+                  voiceText={zoneHelpText.personalInfo}
+                  defaultExpanded={true}
+                  disabled={effectiveLoading}
+                >
                 <div className="space-y-4">
                   <div className="space-y-1">
                     <label className={uiSystem.label}>
@@ -2000,12 +2023,13 @@ const CreateClanForm = ({
                     />
 
                     {errors.temp_note && (
-                      <p className="text-xs font-bold text-rose-600">
+                      <p className="text-base font-bold text-rose-600">
                         {errors.temp_note.message}
                       </p>
                     )}
                   </div>
                 </div>
+                </CollapsibleDetailCard>
               </div>
             </GuidedFieldWrapper>
 
@@ -2026,24 +2050,24 @@ const CreateClanForm = ({
               }
               completed={guidedFlow.isCompleted('contactInfo')}
             >
-              <div
-                ref={contactInfoRef}
-                className={uiSystem.section}
-              >
-                <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-slate-400">
-                  <Mail size={18} />
-                  Thông tin liên hệ
-                </h3>
-
+              <div ref={contactInfoRef}>
+                <CollapsibleDetailCard
+                  title="Thông tin liên hệ"
+                  statusLabel={guidedFlow.isCompleted('contactInfo') ? 'Hoàn chỉnh' : 'Chưa hoàn chỉnh'}
+                  statusVariant={guidedFlow.isCompleted('contactInfo') ? 'complete' : 'pending'}
+                  voiceText={zoneHelpText.contactInfo}
+                  defaultExpanded={true}
+                  disabled={effectiveLoading}
+                >
                 <div className="space-y-4">
                   <div className="space-y-1">
                     <label className={uiSystem.label}>
                       Số điện thoại <span className="text-rose-500">*</span>
                     </label>
 
-                    <div className="flex flex-col gap-2 sm:flex-row">
+                    <div className="flex flex-row items-center gap-2">
                       <select
-                        aria-label="Chọn quốc gia"
+                        aria-label="Chọn mã quốc gia"
                         value={phoneCountry}
                         disabled={isRevision || effectiveLoading}
                         onFocus={() => guidedFlow.goToField('contactInfo')}
@@ -2054,18 +2078,18 @@ const CreateClanForm = ({
                           invalidateRuntimeForField('phone');
                           clearAttentionForField('phone');
                         }}
-                        className={`sm:w-52 shrink-0 ${uiSystem.select || uiSystem.input} ${
+                        className={`min-h-[48px] w-[126px] sm:w-[136px] shrink-0 rounded-xl border border-slate-300 bg-white px-2.5 py-3 text-base font-bold text-slate-900 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100 ${
                           isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
                         }`}
                       >
                         {COUNTRY_PHONE_OPTIONS.map((c) => (
                           <option key={c.code} value={c.code}>
-                            {c.label}
+                            {c.shortLabel || c.label}
                           </option>
                         ))}
                       </select>
 
-                      <div className="relative flex-1">
+                      <div className="relative flex-1 min-w-0">
                         <Phone
                           className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
                           size={18}
@@ -2169,12 +2193,13 @@ const CreateClanForm = ({
                     )}
 
                     {onlineErrors.email && (
-                      <p className="text-xs font-bold text-rose-600">
+                      <p className="text-base font-bold text-rose-600">
                         {onlineErrors.email}
                       </p>
                     )}
                   </div>
                 </div>
+                </CollapsibleDetailCard>
               </div>
             </GuidedFieldWrapper>
 
@@ -2195,15 +2220,15 @@ const CreateClanForm = ({
               }
               completed={guidedFlow.isCompleted('securityInfo')}
             >
-              <div
-                ref={securityInfoRef}
-                className={uiSystem.section}
-              >
-                <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-slate-400">
-                  <ShieldCheck size={18} />
-                  Bảo mật
-                </h3>
-
+              <div ref={securityInfoRef}>
+                <CollapsibleDetailCard
+                  title="Bảo mật"
+                  statusLabel={guidedFlow.isCompleted('securityInfo') ? 'Hoàn chỉnh' : 'Chưa hoàn chỉnh'}
+                  statusVariant={guidedFlow.isCompleted('securityInfo') ? 'complete' : 'pending'}
+                  voiceText={zoneHelpText.securityInfo}
+                  defaultExpanded={true}
+                  disabled={effectiveLoading}
+                >
                 <div className="space-y-4">
                   <div className="space-y-1">
                     <label className={uiSystem.label}>
@@ -2255,6 +2280,7 @@ const CreateClanForm = ({
                     className="hidden"
                   />
                 </div>
+                </CollapsibleDetailCard>
               </div>
             </GuidedFieldWrapper>
 
@@ -2278,7 +2304,7 @@ const CreateClanForm = ({
                 type="button"
                 onClick={onBackToRegister}
                 disabled={effectiveLoading}
-                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-3xl border border-slate-200 bg-white px-4 py-4 text-sm font-black text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="min-h-[48px] h-12 mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-base font-bold text-slate-700 shadow-sm whitespace-nowrap transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Quay lại chọn hình thức đăng ký
               </button>

@@ -48,6 +48,8 @@ import {
   Mail,
   AlertCircle,
   ShieldCheck,
+  LogIn,
+  UserPlus,
 } from 'lucide-react';
 
 import AudioHelpButton from '../../elder-doctrine/components/AudioHelpButton.jsx';
@@ -91,8 +93,10 @@ import RegistrationProfileForm from '../../membership/components/RegistrationPro
 
 // Sprint FE-1 & FE-2 Phase 2 Contracts, Banner, Overlay & Fail-Closed Turnstile Hook
 import { CLAIM_MODES } from '../../onboarding/constants/onboardingPhase2Contracts.js';
+import { getPhase2UserMessage } from '../../onboarding/constants/phase2MessageCatalog.js';
 import PersistentMessageBanner from '../../../components/common/PersistentMessageBanner.jsx';
 import BlockingLoadingOverlay from '../../../components/common/BlockingLoadingOverlay.jsx';
+import CollapsibleDetailCard from '../../../components/common/CollapsibleDetailCard.jsx';
 import useTurnstileFailClosed, {
   isTurnstileChallengeError,
   extractApiErrorInfo,
@@ -184,7 +188,49 @@ const JoinClanForm = ({
   currentUser = null,
   isApprovedMultiHome = false,
   onNavigateToClan,
+  onSwitchToLogin,
 }) => {
+  // Đọc phiên đăng nhập hiện có trên trình duyệt (prop currentUser hoặc JWT trong localStorage)
+  const existingSessionUser = useMemo(() => {
+    if (currentUser && typeof currentUser === 'object') {
+      return currentUser;
+    }
+    if (typeof window === 'undefined') return null;
+    try {
+      const rawToken =
+        window.localStorage.getItem('auth_token') ||
+        window.localStorage.getItem('token');
+      if (!rawToken || rawToken.split('.').length < 2) return null;
+      const base64 = rawToken
+        .split('.')[1]
+        .replace(/-/g, '+')
+        .replace(/_/g, '/');
+      const jsonStr = decodeURIComponent(
+        window
+          .atob(base64)
+          .split('')
+          .map((c) => `%${`00${c.charCodeAt(0).toString(16)}`.slice(-2)}`)
+          .join('')
+      );
+      const payload = JSON.parse(jsonStr);
+      if (payload?.exp && Number(payload.exp) * 1000 <= Date.now()) {
+        return null;
+      }
+      if (payload?.id || payload?.userId || payload?.sub || payload?.phone || payload?.email) {
+        return {
+          id: payload.id || payload.userId || payload.sub || '',
+          name: payload.name || payload.full_name || '',
+          phone: payload.phone || '',
+          email: payload.email || '',
+          status: payload.status || '',
+          tenant_id: payload.tenant_id || payload.tenantId || '',
+        };
+      }
+    } catch {
+      return null;
+    }
+    return null;
+  }, [currentUser]);
   const effectiveReviewNote = String(
     reviewNote || initialData?.reviewNote || ''
   ).trim();
@@ -298,6 +344,22 @@ const JoinClanForm = ({
       layer2_branch_origin: '',
       layer3_guarantor_note: '',
     },
+    referrer_name:
+      initialRegProfile.referrer_name ||
+      initialRegProfile.referrer_info?.full_name ||
+      initialData?.referrer_name ||
+      '',
+    referrer_phone:
+      initialRegProfile.referrer_phone ||
+      initialRegProfile.referrer_info?.phone ||
+      initialData?.referrer_phone ||
+      '',
+    referrer_phone_country:
+      initialRegProfile.referrer_phone_country ||
+      detectPhoneCountry(
+        initialRegProfile.referrer_phone || initialData?.referrer_phone,
+        'VN'
+      ),
   }));
 
   const [profileErrors, setProfileErrors] = useState({});
@@ -390,6 +452,22 @@ const JoinClanForm = ({
   const lastLifecycleVersionRef = useRef(lifecycleContext?.runtimeVersion || 0);
   const lastRuntimeSessionIdRef = useRef(null);
 
+  // [UAT-IMP2] Refs & trạng thái điều phối từng Card tuần tự + Thu gọn / Mở ra
+  const accountGateCardRef = useRef(null);
+  const clanCardRef = useRef(null);
+  const personalCardRef = useRef(null);
+  const accountCardRef = useRef(null);
+
+  const hasInitialDraft = Boolean(isRevision || initialData);
+  const [accountGateConfirmed, setAccountGateConfirmed] = useState(hasInitialDraft);
+  const [accountGateCollapsed, setAccountGateCollapsed] = useState(hasInitialDraft);
+  const [clanCardCollapsed, setClanCardCollapsed] = useState(false);
+  const [personalCardCollapsed, setPersonalCardCollapsed] = useState(false);
+  const [accountCardCollapsed, setAccountCardCollapsed] = useState(false);
+  const [childFocusRequest, setChildFocusRequest] = useState(null);
+
+  // [UAT-IMP4 Mục 6b] Người giới thiệu trong họ bắt buộc nhập tự do (không tra cứu sổ họ)
+
   const JOIN_CLAN_EMPTY_VALUES = {
     tenantId: '',
     clanName: '',
@@ -411,6 +489,7 @@ const JoinClanForm = ({
     watch,
     trigger,
     getValues,
+    getFieldState,
     reset,
     clearErrors,
     formState: { errors },
@@ -428,12 +507,14 @@ const JoinClanForm = ({
 
   const showAzVoiceButton = (zoneId) => guidedFlow.activeField === zoneId;
 
+  const selectedClanDisplayName = String(selectedTenant?.name || '').trim();
+
   const zoneHelpText = useMemo(
     () => ({
       clanSearch: ttsMessages?.joinClan?.clanSearch || 'Bác nhập tên dòng họ cần tìm.',
-      personalInfo:
-        ttsMessages?.joinClan?.personalInfo ||
-        'Bác nhập thông tin cá nhân để Ban quản trị xác minh.',
+      personalInfo: selectedClanDisplayName
+        ? `Nhận diện nhân thân trong dòng họ ${selectedClanDisplayName}. Bấm vào ô thứ nhất nếu bác đã có tên trong sổ họ ${selectedClanDisplayName} để tiếp tục khai báo. Bấm vào ô thứ hai nếu bác chưa có tên trong sổ họ ${selectedClanDisplayName} để tiếp tục khai báo.`
+        : 'Nhận diện nhân thân trong dòng họ. Bấm vào ô thứ nhất nếu bác đã có tên trong sổ họ đã chọn để tiếp tục khai báo. Bấm vào ô thứ hai nếu bác chưa có tên trong sổ họ đã chọn để tiếp tục khai báo.',
       accountInfo:
         ttsMessages?.joinClan?.accountInfo ||
         'Bác nhập số điện thoại, email nếu có, và mật khẩu để tạo tài khoản đăng nhập.',
@@ -443,7 +524,7 @@ const JoinClanForm = ({
       submit:
         ttsMessages?.joinClan?.submit || 'Bác bấm nút tiếp tục rà soát để kiểm tra lại hồ sơ.',
     }),
-    [],
+    [selectedClanDisplayName],
   );
 
   const guidedSteps = useMemo(
@@ -510,6 +591,11 @@ const JoinClanForm = ({
       setIsClaimHoppingBlocked(false);
       setPhase2Banner(null);
       setProfileErrors({});
+      setAccountGateConfirmed(false);
+      setAccountGateCollapsed(false);
+      setClanCardCollapsed(false);
+      setPersonalCardCollapsed(false);
+      setAccountCardCollapsed(false);
       setProfileDraft({
         full_name: '',
         alias: '',
@@ -539,6 +625,9 @@ const JoinClanForm = ({
           layer2_branch_origin: '',
           layer3_guarantor_note: '',
         },
+        referrer_name: '',
+        referrer_phone: '',
+        referrer_phone_country: 'VN',
       });
     }
 
@@ -718,32 +807,81 @@ const JoinClanForm = ({
   );
 
   const focusFieldByName = useCallback((fieldName) => {
+    const normalizeKeyMap = {
+      temp_full_name: 'full_name',
+      temp_father_name: 'father_name',
+      temp_birth_year: 'birth_year',
+      temp_note: 'note',
+    };
+    const resolvedKey = normalizeKeyMap[fieldName] || fieldName;
+
+    const personalFieldSet = new Set([
+      'personalInfo',
+      'full_name',
+      'alias',
+      'birth_year',
+      'birth_place',
+      'father_name',
+      'mother_name',
+      'grandfather_name',
+      'grandmother_name',
+      'branch_name',
+      'temp_relationship',
+      'address',
+      'referrer_name',
+      'referrer_phone',
+      'note',
+      'claimed_member_id',
+      'layer1_lineage',
+      'layer2_branch_origin',
+      'layer3_guarantor_note',
+    ]);
+
+    const accountFieldSet = new Set([
+      'accountInfo',
+      'phone',
+      'email',
+      'password',
+    ]);
+
+    // 1. Tự động mở Card cha tương ứng nếu đang thu gọn [UAT-Bug 6]
+    if (['clanSearch', 'tenantId', 'clanName'].includes(resolvedKey)) {
+      setClanCardCollapsed(false);
+    } else if (personalFieldSet.has(resolvedKey)) {
+      setPersonalCardCollapsed(false);
+      setChildFocusRequest({ field: resolvedKey, tick: Date.now() });
+    } else if (accountFieldSet.has(resolvedKey)) {
+      setAccountCardCollapsed(false);
+    }
+
     const refMap = {
       clanSearch: tenantSearchRef,
       tenantId: tenantSearchRef,
       clanName: tenantSearchRef,
-      temp_full_name: fullNameRef,
-      temp_birth_year: birthYearRef,
-      temp_father_name: fatherNameRef,
-      temp_relationship: relationshipRef,
-      temp_note: noteRef,
       phone: phoneRef,
       email: emailRef,
       password: passwordRef,
     };
 
-    const targetRef = refMap[fieldName];
+    // 2. Chờ Card mở xong rồi cuộn mượt tới đúng field và đặt con trỏ nhập liệu
+    window.setTimeout(() => {
+      const targetEl =
+        refMap[resolvedKey]?.current ||
+        document.querySelector(`[data-field-key="${resolvedKey}"]`) ||
+        (personalFieldSet.has(resolvedKey) ? personalCardRef.current : null) ||
+        (accountFieldSet.has(resolvedKey) ? accountCardRef.current : null) ||
+        clanCardRef.current;
 
-    requestAnimationFrame(() => {
-      targetRef?.current?.scrollIntoView?.({
-        behavior: 'smooth',
-        block: 'center',
-      });
-
-      targetRef?.current?.focus?.({
-        preventScroll: true,
-      });
-    });
+      if (targetEl) {
+        targetEl.scrollIntoView?.({
+          behavior: 'smooth',
+          block: 'center',
+        });
+        targetEl.focus?.({
+          preventScroll: true,
+        });
+      }
+    }, 160);
   }, []);
 
   const routeFieldError = useCallback(
@@ -760,7 +898,7 @@ const JoinClanForm = ({
           guidedFlow.goToField(attentionField);
         }
 
-        focusFieldByName(fieldName);
+        focusFieldByName(fieldName || attentionField);
 
         window.setTimeout(() => {
           speakMandatoryError(finalMessage);
@@ -790,11 +928,13 @@ const JoinClanForm = ({
     },
     onVerifyError: (captchaErr) => {
       // TC-FE-12 Scenario 2: Báo lỗi qua PersistentMessageBanner, reset widget, KHÔNG auto-retry
-      setPhase2Banner({
-        type: 'error',
-        title: 'Xác thực bảo mật chưa thành công',
+      const msgObj = getPhase2UserMessage('TURNSTILE_FAILED', {
         message: captchaErr?.message,
-        correlationId: 'Không có',
+      });
+      setPhase2Banner({
+        type: msgObj.type,
+        title: msgObj.title,
+        message: msgObj.message,
       });
     },
   });
@@ -849,19 +989,20 @@ const JoinClanForm = ({
         headers: requestHeaders,
       });
       setTenantResults(res.data?.data || []);
-      setPhase2Banner(null);
       publicSearchTurnstileRef.current?.dismissChallenge?.();
     } catch (err) {
       const info = extractApiErrorInfo(err);
 
       // 1. Bắt 403 Turnstile Fail-Closed [NFR-02, TC-FE-12]
       if (isTurnstileChallengeError(err)) {
+        const msgObj = getPhase2UserMessage('TURNSTILE_REQUIRED', {
+          message: info.message,
+        });
         publicSearchTurnstileRef.current?.triggerChallenge?.();
         setPhase2Banner({
-          type: 'warning',
-          title: 'Yêu cầu xác minh bảo mật tìm kiếm',
-          message: info.message,
-          correlationId: info.correlationId,
+          type: msgObj.type,
+          title: msgObj.title,
+          message: msgObj.message,
         });
         setTenantResults([]);
         return;
@@ -872,24 +1013,27 @@ const JoinClanForm = ({
         const retryAfter = Number(
           info.details?.retryAfter || info.details?.retry_after || 30
         );
+        const msgObj = getPhase2UserMessage('PUBLIC_SEARCH_RATE_LIMITED', {
+          message: info.message,
+        });
         setSearchRateLimitSeconds(retryAfter > 0 ? retryAfter : 30);
         setPhase2Banner({
-          type: 'warning',
-          title: 'Tạm giới hạn tần suất tìm kiếm',
-          message: info.message,
-          correlationId: info.correlationId,
+          type: msgObj.type,
+          title: msgObj.title,
+          message: msgObj.message,
         });
         return;
       }
 
-      // 3. Mọi lỗi còn lại (kể cả CORS / Network Error): dừng tại 1 request duy nhất,
-      // không gọi fallback /tenants/search và hiển thị thông báo rõ ràng trên Banner.
+      // 3. Mọi lỗi còn lại (kể cả CORS / Network Error): dừng tại 1 request duy nhất
+      const msgObj = getPhase2UserMessage(info.code, {
+        message: info.message,
+      });
       setTenantResults([]);
       setPhase2Banner({
-        type: 'error',
-        title: 'Không thể tìm kiếm dòng họ',
-        message: info.message,
-        correlationId: info.correlationId,
+        type: msgObj.type,
+        title: msgObj.title,
+        message: msgObj.message,
       });
     } finally {
       setTenantLoading(false);
@@ -1100,11 +1244,172 @@ const JoinClanForm = ({
       shouldDirty: true,
     });
 
+    // Reset lựa chọn thành viên cũ nếu đổi sang dòng họ khác (giữ nguyên thông tin người giới thiệu đã nhập)
+    setProfileDraft((prev) => ({
+      ...prev,
+      claimed_member_id: '',
+      claimed_member_summary: null,
+    }));
+
     setAttentionMessage('');
-    setPhase2Banner(null);
+    setPersonalCardCollapsed(false);
 
     guidedFlow.markCompleted('clanSearch');
+    guidedFlow.goToField('personalInfo');
+
+    // [UAT-IMP2] Giữ nguyên Card 1 phía trên, mở Card 2 và cuộn mượt tới Card 2
+    window.setTimeout(() => {
+      personalCardRef.current?.scrollIntoView?.({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 120);
   };
+
+  // [UAT-IMP2] Kiểm soát hoàn thành từng Card trước khi mở Card tiếp theo
+  const isCard1Complete = Boolean(selectedTenant?.id && selectedTenant?.name);
+
+  const isCard2Complete = useMemo(() => {
+    if (!isCard1Complete) return false;
+    const rName = String(profileDraft.referrer_name || '').trim();
+    const rPhone = String(profileDraft.referrer_phone || '').trim();
+    const rCountry = profileDraft.referrer_phone_country || 'VN';
+    if (!rName || !rPhone) return false;
+    if (!validatePhoneWithCountry(rPhone, rCountry).valid) return false;
+
+    if (claimMode === 'CLAIM_EM') {
+      if (isClaimHoppingBlocked) return false;
+      const emId = String(profileDraft.claimed_member_id || '').trim();
+      const ver = profileDraft.claim_verification || {};
+      const l1 = String(ver.layer1_lineage || '').trim();
+      const l2 = String(ver.layer2_branch_origin || '').trim();
+      const l3 = String(ver.layer3_guarantor_note || '').trim();
+      return Boolean(emId && l1 && l2 && l3);
+    }
+    const fName = String(profileDraft.full_name || '').trim();
+    const faName = String(profileDraft.father_name || '').trim();
+    const bYearRaw = String(profileDraft.birth_year ?? '').trim();
+    const noteText = String(profileDraft.note || '').trim();
+    const rel = String(profileDraft.temp_relationship || 'CON_DE').trim();
+    if (!fName || !faName || !rel || noteText.length <= 10) return false;
+    if (bYearRaw && !/^\d{4}$/.test(bYearRaw)) return false;
+    return true;
+  }, [isCard1Complete, claimMode, isClaimHoppingBlocked, profileDraft]);
+
+  // Tự động mở & định vị Card 3 ("Thông tin tài khoản đăng nhập") khi Card 1 & Card 2 hoàn tất
+  const prevCard2CompleteRef = useRef(isCard2Complete);
+  useEffect(() => {
+    const justCompleted = isCard2Complete && !prevCard2CompleteRef.current;
+    prevCard2CompleteRef.current = isCard2Complete;
+
+    if (!justCompleted) return undefined;
+
+    setAccountCardCollapsed(false);
+    guidedFlow.markCompleted('personalInfo');
+    guidedFlow.goToField('accountInfo');
+
+    const scrollTimer = window.setTimeout(() => {
+      accountCardRef.current?.scrollIntoView?.({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 550);
+
+    return () => window.clearTimeout(scrollTimer);
+  }, [isCard2Complete, guidedFlow]);
+
+  // [UAT-IMP2] Kiểm soát điều kiện mở khóa nút "Tiếp tục rà soát →"
+  const reviewGateStatus = useMemo(() => {
+    if (effectiveLoading || phoneChecking || emailChecking) {
+      return {
+        enabled: false,
+        reason: 'Hệ thống đang kiểm tra thông tin, bác vui lòng đợi giây lát...',
+      };
+    }
+    if (!isCard1Complete) {
+      return {
+        enabled: false,
+        reason: 'Bác vui lòng hoàn thành Bước 1 (chọn dòng họ gia nhập).',
+      };
+    }
+    if (!isCard2Complete) {
+      return {
+        enabled: false,
+        reason: 'Bác vui lòng hoàn thành đầy đủ Bước 2 (nhận diện nhân thân).',
+      };
+    }
+    const rawPhone = String(formValues.phone || '').trim();
+    if (!rawPhone) {
+      return {
+        enabled: false,
+        reason: 'Bác vui lòng nhập số điện thoại đăng nhập ở Bước 3.',
+      };
+    }
+    if (!isRevision) {
+      const phoneFmt = validatePhoneWithCountry(rawPhone, phoneCountry);
+      if (!phoneFmt.valid) {
+        return {
+          enabled: false,
+          reason: phoneFmt.message || 'Bác vui lòng nhập số điện thoại đúng định dạng.',
+        };
+      }
+      if (phoneRemoteError) {
+        return {
+          enabled: false,
+          reason: phoneRemoteError,
+        };
+      }
+    }
+    const rawEmail = String(formValues.email || '').trim();
+    if (rawEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(rawEmail)) {
+      return {
+        enabled: false,
+        reason: 'Email chưa đúng định dạng (ví dụ: ten@gmail.com).',
+      };
+    }
+    if (!isRevision && emailRemoteError) {
+      return {
+        enabled: false,
+        reason: emailRemoteError,
+      };
+    }
+    if (!String(formValues.password || '').trim()) {
+      return {
+        enabled: false,
+        reason: 'Bác vui lòng nhập mật khẩu đăng nhập ở Bước 3.',
+      };
+    }
+    const isCaptchaDone = Boolean(
+      guidedFlow.isCompleted('captcha') ||
+        captchaZone?.isVerified ||
+        captchaZone?.getToken?.()
+    );
+    if (!isCaptchaDone) {
+      return {
+        enabled: false,
+        reason: 'Bác vui lòng tích vào ô xác minh bảo mật phía trên để mở nút Tiếp tục rà soát.',
+      };
+    }
+    return {
+      enabled: true,
+      reason: '',
+    };
+  }, [
+    effectiveLoading,
+    phoneChecking,
+    emailChecking,
+    isCard1Complete,
+    isCard2Complete,
+    formValues.phone,
+    formValues.email,
+    formValues.password,
+    isRevision,
+    phoneCountry,
+    phoneRemoteError,
+    emailRemoteError,
+    guidedFlow,
+    captchaZone,
+  ]);
 
   const hasCoreRequiredData = (values) => {
     return (
@@ -1158,12 +1463,14 @@ const JoinClanForm = ({
 
       // 1. [NFR-03, TC-FE-13] 403 CLAIM_HOPPING_DETECTED: khóa CLAIM_EXISTING, gợi ý CREATE_NEW
       if (info.status === 403 && info.code === 'CLAIM_HOPPING_DETECTED') {
+        const msgObj = getPhase2UserMessage('CLAIM_HOPPING_DETECTED', {
+          message: info.message,
+        });
         setIsClaimHoppingBlocked(true);
         setPhase2Banner({
-          type: 'error',
-          title: 'Tạm khóa nhận diện thành viên có sẵn',
-          message: info.message,
-          correlationId: info.correlationId,
+          type: msgObj.type,
+          title: msgObj.title,
+          message: msgObj.message,
           actionButton: (
             <button
               type="button"
@@ -1173,9 +1480,9 @@ const JoinClanForm = ({
                 setPhase2Banner(null);
                 guidedFlow.goToField('personalInfo');
               }}
-              className="min-h-[48px] rounded-xl bg-indigo-600 px-4 py-2.5 text-base font-bold text-white hover:bg-indigo-700"
+              className="min-h-[48px] h-12 rounded-xl bg-indigo-600 px-5 text-base font-bold text-white hover:bg-indigo-700 whitespace-nowrap"
             >
-              Chuyển sang Khai báo hồ sơ mới (CREATE_NEW)
+              Chuyển sang Khai báo hồ sơ mới
             </button>
           ),
         });
@@ -1311,6 +1618,37 @@ const JoinClanForm = ({
 
     setProfileErrors({});
 
+    // [UAT-IMP4 Mục 6b] Bắt buộc (*) Họ & tên + Số điện thoại người giới thiệu trong họ
+    const rawReferrerName = String(profileDraft.referrer_name || '').trim();
+    const rawReferrerPhone = String(profileDraft.referrer_phone || '').trim();
+    const refCountry = profileDraft.referrer_phone_country || 'VN';
+
+    if (!rawReferrerName) {
+      const msg = 'Bác vui lòng nhập họ và tên người giới thiệu trong họ.';
+      setProfileErrors({ referrer_name: msg });
+      routeFieldError('referrer_name', msg, 'personalInfo');
+      return;
+    }
+    if (!rawReferrerPhone) {
+      const msg = 'Bác vui lòng nhập số điện thoại của người giới thiệu trong họ.';
+      setProfileErrors({ referrer_phone: msg });
+      routeFieldError('referrer_phone', msg, 'personalInfo');
+      return;
+    }
+    const refPhoneFormatCheck = validatePhoneWithCountry(
+      rawReferrerPhone,
+      refCountry
+    );
+    if (!refPhoneFormatCheck.valid) {
+      const msg =
+        refPhoneFormatCheck.message ||
+        'Số điện thoại người giới thiệu chưa đúng định dạng.';
+      setProfileErrors({ referrer_phone: msg });
+      routeFieldError('referrer_phone', msg, 'personalInfo');
+      return;
+    }
+    const normalizedReferrerPhone = refPhoneFormatCheck.normalized;
+
     if (claimMode === 'CLAIM_EM') {
       const emId = String(profileDraft.claimed_member_id || '').trim();
       const emSummary = profileDraft.claimed_member_summary || {};
@@ -1321,27 +1659,27 @@ const JoinClanForm = ({
 
       if (!emId) {
         const msg =
-          'Bác vui lòng tìm và chọn hồ sơ của mình trên cây gia phả (hoặc chuyển sang Khai báo mới 21 trường).';
+          'Bác vui lòng tìm và chọn hồ sơ của mình trên cây gia phả (hoặc chuyển sang Khai báo mới).';
         setProfileErrors({ claimed_member_id: msg });
-        routeFieldError('personalInfo', msg, 'personalInfo');
+        routeFieldError('claimed_member_id', msg, 'personalInfo');
         return;
       }
       if (!l1) {
         const msg = 'Bác vui lòng nhập Lớp 1 gia mật (họ tên Cha/Mẹ/Ông nội hoặc ngày giỗ tổ).';
         setProfileErrors({ layer1_lineage: msg });
-        routeFieldError('personalInfo', msg, 'personalInfo');
+        routeFieldError('layer1_lineage', msg, 'personalInfo');
         return;
       }
       if (!l2) {
         const msg = 'Bác vui lòng nhập Lớp 2 gia mật (tên Chi/Phái hoặc quê quán gia đình).';
         setProfileErrors({ layer2_branch_origin: msg });
-        routeFieldError('personalInfo', msg, 'personalInfo');
+        routeFieldError('layer2_branch_origin', msg, 'personalInfo');
         return;
       }
       if (!l3) {
         const msg = 'Bác vui lòng nhập Lớp 3 gia mật (người bảo lãnh trong họ hoặc lời nhắn xác minh).';
         setProfileErrors({ layer3_guarantor_note: msg });
-        routeFieldError('personalInfo', msg, 'personalInfo');
+        routeFieldError('layer3_guarantor_note', msg, 'personalInfo');
         return;
       }
 
@@ -1374,25 +1712,25 @@ const JoinClanForm = ({
       if (!fName) {
         const msg = 'Bác vui lòng nhập họ và tên khai sinh.';
         setProfileErrors({ full_name: msg });
-        routeFieldError('personalInfo', msg, 'personalInfo');
+        routeFieldError('full_name', msg, 'personalInfo');
         return;
       }
       if (!faName) {
         const msg = 'Bác vui lòng nhập họ và tên Cha để Ban quản trị đối chiếu.';
         setProfileErrors({ father_name: msg });
-        routeFieldError('personalInfo', msg, 'personalInfo');
+        routeFieldError('father_name', msg, 'personalInfo');
         return;
       }
       if (bYearRaw && !/^\d{4}$/.test(bYearRaw)) {
         const msg = 'Bác vui lòng nhập năm sinh gồm 4 chữ số (ví dụ: 1975).';
         setProfileErrors({ birth_year: msg });
-        routeFieldError('personalInfo', msg, 'personalInfo');
+        routeFieldError('birth_year', msg, 'personalInfo');
         return;
       }
-      if (!noteText) {
-        const msg = 'Bác vui lòng nhập lời nhắn gửi Ban quản trị xác minh.';
+      if (!noteText || noteText.length <= 10) {
+        const msg = 'Bác vui lòng nhập lời nhắn gửi Ban Quản trị tối thiểu 11 ký tự để đủ thông tin xác minh.';
         setProfileErrors({ note: msg });
-        routeFieldError('personalInfo', msg, 'personalInfo');
+        routeFieldError('note', msg, 'personalInfo');
         return;
       }
 
@@ -1430,6 +1768,10 @@ const JoinClanForm = ({
 
     if (!latestValues?.password?.trim?.()) {
       routeFieldError('password', 'Bác vui lòng nhập mật khẩu đăng nhập.', 'accountInfo');
+      return;
+    }
+    if (latestValues.password.trim().length < 6) {
+      routeFieldError('password', 'Mật khẩu đăng nhập cần tối thiểu 6 ký tự.', 'accountInfo');
       return;
     }
 
@@ -1503,10 +1845,28 @@ const JoinClanForm = ({
       },
       localValidation: async () => {
         const valid = await trigger();
+        const freshErrors = {};
+        [
+          'tenantId',
+          'clanName',
+          'temp_full_name',
+          'temp_father_name',
+          'temp_birth_year',
+          'temp_relationship',
+          'temp_note',
+          'phone',
+          'email',
+          'password',
+        ].forEach((fKey) => {
+          const st = getFieldState(fKey);
+          if (st?.error) {
+            freshErrors[fKey] = st.error;
+          }
+        });
 
         return {
           valid,
-          errors,
+          errors: Object.keys(freshErrors).length > 0 ? freshErrors : errors,
         };
       },
       metadata: {
@@ -1521,14 +1881,25 @@ const JoinClanForm = ({
       const attentionField = getAttentionFieldFromGate(target, latestValues);
 
       const targetField = target.field || attentionField;
-
+      const freshFieldError = targetField ? getFieldState(targetField)?.error : null;
       const fieldSpecificMessage =
-        targetField && errors?.[targetField]?.message ? errors[targetField].message : '';
+        freshFieldError?.message ||
+        (targetField && errors?.[targetField]?.message ? errors[targetField].message : '');
+
+      if (targetField === 'temp_note' && fieldSpecificMessage) {
+        setProfileErrors((prev) => ({ ...prev, note: fieldSpecificMessage }));
+      } else if (targetField === 'temp_full_name' && fieldSpecificMessage) {
+        setProfileErrors((prev) => ({ ...prev, full_name: fieldSpecificMessage }));
+      } else if (targetField === 'temp_father_name' && fieldSpecificMessage) {
+        setProfileErrors((prev) => ({ ...prev, father_name: fieldSpecificMessage }));
+      } else if (targetField === 'temp_birth_year' && fieldSpecificMessage) {
+        setProfileErrors((prev) => ({ ...prev, birth_year: fieldSpecificMessage }));
+      }
 
       routeFieldError(
         targetField,
-        target.message ||
-          fieldSpecificMessage ||
+        fieldSpecificMessage ||
+          target.message ||
           'Thông tin hồ sơ chưa đầy đủ hoặc chưa đúng. Bác vui lòng kiểm tra lại các mục được báo lỗi trên màn hình.',
         attentionField,
       );
@@ -1688,7 +2059,17 @@ const JoinClanForm = ({
       ...(builtRegistrationProfile.claimed_member_id
         ? { claimed_member_id: builtRegistrationProfile.claimed_member_id }
         : {}),
-      registration_profile: builtRegistrationProfile,
+      referrer_name: rawReferrerName,
+      referrer_phone: normalizedReferrerPhone,
+      registration_profile: {
+        ...builtRegistrationProfile,
+        referrer_name: rawReferrerName,
+        referrer_phone: normalizedReferrerPhone,
+        referrer_info: {
+          full_name: rawReferrerName,
+          phone: normalizedReferrerPhone,
+        },
+      },
       turnstileToken: captchaCheck.token || captchaZone.getToken(),
       hp_field: latestValues.hp_field || '',
       ...(isRevision
@@ -1774,7 +2155,7 @@ const JoinClanForm = ({
    * tắt autoScroll trên submit wrapper để không kéo màn hình xuống cuối trang khi mở form [UAT Bug 3.2]).
    */
   const renderActionFooter = (isStep1) => (
-    <div className="pt-8">
+    <div className="pt-6">
       {isStep1 ? (
         <GuidedFieldWrapper
           fieldKey="submit"
@@ -1786,7 +2167,7 @@ const JoinClanForm = ({
           completed={false}
           voiceAction={
             <ZoneVoiceButton
-              visible={showAzVoiceButton('submit')}
+              visible
               text={zoneHelpText.submit}
               label="Nghe"
               disabled={effectiveLoading || phoneChecking || emailChecking}
@@ -1796,19 +2177,11 @@ const JoinClanForm = ({
           <button
             type="button"
             onClick={nextStep}
-            disabled={
-              effectiveLoading ||
-              phoneChecking ||
-              emailChecking ||
-              (claimMode === 'CLAIM_EM' && isClaimHoppingBlocked)
-            }
-            className={`min-h-[48px] w-full py-4 text-base rounded-3xl font-bold transition-all ${
-              effectiveLoading ||
-              phoneChecking ||
-              emailChecking ||
-              (claimMode === 'CLAIM_EM' && isClaimHoppingBlocked)
+            disabled={!reviewGateStatus.enabled}
+            className={`min-h-[48px] h-12 w-full px-5 text-base rounded-xl font-bold whitespace-nowrap transition-all ${
+              !reviewGateStatus.enabled
                 ? 'bg-slate-200 text-slate-500 cursor-not-allowed'
-                : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                : 'bg-emerald-600 text-white shadow-md hover:bg-emerald-700'
             }`}
           >
             {phoneChecking || emailChecking
@@ -1819,9 +2192,12 @@ const JoinClanForm = ({
           </button>
 
           {/* Inline helper text >= 16px bên dưới nút disabled (cấm dùng tooltip) */}
-          {claimMode === 'CLAIM_EM' && isClaimHoppingBlocked && (
-            <p className="mt-2 text-base font-semibold text-rose-700">
-              Chức năng nhận diện thành viên có sẵn tạm khóa do từ chối nhiều lần trong 90 ngày. Bác vui lòng chọn &ldquo;Cách 2 (Khai báo mới)&rdquo; ở phía trên.
+          {!reviewGateStatus.enabled && reviewGateStatus.reason && (
+            <p
+              role="status"
+              className="mt-2.5 text-base font-semibold leading-relaxed text-amber-800"
+            >
+              {reviewGateStatus.reason}
             </p>
           )}
         </GuidedFieldWrapper>
@@ -1829,7 +2205,7 @@ const JoinClanForm = ({
         <button
           type="submit"
           disabled={effectiveLoading}
-          className="min-h-[48px] flex-[2] py-4 bg-emerald-600 text-white rounded-3xl text-base font-bold"
+          className="min-h-[48px] h-12 flex-[2] px-5 bg-emerald-600 text-white rounded-xl text-base font-bold whitespace-nowrap"
         >
           {effectiveLoading ? (
             <Loader2 className="animate-spin mx-auto" size={20} />
@@ -1940,13 +2316,14 @@ const JoinClanForm = ({
           </div>
         )}
 
-        {/* Banner thông báo nghiệp vụ hợp nhất duy nhất (hiển thị Mã tra cứu X-Correlation-Id) */}
+        {/* [UAT-IMP3] Banner thông báo lớp trên cùng — ẩn mã UUID, chỉ đóng khi EU bấm "Đã hiểu" */}
         {phase2Banner && (
           <PersistentMessageBanner
             type={phase2Banner.type}
+            mode={phase2Banner.mode || 'fullscreen'}
+            autoSpeak
             title={phase2Banner.title}
             message={phase2Banner.message}
-            correlationId={phase2Banner.correlationId}
             actionButton={phase2Banner.actionButton}
             onClose={() => setPhase2Banner(null)}
           />
@@ -1996,477 +2373,668 @@ const JoinClanForm = ({
 
         <>
           <>
-            <GuidedFieldWrapper
-              fieldKey="clanSearch"
-              activeField={guidedFlow.activeField}
-              helperText={zoneHelpText.clanSearch}
-              completed={guidedFlow.isCompleted('clanSearch')}
-              voiceAction={
-                <ZoneVoiceButton
-                  visible={showAzVoiceButton('clanSearch')}
-                  text={zoneHelpText.clanSearch}
-                  label="Nghe"
-                  disabled={effectiveLoading}
-                />
-              }
-            >
-              <div className={uiSystem.section}>
-                <div className="space-y-1">
-                  <label className={uiSystem.label}>
-                    Tìm dòng họ gia nhập <span className="text-rose-500">*</span>
-                  </label>
-
-                  <div className="relative">
-                    <Search
-                      className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                      size={18}
-                    />
-
-                    {isRevision && selectedTenant ? (
-                      <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-base">
-                        Dòng họ: <span className="font-semibold">{selectedTenant.name}</span>
-                        <input type="hidden" {...register('tenantId')} />
-                      </div>
-                    ) : (
-                      <input
-                        ref={tenantSearchRef}
-                        type="text"
-                        disabled={searchRateLimitSeconds > 0}
-                        value={searchKeyword}
-                        onChange={(e) => {
-                          setSearchKeyword(e.target.value);
-                          setAttentionMessage('');
-                          invalidateRuntimeForField('tenantId');
-                          guidedFlow.goToField('clanSearch');
-                        }}
-                        onFocus={() => guidedFlow.goToField('clanSearch')}
-                        className={`min-h-[48px] pl-11 ${uiSystem.input} disabled:bg-slate-100 disabled:text-slate-500`}
-                        placeholder="Gõ tên dòng họ hoặc định danh."
-                      />
-                    )}
-
-                    {tenantLoading && (
-                      <Loader2
-                        className="absolute right-4 top-1/2 -translate-y-1/2 animate-spin text-blue-500"
-                        size={18}
-                      />
-                    )}
-                  </div>
-
-                  {/* Inline helper text >= 16px khi dính Rate Limit 429 trên Public Search */}
-                  {searchRateLimitSeconds > 0 && (
-                    <p className="mt-1.5 text-base font-semibold text-amber-800" role="status">
-                      Ô tìm kiếm tạm khóa do thao tác quá nhanh. Vui lòng thử lại sau {searchRateLimitSeconds} giây.
-                    </p>
-                  )}
-
-                  {/* [NFR-02, TC-FE-12] Khung Cloudflare Turnstile Fail-Closed cho Public Search */}
-                  {publicSearchTurnstile.isChallengeVisible && (
-                    <div
-                      className="mt-3 rounded-2xl border-2 border-amber-400 bg-amber-50 p-4"
-                      role="region"
-                      aria-label="Xác minh bảo mật tìm kiếm dòng họ"
-                    >
-                      <p className="mb-2 text-base font-bold text-amber-950">
-                        Bác vui lòng tích vào ô xác nhận bên dưới để tiếp tục tìm kiếm dòng họ:
+            {/* =================================================================
+                CARD ĐỆM 0: XÁC NHẬN TÀI KHOẢN (Card 2 dòng / 3 cột chuẩn UAT-IMP3)
+               ================================================================= */}
+            <div ref={accountGateCardRef}>
+              <CollapsibleDetailCard
+                title="Xác nhận tài khoản"
+                statusLabel={accountGateConfirmed ? 'Đã xác nhận' : 'Chưa xác nhận'}
+                statusVariant={accountGateConfirmed ? 'complete' : 'default'}
+                voiceText={
+                  existingSessionUser
+                    ? `Trình duyệt đang đăng nhập tài khoản ${existingSessionUser.name || existingSessionUser.phone || ''}. Nếu bác dùng tài khoản hiện tại để xin vào thêm dòng họ khác, bấm nút thứ nhất. Nếu đăng ký tài khoản mới cho người khác, bấm nút thứ hai.`
+                    : 'Trước khi khai báo, bác cho biết bác đã có sẵn tài khoản đăng nhập Gia Phả Số chưa? Nếu đã có, bấm nút thứ nhất để đăng nhập. Nếu chưa có, bấm nút thứ hai để bắt đầu đăng ký mới.'
+                }
+                expanded={!accountGateCollapsed}
+                onToggle={(next) => setAccountGateCollapsed(!next)}
+                disabled={effectiveLoading}
+              >
+                {existingSessionUser ? (
+                  <div className="space-y-3">
+                    <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+                      <p className="text-base font-bold leading-relaxed">
+                        Trình duyệt hiện đang đăng nhập tài khoản:{' '}
+                        <strong className="font-black">
+                          {existingSessionUser.name ||
+                            existingSessionUser.phone ||
+                            existingSessionUser.email}
+                        </strong>
+                        . Bác muốn thực hiện theo cách nào?
                       </p>
-                      <div
-                        ref={publicSearchTurnstile.containerRef}
-                        className="min-h-[65px]"
-                      />
                     </div>
-                  )}
-                </div>
 
-                {!selectedTenant && tenantResults.length > 0 && (
-                  <div className="mt-3 space-y-3 max-h-[400px] overflow-y-auto pr-1">
-                    {tenantResults.map((tenant) => (
-                      <button
-                        key={tenant.id}
-                        type="button"
-                        onClick={() => handleSelectTenant(tenant)}
-                        className="min-h-[48px] w-full rounded-3xl border border-slate-100 bg-white p-4 text-left shadow-sm transition hover:border-emerald-200 hover:bg-emerald-50"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-emerald-50 text-emerald-600">
-                            <Landmark size={22} />
-                          </div>
-
-                          <div>
-                            <p className="text-base font-black text-slate-900">{tenant.name}</p>
-                            <p className="mt-1 text-sm text-slate-500">Bấm để chọn dòng họ này</p>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {selectedTenant && (
-                  <div className="mt-3 rounded-3xl border border-emerald-100 bg-emerald-50 p-4 text-emerald-800">
-                    <p className="text-xs font-black uppercase tracking-widest">Đã chọn dòng họ</p>
-                    <p className="mt-1 text-lg font-black">{selectedTenant.name}</p>
-
-                    {!isRevision && (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                       <button
                         type="button"
                         onClick={() => {
-                          setSelectedTenant(null);
-                          setValue('tenantId', '', { shouldValidate: true });
-                          setValue('clanName', '', { shouldValidate: true });
-                          setAttentionMessage('');
-                          invalidateRuntimeForField('tenantId');
-                          guidedFlow.goToField('clanSearch');
+                          if (typeof onNavigateToClan === 'function') {
+                            onNavigateToClan();
+                          } else if (typeof window !== 'undefined') {
+                            window.location.assign('/membership/claim');
+                          }
                         }}
-                        className="mt-3 min-h-[48px] px-3 py-2 text-base font-bold text-emerald-700 underline"
+                        className="min-h-[56px] rounded-xl border-2 border-emerald-600 bg-emerald-50 p-4 text-left text-emerald-950 shadow-xs transition hover:bg-emerald-100"
                       >
-                        Chọn lại dòng họ
+                        <p className="flex items-center gap-2 text-base font-bold text-emerald-900">
+                          <LogIn size={18} className="shrink-0" />
+                          <span>Tôi đã có tài khoản</span>
+                        </p>
+                        <p className="mt-1 text-base font-medium text-slate-700">
+                          Dùng tài khoản hiện tại để xin gia nhập thêm dòng họ khác.
+                        </p>
                       </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            </GuidedFieldWrapper>
 
-            <GuidedFieldWrapper
-              fieldKey="personalInfo"
-              activeField={guidedFlow.activeField}
-              helperText={
-                ttsMessages?.joinClan?.personalInfo ||
-                'Bác chọn nhận hồ sơ đã có trên cây gia phả hoặc khai báo hồ sơ nhân thân 21 trường.'
-              }
-              completed={guidedFlow.isCompleted('personalInfo')}
-              voiceAction={
-                <ZoneVoiceButton
-                  visible={showAzVoiceButton('personalInfo')}
-                  text={zoneHelpText.personalInfo}
-                  label="Nghe"
-                  disabled={effectiveLoading}
-                />
-              }
-            >
-              <div className={uiSystem.section}>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="flex items-center gap-2 text-sm font-black uppercase tracking-widest text-slate-500">
-                    <User size={18} />
-                    Nhận diện nhân thân trong dòng họ
-                  </h3>
-                  {selectedMemberNonClanBadge && (
-                    <span className="rounded-lg border border-indigo-300 bg-indigo-100 px-2.5 py-0.5 text-base font-bold text-indigo-900">
-                      {selectedMemberNonClanBadge}
-                    </span>
-                  )}
-                </div>
-
-                {/* Bộ chọn 2 nhánh C2 theo AMEND-RP-OP-2026-02 V1.5.0 */}
-                <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-                  <div>
-                    <button
-                      type="button"
-                      disabled={effectiveLoading || isClaimHoppingBlocked}
-                      onClick={() => {
-                        setClaimMode('CLAIM_EM');
-                        setProfileErrors({});
-                        setAttentionMessage('');
-                        guidedFlow.goToField('personalInfo');
-                      }}
-                      className={`min-h-[48px] w-full rounded-2xl border p-3.5 text-left transition ${
-                        isClaimHoppingBlocked
-                          ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
-                          : claimMode === 'CLAIM_EM'
-                            ? 'border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm'
-                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                      }`}
-                    >
-                      <p className="text-xs font-black uppercase tracking-wider text-emerald-700">
-                        Cách 1 (Khuyên dùng)
-                      </p>
-                      <p className="mt-1 text-base font-black">
-                        Đã có tên trên cây gia phả
-                      </p>
-                      <p className="mt-0.5 text-sm font-medium text-slate-600">
-                        Tìm hồ sơ có sẵn (bao gồm cả con rể/con dâu) và trả lời 3 lớp gia mật.
-                      </p>
-                    </button>
-                    {isClaimHoppingBlocked && (
-                      <p className="mt-1.5 text-base font-semibold text-rose-700">
-                        Tạm khóa do từ chối nhiều lần trong 90 ngày.
-                      </p>
-                    )}
-                  </div>
-
-                  <button
-                    type="button"
-                    disabled={effectiveLoading}
-                    onClick={() => {
-                      setClaimMode('NEW_PROFILE_21');
-                      setProfileErrors({});
-                      setAttentionMessage('');
-                      guidedFlow.goToField('personalInfo');
-                    }}
-                    className={`min-h-[48px] rounded-2xl border p-3.5 text-left transition ${
-                      claimMode === 'NEW_PROFILE_21'
-                        ? 'border-indigo-600 bg-indigo-50 text-indigo-950 shadow-sm'
-                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
-                    }`}
-                  >
-                    <p className="text-xs font-black uppercase tracking-wider text-indigo-700">
-                      Cách 2 (Khai báo mới)
-                    </p>
-                    <p className="mt-1 text-base font-black">
-                      Chưa có tên trên cây (21 trường)
-                    </p>
-                    <p className="mt-0.5 text-sm font-medium text-slate-600">
-                      Điền đầy đủ hồ sơ nhân thân & tiền nhân 3 đời để lập mới.
-                    </p>
-                  </button>
-                </div>
-
-                {claimMode === 'CLAIM_EM' ? (
-                  selectedTenant?.id ? (
-                    <ClaimMemberWizard
-                      tenantId={selectedTenant.id}
-                      tenantName={selectedTenant.name}
-                      value={profileDraft}
-                      disabled={effectiveLoading}
-                      errors={profileErrors}
-                      claimHoppingBlocked={isClaimHoppingBlocked}
-                      onSwitchToCreateNew={() => {
-                        setClaimMode('NEW_PROFILE_21');
-                        setProfileErrors({});
-                        setPhase2Banner(null);
-                      }}
-                      onFocusZone={() => guidedFlow.goToField('personalInfo')}
-                      onChange={(nextDraft) => {
-                        setProfileDraft(nextDraft);
-                        setProfileErrors({});
-                        setAttentionMessage('');
-                      }}
-                    />
-                  ) : (
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-base font-bold text-amber-800">
-                      Bác vui lòng tìm và chọn dòng họ ở mục phía trên trước để
-                      tra cứu danh sách thành viên trên cây.
-                    </div>
-                  )
-                ) : (
-                  <RegistrationProfileForm
-                    value={profileDraft}
-                    disabled={effectiveLoading}
-                    errors={profileErrors}
-                    onFocusZone={() => guidedFlow.goToField('personalInfo')}
-                    onChange={(nextDraft) => {
-                      setProfileDraft(nextDraft);
-                      setProfileErrors({});
-                      setAttentionMessage('');
-                    }}
-                  />
-                )}
-              </div>
-            </GuidedFieldWrapper>
-
-            <GuidedFieldWrapper
-              fieldKey="accountInfo"
-              activeField={guidedFlow.activeField}
-              helperText={
-                ttsMessages?.joinClan?.accountInfo ||
-                'Bác nhập số điện thoại và mật khẩu để tạo tài khoản đăng nhập.'
-              }
-              completed={guidedFlow.isCompleted('accountInfo')}
-              voiceAction={
-                <ZoneVoiceButton
-                  visible={showAzVoiceButton('accountInfo')}
-                  text={zoneHelpText.accountInfo}
-                  label="Nghe"
-                  disabled={effectiveLoading}
-                />
-              }
-            >
-              <div className={uiSystem.section}>
-                <div className="space-y-5">
-                  <div className="space-y-1">
-                    <label className={uiSystem.label}>
-                      Số điện thoại đăng nhập <span className="text-rose-500">*</span>
-                    </label>
-
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <select
-                        aria-label="Chọn quốc gia"
-                        value={phoneCountry}
-                        disabled={isRevision || effectiveLoading}
-                        onFocus={() => guidedFlow.goToField('accountInfo')}
-                        onChange={(e) => {
-                          setPhoneCountry(e.target.value);
-                          checkedPhoneCacheRef.current = null;
-                          clearFieldErrorOnEdit('phone', {
-                            clearPhoneRemoteError: true,
-                          });
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (typeof window !== 'undefined') {
+                            window.localStorage.removeItem('auth_token');
+                            window.localStorage.removeItem('token');
+                            window.localStorage.removeItem('active_context');
+                            window.localStorage.removeItem('tenantId');
+                          }
+                          setAccountGateConfirmed(true);
+                          setAccountGateCollapsed(true);
+                          setClanCardCollapsed(false);
+                          guidedFlow.goToField('clanSearch');
+                          window.setTimeout(() => {
+                            clanCardRef.current?.scrollIntoView?.({
+                              behavior: 'smooth',
+                              block: 'start',
+                            });
+                          }, 120);
                         }}
-                        className={`min-h-[48px] sm:w-52 shrink-0 ${uiSystem.select || uiSystem.input} ${
-                          isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
+                        className="min-h-[56px] rounded-xl border-2 border-slate-200 bg-white p-4 text-left text-slate-900 transition hover:border-indigo-300 hover:bg-indigo-50/40"
+                      >
+                        <p className="flex items-center gap-2 text-base font-bold text-indigo-900">
+                          <UserPlus size={18} className="shrink-0" />
+                          <span>Tôi chưa có tài khoản</span>
+                        </p>
+                        <p className="mt-1 text-base font-medium text-slate-700">
+                          Đăng xuất phiên hiện tại và đăng ký tài khoản mới.
+                        </p>
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-base font-semibold text-slate-700">
+                      Bác đã từng có sẵn tài khoản đăng nhập Gia Phả Số chưa?
+                    </p>
+
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (typeof onSwitchToLogin === 'function') {
+                            onSwitchToLogin();
+                          } else if (typeof window !== 'undefined') {
+                            window.location.assign('/auth');
+                          }
+                        }}
+                        className="min-h-[56px] rounded-xl border-2 border-slate-200 bg-white p-4 text-left text-slate-900 transition hover:border-blue-400 hover:bg-blue-50/50"
+                      >
+                        <p className="flex items-center gap-2 text-base font-bold text-blue-900">
+                          <LogIn size={18} className="shrink-0" />
+                          <span>Bác đã có sẵn tài khoản</span>
+                        </p>
+                        <p className="mt-1 text-base font-medium text-slate-700">
+                          Chuyển sang màn hình Đăng nhập để vào hệ thống.
+                        </p>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAccountGateConfirmed(true);
+                          setAccountGateCollapsed(true);
+                          setClanCardCollapsed(false);
+                          guidedFlow.goToField('clanSearch');
+                          window.setTimeout(() => {
+                            clanCardRef.current?.scrollIntoView?.({
+                              behavior: 'smooth',
+                              block: 'start',
+                            });
+                          }, 120);
+                        }}
+                        className={`min-h-[56px] rounded-xl border-2 p-4 text-left transition ${
+                          accountGateConfirmed
+                            ? 'border-emerald-600 bg-emerald-50 text-emerald-950 shadow-xs'
+                            : 'border-emerald-500 bg-emerald-50/60 text-emerald-950 hover:bg-emerald-100'
                         }`}
                       >
-                        {COUNTRY_PHONE_OPTIONS.map((c) => (
-                          <option key={c.code} value={c.code}>
-                            {c.label}
-                          </option>
-                        ))}
-                      </select>
+                        <p className="flex items-center gap-2 text-base font-bold text-emerald-900">
+                          <UserPlus size={18} className="shrink-0" />
+                          <span>Bác chưa có tài khoản</span>
+                        </p>
+                        <p className="mt-1 text-base font-medium text-slate-700">
+                          Bắt đầu tìm dòng họ và tạo tài khoản đăng nhập mới.
+                        </p>
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </CollapsibleDetailCard>
+            </div>
 
-                      <div className="relative flex-1">
-                        <Phone
+            {/* =================================================================
+                CARD BƯỚC 1: TÌM DÒNG HỌ GIA NHẬP (Card 2 dòng / 3 cột chuẩn UAT-IMP3)
+               ================================================================= */}
+            {accountGateConfirmed && (
+              <div ref={clanCardRef}>
+                <GuidedFieldWrapper
+                  fieldKey="clanSearch"
+                  activeField={guidedFlow.activeField}
+                  autoScroll={false}
+                  helperText={zoneHelpText.clanSearch}
+                  completed={guidedFlow.isCompleted('clanSearch')}
+                >
+                  <CollapsibleDetailCard
+                    title={
+                      selectedTenant
+                        ? `Bước 1: Tìm dòng họ gia nhập (${selectedTenant.name})`
+                        : 'Bước 1: Tìm dòng họ gia nhập'
+                    }
+                    statusLabel={isCard1Complete ? 'Đã chọn' : 'Chưa chọn'}
+                    statusVariant={isCard1Complete ? 'complete' : 'default'}
+                    voiceText={zoneHelpText.clanSearch}
+                    expanded={!clanCardCollapsed}
+                    onToggle={(next) => setClanCardCollapsed(!next)}
+                    disabled={effectiveLoading}
+                  >
+                    <div className="space-y-3">
+                      <div className="relative">
+                        <Search
                           className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
                           size={18}
                         />
 
-                        <input
-                          {...phoneRegister}
-                          type="tel"
-                          ref={(el) => {
-                            phoneRegister.ref(el);
-                            phoneRef.current = el;
-                          }}
-                          onFocus={() => guidedFlow.goToField('accountInfo')}
-                          onBlur={async (e) => {
-                            if (isRevision) return;
-                            await checkPhoneAvailability(e.target.value, {
-                              showFormatError: true,
-                            });
-                          }}
-                          readOnly={isRevision}
-                          className={`min-h-[48px] pl-11 ${uiSystem.input} ${
-                            isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
-                          }`}
-                          placeholder={selectedCountryMeta.placeholder}
-                        />
+                        {isRevision && selectedTenant ? (
+                          <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-base">
+                            Dòng họ: <span className="font-semibold">{selectedTenant.name}</span>
+                            <input type="hidden" {...register('tenantId')} />
+                          </div>
+                        ) : (
+                          <input
+                            ref={tenantSearchRef}
+                            type="text"
+                            disabled={searchRateLimitSeconds > 0}
+                            value={searchKeyword}
+                            onChange={(e) => {
+                              setSearchKeyword(e.target.value);
+                              setAttentionMessage('');
+                              invalidateRuntimeForField('tenantId');
+                              guidedFlow.goToField('clanSearch');
+                            }}
+                            onFocus={() => guidedFlow.goToField('clanSearch')}
+                            className={`min-h-[48px] h-12 pl-11 ${uiSystem.input} disabled:bg-slate-100 disabled:text-slate-500`}
+                            placeholder="Gõ tên dòng họ cần tìm..."
+                          />
+                        )}
 
-                        {phoneChecking && (
+                        {tenantLoading && (
                           <Loader2
                             className="absolute right-4 top-1/2 -translate-y-1/2 animate-spin text-blue-500"
                             size={18}
                           />
                         )}
                       </div>
+
+                      {searchRateLimitSeconds > 0 && (
+                        <p className="mt-1.5 text-base font-semibold text-amber-800" role="status">
+                          Ô tìm kiếm tạm khóa do thao tác quá nhanh. Vui lòng thử lại sau {searchRateLimitSeconds} giây.
+                        </p>
+                      )}
+
+                      {publicSearchTurnstile.isChallengeVisible && (
+                        <div
+                          className="mt-3 rounded-xl border-2 border-amber-400 bg-amber-50 p-4"
+                          role="region"
+                          aria-label="Xác nhận an toàn tìm kiếm dòng họ"
+                        >
+                          <p className="mb-2 text-base font-bold text-amber-950">
+                            Bác vui lòng tích vào ô xác nhận bên dưới để tiếp tục tìm kiếm dòng họ:
+                          </p>
+                          <div
+                            ref={publicSearchTurnstile.containerRef}
+                            className="min-h-[65px]"
+                          />
+                        </div>
+                      )}
+
+                      {!selectedTenant && tenantResults.length > 0 && (
+                        <div className="mt-3 space-y-2.5 max-h-[400px] overflow-y-auto pr-1">
+                          {tenantResults.map((tenant) => (
+                            <button
+                              key={tenant.id}
+                              type="button"
+                              onClick={() => handleSelectTenant(tenant)}
+                              className="min-h-[48px] w-full rounded-xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-50 text-emerald-600">
+                                  <Landmark size={22} />
+                                </div>
+
+                                <div>
+                                  <p className="text-base font-bold text-slate-900">{tenant.name}</p>
+                                  <p className="mt-0.5 text-base text-slate-600">Bấm để chọn dòng họ này</p>
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      {selectedTenant && (
+                        <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-900">
+                          <p className="text-sm font-bold text-emerald-700">
+                            Đã chọn dòng họ
+                          </p>
+                          <p className="mt-1 text-lg font-bold">{selectedTenant.name}</p>
+
+                          {!isRevision && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedTenant(null);
+                                setValue('tenantId', '', { shouldValidate: true });
+                                setValue('clanName', '', { shouldValidate: true });
+                                setProfileDraft((prev) => ({
+                                  ...prev,
+                                  claimed_member_id: '',
+                                  claimed_member_summary: null,
+                                }));
+                                setAttentionMessage('');
+                                invalidateRuntimeForField('tenantId');
+                                guidedFlow.goToField('clanSearch');
+                              }}
+                              className="mt-3 min-h-[48px] h-12 px-4 rounded-xl border border-emerald-400 bg-white text-base font-bold text-emerald-800 whitespace-nowrap hover:bg-emerald-100"
+                            >
+                              Chọn lại dòng họ
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
-
-                    {errors.phone && (
-                      <p className="text-base font-bold text-rose-600">{errors.phone.message}</p>
-                    )}
-
-                    {phoneRemoteError && (
-                      <p className="text-rose-600 text-base mt-1">{phoneRemoteError}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className={uiSystem.label}>
-                      Email <span className="text-slate-400">(không bắt buộc)</span>
-                    </label>
-
-                    <div className="relative">
-                      <Mail
-                        className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
-                        size={18}
-                      />
-
-                      <input
-                        {...emailRegister}
-                        ref={(el) => {
-                          emailRegister.ref(el);
-                          emailRef.current = el;
-                        }}
-                        type="email"
-                        onBlur={async (e) => {
-                          if (isRevision) return;
-                          await checkEmailAvailability(e.target.value);
-                        }}
-                        readOnly={isRevision}
-                        className={`min-h-[48px] pl-11 ${uiSystem.input} ${
-                          isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
-                        }`}
-                        placeholder="Email (không bắt buộc)"
-                      />
-                    </div>
-
-                    {errors.email && (
-                      <p className="text-base font-bold text-rose-600">{errors.email.message}</p>
-                    )}
-
-                    {emailRemoteError && (
-                      <p className="text-base font-bold text-rose-600">{emailRemoteError}</p>
-                    )}
-                  </div>
-
-                  <div className="space-y-1">
-                    <label className={uiSystem.label}>
-                      Mật khẩu <span className="text-rose-500">*</span>
-                    </label>
-
-                    <div className="relative">
-                      <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        {...passwordRegister}
-                        ref={(el) => {
-                          passwordRegister.ref(el);
-                          passwordRef.current = el;
-                        }}
-                        onFocus={() => guidedFlow.goToField('accountInfo')}
-                        placeholder="Nhập mật khẩu"
-                        autoComplete="new-password"
-                        className="min-h-[48px] w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-12 text-base text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
-                      />
-
-                      <button
-                        type="button"
-                        onClick={() => setShowPassword((prev) => !prev)}
-                        className="min-h-[48px] min-w-[48px] flex items-center justify-center absolute right-1 top-1/2 -translate-y-1/2 text-slate-500 transition hover:text-slate-700"
-                        aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
-                      >
-                        {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
-                      </button>
-                    </div>
-
-                    {errors.password && (
-                      <p className="text-base font-bold text-rose-600">{errors.password.message}</p>
-                    )}
-                  </div>
-
-                  <input
-                    type="text"
-                    name="hp_field"
-                    value={formValues.hp_field || ''}
-                    onChange={(e) => setValue('hp_field', e.target.value)}
-                    tabIndex="-1"
-                    autoComplete="off"
-                    className="hidden"
-                  />
-                </div>
+                  </CollapsibleDetailCard>
+                </GuidedFieldWrapper>
               </div>
-            </GuidedFieldWrapper>
+            )}
 
-            <CaptchaAttentionField
-              captchaZone={captchaZone}
-              guidedFlow={guidedFlow}
-              fieldKey="captcha"
-              nextZone=""
-              disabled={effectiveLoading}
-              loading={effectiveLoading}
-              elderAssistMode
-              helperText={zoneHelpText.captcha}
-              voiceText={zoneHelpText.captcha}
-              voiceLabel="Nghe"
-              onFocus={() => guidedFlow.goToField('captcha')}
-            />
+            {/* =================================================================
+                CARD BƯỚC 2: NHẬN DIỆN NHÂN THÂN TRONG DÒNG HỌ (Card 2 dòng / 3 cột)
+               ================================================================= */}
+            {accountGateConfirmed && isCard1Complete && (
+              <div ref={personalCardRef}>
+                <GuidedFieldWrapper
+                  fieldKey="personalInfo"
+                  activeField={guidedFlow.activeField}
+                  autoScroll={false}
+                  helperText={
+                    ttsMessages?.joinClan?.personalInfo ||
+                    'Bác chọn nhận hồ sơ đã có trong sổ họ hoặc khai báo hồ sơ mới.'
+                  }
+                  completed={guidedFlow.isCompleted('personalInfo')}
+                >
+                  <CollapsibleDetailCard
+                    title={
+                      selectedMemberNonClanBadge
+                        ? `Bước 2: Nhận diện nhân thân (${selectedMemberNonClanBadge})`
+                        : 'Bước 2: Nhận diện nhân thân trong dòng họ'
+                    }
+                    statusLabel={isCard2Complete ? 'Hoàn chỉnh' : 'Chưa hoàn chỉnh'}
+                    statusVariant={isCard2Complete ? 'complete' : 'pending'}
+                    voiceText={zoneHelpText.personalInfo}
+                    expanded={!personalCardCollapsed}
+                    onToggle={(next) => setPersonalCardCollapsed(!next)}
+                    disabled={effectiveLoading}
+                  >
+                    <div className="space-y-5">
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                          <button
+                            type="button"
+                            disabled={effectiveLoading || isClaimHoppingBlocked}
+                            onClick={() => {
+                              setClaimMode('CLAIM_EM');
+                              setProfileErrors({});
+                              setAttentionMessage('');
+                              guidedFlow.goToField('personalInfo');
+                            }}
+                            className={`min-h-[56px] w-full rounded-xl border-2 p-4 text-left transition ${
+                              isClaimHoppingBlocked
+                                ? 'cursor-not-allowed border-slate-200 bg-slate-100 text-slate-500'
+                                : claimMode === 'CLAIM_EM'
+                                  ? 'border-emerald-600 bg-emerald-50 text-emerald-950 shadow-sm'
+                                  : 'border-slate-200 bg-white text-slate-800 hover:border-emerald-300 hover:bg-slate-50'
+                            }`}
+                          >
+                            <p className="text-base font-bold leading-relaxed">
+                              Bấm vào đây nếu bác{' '}
+                              <strong className="font-black text-emerald-800 underline decoration-emerald-400 underline-offset-4">
+                                đã có tên
+                              </strong>{' '}
+                              trong sổ họ{' '}
+                              <strong className="font-black text-slate-950">
+                                {selectedClanDisplayName || 'đã chọn'}
+                              </strong>{' '}
+                              để tiếp tục khai báo.
+                            </p>
+                          </button>
+                          {isClaimHoppingBlocked && (
+                            <p className="mt-1.5 text-base font-semibold text-rose-700">
+                              Tạm khóa do từ chối nhiều lần trong 90 ngày.
+                            </p>
+                          )}
+                        </div>
 
-            {renderActionFooter(true)}
+                        <button
+                          type="button"
+                          disabled={effectiveLoading}
+                          onClick={() => {
+                            setClaimMode('NEW_PROFILE_21');
+                            setProfileErrors({});
+                            setAttentionMessage('');
+                            guidedFlow.goToField('personalInfo');
+                          }}
+                          className={`min-h-[56px] rounded-xl border-2 p-4 text-left transition ${
+                            claimMode === 'NEW_PROFILE_21'
+                              ? 'border-indigo-600 bg-indigo-50 text-indigo-950 shadow-sm'
+                              : 'border-slate-200 bg-white text-slate-800 hover:border-indigo-300 hover:bg-slate-50'
+                          }`}
+                        >
+                          <p className="text-base font-bold leading-relaxed">
+                            Bấm vào đây nếu bác{' '}
+                            <strong className="font-black text-indigo-800 underline decoration-indigo-400 underline-offset-4">
+                              chưa có tên
+                            </strong>{' '}
+                            trong sổ họ{' '}
+                            <strong className="font-black text-slate-950">
+                              {selectedClanDisplayName || 'đã chọn'}
+                            </strong>{' '}
+                            để tiếp tục khai báo.
+                          </p>
+                        </button>
+                      </div>
+
+                      {claimMode === 'CLAIM_EM' ? (
+                        <ClaimMemberWizard
+                          tenantId={selectedTenant.id}
+                          tenantName={selectedTenant.name}
+                          value={profileDraft}
+                          disabled={effectiveLoading}
+                          errors={profileErrors}
+                          claimHoppingBlocked={isClaimHoppingBlocked}
+                          focusRequest={childFocusRequest}
+                          onSwitchToCreateNew={() => {
+                            setClaimMode('NEW_PROFILE_21');
+                            setProfileErrors({});
+                            setPhase2Banner(null);
+                          }}
+                          onFocusZone={() => guidedFlow.goToField('personalInfo')}
+                          onChange={(nextDraft) => {
+                            setProfileDraft(nextDraft);
+                            setProfileErrors({});
+                            setAttentionMessage('');
+                          }}
+                        />
+                      ) : (
+                        <RegistrationProfileForm
+                          value={profileDraft}
+                          disabled={effectiveLoading}
+                          errors={profileErrors}
+                          focusRequest={childFocusRequest}
+                          onFocusZone={() => guidedFlow.goToField('personalInfo')}
+                          onChange={(nextDraft) => {
+                            setProfileDraft(nextDraft);
+                            setProfileErrors({});
+                            setAttentionMessage('');
+                          }}
+                        />
+                      )}
+
+                    </div>
+                  </CollapsibleDetailCard>
+                </GuidedFieldWrapper>
+              </div>
+            )}
+
+            {/* =================================================================
+                CARD BƯỚC 3: THÔNG TIN TÀI KHOẢN ĐĂNG NHẬP + CAPTCHA + RÀ SOÁT
+               ================================================================= */}
+            {accountGateConfirmed && isCard1Complete && isCard2Complete && (
+              <div ref={accountCardRef} className="space-y-6">
+                <GuidedFieldWrapper
+                  fieldKey="accountInfo"
+                  activeField={guidedFlow.activeField}
+                  autoScroll={false}
+                  helperText={
+                    ttsMessages?.joinClan?.accountInfo ||
+                    'Bác nhập số điện thoại và mật khẩu để tạo tài khoản đăng nhập.'
+                  }
+                  completed={guidedFlow.isCompleted('accountInfo')}
+                >
+                  <CollapsibleDetailCard
+                    title="Bước 3: Thông tin tài khoản đăng nhập"
+                    statusLabel={
+                      formValues.phone && formValues.password
+                        ? 'Hoàn chỉnh'
+                        : 'Chưa hoàn chỉnh'
+                    }
+                    statusVariant={
+                      formValues.phone && formValues.password ? 'complete' : 'pending'
+                    }
+                    voiceText={zoneHelpText.accountInfo}
+                    expanded={!accountCardCollapsed}
+                    onToggle={(next) => setAccountCardCollapsed(!next)}
+                    disabled={effectiveLoading}
+                  >
+                    <div className="space-y-5">
+                      <div className="space-y-1.5">
+                        <label className="text-base font-bold text-slate-800">
+                          Số điện thoại đăng nhập <span className="text-rose-500">*</span>
+                        </label>
+
+                        <div className="flex flex-row items-center gap-2">
+                          <select
+                            aria-label="Chọn mã quốc gia"
+                            value={phoneCountry}
+                            disabled={isRevision || effectiveLoading}
+                            onFocus={() => guidedFlow.goToField('accountInfo')}
+                            onChange={(e) => {
+                              setPhoneCountry(e.target.value);
+                              checkedPhoneCacheRef.current = null;
+                              clearFieldErrorOnEdit('phone', {
+                                clearPhoneRemoteError: true,
+                              });
+                            }}
+                            className={`min-h-[48px] h-12 w-[126px] sm:w-[136px] shrink-0 rounded-xl border border-slate-300 bg-white px-2.5 text-base font-bold text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100 ${
+                              isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
+                            }`}
+                          >
+                            {COUNTRY_PHONE_OPTIONS.map((c) => (
+                              <option key={c.code} value={c.code}>
+                                {c.shortLabel || c.label}
+                              </option>
+                            ))}
+                          </select>
+
+                          <div className="relative flex-1 min-w-0">
+                            <Phone
+                              className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400"
+                              size={18}
+                            />
+
+                            <input
+                              {...phoneRegister}
+                              type="tel"
+                              ref={(el) => {
+                                phoneRegister.ref(el);
+                                phoneRef.current = el;
+                              }}
+                              onFocus={() => guidedFlow.goToField('accountInfo')}
+                              onBlur={async (e) => {
+                                if (isRevision) return;
+                                await checkPhoneAvailability(e.target.value, {
+                                  showFormatError: true,
+                                });
+                              }}
+                              readOnly={isRevision}
+                              className={`min-h-[48px] h-12 w-full pl-10 pr-3 ${uiSystem.input} ${
+                                isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
+                              }`}
+                              placeholder={selectedCountryMeta.placeholder}
+                            />
+
+                            {phoneChecking && (
+                              <Loader2
+                                className="absolute right-3.5 top-1/2 -translate-y-1/2 animate-spin text-blue-500"
+                                size={18}
+                              />
+                            )}
+                          </div>
+                        </div>
+
+                        {errors.phone && (
+                          <p className="text-base font-bold text-rose-600">{errors.phone.message}</p>
+                        )}
+
+                        {phoneRemoteError && (
+                          <div className="mt-1.5 space-y-2">
+                            <p className="text-base font-bold text-rose-600">
+                              {phoneRemoteError}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (typeof onSwitchToLogin === 'function') {
+                                  onSwitchToLogin();
+                                } else if (typeof window !== 'undefined') {
+                                  window.location.assign('/auth');
+                                }
+                              }}
+                              className="min-h-[48px] h-12 inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-4 text-base font-bold text-blue-800 whitespace-nowrap hover:bg-blue-100"
+                            >
+                              <span>Chuyển sang màn hình Đăng nhập →</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-base font-bold text-slate-800">
+                          Email <span className="font-normal text-slate-500">(không bắt buộc)</span>
+                        </label>
+
+                        <div className="relative">
+                          <Mail
+                            className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                            size={18}
+                          />
+
+                          <input
+                            {...emailRegister}
+                            ref={(el) => {
+                              emailRegister.ref(el);
+                              emailRef.current = el;
+                            }}
+                            type="email"
+                            onBlur={async (e) => {
+                              if (isRevision) return;
+                              await checkEmailAvailability(e.target.value);
+                            }}
+                            readOnly={isRevision}
+                            className={`min-h-[48px] h-12 pl-11 ${uiSystem.input} ${
+                              isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
+                            }`}
+                            placeholder="Email (không bắt buộc)"
+                          />
+                        </div>
+
+                        {errors.email && (
+                          <p className="text-base font-bold text-rose-600">{errors.email.message}</p>
+                        )}
+
+                        {emailRemoteError && (
+                          <p className="text-base font-bold text-rose-600">{emailRemoteError}</p>
+                        )}
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-base font-bold text-slate-800">
+                          Mật khẩu <span className="text-rose-500">*</span>
+                        </label>
+
+                        <div className="relative">
+                          <LockKeyhole className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+
+                          <input
+                            type={showPassword ? 'text' : 'password'}
+                            {...passwordRegister}
+                            ref={(el) => {
+                              passwordRegister.ref(el);
+                              passwordRef.current = el;
+                            }}
+                            onFocus={() => guidedFlow.goToField('accountInfo')}
+                            placeholder="Nhập mật khẩu"
+                            autoComplete="new-password"
+                            className="min-h-[48px] h-12 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-14 text-base text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                          />
+
+                          <button
+                            type="button"
+                            onClick={() => setShowPassword((prev) => !prev)}
+                            className="min-h-[48px] h-12 min-w-[48px] rounded-xl flex items-center justify-center absolute right-0 top-1/2 -translate-y-1/2 text-slate-600 transition hover:text-slate-900"
+                            aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+                          >
+                            {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                          </button>
+                        </div>
+
+                        {errors.password && (
+                          <p className="text-base font-bold text-rose-600">{errors.password.message}</p>
+                        )}
+                      </div>
+
+                      <input
+                        type="text"
+                        name="hp_field"
+                        value={formValues.hp_field || ''}
+                        onChange={(e) => setValue('hp_field', e.target.value)}
+                        tabIndex="-1"
+                        autoComplete="off"
+                        className="hidden"
+                      />
+                    </div>
+                  </CollapsibleDetailCard>
+                </GuidedFieldWrapper>
+
+                <CaptchaAttentionField
+                  captchaZone={captchaZone}
+                  guidedFlow={guidedFlow}
+                  fieldKey="captcha"
+                  nextZone=""
+                  disabled={effectiveLoading}
+                  loading={effectiveLoading}
+                  elderAssistMode
+                  helperText={zoneHelpText.captcha}
+                  voiceText={zoneHelpText.captcha}
+                  voiceLabel="Nghe"
+                  onFocus={() => guidedFlow.goToField('captcha')}
+                />
+
+                {renderActionFooter(true)}
+              </div>
+            )}
+
             {onBackToRegister && (
               <button
                 type="button"
                 onClick={onBackToRegister}
                 disabled={effectiveLoading}
-                className="min-h-[48px] mt-4 inline-flex w-full items-center justify-center gap-2 rounded-3xl border border-slate-200 bg-white px-4 py-4 text-base font-black text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="min-h-[48px] h-12 mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-base font-bold text-slate-700 shadow-sm whitespace-nowrap transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Quay lại chọn hình thức đăng ký
               </button>
