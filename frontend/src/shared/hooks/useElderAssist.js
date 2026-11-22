@@ -1,13 +1,15 @@
 /**
  * ============================================================
  * PATH:
+ * src/shared/hooks/useElderAssist.js
+ * OLD PATH:
  * src/features/a11y/focusGuardian/useFocusGuardian.js
  *
  * DATETIME:
- * 2026-05-22T12:05:00+07:00
+ * 2026-11-22T07:15:00+07:00
  *
  * VERSION:
- * EGAL-24.6.7.R3.2-E2
+ * EGAL-24.6.8-CF-BUILD-IMPORT-FIX
  *
  * DESCRIPTION:
  * Reusable hook for Focus Guardian.
@@ -37,11 +39,12 @@
 
 import { useCallback, useState } from 'react';
 
+// [2026-11-22T07:15:00+07:00] Cập nhật đường dẫn thực tế sau tái cấu trúc thư mục elder-doctrine để Vite/Rollup build xanh trên Cloudflare Pages (Linux)
 import {
   validateAndGuard,
   clearFocusGuardianError,
   FOCUS_GUARDIAN_DEFAULTS,
-} from '../features/a11y/focusGuardian/focusGuardian.service.js';
+} from '../../features/elder-doctrine/services/focusGuardian.service.js';
 
 const DEFAULT_ERROR_MESSAGE =
   FOCUS_GUARDIAN_DEFAULTS.DEFAULT_ERROR_MESSAGE;

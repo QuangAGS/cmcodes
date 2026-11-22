@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : src/modules/membership/membership.service.js
- * DATETIME   : 2026-11-19T14:00:00+07:00
- * VERSION    : 1.4.0-AMEND-RP-OP-2026-03-SPRINT3
+ * DATETIME   : 2026-11-22T18:10:00+07:00
+ * VERSION    : 1.5.0-ISO29148-UAT-IMP5-RULES
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0 Lát 3] Service xử lý trọn vẹn luồng Multi-Home C1
  *   (Gia nhập dòng họ khác) & C1-S (Lập dòng họ mới):
@@ -66,6 +66,9 @@ const { onboardingLockService } = require('../onboarding/onboardingLock.service'
 const { membershipLinkService } = require('./membershipLink.service');
 const { onboardingApprovalGuardService } = require('../onboarding/onboardingApprovalGuard.service');
 const { onboardingProactiveDefenseService } = require('../onboarding/onboardingProactiveDefense.service');
+const {
+  onboardingConsentAndRulesService,
+} = require('../onboarding/onboardingConsentAndRules.service');
 
 const VALID_LINK_TYPES = new Set([
   'PRIMARY_PATERNAL',
@@ -486,6 +489,16 @@ const membershipService = {
         },
       });
 
+      await onboardingConsentAndRulesService.recordRulesAgreementFromRegistration(
+        tx,
+        {
+          caseRecord: newCase,
+          payload,
+          clanName: tenant.name,
+          actorId: userId,
+        }
+      );
+
       try {
         await businessLogger.createLog(
           {
@@ -635,6 +648,16 @@ const membershipService = {
           },
         },
       });
+
+      await onboardingConsentAndRulesService.recordRulesAgreementFromRegistration(
+        tx,
+        {
+          caseRecord: newCase,
+          payload,
+          clanName: newTenant.name,
+          actorId: userId,
+        }
+      );
 
       try {
         await businessLogger.createLog(
@@ -1405,7 +1428,7 @@ const membershipService = {
         }
       }
 
-      await tx.onboarding_cases.update({
+      const updatedRevCase = await tx.onboarding_cases.update({
         where: { id: existingCase.id },
         data: {
           status: 'SUBMITTED',
@@ -1426,6 +1449,16 @@ const membershipService = {
           },
         },
       });
+
+      await onboardingConsentAndRulesService.recordRulesAgreementFromRegistration(
+        tx,
+        {
+          caseRecord: updatedRevCase,
+          payload,
+          clanName: payload.clanName || existingCase.tenants?.name || '',
+          actorId: userId,
+        }
+      );
     });
 
     return {

@@ -1,11 +1,11 @@
 /**
- * PATH       : src/features/auth/utils/createClanValidation.js
- * DATETIME   : 22-04-2026 23:45
- * VERSION    : 2.2.0
+ * PATH       : src/features/register-wizard/utils/createClanValidation.js
+ * DATETIME   : 2026-11-22T15:15:00+07:00
+ * VERSION    : 2.3.0-ISO29148-CLAN-SETUP-M2
  * DESCRIPTION:
  * - selectedSlug trở thành optional vì backend tự sinh slug.
- * - Giữ nguyên các rule validation cho các trường khác.
- * - Thêm hint và message rõ ràng hơn cho người dùng.
+ * - [2.3.0]: Bổ sung elder_name & elder_phone (Người cao niên >= 60 tuổi xác minh
+ *   ngoại tuyến theo Baseline ARCH-06) vào createClanSchema.
  */
 
 import { z } from 'zod';
@@ -50,6 +50,10 @@ export const createClanSchema = z.object({
     (val) => val !== null && val.length > 10,
     'Lời nhắn tới Ban quản trị là bắt buộc'
   ),
+
+  // --- KHỐI 2B: NGƯỜI CAO NIÊN XÁC MINH NGOẠI TUYẾN (ARCH-06) ---
+  elder_name: safeString.optional(),
+  elder_phone: safeString.optional(),
 
   // --- KHỐI 3: THIẾT LẬP TÀI KHOẢN ---
   phone: phoneRule,

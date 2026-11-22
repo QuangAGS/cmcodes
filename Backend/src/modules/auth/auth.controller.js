@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/auth/auth.controller.js
- * DATETIME   : 2026-11-14T14:48:00+07:00
- * VERSION    : 23.9.1-INTL-PHONE-CHECK-IDENTITY
+ * DATETIME   : 2026-11-22T21:50:00+07:00
+ * VERSION    : 23.10.0-ISO29148-UAT-BUG10-STATUS
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.2] Lát 1/7 Multi-Home Controller hoàn chỉnh:
  *   + getAvailableClans: Gọi authService.getAvailableClans(userId).
@@ -752,6 +752,7 @@ const authController = {
           claimCategory: user.claimCategory || actualUser.claimCategory || null,
           caseType: user.caseType || actualUser.caseType || null,
           caseStatus: user.caseStatus || actualUser.caseStatus || null,
+          reviewNote: user.reviewNote || actualUser.reviewNote || null,
           caseMetadata: user.caseMetadata || actualUser.caseMetadata || {},
           temp_snapshot: snapshot,
           name: actualUser.name || user.name || '',

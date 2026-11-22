@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/pages/WaitingPage.jsx
- * DATETIME    : 2026-11-13T18:05:00+07:00
- * VERSION     : EGAL-25.x R3-MULTIHOME-UAT-BUG3
+ * DATETIME    : 2026-11-22T18:10:00+07:00
+ * VERSION     : EGAL-25.x R3-ISO29148-UAT-IMP5-RULES
  * DESCRIPTION :
  * - EGAL-6.5 Step 4: TRUE REVIEW PAGE.
  * - Hiển thị đầy đủ effective submission data trước khi gửi (C2 Claim EM / 21 trường / CLAN_SETUP).
@@ -38,6 +38,8 @@ import {
 } from 'lucide-react';
 
 import AttentionZone from '../components/AttentionZone.jsx';
+import CollapsibleDetailCard from '../components/common/CollapsibleDetailCard.jsx';
+import KeyValueDetailTable from '../components/common/KeyValueDetailTable.jsx';
 import ZoneVoiceButton from '../features/elder-doctrine/components/ZoneVoiceButton.jsx';
 import { resolveVerificationPrompts } from '../features/membership/components/ClaimMemberWizard.jsx';
 
@@ -124,6 +126,27 @@ const WaitingPage = ({
     RELATIONSHIP_LABELS[rawRelationship] ||
     displayValue(rawRelationship);
 
+  const referrerNameDisplay = displayValue(
+    regProfile.referrer_name ||
+      regProfile.referrer_info?.full_name ||
+      data.referrer_name,
+    ''
+  );
+  const referrerPhoneDisplay = displayValue(
+    regProfile.referrer_phone ||
+      regProfile.referrer_info?.phone ||
+      data.referrer_phone,
+    ''
+  );
+  const elderNameDisplay = displayValue(
+    regProfile.elder_name || data.elder_name,
+    ''
+  );
+  const elderPhoneDisplay = displayValue(
+    regProfile.elder_phone || data.elder_phone,
+    ''
+  );
+
   const reviewTitle = 'Rà soát hồ sơ';
   const reviewInstruction = isNewClan
     ? 'Bác vui lòng kiểm tra kỹ các thông tin dưới đây. Đây là dữ liệu sẽ được gửi tới Ban Quản trị để tạo dòng họ mới. Nếu thông tin chưa đúng, bác bấm “Quay lại chỉnh sửa”. Nếu đã đúng, bác tích xác nhận rồi bấm “Gửi hồ sơ”.'
@@ -142,46 +165,70 @@ const WaitingPage = ({
           : 'Nam';
 
     if (isNewClan) {
+      const descText = displayValue(data.description, '');
+      const noteText = displayValue(regProfile.note || data.temp_note, '');
+      const birthPlaceText = displayValue(regProfile.birth_place, '');
+      const addressText = displayValue(regProfile.address, '');
+
       return [
         {
           id: 'clan',
           icon: Users,
-          title: 'Thông tin dòng họ',
+          title: '1. Thông tin dòng họ mới',
+          voiceText: `Thông tin dòng họ mới: ${displayValue(data.clanName)}. ${descText}`,
           rows: [
+            ['Hình thức đăng ký', 'Khởi tạo dòng họ mới (CLAN_SETUP)'],
             ['Tên dòng họ', displayValue(data.clanName)],
-            ['Mô tả dòng họ', displayValue(data.description)],
           ],
+          notes: descText ? [['Mô tả giới thiệu dòng họ', descText]] : [],
         },
         {
           id: 'personal',
           icon: User,
-          title: 'Thông tin người sáng lập (Trưởng họ)',
+          title: '2. Thông tin người sáng lập (Trưởng họ)',
+          voiceText: `Trưởng họ sáng lập: ${displayValue(regProfile.full_name || data.temp_full_name)}, giới tính ${genderLabel}.`,
           rows: [
             ['Họ và tên', displayValue(regProfile.full_name || data.temp_full_name)],
             ['Giới tính', genderLabel],
             ...(regProfile.alias ? [['Tên tự / Tên hiệu', regProfile.alias]] : []),
             ['Tên cha/mẹ', displayValue(regProfile.father_name || data.temp_father_name)],
             ['Năm sinh', displayValue(regProfile.birth_year || data.temp_birth_year)],
-            ...(regProfile.birth_place ? [['Nguyên quán', regProfile.birth_place]] : []),
-            ...(regProfile.address ? [['Địa chỉ hiện tại', regProfile.address]] : []),
             ['Quan hệ', relationshipLabel],
-            ['Lời nhắn tới Ban quản trị', displayValue(regProfile.note || data.temp_note)],
+          ],
+          notes: [
+            ...(birthPlaceText ? [['Nguyên quán / Quê gốc', birthPlaceText]] : []),
+            ...(addressText ? [['Địa chỉ hiện tại', addressText]] : []),
+            ...(noteText ? [['Lời nhắn tới Ban quản trị', noteText]] : []),
+          ],
+        },
+        {
+          id: 'elder-verifier',
+          icon: ShieldCheck,
+          title: '3. Người cao niên (>= 60 tuổi) xác minh',
+          voiceText: elderNameDisplay
+            ? `Người cao niên xác minh: ${elderNameDisplay}, số điện thoại ${elderPhoneDisplay}.`
+            : 'Chưa khai báo người cao niên xác minh.',
+          rows: [
+            ['Họ tên người cao niên', displayValue(elderNameDisplay)],
+            ['Số điện thoại liên hệ', displayValue(elderPhoneDisplay)],
           ],
         },
         {
           id: 'contact',
           icon: Phone,
-          title: 'Thông tin liên hệ',
+          title: '4. Thông tin liên hệ & Bảo mật',
+          voiceText: `Số điện thoại đăng nhập: ${displayValue(data.phone)}. Email: ${displayValue(data.email)}.`,
           rows: [
-            ['Số điện thoại', displayValue(data.phone)],
-            ['Email', displayValue(data.email)],
+            ['Số điện thoại đăng nhập', displayValue(data.phone)],
+            ['Email nhận thông báo', displayValue(data.email)],
+            ['Mật khẩu', maskPassword(data.password)],
+            [
+              'Cam kết nội quy',
+              data.agreed_rules || regProfile.agreed_rules
+                ? 'Đã đọc và cam kết tuân thủ Nội quy chung của nền tảng'
+                : 'Chưa xác nhận cam kết',
+            ],
           ],
-        },
-        {
-          id: 'security',
-          icon: LockKeyhole,
-          title: 'Thông tin bảo mật',
-          rows: [['Mật khẩu', maskPassword(data.password)]],
         },
       ];
     }
@@ -209,6 +256,12 @@ const WaitingPage = ({
           icon: User,
           title: 'Hồ sơ trên cây & 3 lớp xác minh',
           rows: [
+            ...(referrerNameDisplay
+              ? [['Người giới thiệu trong họ', referrerNameDisplay]]
+              : []),
+            ...(referrerPhoneDisplay
+              ? [['Số điện thoại người giới thiệu', referrerPhoneDisplay]]
+              : []),
             ['Thành viên xin nhận', displayValue(emSum.full_name || regProfile.full_name)],
             ...(emSum.generation != null ? [['Đời thứ', `Đời thứ ${emSum.generation}`]] : []),
             ...(emSum.branch_name ? [['Chi / Nhánh', emSum.branch_name]] : []),
@@ -216,6 +269,14 @@ const WaitingPage = ({
             ['Giới tính xác nhận', genderLabel],
             [verPrompts.layer1Label, displayValue(ver.layer1_lineage)],
             [verPrompts.layer2Label, displayValue(ver.layer2_branch_origin)],
+            [
+              'Cam kết nội quy',
+              data.agreed_rules || regProfile.agreed_rules
+                ? `Đã đọc và cam kết tuân thủ Nội quy chung & Nội quy dòng họ ${displayValue(data.clanName, '')}`
+                : 'Chưa xác nhận cam kết',
+            ],
+          ],
+          notes: [
             [verPrompts.layer3Label, displayValue(ver.layer3_guarantor_note)],
           ],
         },
@@ -261,7 +322,6 @@ const WaitingPage = ({
           ...(regProfile.alias ? [['Tên tự / Tên hiệu', regProfile.alias]] : []),
           ['Giới tính', genderLabel],
           ['Ngày/Tháng/Năm sinh', displayValue(birthParts || data.temp_birth_year)],
-          ...(regProfile.birth_place ? [['Nơi sinh / Nguyên quán', regProfile.birth_place]] : []),
           ['Tình trạng', regProfile.is_alive === false ? `Đã mất${regProfile.death_year ? ` (${regProfile.death_year})` : ''}` : 'Còn sống'],
           ...(regProfile.generation ? [['Đời thứ', `Đời thứ ${regProfile.generation}`]] : []),
           ...(regProfile.branch_name ? [['Chi / Phái / Nhánh', regProfile.branch_name]] : []),
@@ -269,8 +329,27 @@ const WaitingPage = ({
           ...(regProfile.mother_name ? [['Họ tên Mẹ', regProfile.mother_name]] : []),
           ...(regProfile.grandfather_name ? [['Họ tên Ông nội', regProfile.grandfather_name]] : []),
           ...(regProfile.grandmother_name ? [['Họ tên Bà nội', regProfile.grandmother_name]] : []),
-          ...(regProfile.address ? [['Địa chỉ cư trú', regProfile.address]] : []),
           ['Quan hệ với dòng họ', relationshipLabel],
+          ...(referrerNameDisplay
+            ? [['Người giới thiệu trong họ', referrerNameDisplay]]
+            : []),
+          ...(referrerPhoneDisplay
+            ? [['Số điện thoại người giới thiệu', referrerPhoneDisplay]]
+            : []),
+          [
+            'Cam kết nội quy',
+            data.agreed_rules || regProfile.agreed_rules
+              ? `Đã đọc và cam kết tuân thủ Nội quy chung & Nội quy dòng họ ${displayValue(data.clanName, '')}`
+              : 'Chưa xác nhận cam kết',
+          ],
+        ],
+        notes: [
+          ...(regProfile.birth_place
+            ? [['Nơi sinh / Nguyên quán', regProfile.birth_place]]
+            : []),
+          ...(regProfile.address
+            ? [['Địa chỉ cư trú hiện tại', regProfile.address]]
+            : []),
           ['Lời nhắn tới Ban quản trị', displayValue(regProfile.note || data.temp_note)],
         ],
       },
@@ -290,7 +369,7 @@ const WaitingPage = ({
         rows: [['Mật khẩu', maskPassword(data.password)]],
       },
     ];
-  }, [data, isNewClan, relationshipLabel, regProfile]);
+  }, [data, isNewClan, relationshipLabel, regProfile, referrerNameDisplay, referrerPhoneDisplay, elderNameDisplay, elderPhoneDisplay]);
 
   const handleConfirm = () => {
     if (!reviewChecked) return;
@@ -378,22 +457,33 @@ const WaitingPage = ({
       </div>
 
       <div className="space-y-4">
-        {effectiveSections.map((section) => (
-          <ReviewSection
-            key={section.id}
-            icon={section.icon}
-            title={section.title}
-          >
-            {section.rows.map(([label, value, muted]) => (
-              <ReviewRow
-                key={`${section.id}-${label}`}
-                label={label}
-                value={value}
-                muted={muted}
-              />
-            ))}
-          </ReviewSection>
-        ))}
+        {effectiveSections.map((section) => {
+          const tableRows = (section.rows || []).map(([label, value]) => ({
+            label,
+            value,
+          }));
+          const tableNotes = (section.notes || []).map(([label, value]) => ({
+            label,
+            value,
+          }));
+          const fallbackVoice = tableRows
+            .map((r) => `${r.label}: ${r.value}`)
+            .join('. ');
+
+          return (
+            <CollapsibleDetailCard
+              key={section.id}
+              title={section.title}
+              statusLabel="Đã điền"
+              statusVariant="complete"
+              voiceText={section.voiceText || fallbackVoice}
+              defaultExpanded={true}
+              disabled={loading}
+            >
+              <KeyValueDetailTable rows={tableRows} notes={tableNotes} />
+            </CollapsibleDetailCard>
+          );
+        })}
       </div>
 
       <label className="flex cursor-pointer items-start gap-3 rounded-3xl border border-emerald-100 bg-emerald-50 p-4 text-emerald-800">

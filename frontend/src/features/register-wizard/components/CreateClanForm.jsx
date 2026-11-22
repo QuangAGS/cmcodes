@@ -1,8 +1,8 @@
 /**
  * PATH       : frontend/src/features/register-wizard/components/CreateClanForm.jsx
  * OLD PATH   : src/features/auth/components/CreateClanForm.jsx
- * DATETIME   : 2026-11-14T22:45:00+07:00
- * VERSION    : 24.10.0-UAT-BUG8-REVISION-BANNER
+ * DATETIME   : 2026-11-22T18:10:00+07:00
+ * VERSION    : 24.12.0-ISO29148-UAT-IMP5-RULES
  * DESCRIPTION:
  * PURPOSE
  * - Create a new clan registration flow.
@@ -40,6 +40,9 @@
  *   + Fix UAT Bug 6: Trích xuất đầy đủ dữ liệu từ data.registration_profile trong normalizeCreateDraft
  *     và đồng bộ lại founderGender, founderAlias, founderBirthPlace, founderAddress khi bấm
  *     "Quay lại chỉnh sửa" từ WaitingPage.
+ * - 2026-11-22T15:45:00+07:00 (v24.11.0-ISO29148-CLAN-SETUP-M2):
+ *   + Bổ sung Card "Người cao niên (>= 60 tuổi) xác minh" (`elder_name`, `elder_phone` + mã quốc gia E.164)
+ *     đồng bộ với ClanSetupPage (C1-S), WaitingPage, UserApprovalForm và Backend ARCH-06.
  */
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
@@ -86,6 +89,7 @@ import {
 
 import AttentionZone from  '../../../components/AttentionZone.jsx';
 import CollapsibleDetailCard from '../../../components/common/CollapsibleDetailCard.jsx';
+import RulesAgreementCard from '../../onboarding/components/RulesAgreementCard.jsx';
 
 import apiClient from '../../../lib/apiClient.js';
 import { createClanSchema } from '../utils/createClanValidation.js';
@@ -151,6 +155,14 @@ const GUIDED_PROGRESSION_ZONES = [
     priority: 'medium',
   },
   {
+    id: 'elderInfo',
+    label: 'Người cao niên xác minh',
+    fields: ['elderInfo'],
+    required: true,
+    enabled: true,
+    priority: 'medium',
+  },
+  {
     id: 'contactInfo',
     label: 'Thông tin liên hệ',
     fields: ['contactInfo'],
@@ -166,22 +178,31 @@ const GUIDED_PROGRESSION_ZONES = [
     enabled: true,
     priority: 'high',
   },
+  {
+    id: 'rulesInfo',
+    label: 'Cam kết nội quy',
+    fields: ['rulesInfo'],
+    required: true,
+    enabled: true,
+    priority: 'high',
+  },
 ];
 
 /**
  * Default visual system
  * Parent may override styles,
  * but business logic must stay identical.
+ * [UAT-IMP5 Mục 2]: Phân tách rõ Label (font-normal text-slate-600) và Data (font-bold text-slate-900).
  */
 const DEFAULT_UI_SYSTEM = {
   container: 'w-full space-y-6',
   section:
     'space-y-4 rounded-3xl border border-slate-100 bg-white p-4 shadow-sm',
-  label: 'text-sm font-black text-slate-700',
+  label: 'block text-base font-normal text-slate-600 mb-1.5',
   input:
-    'w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100',
+    'min-h-[48px] w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base font-bold text-slate-900 placeholder:font-normal placeholder:text-slate-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100',
   select:
-    'w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100',
+    'min-h-[48px] w-full rounded-xl border border-slate-300 bg-white px-4 py-3 text-base font-bold text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100',
   footer: 'pt-8',
 };
 
@@ -201,6 +222,8 @@ const normalizeCreateDraft = (data) => {
   const resolvedRelationship =
     data.temp_relationship ?? rp.temp_relationship ?? rp.child_type;
   const resolvedNote = data.temp_note ?? rp.note;
+  const resolvedElderName = data.elder_name ?? rp.elder_name;
+  const resolvedElderPhone = data.elder_phone ?? rp.elder_phone;
 
   return {
     ...data,
@@ -222,6 +245,8 @@ const normalizeCreateDraft = (data) => {
     temp_relationship:
       resolvedRelationship != null ? String(resolvedRelationship) : '',
     temp_note: resolvedNote != null ? String(resolvedNote) : '',
+    elder_name: resolvedElderName != null ? String(resolvedElderName) : '',
+    elder_phone: resolvedElderPhone != null ? String(resolvedElderPhone) : '',
     phone: data.phone != null ? String(data.phone) : '',
     email: data.email != null ? String(data.email) : '',
     password: data.password != null ? String(data.password) : '',
@@ -300,6 +325,47 @@ const CreateClanForm = ({
   const [founderAddress, setFounderAddress] = useState(
     initialData?.registration_profile?.address || initialData?.address || ''
   );
+  const [elderName, setElderName] = useState(
+    initialData?.registration_profile?.elder_name ||
+      initialData?.elder_name ||
+      ''
+  );
+  const [elderPhone, setElderPhone] = useState(
+    initialData?.registration_profile?.elder_phone ||
+      initialData?.elder_phone ||
+      ''
+  );
+  const [elderPhoneCountry, setElderPhoneCountry] = useState(() =>
+    detectPhoneCountry(
+      initialData?.registration_profile?.elder_phone ||
+        initialData?.elder_phone,
+      'VN'
+    )
+  );
+  const selectedElderCountryMeta = useMemo(
+    () =>
+      COUNTRY_PHONE_OPTIONS.find((c) => c.code === elderPhoneCountry) ||
+      COUNTRY_PHONE_OPTIONS[0],
+    [elderPhoneCountry]
+  );
+  const [rulesAgreement, setRulesAgreement] = useState({
+    agreed: Boolean(
+      initialData?.agreed_rules || initialData?.registration_profile?.agreed_rules
+    ),
+    agreed_rules_snapshot:
+      initialData?.agreed_rules_snapshot ||
+      initialData?.registration_profile?.agreed_rules_snapshot ||
+      '',
+    agreed_tos_version:
+      initialData?.agreed_tos_version ||
+      initialData?.registration_profile?.agreed_tos_version ||
+      '1.0',
+    agreed_clan_rules_version:
+      initialData?.agreed_clan_rules_version ||
+      initialData?.registration_profile?.agreed_clan_rules_version ||
+      1,
+  });
+  const [rulesError, setRulesError] = useState('');
   const [attentionMessage, setAttentionMessage] = useState('');
   const [attentionField, setAttentionField] = useState('');
   const { speak } = useTts();
@@ -369,8 +435,10 @@ const CreateClanForm = ({
 
   const clanInfoRef = useRef(null);
   const personalInfoRef = useRef(null);
+  const elderInfoRef = useRef(null);
   const contactInfoRef = useRef(null);
   const securityInfoRef = useRef(null);
+  const rulesInfoRef = useRef(null);
   /**
    * Field refs for routing
    * Used by routeFieldError()
@@ -421,12 +489,16 @@ const CreateClanForm = ({
       personalInfo:
         ttsMessages?.createClan?.personalInfo ||
         'Bác nhập thông tin cá nhân của người quản trị.',
+      elderInfo:
+        'Bác nhập họ tên và số điện thoại của một người cao niên từ 60 tuổi trở lên trong dòng họ để Hệ thống Trung tâm gọi điện xác minh ngoại tuyến.',
       contactInfo:
         ttsMessages?.createClan?.contactInfo ||
         'Bác nhập số điện thoại đăng nhập và email nhận thông báo.',
       securityInfo:
         ttsMessages?.createClan?.passwordFocus ||
         'Bác nhập mật khẩu đăng nhập.',
+      rulesInfo:
+        'Bác vui lòng đọc kỹ Nội quy chung của nền tảng và tích cam kết tuân thủ trước khi tiếp tục.',
       captcha:
         ttsMessages?.createClan?.captcha ||
         'Bác hãy bấm vào ô vuông. Khi thấy dấu tích màu xanh là đã xác nhận xong.',
@@ -475,6 +547,13 @@ const CreateClanForm = ({
         description:
           ttsMessages?.createClan?.personalInfo ||
           'Bác nhập thông tin cá nhân của người quản trị.',
+        nextLabel: 'Tiếp theo: nhập thông tin người cao niên xác minh.',
+      },
+      {
+        fieldKey: 'elderInfo',
+        title: 'Người cao niên xác minh',
+        description:
+          'Bác nhập họ tên và số điện thoại của người cao niên từ 60 tuổi trở lên trong họ.',
         nextLabel: 'Tiếp theo: nhập số điện thoại và email.',
       },
       {
@@ -491,6 +570,13 @@ const CreateClanForm = ({
         description:
           ttsMessages?.createClan?.passwordFocus ||
           'Bác nhập mật khẩu đăng nhập.',
+        nextLabel: 'Tiếp theo: đọc và cam kết nội quy.',
+      },
+      {
+        fieldKey: 'rulesInfo',
+        title: 'Cam kết tuân thủ nội quy',
+        description:
+          'Bác đọc Nội quy chung của nền tảng và tích vào ô cam kết tuân thủ.',
         nextLabel: 'Tiếp theo: xác minh.',
       },
       /**
@@ -731,6 +817,11 @@ const CreateClanForm = ({
       setFounderAlias(rp.alias || initialData?.alias || '');
       setFounderBirthPlace(rp.birth_place || initialData?.birth_place || '');
       setFounderAddress(rp.address || initialData?.address || '');
+      const restoredElderName = rp.elder_name || initialData?.elder_name || '';
+      const restoredElderPhone = rp.elder_phone || initialData?.elder_phone || '';
+      setElderName(restoredElderName);
+      setElderPhone(restoredElderPhone);
+      setElderPhoneCountry(detectPhoneCountry(restoredElderPhone, 'VN'));
 
       reset(
         {
@@ -749,6 +840,11 @@ const CreateClanForm = ({
 
     // Fresh CreateClan
     setPhoneCountry('VN');
+    setElderName('');
+    setElderPhone('');
+    setElderPhoneCountry('VN');
+    setRulesAgreement((prev) => ({ ...prev, agreed: false }));
+    setRulesError('');
     reset(
       {
         temp_relationship: '',
@@ -785,7 +881,7 @@ const CreateClanForm = ({
         setIsChecking({ phone: false, email: false });
       }
 
-      ['clanInfo', 'personalInfo', 'contactInfo', 'securityInfo', 'captcha'].forEach(
+      ['clanInfo', 'personalInfo', 'elderInfo', 'contactInfo', 'securityInfo', 'captcha'].forEach(
         (fieldKey) => {
           if (shouldClearCompletedField(plan, fieldKey)) {
             guidedFlow.unmarkCompleted(fieldKey);
@@ -833,10 +929,14 @@ const CreateClanForm = ({
         temp_relationship: { zone: 'personalInfo', ref: personalInfoRef },
         temp_note: { zone: 'personalInfo', ref: personalInfoRef },
 
+        elder_name: { zone: 'elderInfo', ref: elderInfoRef },
+        elder_phone: { zone: 'elderInfo', ref: elderInfoRef },
+
         phone: { zone: 'contactInfo', ref: contactInfoRef },
         email: { zone: 'contactInfo', ref: contactInfoRef },
 
         password: { zone: 'securityInfo', ref: securityInfoRef },
+        agreed_rules: { zone: 'rulesInfo', ref: rulesInfoRef },
         captcha: { zone: 'captcha', ref: null },
         submit: { zone: 'submit', ref: null },
       };
@@ -1036,6 +1136,10 @@ const CreateClanForm = ({
         !!values?.temp_relationship &&
         !!values?.temp_note?.trim?.();
 
+      const elderInfoOk =
+        !!String(elderName || '').trim() &&
+        validatePhoneWithCountry(elderPhone, elderPhoneCountry).valid;
+
       // PR-OP-4: revision — phone/email đã thuộc user, không bắt uniqueness
       const contactInfoOk =
         !!values?.phone?.trim?.() &&
@@ -1054,24 +1158,27 @@ const CreateClanForm = ({
         validFields: {
           clanInfo: clanInfoOk,
           personalInfo: personalInfoOk,
+          elderInfo: elderInfoOk,
           contactInfo: contactInfoOk,
           securityInfo: securityInfoOk,
         },
         completedFields: {
           clanInfo: guidedFlow.isCompleted('clanInfo'),
           personalInfo: guidedFlow.isCompleted('personalInfo'),
+          elderInfo: guidedFlow.isCompleted('elderInfo'),
           contactInfo: guidedFlow.isCompleted('contactInfo'),
           securityInfo: guidedFlow.isCompleted('securityInfo'),
         },
         invalidFields: {
           clanInfo: !clanInfoOk,
           personalInfo: !personalInfoOk,
+          elderInfo: !elderInfoOk,
           contactInfo: !contactInfoOk,
           securityInfo: !securityInfoOk,
         },
       };
     },
-    [getValues, guidedFlow, isChecking, onlineErrors, isRevision]
+    [getValues, guidedFlow, isChecking, onlineErrors, isRevision, elderName, elderPhone, elderPhoneCountry]
   );
 
   const advanceAttentionByProgression = useCallback(
@@ -1151,6 +1258,8 @@ const CreateClanForm = ({
       !!values?.temp_father_name?.trim?.() &&
       !!values?.temp_relationship &&
       !!values?.temp_note?.trim?.() &&
+      !!String(elderName || '').trim() &&
+      validatePhoneWithCountry(elderPhone, elderPhoneCountry).valid &&
       !!values?.phone?.trim?.() &&
       !!values?.email?.trim?.() &&
       !!values?.password?.trim?.()
@@ -1173,6 +1282,10 @@ const CreateClanForm = ({
       return 'personalInfo';
     }
 
+    if (['elder_name', 'elder_phone'].includes(gateTarget?.field)) {
+      return 'elderInfo';
+    }
+
     if (['phone', 'email'].includes(gateTarget?.field)) {
       return 'contactInfo';
     }
@@ -1192,6 +1305,13 @@ const CreateClanForm = ({
       !values?.temp_note?.trim?.()
     ) {
       return 'personalInfo';
+    }
+
+    if (
+      !String(elderName || '').trim() ||
+      !validatePhoneWithCountry(elderPhone, elderPhoneCountry).valid
+    ) {
+      return 'elderInfo';
     }
 
     if (!values?.phone?.trim?.() || !values?.email?.trim?.()) {
@@ -1311,6 +1431,37 @@ const CreateClanForm = ({
       return;
     }
 
+    const cleanElderName = String(elderName || '').trim();
+    const cleanElderPhoneRaw = String(elderPhone || '').trim();
+    if (!cleanElderName) {
+      routeFieldError(
+        'elder_name',
+        'Bác vui lòng nhập họ và tên người cao niên (từ 60 tuổi trở lên) trong họ để Hệ thống Trung tâm gọi điện xác minh.'
+      );
+      return;
+    }
+    if (!cleanElderPhoneRaw) {
+      routeFieldError(
+        'elder_phone',
+        'Bác vui lòng nhập số điện thoại của người cao niên xác minh.'
+      );
+      return;
+    }
+    const elderPhoneCheck = validatePhoneWithCountry(
+      cleanElderPhoneRaw,
+      elderPhoneCountry
+    );
+    if (!elderPhoneCheck.valid) {
+      routeFieldError(
+        'elder_phone',
+        elderPhoneCheck.message ||
+          'Số điện thoại người cao niên xác minh không đúng định dạng.'
+      );
+      return;
+    }
+    latestValues.elder_name = cleanElderName;
+    latestValues.elder_phone = elderPhoneCheck.normalized;
+
     if (!latestValues?.phone?.trim?.()) {
       routeFieldError(
         'phone',
@@ -1395,6 +1546,14 @@ const CreateClanForm = ({
         'Bác vui lòng nhập mật khẩu đăng nhập.',
         //'securityInfo'
       );
+      return;
+    }
+
+    if (!rulesAgreement.agreed) {
+      const msg =
+        'Bác vui lòng đọc và tích cam kết tuân thủ Nội quy chung của nền tảng trước khi tiếp tục.';
+      setRulesError(msg);
+      routeFieldError('agreed_rules', msg);
       return;
     }
 
@@ -1521,12 +1680,18 @@ const CreateClanForm = ({
       birth_place: String(founderBirthPlace || '').trim() || undefined,
       address: String(founderAddress || '').trim() || undefined,
       father_name: latestValues.temp_father_name || undefined,
+      elder_name: cleanElderName,
+      elder_phone: elderPhoneCheck.normalized,
       generation: 1,
       member_role: 'TRUONG_HO',
       is_alive: true,
       phone: resolvedPhone || undefined,
       email: resolvedEmail || undefined,
       note: latestValues.temp_note || undefined,
+      agreed_rules: true,
+      agreed_rules_snapshot: rulesAgreement.agreed_rules_snapshot || undefined,
+      agreed_tos_version: rulesAgreement.agreed_tos_version || '1.0',
+      agreed_clan_rules_version: Number(rulesAgreement.agreed_clan_rules_version || 1),
     };
 
     // AMEND-RP-OP-2026-02 V1.5.0: Payload sạch cho C2-S, KHÔNG rải temp_*
@@ -1539,6 +1704,12 @@ const CreateClanForm = ({
       email: resolvedEmail,
       password: latestValues.password,
       gender: founderGender || 'NAM',
+      elder_name: cleanElderName,
+      elder_phone: elderPhoneCheck.normalized,
+      agreed_rules: true,
+      agreed_rules_snapshot: rulesAgreement.agreed_rules_snapshot || undefined,
+      agreed_tos_version: rulesAgreement.agreed_tos_version || '1.0',
+      agreed_clan_rules_version: Number(rulesAgreement.agreed_clan_rules_version || 1),
       registration_profile: founderRegistrationProfile,
       turnstileToken: captchaCheck.token || captchaZone.getToken(),
       hp_field: latestValues.hp_field || '',
@@ -1609,6 +1780,7 @@ const CreateClanForm = ({
 
     if (guidedFlow.isCompleted('clanInfo')) labels.push('Đã nhập dòng họ');
     if (guidedFlow.isCompleted('personalInfo')) labels.push('Đã nhập cá nhân');
+    if (guidedFlow.isCompleted('elderInfo')) labels.push('Đã nhập người xác minh');
     if (guidedFlow.isCompleted('contactInfo')) labels.push('Đã nhập liên hệ');
     if (guidedFlow.isCompleted('securityInfo')) labels.push('Đã nhập mật khẩu');
     if (guidedFlow.isCompleted('captcha')) labels.push('Đã xác minh');
@@ -1877,60 +2049,58 @@ const CreateClanForm = ({
                     )}
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <label className={uiSystem.label}>
-                        Giới tính <span className="text-rose-500">*</span>
-                      </label>
-                      <select
-                        value={founderGender}
-                        onFocus={() => guidedFlow.goToField('personalInfo')}
-                        onChange={(e) => setFounderGender(e.target.value)}
-                        className={uiSystem.select || uiSystem.input}
-                      >
-                        <option value="NAM">Nam</option>
-                        <option value="NU">Nữ</option>
-                        <option value="KHAC">Khác</option>
-                      </select>
-                    </div>
-
-                    <div className="space-y-1">
-                      <label className={uiSystem.label}>Tên tự / Tên hiệu</label>
-                      <input
-                        type="text"
-                        value={founderAlias}
-                        onFocus={() => guidedFlow.goToField('personalInfo')}
-                        onChange={(e) => setFounderAlias(e.target.value)}
-                        className={uiSystem.input}
-                        placeholder="Tên tự, tên hiệu (nếu có)"
-                      />
-                    </div>
+                  <div className="space-y-1">
+                    <label className={uiSystem.label}>
+                      Tên tự / Tên hiệu / Tên thường gọi
+                    </label>
+                    <input
+                      type="text"
+                      value={founderAlias}
+                      onFocus={() => guidedFlow.goToField('personalInfo')}
+                      onChange={(e) => setFounderAlias(e.target.value)}
+                      className={uiSystem.input}
+                      placeholder="Nhập tên tự, tên hiệu hoặc tên thường gọi (nếu có)"
+                    />
                   </div>
 
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    <div className="space-y-1">
-                      <label className={uiSystem.label}>Nguyên quán / Quê gốc</label>
-                      <input
-                        type="text"
-                        value={founderBirthPlace}
-                        onFocus={() => guidedFlow.goToField('personalInfo')}
-                        onChange={(e) => setFounderBirthPlace(e.target.value)}
-                        className={uiSystem.input}
-                        placeholder="Xã/Phường, Huyện, Tỉnh"
-                      />
-                    </div>
+                  <div className="space-y-1">
+                    <label className={uiSystem.label}>
+                      Giới tính <span className="text-rose-500">*</span>
+                    </label>
+                    <select
+                      value={founderGender}
+                      onFocus={() => guidedFlow.goToField('personalInfo')}
+                      onChange={(e) => setFounderGender(e.target.value)}
+                      className={uiSystem.select || uiSystem.input}
+                    >
+                      <option value="NAM">Nam</option>
+                      <option value="NU">Nữ</option>
+                      <option value="KHAC">Khác</option>
+                    </select>
+                  </div>
 
-                    <div className="space-y-1">
-                      <label className={uiSystem.label}>Địa chỉ hiện tại</label>
-                      <input
-                        type="text"
-                        value={founderAddress}
-                        onFocus={() => guidedFlow.goToField('personalInfo')}
-                        onChange={(e) => setFounderAddress(e.target.value)}
-                        className={uiSystem.input}
-                        placeholder="Nơi cư trú hiện tại"
-                      />
-                    </div>
+                  <div className="space-y-1">
+                    <label className={uiSystem.label}>Nguyên quán / Quê gốc</label>
+                    <textarea
+                      rows={2}
+                      value={founderBirthPlace}
+                      onFocus={() => guidedFlow.goToField('personalInfo')}
+                      onChange={(e) => setFounderBirthPlace(e.target.value)}
+                      className={`${uiSystem.input} min-h-[76px] resize-y`}
+                      placeholder="Thôn/Xóm, Xã/Phường, Huyện/Quận, Tỉnh/Thành phố"
+                    />
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className={uiSystem.label}>Địa chỉ cư trú hiện tại</label>
+                    <textarea
+                      rows={2}
+                      value={founderAddress}
+                      onFocus={() => guidedFlow.goToField('personalInfo')}
+                      onChange={(e) => setFounderAddress(e.target.value)}
+                      className={`${uiSystem.input} min-h-[76px] resize-y`}
+                      placeholder="Số nhà, đường/xóm, xã/phường, quận/huyện, tỉnh/thành phố"
+                    />
                   </div>
 
                   <div className="space-y-1">
@@ -2029,6 +2199,142 @@ const CreateClanForm = ({
                     )}
                   </div>
                 </div>
+                </CollapsibleDetailCard>
+              </div>
+            </GuidedFieldWrapper>
+
+            <GuidedFieldWrapper
+              fieldKey="elderInfo"
+              activeField={guidedFlow.activeField}
+              helperText={zoneHelpText.elderInfo}
+              voiceAction={
+                <ZoneVoiceButton
+                  visible={showAzVoiceButton('elderInfo')}
+                  text={zoneHelpText.elderInfo}
+                  label="Nghe"
+                  disabled={effectiveLoading}
+                />
+              }
+              completed={
+                Boolean(String(elderName || '').trim()) &&
+                validatePhoneWithCountry(elderPhone, elderPhoneCountry).valid
+              }
+            >
+              <div ref={elderInfoRef}>
+                <CollapsibleDetailCard
+                  title="Người cao niên (>= 60 tuổi) xác minh"
+                  statusLabel={
+                    Boolean(String(elderName || '').trim()) &&
+                    validatePhoneWithCountry(elderPhone, elderPhoneCountry).valid
+                      ? 'Hoàn chỉnh'
+                      : 'Chưa hoàn chỉnh'
+                  }
+                  statusVariant={
+                    Boolean(String(elderName || '').trim()) &&
+                    validatePhoneWithCountry(elderPhone, elderPhoneCountry).valid
+                      ? 'complete'
+                      : 'pending'
+                  }
+                  voiceText={zoneHelpText.elderInfo}
+                  defaultExpanded={true}
+                  disabled={effectiveLoading}
+                >
+                  <div className="space-y-4">
+                    <p className="rounded-xl border border-indigo-100 bg-indigo-50/70 p-3 text-base font-normal text-indigo-950">
+                      Để đảm bảo tính chính danh khi thành lập dòng họ mới, Hệ thống Trung tâm sẽ gọi điện xác minh qua một vị cao niên (từ 60 tuổi trở lên) trong họ.
+                    </p>
+
+                    <div className="space-y-1">
+                      <label className={uiSystem.label}>
+                        Họ và tên người cao niên xác minh{' '}
+                        <span className="text-rose-500">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        disabled={effectiveLoading}
+                        value={elderName}
+                        onFocus={() => guidedFlow.goToField('elderInfo')}
+                        onChange={(e) => {
+                          const nextVal = e.target.value;
+                          setElderName(nextVal);
+                          clearAttentionForField('elder_name');
+                          if (
+                            String(nextVal || '').trim() &&
+                            validatePhoneWithCountry(elderPhone, elderPhoneCountry).valid
+                          ) {
+                            guidedFlow.markCompleted('elderInfo');
+                          } else {
+                            guidedFlow.unmarkCompleted('elderInfo');
+                          }
+                        }}
+                        className={uiSystem.input}
+                        placeholder="Ví dụ: Cụ Nguyễn Đình Văn (Trưởng chi / Cao niên)"
+                      />
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className={uiSystem.label}>
+                        Số điện thoại người cao niên{' '}
+                        <span className="text-rose-500">*</span>
+                      </label>
+                      <div className="flex flex-row items-center gap-2">
+                        <select
+                          aria-label="Chọn mã quốc gia người cao niên"
+                          value={elderPhoneCountry}
+                          disabled={effectiveLoading}
+                          onFocus={() => guidedFlow.goToField('elderInfo')}
+                          onChange={(e) => {
+                            const nextCountry = e.target.value;
+                            setElderPhoneCountry(nextCountry);
+                            clearAttentionForField('elder_phone');
+                            if (
+                              String(elderName || '').trim() &&
+                              validatePhoneWithCountry(elderPhone, nextCountry).valid
+                            ) {
+                              guidedFlow.markCompleted('elderInfo');
+                            } else {
+                              guidedFlow.unmarkCompleted('elderInfo');
+                            }
+                          }}
+                          className="min-h-[48px] w-[126px] sm:w-[136px] shrink-0 rounded-xl border border-slate-300 bg-white px-2.5 py-3 text-base font-bold text-slate-900 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                        >
+                          {COUNTRY_PHONE_OPTIONS.map((c) => (
+                            <option key={c.code} value={c.code}>
+                              {c.shortLabel || c.label}
+                            </option>
+                          ))}
+                        </select>
+
+                        <div className="relative flex-1 min-w-0">
+                          <Phone
+                            className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-400"
+                            size={18}
+                          />
+                          <input
+                            type="tel"
+                            disabled={effectiveLoading}
+                            value={elderPhone}
+                            onFocus={() => guidedFlow.goToField('elderInfo')}
+                            onChange={(e) => {
+                              const nextPhone = e.target.value;
+                              setElderPhone(nextPhone);
+                              clearAttentionForField('elder_phone');
+                              if (
+                                String(elderName || '').trim() &&
+                                validatePhoneWithCountry(nextPhone, elderPhoneCountry).valid
+                              ) {
+                                guidedFlow.markCompleted('elderInfo');
+                              } else {
+                                guidedFlow.unmarkCompleted('elderInfo');
+                              }
+                            }}
+                            className={`pl-11 ${uiSystem.input}`}
+                            placeholder={selectedElderCountryMeta.placeholder}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </CollapsibleDetailCard>
               </div>
             </GuidedFieldWrapper>
@@ -2249,7 +2555,7 @@ const CreateClanForm = ({
                         onFocus={() => guidedFlow.goToField('securityInfo')}
                         placeholder="Nhập mật khẩu"
                         autoComplete="new-password"
-                        className="w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-10 text-sm text-slate-900 outline-none transition focus:border-amber-500 focus:ring-2 focus:ring-amber-100"
+                        className="min-h-[48px] w-full rounded-xl border border-slate-300 bg-white py-3 pl-10 pr-10 text-base font-bold text-slate-900 placeholder:font-normal placeholder:text-slate-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                       />
 
                       <button
@@ -2281,6 +2587,41 @@ const CreateClanForm = ({
                   />
                 </div>
                 </CollapsibleDetailCard>
+              </div>
+            </GuidedFieldWrapper>
+
+            <GuidedFieldWrapper
+              fieldKey="rulesInfo"
+              activeField={guidedFlow.activeField}
+              helperText={zoneHelpText.rulesInfo}
+              voiceAction={
+                <ZoneVoiceButton
+                  visible={showAzVoiceButton('rulesInfo')}
+                  text={zoneHelpText.rulesInfo}
+                  label="Nghe"
+                  disabled={effectiveLoading}
+                />
+              }
+              completed={rulesAgreement.agreed}
+            >
+              <div ref={rulesInfoRef}>
+                <RulesAgreementCard
+                  mode="CLAN_SETUP"
+                  clanName={formValues.clanName}
+                  agreed={rulesAgreement.agreed}
+                  disabled={effectiveLoading}
+                  error={rulesError}
+                  onChange={(nextRules) => {
+                    setRulesAgreement(nextRules);
+                    if (nextRules.agreed) {
+                      setRulesError('');
+                      clearAttentionForField('agreed_rules');
+                      guidedFlow.markCompleted('rulesInfo');
+                    } else {
+                      guidedFlow.unmarkCompleted('rulesInfo');
+                    }
+                  }}
+                />
               </div>
             </GuidedFieldWrapper>
 

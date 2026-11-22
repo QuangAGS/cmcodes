@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH       : frontend/src/pages/AdminUserApprovalPage.jsx
- * DATETIME   : 2026-11-13T12:00:00+07:00
- * VERSION    : 25.3.0-MULTIHOME-AMEND02-V15-LAT4
+ * DATETIME   : 2026-11-22T21:50:00+07:00
+ * VERSION    : 25.6.0-ISO29148-UAT-BUG10-STATUS
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0 Lát 4] Trang danh sách & điều phối xét duyệt hồ sơ Admin:
  *   + Gắn 4 nhãn phân loại hồ sơ: [NHẬN NGƯỜI TRÊN CÂY - EM], [KHAI BÁO MỚI - 21 TRƯỜNG],
@@ -34,6 +34,7 @@ import {
   RefreshCw 
 } from 'lucide-react';
 import UserApprovalForm from '../features/admin/components/UserApprovalForm.jsx';
+import AdminClanLookupDrawer from '../features/admin/components/AdminClanLookupDrawer.jsx';
 import apiClient from '../lib/apiClient.js';
 import { membershipApi } from '../features/membership/api/membershipApi.js';
 import { useAuth } from '../context/AuthContext.jsx';
@@ -51,6 +52,7 @@ import { extractApiErrorInfo } from '../shared/hooks/useTurnstileFailClosed.js';
 
 const STATUS_BADGES = {
   CHO_DUYET: 'bg-amber-50 text-amber-700 border-amber-200',
+  NEEDS_REVISION: 'bg-sky-50 text-sky-800 border-sky-300',
   DA_DUYET: 'bg-emerald-50 text-emerald-700 border-emerald-200',
   TU_CHOI: 'bg-rose-50 text-rose-700 border-rose-200',
   BI_KHOA: 'bg-slate-100 text-slate-700 border-slate-300 font-black',
@@ -58,15 +60,23 @@ const STATUS_BADGES = {
 
 const STATUS_LABELS = {
   CHO_DUYET: 'Chờ duyệt',
+  NEEDS_REVISION: 'Yêu cầu bổ sung',
   DA_DUYET: 'Đang hoạt động',
   TU_CHOI: 'Bị từ chối',
   BI_KHOA: 'Đang bị khóa',
 };
 
-// PR-OP-4 helper trong component hoặc ngoài file
+// PR-OP-4 + UAT-Bug 10 helper phân biệt hồ sơ đã trả bổ sung (NEEDS_REVISION) vs Chờ duyệt mới
 const getStatusLabel = (item) => {
   if (item.status === 'TU_CHOI' && item.isFinalRejection) {
     return 'Từ chối lần cuối';
+  }
+  if (
+    item.caseStatus === 'NEEDS_REVISION' &&
+    item.status !== 'DA_DUYET' &&
+    item.status !== 'TU_CHOI'
+  ) {
+    return STATUS_LABELS.NEEDS_REVISION;
   }
   return STATUS_LABELS[item.status] || item.status;
 };
@@ -74,6 +84,13 @@ const getStatusLabel = (item) => {
 const getStatusBadgeClass = (item) => {
   if (item.status === 'TU_CHOI' && item.isFinalRejection) {
     return 'bg-rose-100 text-rose-900 border-rose-400';
+  }
+  if (
+    item.caseStatus === 'NEEDS_REVISION' &&
+    item.status !== 'DA_DUYET' &&
+    item.status !== 'TU_CHOI'
+  ) {
+    return STATUS_BADGES.NEEDS_REVISION;
   }
   return STATUS_BADGES[item.status] || 'bg-slate-50';
 };
@@ -143,11 +160,15 @@ const AdminUserApprovalPage = () => {
   const [submitting, setSubmitting] = useState(false);
   const [showFilters, setShowFilters] = useState(false); // Toggle bộ lọc trên mobile
   const [bannerState, setBannerState] = useState(null);
+  const [isClanLookupOpen, setIsClanLookupOpen] = useState(false);
+  const [clanLookupInitialQuery, setClanLookupInitialQuery] = useState('');
+  const [clanLookupMode, setClanLookupMode] = useState('MEMBERS');
 
   // State lưu trữ các "Mối quan tâm" (Bộ lọc động)
   const [filters, setFilters] = useState({
     status: 'CHO_DUYET', // Mặc định hiển thị hồ sơ đăng ký mới
     role: '',
+    caseType: '',
     searchKeyword: '',
     page: 1,
     limit: 10
@@ -160,6 +181,7 @@ const AdminUserApprovalPage = () => {
       // Chuyển đổi các trường trống thành undefined để tối ưu hóa query string params
       const params = {};
       Object.keys(currentFilters).forEach(key => {
+        if (key === 'caseType') return;
         if (currentFilters[key] !== '') params[key] = currentFilters[key];
       });
 
@@ -201,6 +223,11 @@ const AdminUserApprovalPage = () => {
               item.claimCategory || actualUser.claimCategory || null,
             caseType: item.caseType || actualUser.caseType || null,
             caseStatus: item.caseStatus || actualUser.caseStatus || null,
+            reviewNote:
+              item.reviewNote ||
+              actualUser.reviewNote ||
+              item.caseMetadata?.review_note ||
+              null,
             caseMetadata:
               item.caseMetadata || actualUser.caseMetadata || {},
             name: registrationFullName,
@@ -266,7 +293,17 @@ const AdminUserApprovalPage = () => {
           };
         })
         // Bộ lọc UX thực chiến: Gạt SYSTEM_ADMIN ra ngoài danh sách xử lý của dòng họ
-        .filter(u => u && (u.isMultiHomeCase === true || u.role !== 'SYSTEM_ADMIN'));
+        .filter(u => u && (u.isMultiHomeCase === true || u.role !== 'SYSTEM_ADMIN'))
+        .filter(u => {
+          if (!currentFilters.caseType) return true;
+          const isSetup =
+            u.caseType === 'CLAN_SETUP' ||
+            String(u.claimCategory || '').startsWith('CLAN_SETUP') ||
+            u.role === 'CLAN_ADMIN';
+          if (currentFilters.caseType === 'CLAN_SETUP') return isSetup;
+          if (currentFilters.caseType === 'MEMBER_JOIN') return !isSetup;
+          return true;
+        });
 
       setUsersList(normalizedUsers);
       setPagination(serverPagination);
@@ -458,49 +495,114 @@ const AdminUserApprovalPage = () => {
   }
 
   if (selectedUser) {
+    const activeClanName =
+      selectedUser?.tenantData?.clan_name ||
+      selectedUser?.tenant?.name ||
+      sessionTenant?.name ||
+      '';
+    const targetTenantId =
+      selectedUser?.tenantData?.id ||
+      selectedUser?.tenant?.id ||
+      '';
+    const isSelectedClanSetup =
+      selectedUser?.caseType === 'CLAN_SETUP' ||
+      String(selectedUser?.claimCategory || '').startsWith('CLAN_SETUP');
+
     return (
       <div className="min-h-screen bg-slate-50">
         <BlockingLoadingOverlay
           isOpen={submitting}
           message="Đang lưu quyết định phê duyệt vào Sổ Cái..."
         />
-        <div className="max-w-[480px] mx-auto">
+        <AdminClanLookupDrawer
+          isOpen={isClanLookupOpen}
+          onClose={() => setIsClanLookupOpen(false)}
+          initialQuery={clanLookupInitialQuery}
+          clanName={activeClanName}
+          mode={clanLookupMode}
+          targetTenantId={targetTenantId}
+        />
+        <div className="max-w-[540px] mx-auto">
           <TenantHeader
             tenant={sessionTenant}
-            subtitle="Phê duyệt người dùng · RP"
+            subtitle={
+              isSelectedClanSetup
+                ? 'SYSTEM_ADMIN · Duyệt lập dòng họ'
+                : 'Phê duyệt người dùng · RP'
+            }
           />
-          <div className="px-4 py-6">
-          <div className="mb-6">
-            <button
-              onClick={() => {
-                setBannerState(null);
+          <div className="px-4 py-5">
+            {/* Thanh công cụ trên cùng: Quay lại danh sách + Tra cứu sổ họ / Trùng dòng họ [UAT-IMP5 & Mức 2] */}
+            <div className="mb-5 flex items-center justify-between gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setBannerState(null);
+                  setIsClanLookupOpen(false);
+                  setSelectedUser(null);
+                }}
+                className="min-h-[48px] h-12 inline-flex items-center gap-1.5 rounded-xl border border-slate-300 bg-white px-3.5 text-base font-bold text-slate-800 whitespace-nowrap hover:bg-slate-50 transition"
+              >
+                <ChevronLeft size={18} />
+                <span>Danh sách</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (isSelectedClanSetup) {
+                    setClanLookupMode('CLAN_DIRECTORY');
+                    setClanLookupInitialQuery(activeClanName);
+                  } else {
+                    setClanLookupMode('MEMBERS');
+                    setClanLookupInitialQuery('');
+                  }
+                  setIsClanLookupOpen(true);
+                }}
+                className="min-h-[48px] h-12 inline-flex items-center gap-2 rounded-xl border border-blue-300 bg-blue-50 px-4 text-base font-bold text-blue-800 whitespace-nowrap hover:bg-blue-100 transition"
+              >
+                <Search size={18} />
+                <span>
+                  {isSelectedClanSetup
+                    ? 'Kiểm tra trùng dòng họ'
+                    : 'Tra cứu sổ họ'}
+                </span>
+              </button>
+            </div>
+
+            {bannerState && (
+              <PersistentMessageBanner
+                type={bannerState.type}
+                mode={bannerState.mode}
+                title={bannerState.title}
+                message={bannerState.message}
+                correlationId={bannerState.correlationId}
+                actionButton={bannerState.actionButton}
+                onClose={() => setBannerState(null)}
+              />
+            )}
+
+            <UserApprovalForm
+              userData={selectedUser}
+              loading={submitting}
+              onOpenClanLookup={(queryText = '', opts = {}) => {
+                setClanLookupMode(
+                  opts.mode ||
+                    (isSelectedClanSetup ? 'CLAN_DIRECTORY' : 'MEMBERS')
+                );
+                setClanLookupInitialQuery(queryText);
+                setIsClanLookupOpen(true);
+              }}
+              onCancel={() => {
+                setIsClanLookupOpen(false);
                 setSelectedUser(null);
               }}
-              className="min-h-[48px] inline-flex items-center gap-2 text-base font-black text-slate-700 hover:text-indigo-600 transition"
-            >
-              <ChevronLeft size={18} /> Quay lại bảng điều khiển
-            </button>
-          </div>
-          {bannerState && (
-            <PersistentMessageBanner
-              type={bannerState.type}
-              mode={bannerState.mode}
-              title={bannerState.title}
-              message={bannerState.message}
-              correlationId={bannerState.correlationId}
-              actionButton={bannerState.actionButton}
-              onClose={() => setBannerState(null)}
+              onSubmit={handleApprovalSubmit}
             />
-          )}
-          <UserApprovalForm
-            userData={selectedUser}
-            loading={submitting}
-            onCancel={() => setSelectedUser(null)}
-            onSubmit={handleApprovalSubmit}
-          />
-          <div className="mt-8">
-            <AppFooterNav {...footerNav} onLogout={handleLogout} />
-          </div>
+
+            <div className="mt-8">
+              <AppFooterNav {...footerNav} onLogout={handleLogout} />
+            </div>
           </div>
         </div>
       </div>
@@ -569,10 +671,24 @@ const AdminUserApprovalPage = () => {
                   onChange={(e) => setFilters(prev => ({ ...prev, status: e.target.value }))}
                 >
                   <option value="">-- Tất cả trạng thái vòng đời --</option>
-                  <option value="CHO_DUYET">Hồ sơ chờ phê duyệt mới</option>
+                  <option value="CHO_DUYET">Hồ sơ chờ duyệt &amp; chờ bổ sung</option>
+                  <option value="NEEDS_REVISION">Đã trả yêu cầu bổ sung (Chờ sửa)</option>
                   <option value="DA_DUYET">Tài khoản đang hoạt động bình thường</option>
                   <option value="TU_CHOI">Hồ sơ đăng ký bị từ chối</option>
                   <option value="BI_KHOA">Tài khoản bị khóa (Bảo mật/Kỷ luật)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-black uppercase tracking-wider text-slate-500 mb-1.5">Loại hồ sơ đăng ký</label>
+                <select
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm font-bold"
+                  value={filters.caseType}
+                  onChange={(e) => setFilters(prev => ({ ...prev, caseType: e.target.value }))}
+                >
+                  <option value="">-- Tất cả loại hồ sơ --</option>
+                  <option value="CLAN_SETUP">Lập dòng họ mới (CLAN_SETUP)</option>
+                  <option value="MEMBER_JOIN">Gia nhập dòng họ (MEMBER_JOIN)</option>
                 </select>
               </div>
 
@@ -643,6 +759,12 @@ const AdminUserApprovalPage = () => {
                     <p>Liên hệ: <span className="font-bold text-slate-700">{item.phone || item.email}</span></p>
                     <p>Dòng họ: <span className="font-bold text-indigo-900">{item.tenantData?.clan_name || 'Chưa phân bổ tộc hệ'}</span></p>
                     
+                    {item.caseStatus === 'NEEDS_REVISION' && item.reviewNote && (
+                      <p className="mt-1 rounded-lg border border-sky-200 bg-sky-50/80 px-2.5 py-1.5 text-xs font-semibold text-sky-900">
+                        Bút phê trả sửa: {item.reviewNote}
+                      </p>
+                    )}
+
                     {item.memberData && (
                       <p className="mt-1 inline-flex items-center gap-1 rounded bg-indigo-50/70 px-1.5 py-0.5 text-[11px] font-bold text-indigo-700">
                         🔗 Đã liên kết cây: {item.memberData.branch_name} (Đời {item.memberData.generation})

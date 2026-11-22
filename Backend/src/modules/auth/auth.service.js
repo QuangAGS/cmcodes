@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/auth/auth.service.js
- * DATETIME   : 2026-11-14T14:48:00+07:00
- * VERSION    : 20.9.5-INTL-PHONE-LIBPHONENUMBER
+ * DATETIME   : 2026-11-22T21:50:00+07:00
+ * VERSION    : 20.12.0-ISO29148-UAT-BUG10-STATUS
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0] Lát 0 + Lát 3 Multi-Home SSOT:
  *   + Lát 0 (C2 & C2-S): registerUser tạo users (CHO_DUYET) + onboarding_cases.metadata trong 1 TX atomic;
@@ -52,6 +52,9 @@ const notificationOrchestrator = require(
 
 const notificationBuilder = require('../notifications/services/notification-builder');
 const { validateRegistrationProfile } = require('./registrationValidator');
+const {
+  onboardingConsentAndRulesService,
+} = require('../onboarding/onboardingConsentAndRules.service');
 
 const VALID_MEMBER_GENDERS = new Set(['NAM', 'NU', 'KHAC']);
 const VALID_MEMBER_ROLES = new Set([
@@ -139,6 +142,31 @@ function normalizeIncomingRegistrationProfile(payload, logIdentifier) {
     phone: logIdentifier || undefined,
     email: userData.email || undefined,
     social_profiles: userData.temp_social_profiles || userData.social_profiles || {},
+    social_links: Array.isArray(userData.social_links) ? userData.social_links : undefined,
+    referrer_name: userData.referrer_name || undefined,
+    referrer_phone: userData.referrer_phone || undefined,
+    referrer_phone_country: userData.referrer_phone_country || undefined,
+    referrer_info:
+      userData.referrer_info && typeof userData.referrer_info === 'object'
+        ? userData.referrer_info
+        : undefined,
+    elder_name: userData.elder_name || undefined,
+    elder_phone: userData.elder_phone || undefined,
+    child_type: userData.child_type || undefined,
+    temp_relationship: userData.temp_relationship || undefined,
+    claim_mode: userData.claim_mode || undefined,
+    claim_verification:
+      userData.claim_verification && typeof userData.claim_verification === 'object'
+        ? userData.claim_verification
+        : undefined,
+    agreed_rules:
+      userData.agreed_rules !== undefined ? Boolean(userData.agreed_rules) : undefined,
+    agreed_rules_snapshot: userData.agreed_rules_snapshot || undefined,
+    agreed_tos_version: userData.agreed_tos_version || undefined,
+    agreed_clan_rules_version:
+      userData.agreed_clan_rules_version != null
+        ? Number(userData.agreed_clan_rules_version)
+        : undefined,
   });
 }
 
@@ -905,6 +933,16 @@ const authService = {
               metadata: caseMetadataPayload,
             },
           });
+
+          await onboardingConsentAndRulesService.recordRulesAgreementFromRegistration(
+            tx,
+            {
+              caseRecord: newCase,
+              payload,
+              clanName: clanName || '',
+              actorId: newUser.id,
+            }
+          );
 
           return {
             userId: newUser.id,
@@ -1703,7 +1741,10 @@ const authService = {
         ...(actorRole !== 'SYSTEM_ADMIN' ? { tenant_id: actorTenantId } : {}),
       };
 
-      if (status) {
+      const isFilterNeedsRevision = status === 'NEEDS_REVISION';
+      if (isFilterNeedsRevision) {
+        whereClause.status = 'CHO_DUYET';
+      } else if (status) {
         whereClause.status = status;
       } else {
         whereClause.status = {
@@ -1769,6 +1810,10 @@ const authService = {
                 status: true,
                 review_note: true,
                 rejection_reason: true,
+                agreed_at: true,
+                agreed_tos_version: true,
+                agreed_clan_rules_version: true,
+                agreed_rules_checksum: true,
                 metadata: true,
               },
             });
@@ -1909,7 +1954,18 @@ const authService = {
             caseId: openCase?.id || null,
             caseType: openCase?.case_type || (isClanSetup ? 'CLAN_SETUP' : 'MEMBER_JOIN'),
             caseStatus: openCase?.status || null,
+            reviewNote: openCase?.review_note || null,
             caseMetadata: rawCaseMeta,
+            agreedRules: {
+              agreed: Boolean(openCase?.agreed_at || profile.agreed_rules),
+              agreedAt: openCase?.agreed_at || null,
+              tosVersion: openCase?.agreed_tos_version || profile.agreed_tos_version || null,
+              clanRulesVersion:
+                openCase?.agreed_clan_rules_version ??
+                profile.agreed_clan_rules_version ??
+                null,
+              checksum: openCase?.agreed_rules_checksum || null,
+            },
             created_at: user.created_at,
             updated_at: user.updated_at,
             temp_snapshot: {
@@ -1944,13 +2000,16 @@ const authService = {
               // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
               address: profile.address || user.temp_address || 'Chưa khai báo',
               is_clan: effectiveIsClan,
-              is_clan: effectiveIsClan,
               relationship: resolvedRelationship,
               child_type: effectiveChildType,
               link_type: rawCaseMeta.link_type || null,
               // eslint-disable-next-line no-restricted-syntax -- LEGACY-V1: cô lập dữ liệu cũ, sẽ gỡ khi hoàn tất Phase 2
               note: profile.note || user.temp_note || 'Không có ghi chú',
               claimed_member_id: profile.claimed_member_id || null,
+              referrer_name: profile.referrer_name || profile.referrer_info?.full_name || null,
+              referrer_phone: profile.referrer_phone || profile.referrer_info?.phone || null,
+              elder_name: profile.elder_name || null,
+              elder_phone: profile.elder_phone || null,
               proof_documents: profile.proof_documents || [],
               social_profiles: profile.social_profiles || {},
               registration_reason: 'Nộp đơn gia nhập tộc hệ',
@@ -1973,7 +2032,9 @@ const authService = {
             ? { in: ['REJECTED'] }
             : status === 'DA_DUYET'
               ? { in: ['APPROVED', 'MERGED'] }
-              : { in: ['SUBMITTED', 'UNDER_REVIEW', 'NEEDS_REVISION'] },
+              : status === 'NEEDS_REVISION'
+                ? { in: ['NEEDS_REVISION'] }
+                : { in: ['SUBMITTED', 'UNDER_REVIEW', 'NEEDS_REVISION'] },
         users: {
           status: 'DA_DUYET',
           deleted_at: null,
@@ -2111,7 +2172,18 @@ const authService = {
             claimCategory: isClanSetup ? 'CLAN_SETUP_C1S' : 'MULTIHOME_C1',
             caseType: c.case_type,
             caseStatus: c.status,
+            reviewNote: c.review_note || null,
             caseMetadata: rawCaseMeta,
+            agreedRules: {
+              agreed: Boolean(c.agreed_at || profile.agreed_rules),
+              agreedAt: c.agreed_at || null,
+              tosVersion: c.agreed_tos_version || profile.agreed_tos_version || null,
+              clanRulesVersion:
+                c.agreed_clan_rules_version ??
+                profile.agreed_clan_rules_version ??
+                null,
+              checksum: c.agreed_rules_checksum || null,
+            },
             created_at: c.created_at,
             updated_at: c.updated_at,
             temp_snapshot: {
@@ -2137,6 +2209,10 @@ const authService = {
               link_type: rawCaseMeta.link_type || null,
               note: profile.note || 'Không có ghi chú',
               claimed_member_id: profile.claimed_member_id || null,
+              referrer_name: profile.referrer_name || profile.referrer_info?.full_name || null,
+              referrer_phone: profile.referrer_phone || profile.referrer_info?.phone || null,
+              elder_name: profile.elder_name || null,
+              elder_phone: profile.elder_phone || null,
               proof_documents: profile.proof_documents || [],
               social_profiles: profile.social_profiles || {},
               registration_reason: isClanSetup
@@ -2149,14 +2225,21 @@ const authService = {
         })
       );
 
-      const combinedData = [...c1Items, ...enrichedData];
+      const filteredEnriched = isFilterNeedsRevision
+        ? enrichedData.filter((item) => item?.caseStatus === 'NEEDS_REVISION')
+        : enrichedData;
+
+      const combinedData = [...c1Items, ...filteredEnriched];
+      const effectiveTotal = isFilterNeedsRevision
+        ? combinedData.length
+        : totalRecords + c1Items.length;
 
       return {
         pagination: {
-          total_records: totalRecords + c1Items.length,
+          total_records: effectiveTotal,
           current_page: parseInt(page, 10),
           limit: take,
-          total_pages: Math.ceil((totalRecords + c1Items.length) / take),
+          total_pages: Math.max(1, Math.ceil(effectiveTotal / take)),
         },
         data: combinedData,
       };
@@ -3435,6 +3518,7 @@ const authService = {
 
         const openCase = await tx.onboarding_cases.findFirst({
           where: {
+            ...(explicitCaseId ? { id: explicitCaseId } : {}),
             user_id: userId,
             deleted_at: null,
             process_kind: 'REGISTER',
@@ -3746,7 +3830,7 @@ const authService = {
             ? openCase.metadata
             : {};
 
-        await tx.onboarding_cases.update({
+        const updatedOpenCase = await tx.onboarding_cases.update({
           where: { id: caseId },
           data: {
             metadata: {
@@ -3757,6 +3841,16 @@ const authService = {
             changed_by: user.id,
           },
         });
+
+        await onboardingConsentAndRulesService.recordRulesAgreementFromRegistration(
+          tx,
+          {
+            caseRecord: updatedOpenCase,
+            payload,
+            clanName: clanName || '',
+            actorId: user.id,
+          }
+        );
 
         if (openCase.status === 'NEEDS_REVISION') {
           await onboardingService.updateCaseStatus({

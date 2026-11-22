@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/tenants/tenant.service.js
- * DATETIME   : 2026-08-25T16:10:00+07:00
- * VERSION    : 1.2.0-ORIGIN
+ * DATETIME   : 2026-11-22T15:15:00+07:00
+ * VERSION    : 1.3.0-ISO29148-CLAN-SETUP-M2
  * DESCRIPTION:
  * - OP-2 activateTenant (giữ nguyên).
  * - Tenant settings (ADMIN): name, slogan, description, theme_color, logo_url.
@@ -122,6 +122,7 @@ async function getTenantSettings(tenantId, actor) {
   return {
     ...tenant,
     logo_icon: cfg.logo_icon || null,
+    isSandbox: Boolean(cfg.isSandbox),
   };
 }
 
@@ -389,6 +390,7 @@ async function activateTenant(tenantId, actor) {
         name: true,
         slug: true,
         status: true,
+        social_configs: true,
         changed_by: true,
       },
     });
@@ -400,14 +402,20 @@ async function activateTenant(tenantId, actor) {
       );
     }
 
-    if (tenant.status === 'HOAT_DONG') {
+    const currentSc =
+      tenant.social_configs && typeof tenant.social_configs === 'object'
+        ? { ...tenant.social_configs }
+        : {};
+    const isCurrentlySandbox = Boolean(currentSc.isSandbox);
+
+    if (tenant.status === 'HOAT_DONG' && !isCurrentlySandbox) {
       throw createError(
         ERROR_CODES.TENANT.TENANT_ALREADY_ACTIVE,
-        'Dòng họ đã được kích hoạt trước đó.'
+        'Dòng họ đã được kích hoạt chính thức trước đó.'
       );
     }
 
-    if (tenant.status !== 'TAM_NGUNG') {
+    if (tenant.status !== 'TAM_NGUNG' && !(tenant.status === 'HOAT_DONG' && isCurrentlySandbox)) {
       throw createError(
         ERROR_CODES.TENANT.TENANT_NOT_ACTIVATABLE,
         `Dòng họ đang ở trạng thái ${tenant.status}, không thể kích hoạt.`
@@ -418,6 +426,10 @@ async function activateTenant(tenantId, actor) {
       where: { id: tenantId },
       data: {
         status: 'HOAT_DONG',
+        social_configs: {
+          ...currentSc,
+          isSandbox: false,
+        },
         changed_by: actor.id,
         updated_at: new Date(),
       },
@@ -426,6 +438,7 @@ async function activateTenant(tenantId, actor) {
         name: true,
         slug: true,
         status: true,
+        social_configs: true,
         updated_at: true,
       },
     });
@@ -525,6 +538,7 @@ async function listTenantsDirectory(actor, query = {}) {
           slogan: true,
           description: true,
           logo_url: true,
+          social_configs: true,
           updated_at: true,
           created_at: true,
         },
@@ -534,8 +548,19 @@ async function listTenantsDirectory(actor, query = {}) {
     sysCountTenants(actor, { where }, { reason: 'SYS_TENANT_DIRECTORY' }),
   ]);
 
+  const normalizedItems = items.map((t) => {
+    const sc =
+      t.social_configs && typeof t.social_configs === 'object'
+        ? t.social_configs
+        : {};
+    return {
+      ...t,
+      isSandbox: Boolean(sc.isSandbox),
+    };
+  });
+
   return {
-    items,
+    items: normalizedItems,
     page,
     limit,
     total,

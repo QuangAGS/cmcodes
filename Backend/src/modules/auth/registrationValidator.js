@@ -1,14 +1,22 @@
 /**
+ * ============================================================================
  * PATH       : src/modules/auth/registrationValidator.js
- * DATETIME   : 2026-11-14T14:48:00+07:00
- * VERSION    : 1.4.0-INTL-PHONE-LIBPHONENUMBER
+ * DATETIME   : 2026-11-22T18:10:00+07:00
+ * VERSION    : 1.6.0-ISO29148-UAT-IMP5-RULES
  * DESCRIPTION:
- * - Căn cứ: AMEND-RP-OP-2026-01-V1.1
+ * - Căn cứ: AMEND-RP-OP-2026-01-V1.1 & UAT-IMP4 / UAT-IMP5 / UAT-Bug 8.
  * - [1.2.0]: Bổ sung pattern regex cho email, phone và claimed_member_id (UUID v4)
  *   ngăn chặn triệt để dữ liệu rác và lỗi database "invalid input syntax for type uuid".
  * - [1.4.0]: Nâng cấp kiểm tra phone theo chuẩn quốc tế libphonenumber-js (ITU-T E.164),
  *   hỗ trợ cả số Việt Nam (0xxxxxxxxx / +84...) lẫn số kiều bào quốc tế (+1..., +61..., +33...).
- * - Tuân thủ nguyên tắc Q1 (bảo tồn luồng cũ) và Q2 (chuẩn tài liệu kỹ thuật).
+ * - [1.5.0-ISO29148-UAT-BUG8-REFERRER]:
+ *   + Bổ sung các trường người giới thiệu trong họ (`referrer_name`, `referrer_phone`,
+ *     `referrer_phone_country`, `referrer_info`), danh sách mạng xã hội động
+ *     (`social_links`) và người cao niên xác minh (`elder_name`, `elder_phone`) vào
+ *     `REGISTRATION_SCHEMA` để `validateRegistrationProfile` không cắt bỏ trước khi
+ *     lưu vào `onboarding_cases.metadata.registration_profile`.
+ * - Tuân thủ nguyên tắc Q1 (bảo tồn luồng cũ), Q2 (bảo toàn contract), Q3 (chuẩn tài liệu).
+ * ============================================================================
  */
 
 const { isValidPhoneNumber, normalizeCanonicalPhone } = require('../../shared/utils/slug.utils');
@@ -60,6 +68,27 @@ const REGISTRATION_SCHEMA = {
   },
   proof_documents: { type: 'array', required: false },
   social_profiles: { type: 'object', required: false },
+  social_links: { type: 'array', required: false },
+  referrer_name: { type: 'string', required: false, max: 120 },
+  referrer_phone: {
+    type: 'string',
+    required: false,
+    max: 25,
+    customValidate: (val) => isValidPhoneNumber(val, 'VN'),
+    normalize: (val) => normalizeCanonicalPhone(val, 'VN') || String(val).trim(),
+    patternMessage: 'Số điện thoại người giới thiệu không đúng định dạng quốc gia hoặc quốc tế E.164 (VD: 0912345678 hoặc +14085551234).',
+  },
+  referrer_phone_country: { type: 'string', required: false, max: 10 },
+  referrer_info: { type: 'object', required: false },
+  elder_name: { type: 'string', required: false, max: 120 },
+  elder_phone: {
+    type: 'string',
+    required: false,
+    max: 25,
+    customValidate: (val) => isValidPhoneNumber(val, 'VN'),
+    normalize: (val) => normalizeCanonicalPhone(val, 'VN') || String(val).trim(),
+    patternMessage: 'Số điện thoại người cao niên xác minh không đúng định dạng quốc gia hoặc quốc tế E.164.',
+  },
   child_type: {
     type: 'string',
     required: false,
@@ -76,6 +105,10 @@ const REGISTRATION_SCHEMA = {
     enum: ['CLAIM_EM', 'NEW_PROFILE_21', 'CLAN_SETUP'],
   },
   claim_verification: { type: 'object', required: false },
+  agreed_rules: { type: 'boolean', required: false },
+  agreed_rules_snapshot: { type: 'string', required: false, max: 30000 },
+  agreed_tos_version: { type: 'string', required: false, max: 20 },
+  agreed_clan_rules_version: { type: 'number', required: false, min: 1 },
 };
 
 function validateRegistrationProfile(data = {}) {

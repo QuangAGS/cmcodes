@@ -1,8 +1,8 @@
 /**
  * PATH       : frontend/src/features/register-wizard/components/JoinClanForm.jsx
  * OLD PATH   : src/features/auth/components/JoinClanForm.jsx
- * DATETIME   : 2026-11-20T06:20:00+07:00
- * VERSION    : EGAL-25.X. R6.4.0-PHASE2-SPRINT-FE2
+ * DATETIME   : 2026-11-22T18:10:00+07:00
+ * VERSION    : EGAL-25.X. R6.5.0-ISO29148-UAT-IMP5-RULES
  * DESCRIPTION:
  * - PURPOSE EGAL-25.X. R6.4.0-PHASE2-SPRINT-FE2 (IMPL-PLAN-FE-PHASE2-V1.8-ISO29148):
  *    1. Gắn useTurnstileFailClosed (src/shared/hooks/useTurnstileFailClosed.js) cho
@@ -97,6 +97,7 @@ import { getPhase2UserMessage } from '../../onboarding/constants/phase2MessageCa
 import PersistentMessageBanner from '../../../components/common/PersistentMessageBanner.jsx';
 import BlockingLoadingOverlay from '../../../components/common/BlockingLoadingOverlay.jsx';
 import CollapsibleDetailCard from '../../../components/common/CollapsibleDetailCard.jsx';
+import RulesAgreementCard from '../../onboarding/components/RulesAgreementCard.jsx';
 import useTurnstileFailClosed, {
   isTurnstileChallengeError,
   extractApiErrorInfo,
@@ -385,6 +386,24 @@ const JoinClanForm = ({
   const [emailRemoteError, setEmailRemoteError] = useState('');
   const [emailChecking, setEmailChecking] = useState(false);
 
+  const [rulesAgreement, setRulesAgreement] = useState({
+    agreed: Boolean(
+      initialData?.agreed_rules || initialData?.registration_profile?.agreed_rules
+    ),
+    agreed_rules_snapshot:
+      initialData?.agreed_rules_snapshot ||
+      initialData?.registration_profile?.agreed_rules_snapshot ||
+      '',
+    agreed_tos_version:
+      initialData?.agreed_tos_version ||
+      initialData?.registration_profile?.agreed_tos_version ||
+      '1.0',
+    agreed_clan_rules_version:
+      initialData?.agreed_clan_rules_version ||
+      initialData?.registration_profile?.agreed_clan_rules_version ||
+      1,
+  });
+  const [rulesError, setRulesError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [attentionMessage, setAttentionMessage] = useState('');
   const { speak } = useTts();
@@ -591,6 +610,8 @@ const JoinClanForm = ({
       setIsClaimHoppingBlocked(false);
       setPhase2Banner(null);
       setProfileErrors({});
+      setRulesAgreement((prev) => ({ ...prev, agreed: false }));
+      setRulesError('');
       setAccountGateConfirmed(false);
       setAccountGateCollapsed(false);
       setClanCardCollapsed(false);
@@ -1379,6 +1400,13 @@ const JoinClanForm = ({
         reason: 'Bác vui lòng nhập mật khẩu đăng nhập ở Bước 3.',
       };
     }
+    if (!rulesAgreement.agreed) {
+      return {
+        enabled: false,
+        reason:
+          'Bác vui lòng đọc và tích cam kết tuân thủ Nội quy chung và Nội quy dòng họ ở Bước 4.',
+      };
+    }
     const isCaptchaDone = Boolean(
       guidedFlow.isCompleted('captcha') ||
         captchaZone?.isVerified ||
@@ -1407,6 +1435,7 @@ const JoinClanForm = ({
     phoneCountry,
     phoneRemoteError,
     emailRemoteError,
+    rulesAgreement.agreed,
     guidedFlow,
     captchaZone,
   ]);
@@ -1775,6 +1804,14 @@ const JoinClanForm = ({
       return;
     }
 
+    if (!rulesAgreement.agreed) {
+      const msg =
+        'Bác vui lòng đọc và tích cam kết tuân thủ Nội quy chung và Nội quy dòng họ trước khi tiếp tục.';
+      setRulesError(msg);
+      routeFieldError('submit', msg, 'submit');
+      return;
+    }
+
     if (!isRevision) {
       const phoneCheck = await checkPhoneAvailability(latestValues.phone);
 
@@ -2061,6 +2098,10 @@ const JoinClanForm = ({
         : {}),
       referrer_name: rawReferrerName,
       referrer_phone: normalizedReferrerPhone,
+      agreed_rules: true,
+      agreed_rules_snapshot: rulesAgreement.agreed_rules_snapshot || undefined,
+      agreed_tos_version: rulesAgreement.agreed_tos_version || '1.0',
+      agreed_clan_rules_version: Number(rulesAgreement.agreed_clan_rules_version || 1),
       registration_profile: {
         ...builtRegistrationProfile,
         referrer_name: rawReferrerName,
@@ -2069,6 +2110,10 @@ const JoinClanForm = ({
           full_name: rawReferrerName,
           phone: normalizedReferrerPhone,
         },
+        agreed_rules: true,
+        agreed_rules_snapshot: rulesAgreement.agreed_rules_snapshot || undefined,
+        agreed_tos_version: rulesAgreement.agreed_tos_version || '1.0',
+        agreed_clan_rules_version: Number(rulesAgreement.agreed_clan_rules_version || 1),
       },
       turnstileToken: captchaCheck.token || captchaZone.getToken(),
       hp_field: latestValues.hp_field || '',
@@ -2404,7 +2449,7 @@ const JoinClanForm = ({
                       </p>
                     </div>
 
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-3">
                       <button
                         type="button"
                         onClick={() => {
@@ -2463,7 +2508,7 @@ const JoinClanForm = ({
                       Bác đã từng có sẵn tài khoản đăng nhập Gia Phả Số chưa?
                     </p>
 
-                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <div className="grid grid-cols-1 gap-3">
                       <button
                         type="button"
                         onClick={() => {
@@ -2692,7 +2737,7 @@ const JoinClanForm = ({
                     disabled={effectiveLoading}
                   >
                     <div className="space-y-5">
-                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      <div className="grid grid-cols-1 gap-3">
                         <div>
                           <button
                             type="button"
@@ -2833,8 +2878,8 @@ const JoinClanForm = ({
                   >
                     <div className="space-y-5">
                       <div className="space-y-1.5">
-                        <label className="text-base font-bold text-slate-800">
-                          Số điện thoại đăng nhập <span className="text-rose-500">*</span>
+                        <label className="block text-base font-normal text-slate-600">
+                          Số điện thoại đăng nhập <span className="font-bold text-rose-600">*</span>
                         </label>
 
                         <div className="flex flex-row items-center gap-2">
@@ -2882,7 +2927,7 @@ const JoinClanForm = ({
                                 });
                               }}
                               readOnly={isRevision}
-                              className={`min-h-[48px] h-12 w-full pl-10 pr-3 ${uiSystem.input} ${
+                              className={`min-h-[48px] h-12 w-full pl-10 pr-3 font-bold text-slate-900 placeholder:font-normal placeholder:text-slate-400 ${uiSystem.input} ${
                                 isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
                               }`}
                               placeholder={selectedCountryMeta.placeholder}
@@ -2924,7 +2969,7 @@ const JoinClanForm = ({
                       </div>
 
                       <div className="space-y-1.5">
-                        <label className="text-base font-bold text-slate-800">
+                        <label className="block text-base font-normal text-slate-600">
                           Email <span className="font-normal text-slate-500">(không bắt buộc)</span>
                         </label>
 
@@ -2946,7 +2991,7 @@ const JoinClanForm = ({
                               await checkEmailAvailability(e.target.value);
                             }}
                             readOnly={isRevision}
-                            className={`min-h-[48px] h-12 pl-11 ${uiSystem.input} ${
+                            className={`min-h-[48px] h-12 pl-11 font-bold text-slate-900 placeholder:font-normal placeholder:text-slate-400 ${uiSystem.input} ${
                               isRevision ? 'opacity-80 cursor-not-allowed bg-slate-50' : ''
                             }`}
                             placeholder="Email (không bắt buộc)"
@@ -2963,8 +3008,8 @@ const JoinClanForm = ({
                       </div>
 
                       <div className="space-y-1.5">
-                        <label className="text-base font-bold text-slate-800">
-                          Mật khẩu <span className="text-rose-500">*</span>
+                        <label className="block text-base font-normal text-slate-600">
+                          Mật khẩu <span className="font-bold text-rose-600">*</span>
                         </label>
 
                         <div className="relative">
@@ -2980,7 +3025,7 @@ const JoinClanForm = ({
                             onFocus={() => guidedFlow.goToField('accountInfo')}
                             placeholder="Nhập mật khẩu"
                             autoComplete="new-password"
-                            className="min-h-[48px] h-12 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-14 text-base text-slate-900 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
+                            className="min-h-[48px] h-12 w-full rounded-xl border border-slate-300 bg-white pl-10 pr-14 text-base font-bold text-slate-900 placeholder:font-normal placeholder:text-slate-400 outline-none transition focus:border-emerald-500 focus:ring-2 focus:ring-emerald-100"
                           />
 
                           <button
@@ -3010,6 +3055,23 @@ const JoinClanForm = ({
                     </div>
                   </CollapsibleDetailCard>
                 </GuidedFieldWrapper>
+
+                <RulesAgreementCard
+                  mode="MEMBER_JOIN"
+                  tenantId={selectedTenant?.id || ''}
+                  clanName={selectedTenant?.name || ''}
+                  agreed={rulesAgreement.agreed}
+                  disabled={effectiveLoading}
+                  error={rulesError}
+                  title="Bước 4: Cam kết tuân thủ Nội quy chung & Nội quy dòng họ"
+                  onChange={(nextRules) => {
+                    setRulesAgreement(nextRules);
+                    if (nextRules.agreed) {
+                      setRulesError('');
+                      setAttentionMessage('');
+                    }
+                  }}
+                />
 
                 <CaptchaAttentionField
                   captchaZone={captchaZone}

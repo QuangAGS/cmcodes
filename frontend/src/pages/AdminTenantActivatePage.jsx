@@ -1,9 +1,10 @@
 /**
  * PATH       : src/pages/AdminTenantActivatePage.jsx
- * DATETIME   : 2026-08-26T08:30:00+07:00
- * VERSION    : 1.3.0-FOOTER
+ * DATETIME   : 2026-11-22T15:15:00+07:00
+ * VERSION    : 1.4.0-ISO29148-CLAN-SETUP-M2
  * DESCRIPTION:
- * - OP-2 Final: Xác nhận kích hoạt tenant + AppFooterNav chuẩn.
+ * - OP-2 Final: Xác nhận kích hoạt tenant (TAM_NGUNG -> HOAT_DONG) và
+ *   kết thúc giai đoạn dựng cây ban đầu (Sandbox -> Vận hành chính thức).
  * - Sau success → logout + /auth.
  */
 
@@ -49,6 +50,7 @@ const AdminTenantActivatePage = () => {
     null;
 
   const tenantStatus = user?.tenantStatus || user?.tenant_status || null;
+  const isUserSandbox = Boolean(user?.isSandbox);
 
   useEffect(() => {
     if (!tenantId) {
@@ -94,7 +96,17 @@ const AdminTenantActivatePage = () => {
 
   const back = () => navigate(footerNav.backTo || '/admin');
 
-  if (isClanAdmin && tenantStatus && tenantStatus !== 'TAM_NGUNG') {
+  const isTenantInSandbox = Boolean(
+    tenantInfo?.isSandbox ||
+      tenantInfo?.social_configs?.isSandbox ||
+      isUserSandbox
+  );
+  const isActivatableForClanAdmin =
+    !tenantStatus ||
+    tenantStatus === 'TAM_NGUNG' ||
+    (tenantStatus === 'HOAT_DONG' && isTenantInSandbox);
+
+  if (isClanAdmin && !fetching && !isActivatableForClanAdmin) {
     return (
       <div className="mx-auto flex min-h-screen w-full max-w-[480px] flex-col">
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-4">

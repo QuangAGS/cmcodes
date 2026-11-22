@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/features/membership/pages/ClaimMemberPage.jsx
- * DATETIME    : 2026-11-20T06:30:00+07:00
- * VERSION     : 2.4.0-PHASE2-SPRINT-FE2
+ * DATETIME    : 2026-11-22T18:10:00+07:00
+ * VERSION     : 2.5.0-ISO29148-UAT-IMP5-RULES
  * DESCRIPTION : Trang Gia nhập dòng họ & Nhận diện nhân thân trên sổ họ:
  *               - [IMPL-PLAN-FE-PHASE2-V1.8-ISO29148 - Sprint FE-2]:
  *                 + Thay thế toàn bộ toast tự tắt bằng PersistentMessageBanner duy nhất
@@ -59,6 +59,8 @@ import { CLAIM_MODES } from '../../onboarding/constants/onboardingPhase2Contract
 import { getPhase2UserMessage } from '../../onboarding/constants/phase2MessageCatalog';
 import PersistentMessageBanner from '../../../components/common/PersistentMessageBanner';
 import BlockingLoadingOverlay from '../../../components/common/BlockingLoadingOverlay';
+import CollapsibleDetailCard from '../../../components/common/CollapsibleDetailCard.jsx';
+import RulesAgreementCard from '../../onboarding/components/RulesAgreementCard.jsx';
 import AudioHelpButton from '../../elder-doctrine/components/AudioHelpButton';
 import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton';
 import { extractApiErrorInfo } from '../../../shared/hooks/useTurnstileFailClosed';
@@ -183,6 +185,13 @@ export const ClaimMemberPage = () => {
     },
   });
 
+  const [rulesAgreement, setRulesAgreement] = useState({
+    agreed: false,
+    agreed_rules_snapshot: '',
+    agreed_tos_version: '1.0',
+    agreed_clan_rules_version: 1,
+  });
+  const [rulesError, setRulesError] = useState('');
   const [profileErrors, setProfileErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loadingRevision, setLoadingRevision] = useState(false);
@@ -478,6 +487,13 @@ export const ClaimMemberPage = () => {
         showValidationBanner(msg);
         return null;
       }
+      if (!rulesAgreement.agreed) {
+        const msg =
+          'Bác vui lòng đọc và tích cam kết tuân thủ Nội quy chung và Nội quy dòng họ trước khi gửi hồ sơ.';
+        setRulesError(msg);
+        showValidationBanner(msg);
+        return null;
+      }
 
       const isSpouseContext = activePrompts.contextKind === 'SPOUSE_FAMILY';
 
@@ -489,10 +505,18 @@ export const ClaimMemberPage = () => {
         claimed_member_id: emId,
         referrer_name: rawRefName,
         referrer_phone: normalizedRefPhone,
+        agreed_rules: true,
+        agreed_rules_snapshot: rulesAgreement.agreed_rules_snapshot || undefined,
+        agreed_tos_version: rulesAgreement.agreed_tos_version || '1.0',
+        agreed_clan_rules_version: Number(rulesAgreement.agreed_clan_rules_version || 1),
         registration_profile: {
           claim_mode: 'CLAIM_EM',
           referrer_name: rawRefName,
           referrer_phone: normalizedRefPhone,
+          agreed_rules: true,
+          agreed_rules_snapshot: rulesAgreement.agreed_rules_snapshot || undefined,
+          agreed_tos_version: rulesAgreement.agreed_tos_version || '1.0',
+          agreed_clan_rules_version: Number(rulesAgreement.agreed_clan_rules_version || 1),
           referrer_info: {
             full_name: rawRefName,
             phone: normalizedRefPhone,
@@ -544,6 +568,13 @@ export const ClaimMemberPage = () => {
       showValidationBanner(msg);
       return null;
     }
+    if (!rulesAgreement.agreed) {
+      const msg =
+        'Bác vui lòng đọc và tích cam kết tuân thủ Nội quy chung và Nội quy dòng họ trước khi gửi hồ sơ.';
+      setRulesError(msg);
+      showValidationBanner(msg);
+      return null;
+    }
 
     return {
       tenantId: selectedTenant.id,
@@ -552,10 +583,18 @@ export const ClaimMemberPage = () => {
       claim_mode: CLAIM_MODES.CREATE_NEW,
       referrer_name: rawRefName,
       referrer_phone: normalizedRefPhone,
+      agreed_rules: true,
+      agreed_rules_snapshot: rulesAgreement.agreed_rules_snapshot || undefined,
+      agreed_tos_version: rulesAgreement.agreed_tos_version || '1.0',
+      agreed_clan_rules_version: Number(rulesAgreement.agreed_clan_rules_version || 1),
       registration_profile: {
         claim_mode: 'NEW_PROFILE_21',
         referrer_name: rawRefName,
         referrer_phone: normalizedRefPhone,
+        agreed_rules: true,
+        agreed_rules_snapshot: rulesAgreement.agreed_rules_snapshot || undefined,
+        agreed_tos_version: rulesAgreement.agreed_tos_version || '1.0',
+        agreed_clan_rules_version: Number(rulesAgreement.agreed_clan_rules_version || 1),
         referrer_info: {
           full_name: rawRefName,
           phone: normalizedRefPhone,
@@ -854,33 +893,35 @@ export const ClaimMemberPage = () => {
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-6" noValidate>
-          {/* BƯỚC 1: THÔNG TIN DÒNG HỌ (CHỈ BẬT TÌM HỌ KHÁC KHI mode=add-clan) */}
-          <div className="space-y-4 rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h2 className="text-sm font-black uppercase tracking-wider text-slate-700">
-                {isAddClanMode
+        <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+          {/* BƯỚC 1: THÔNG TIN DÒNG HỌ (CollapsibleDetailCard chuẩn 2 dòng / 3 cột) */}
+          <CollapsibleDetailCard
+            title={
+              selectedTenant
+                ? `Bước 1: Dòng họ gia nhập (${selectedTenant.name})`
+                : isAddClanMode
                   ? 'Bước 1: Chọn dòng họ khác muốn gia nhập'
-                  : 'Dòng họ đang thực hiện nhận hồ sơ'}
-              </h2>
-              <div className="flex items-center gap-2">
-                <ZoneVoiceButton
-                  visible
-                  text="Chọn dòng họ đích và mối quan hệ của bác với dòng họ này."
-                  label="Nghe"
-                />
-                {!isAddClanMode && !isRevisionMode && (
+                  : 'Bước 1: Dòng họ đang thực hiện nhận hồ sơ'
+            }
+            statusLabel={selectedTenant?.id ? 'Đã chọn' : 'Chưa chọn'}
+            statusVariant={selectedTenant?.id ? 'complete' : 'pending'}
+            voiceText="Bước 1: Chọn dòng họ đích và mối quan hệ của bác với dòng họ này."
+            defaultExpanded={true}
+            disabled={isSubmitting}
+          >
+            <div className="space-y-4">
+              {!isAddClanMode && !isRevisionMode && (
+                <div className="flex justify-end">
                   <button
                     type="button"
                     onClick={() => navigate('/membership/claim?mode=add-clan')}
-                    className="min-h-[48px] inline-flex items-center gap-1.5 px-3 text-base font-black text-emerald-700 hover:underline"
+                    className="min-h-[48px] inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 text-base font-bold text-emerald-800 hover:bg-emerald-100"
                   >
-                    <PlusCircle size={16} />
-                    Gia nhập dòng họ khác?
+                    <PlusCircle size={18} />
+                    <span>Gia nhập dòng họ khác?</span>
                   </button>
-                )}
-              </div>
-            </div>
+                </div>
+              )}
 
             {isAddClanMode && !selectedTenant ? (
               <div className="space-y-3">
@@ -1008,14 +1049,14 @@ export const ClaimMemberPage = () => {
 
             {/* Chọn mối quan hệ liên kết với dòng họ đích */}
             <div>
-              <label className="mb-1.5 block text-base font-black text-slate-700">
+              <label className="mb-1.5 block text-base font-normal text-slate-600">
                 Quan hệ của bạn với dòng họ này
               </label>
               <select
                 value={linkType}
                 disabled={isSubmitting}
                 onChange={(e) => setLinkType(e.target.value)}
-                className="min-h-[48px] w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-base font-semibold text-slate-900 outline-none focus:border-emerald-500"
+                className="min-h-[48px] w-full rounded-xl border border-slate-300 bg-white px-3.5 py-2.5 text-base font-bold text-slate-900 outline-none focus:border-emerald-500"
               >
                 {C1_LINK_TYPES.map((code) => {
                   const meta = LINK_TYPE_LABELS[code];
@@ -1027,7 +1068,8 @@ export const ClaimMemberPage = () => {
                 })}
               </select>
             </div>
-          </div>
+            </div>
+          </CollapsibleDetailCard>
 
           {checkingEligibility && selectedTenant?.id && (
             <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-base font-bold text-slate-600">
@@ -1102,21 +1144,32 @@ export const ClaimMemberPage = () => {
 
           {/* BƯỚC 2: CHỌN CLAIM EM HOẶC KHAI BÁO 21 TRƯỜNG */}
           {!eligibilityBlock && (
+            <CollapsibleDetailCard
+              title="Bước 2: Nhận diện nhân thân trong dòng họ"
+              statusLabel={
+                entryMode === 'CLAIM_EM'
+                  ? profileDraft.claimed_member_id
+                    ? 'Đã chọn'
+                    : 'Chưa hoàn chỉnh'
+                  : profileDraft.full_name && profileDraft.father_name
+                    ? 'Đã điền'
+                    : 'Chưa hoàn chỉnh'
+              }
+              statusVariant={
+                entryMode === 'CLAIM_EM'
+                  ? profileDraft.claimed_member_id
+                    ? 'complete'
+                    : 'pending'
+                  : profileDraft.full_name && profileDraft.father_name
+                    ? 'complete'
+                    : 'pending'
+              }
+              voiceText="Bước 2: Bác chọn Cách 1 nếu tên của bác đã có trên cây gia phả, hoặc chọn Cách 2 nếu bác chưa có tên trên cây để khai báo hồ sơ mới."
+              defaultExpanded={true}
+              disabled={isSubmitting}
+            >
             <div className="space-y-4">
-              <div className="flex items-center justify-between gap-2">
-                <h2 className="text-sm font-black uppercase tracking-wider text-slate-700">
-                  {isAddClanMode
-                    ? 'Bước 2: Nhận diện nhân thân trên sổ họ'
-                    : 'Chọn hình thức nhận diện nhân thân'}
-                </h2>
-                <ZoneVoiceButton
-                  visible
-                  text="Bác chọn Cách 1 nếu tên của bác đã có trên cây gia phả, hoặc chọn Cách 2 nếu bác chưa có tên trên cây để khai báo hồ sơ mới."
-                  label="Nghe"
-                />
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="grid grid-cols-1 gap-3">
                 <div>
                   <button
                     type="button"
@@ -1236,6 +1289,26 @@ export const ClaimMemberPage = () => {
                 />
               )}
             </div>
+            </CollapsibleDetailCard>
+          )}
+
+          {!eligibilityBlock && selectedTenant?.id && (
+            <RulesAgreementCard
+              mode="MEMBER_JOIN"
+              tenantId={selectedTenant.id}
+              clanName={selectedTenant.name}
+              agreed={rulesAgreement.agreed}
+              disabled={isSubmitting}
+              error={rulesError}
+              title="Bước 3: Cam kết tuân thủ Nội quy chung & Nội quy dòng họ"
+              onChange={(nextRules) => {
+                setRulesAgreement(nextRules);
+                if (nextRules.agreed) {
+                  setRulesError('');
+                  setBannerState(null);
+                }
+              }}
+            />
           )}
 
           <div>

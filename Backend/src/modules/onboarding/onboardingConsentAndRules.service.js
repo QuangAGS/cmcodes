@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : src/modules/onboarding/onboardingConsentAndRules.service.js
- * DATETIME   : 2026-11-19T14:15:00+07:00
- * VERSION    : 1.0.0-AMEND-RP-OP-2026-03-SPRINT4
+ * DATETIME   : 2026-11-22T18:10:00+07:00
+ * VERSION    : 1.1.0-ISO29148-UAT-IMP5-RULES
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-03-BASELINE v7.0 - Sprint 4]
  *   Hoàn thiện vòng đời xác thực & tuân thủ hồ sơ Onboarding:
@@ -38,6 +38,14 @@ const { onboardingLockService } = require('./onboardingLock.service');
 
 const MAX_RULES_SNAPSHOT_LENGTH = 30000;
 const DEFAULT_BENEFICIARY_TTL_HOURS = 72;
+const DEFAULT_TOS_VERSION = '1.0';
+
+const PLATFORM_GENERAL_RULES = [
+  'ĐIỀU 1. XÁC THỰC HUYẾT THỐNG VÀ TRUNG THỰC THÔNG TIN: Thành viên cam kết khai báo trung thực họ tên, quan hệ huyết thống, hôn phối, tiền nhân và thông tin người giới thiệu/xác minh; không mạo danh hoặc làm sai lệch phả hệ.',
+  'ĐIỀU 2. TÔN TRỌNG TÔN TI, GIA ĐẠO VÀ THUẦN PHONG MỸ TỤC: Giữ gìn sự đoàn kết, kính trên nhường dưới trong dòng họ; sử dụng ngôn từ chuẩn mực, văn minh khi trao đổi và đóng góp tư liệu trên hệ thống.',
+  'ĐIỀU 3. BẢO MẬT DỮ LIỆU GIA PHẢ VÀ QUYỀN RIÊNG TƯ: Không tự ý sao chép, phát tán thông tin cá nhân, số điện thoại, địa chỉ hoặc tư liệu nội bộ của thành viên dòng họ ra bên ngoài khi chưa được sự đồng ý của chủ thể hoặc Ban Quản trị dòng họ.',
+  'ĐIỀU 4. TUÂN THỦ NỘI QUY RIÊNG CỦA TỪNG DÒNG HỌ: Chấp hành quy ước, gia pháp và sự điều hành hợp lệ của Hội đồng gia tộc / Ban Quản trị dòng họ mà mình tham gia hoặc sáng lập.',
+].join('\n\n');
 
 function hashTokenSha256(rawToken) {
   return crypto.createHash('sha256').update(String(rawToken)).digest('hex');
@@ -116,6 +124,82 @@ class OnboardingConsentAndRulesService {
         agreed_at: now,
         changed_by: actorId || null,
       },
+    });
+  }
+
+  /**
+   * [UAT-IMP5 Mục 3] Ghi nhận cam kết Nội quy chung & Nội quy dòng họ ngay trong
+   * transaction đăng ký / gia nhập (C1, C2, C1-S, C2-S).
+   */
+  async recordRulesAgreementFromRegistration(
+    tx,
+    { caseRecord, payload = {}, clanName = '', actorId = null }
+  ) {
+    if (!tx || !caseRecord) return null;
+
+    const rp =
+      payload?.registration_profile &&
+      typeof payload.registration_profile === 'object'
+        ? payload.registration_profile
+        : {};
+
+    const agreedFlag =
+      payload?.agreed_rules === true ||
+      payload?.agreed_rules === 'true' ||
+      rp.agreed_rules === true ||
+      rp.agreed_rules === 'true';
+
+    const rawSnapshot =
+      payload?.agreed_rules_snapshot || rp.agreed_rules_snapshot || '';
+
+    if (!agreedFlag && !String(rawSnapshot).trim()) {
+      return null;
+    }
+
+    let clanRulesText = '';
+    let clanRulesVersion =
+      payload?.agreed_clan_rules_version ?? rp.agreed_clan_rules_version ?? 1;
+
+    if (caseRecord.tenant_id) {
+      try {
+        const cp = await tx.clan_profiles.findFirst({
+          where: { tenant_id: caseRecord.tenant_id, deleted_at: null },
+          select: { clan_rules: true, clan_rules_version: true },
+        });
+        if (cp?.clan_rules) {
+          clanRulesText = String(cp.clan_rules).trim();
+        }
+        if (cp?.clan_rules_version != null) {
+          clanRulesVersion = Number(cp.clan_rules_version);
+        }
+      } catch (_) {
+        /* fallback to payload snapshot */
+      }
+    }
+
+    const composedFallback = [
+      `[NỘI QUY CHUNG NỀN TẢNG - PHIÊN BẢN ${DEFAULT_TOS_VERSION}]`,
+      PLATFORM_GENERAL_RULES,
+      clanRulesText
+        ? `\n[NỘI QUY DÒNG HỌ ${clanName || ''} - PHIÊN BẢN ${clanRulesVersion}]\n${clanRulesText}`
+        : `\n[QUY ƯỚC DÒNG HỌ ${clanName || ''}]\nÁp dụng Nội quy chung của nền tảng và Gia pháp truyền thống của Ban Quản trị dòng họ.`,
+    ].join('\n');
+
+    const finalSnapshot = String(rawSnapshot || composedFallback).slice(
+      0,
+      MAX_RULES_SNAPSHOT_LENGTH
+    );
+    const tosVersion =
+      payload?.agreed_tos_version ||
+      rp.agreed_tos_version ||
+      DEFAULT_TOS_VERSION;
+
+    return this.recordRulesAgreement(tx, {
+      caseRecord,
+      rulesSnapshot: finalSnapshot,
+      tosVersion,
+      clanRulesVersion,
+      actorId,
     });
   }
 
@@ -330,4 +414,6 @@ module.exports = {
   onboardingConsentAndRulesService: new OnboardingConsentAndRulesService(),
   MAX_RULES_SNAPSHOT_LENGTH,
   DEFAULT_BENEFICIARY_TTL_HOURS,
+  DEFAULT_TOS_VERSION,
+  PLATFORM_GENERAL_RULES,
 };

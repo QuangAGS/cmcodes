@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/tenants/tenant.routes.js
- * DATETIME   : 2026-08-25T16:10:00+07:00
- * VERSION    : 1.8.0-TENANT-SETTINGS
+ * DATETIME   : 2026-11-22T18:10:00+07:00
+ * VERSION    : 1.9.0-ISO29148-UAT-IMP5-RULES
  * DESCRIPTION:
  * - GET/PATCH /me — cài đặt dòng họ (CLAN_ADMIN / SYSTEM_ADMIN).
  * - PATCH /:id/settings — SYSTEM_ADMIN sửa tenant bất kỳ.
@@ -18,6 +18,11 @@ const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
 const validateMiddleware = require('../../middlewares/validate.middleware');
 const { asyncHandler } = require('../../shared/errors');
 const tenantService = require('./tenant.service');
+const { basePrisma } = require('../../lib/prisma');
+const {
+  PLATFORM_GENERAL_RULES,
+  DEFAULT_TOS_VERSION,
+} = require('../onboarding/onboardingConsentAndRules.service');
 
 const tenantCtrl = baseController('tenants');
 
@@ -108,6 +113,65 @@ router.patch(
       status: 'success',
       message: 'Đã cập nhật thông tin dòng họ.',
       data,
+    });
+  })
+);
+
+// --- PUBLIC get rules (Nội quy chung + Nội quy dòng họ trước khi gia nhập) ---
+router.get(
+  '/:id/rules',
+  asyncHandler(async (req, res) => {
+    const tenantId = String(req.params.id || '').trim();
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        code: 'TENANT_ID_REQUIRED',
+        message: 'Thiếu mã định danh dòng họ.',
+      });
+    }
+
+    const tenant = await basePrisma.tenants.findFirst({
+      where: { id: tenantId, deleted_at: null },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        status: true,
+        clan_profiles: {
+          where: { deleted_at: null },
+          select: {
+            clan_rules: true,
+            clan_rules_version: true,
+          },
+        },
+      },
+    });
+
+    if (!tenant) {
+      return res.status(404).json({
+        success: false,
+        code: 'TENANT_NOT_FOUND',
+        message: 'Không tìm thấy dòng họ.',
+      });
+    }
+
+    const cp = tenant.clan_profiles || null;
+    const rawClanRules =
+      cp && cp.clan_rules != null ? String(cp.clan_rules).trim() : '';
+
+    return res.status(200).json({
+      success: true,
+      status: 'success',
+      data: {
+        tenantId: tenant.id,
+        clanName: tenant.name,
+        clanSlug: tenant.slug,
+        tosVersion: DEFAULT_TOS_VERSION,
+        platformRules: PLATFORM_GENERAL_RULES,
+        clanRules: rawClanRules || null,
+        clanRulesVersion: cp?.clan_rules_version || 1,
+        hasCustomClanRules: Boolean(rawClanRules),
+      },
     });
   })
 );

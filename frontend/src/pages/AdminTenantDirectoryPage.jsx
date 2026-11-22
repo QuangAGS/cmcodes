@@ -1,10 +1,11 @@
 /**
  * PATH       : src/pages/AdminTenantDirectoryPage.jsx
- * DATETIME   : 2026-08-27T20:40:00+07:00
- * VERSION    : 1.0.0-HUB-V2-D01
+ * DATETIME   : 2026-11-22T15:15:00+07:00
+ * VERSION    : 1.1.0-ISO29148-CLAN-SETUP-M2
  * DESCRIPTION:
  * SYS Tenant Directory. pageKey=admin, Home=/.
- * P0: list/filter + link activate TAM_NGUNG (không POST status).
+ * - Hiển thị trạng thái dựng cây ban đầu (Sandbox) vs Vận hành chính thức.
+ * - Điều hướng nhanh sang duyệt CLAN_SETUP (CHO_DUYET) hoặc kích hoạt chính thức.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -20,9 +21,10 @@ import { resolveFooterNav } from '../lib/resolveFooterNav.js';
 
 const STATUS_OPTIONS = [
   { value: '', label: 'Tất cả trạng thái' },
-  { value: 'HOAT_DONG', label: 'Hoạt động' },
+  { value: 'CHO_DUYET', label: 'Chờ duyệt thành lập' },
+  { value: 'SANDBOX', label: 'Đang dựng cây (Sandbox)' },
+  { value: 'HOAT_DONG', label: 'Hoạt động (Tất cả)' },
   { value: 'TAM_NGUNG', label: 'Tạm ngưng' },
-  { value: 'CHO_DUYET', label: 'Chờ duyệt' },
   { value: 'TU_CHOI', label: 'Từ chối' },
   { value: 'BI_KHOA', label: 'Bị khóa' },
   { value: 'NGUNG_HAN', label: 'Ngưng hẳn' },
@@ -66,13 +68,21 @@ export default function AdminTenantDirectoryPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      const apiStatus = status === 'SANDBOX' ? 'HOAT_DONG' : status || undefined;
       const res = await apiClient.get('/tenants', {
-        params: { q: q || undefined, status: status || undefined, page, limit: 20 },
+        params: { q: q || undefined, status: apiStatus, page, limit: 20 },
       });
       const data = res.data?.data || res.data || {};
+      const rawItems = data.items || [];
+      const filteredItems =
+        status === 'SANDBOX'
+          ? rawItems.filter(
+              (item) => Boolean(item?.isSandbox || item?.social_configs?.isSandbox)
+            )
+          : rawItems;
       setResult({
-        items: data.items || [],
-        total: data.total || 0,
+        items: filteredItems,
+        total: status === 'SANDBOX' ? filteredItems.length : data.total || 0,
         pages: data.pages || 1,
         page: data.page || page,
         limit: data.limit || 20,
@@ -169,50 +179,97 @@ export default function AdminTenantDirectoryPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {result.items.map((t) => (
-                <div
-                  key={t.id}
-                  className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm"
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0">
-                      <p className="font-bold text-slate-800">{t.name}</p>
-                      {t.slug ? (
-                        <p className="mt-0.5 text-xs text-slate-400">{t.slug}</p>
-                      ) : null}
+              {result.items.map((t) => {
+                const isSandbox = Boolean(
+                  t.isSandbox || t.social_configs?.isSandbox
+                );
+                const canActivate =
+                  t.status === 'TAM_NGUNG' ||
+                  (t.status === 'HOAT_DONG' && isSandbox);
+
+                return (
+                  <div
+                    key={t.id}
+                    className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm space-y-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-base font-bold text-slate-900">
+                          {t.name}
+                        </p>
+                        {t.slug ? (
+                          <p className="mt-0.5 text-xs font-mono text-slate-500">
+                            Mã họ: {t.slug}
+                          </p>
+                        ) : null}
+                      </div>
+
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <span
+                          className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${statusClass(
+                            t.status
+                          )}`}
+                        >
+                          {STATUS_LABEL[t.status] || t.status}
+                        </span>
+                        {t.status === 'HOAT_DONG' && (
+                          <span
+                            className={`rounded-full px-2.5 py-0.5 text-[11px] font-bold ${
+                              isSandbox
+                                ? 'bg-amber-100 text-amber-900'
+                                : 'bg-emerald-100 text-emerald-900'
+                            }`}
+                          >
+                            {isSandbox
+                              ? 'Đang dựng cây (Sandbox)'
+                              : 'Vận hành chính thức'}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <span
-                      className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-bold ${statusClass(
-                        t.status
-                      )}`}
-                    >
-                      {STATUS_LABEL[t.status] || t.status}
-                    </span>
-                  </div>
-                  <div className="mt-3 flex gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        navigate(`/admin/tenant/settings?tenant_id=${t.id}`)
-                      }
-                      className="flex-1 rounded-2xl border border-slate-200 py-2.5 text-sm font-semibold text-slate-700"
-                    >
-                      Cài đặt
-                    </button>
-                    {t.status === 'TAM_NGUNG' ? (
+
+                    {t.description ? (
+                      <p className="text-sm text-slate-600 line-clamp-2">
+                        {t.description}
+                      </p>
+                    ) : null}
+
+                    <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
                         onClick={() =>
-                          navigate(`/admin/tenant/activate?tenantId=${t.id}`)
+                          navigate(`/admin/tenant/settings?tenant_id=${t.id}`)
                         }
-                        className="flex-1 rounded-2xl bg-indigo-600 py-2.5 text-sm font-bold text-white"
+                        className="min-h-[48px] flex-1 rounded-xl border border-slate-300 bg-white px-3 text-base font-bold text-slate-700 hover:bg-slate-50"
                       >
-                        Kích hoạt
+                        Cài đặt
                       </button>
-                    ) : null}
+
+                      {t.status === 'CHO_DUYET' ? (
+                        <button
+                          type="button"
+                          onClick={() => navigate('/admin/approval')}
+                          className="min-h-[48px] flex-1 rounded-xl bg-amber-600 px-3 text-base font-bold text-white hover:bg-amber-700"
+                        >
+                          Duyệt lập họ
+                        </button>
+                      ) : null}
+
+                      {canActivate ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            navigate(`/admin/tenant/activate?tenantId=${t.id}`)
+                          }
+                          className="min-h-[48px] flex-1 rounded-xl bg-indigo-600 px-3 text-base font-bold text-white hover:bg-indigo-700"
+                        >
+                          {isSandbox ? 'Kích hoạt chính thức' : 'Kích hoạt'}
+                        </button>
+                      ) : null}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
 
