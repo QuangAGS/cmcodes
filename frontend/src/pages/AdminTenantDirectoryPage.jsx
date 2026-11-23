@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/AdminTenantDirectoryPage.jsx
- * DATETIME   : 2026-11-23T06:13:00+07:00
- * VERSION    : 1.2.0-ISO29148-UAT-IMP6-SANDBOX
+ * DATETIME   : 2026-11-23T16:30:00+07:00
+ * VERSION    : 1.3.0-ISO29148-RPOP-NO-TOAST
  * DESCRIPTION:
  * SYS Tenant Directory. pageKey=admin, Home=/.
  * - Hiển thị trạng thái dựng cây ban đầu (Sandbox) vs Vận hành chính thức.
@@ -10,7 +10,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
+import PersistentMessageBanner from '../components/common/PersistentMessageBanner.jsx';
 import { Building2, Loader2, RefreshCw, Search } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
@@ -65,35 +65,58 @@ export default function AdminTenantDirectoryPage() {
   const [loading, setLoading] = useState(false);
   const [actionBusyId, setActionBusyId] = useState('');
   const [confirmCleanupId, setConfirmCleanupId] = useState('');
+  const [bannerState, setBannerState] = useState(null);
   const [result, setResult] = useState({ items: [], total: 0, pages: 1, page: 1 });
 
   const handleExtendSandbox = async (tenantItem, extraDays = 15) => {
+    setBannerState(null);
     try {
       setActionBusyId(tenantItem.id);
       await apiClient.post(`/tenants/${tenantItem.id}/sandbox/extend`, {
         extraDays,
         note: `SYSTEM_ADMIN gia hạn Sandbox thêm ${extraDays} ngày`,
       });
-      toast.success(`Đã gia hạn Sandbox thêm ${extraDays} ngày cho ${tenantItem.name}.`);
       await load();
+      setBannerState({
+        type: 'success',
+        mode: 'inline',
+        title: 'Đã gia hạn thời gian dùng thử Sandbox',
+        message: `Đã gia hạn Sandbox thêm ${extraDays} ngày cho dòng họ ${tenantItem.name}.`,
+      });
     } catch (e) {
-      toast.error(e?.response?.data?.message || 'Gia hạn Sandbox thất bại.');
+      setBannerState({
+        type: 'error',
+        mode: 'inline',
+        title: 'Gia hạn Sandbox thất bại',
+        message: e?.response?.data?.message || 'Gia hạn Sandbox thất bại.',
+      });
     } finally {
       setActionBusyId('');
     }
   };
 
   const handleCloseAndCleanSandbox = async (tenantItem) => {
+    setBannerState(null);
     try {
       setActionBusyId(tenantItem.id);
       await apiClient.post(`/tenants/${tenantItem.id}/sandbox/cleanup`, {
         note: 'SYSTEM_ADMIN đóng và dọn dữ liệu dòng họ dùng thử',
       });
-      toast.success(`Đã đóng (NGUNG_HAN) và dọn dữ liệu dùng thử của ${tenantItem.name}.`);
       setConfirmCleanupId('');
       await load();
+      setBannerState({
+        type: 'success',
+        mode: 'inline',
+        title: 'Đã đóng và dọn dữ liệu dòng họ dùng thử',
+        message: `Đã chuyển ${tenantItem.name} sang NGUNG_HAN và dọn sạch dữ liệu dùng thử.`,
+      });
     } catch (e) {
-      toast.error(e?.response?.data?.message || 'Dọn dữ liệu dòng họ thất bại.');
+      setBannerState({
+        type: 'error',
+        mode: 'inline',
+        title: 'Dọn dữ liệu dòng họ thất bại',
+        message: e?.response?.data?.message || 'Dọn dữ liệu dòng họ thất bại.',
+      });
     } finally {
       setActionBusyId('');
     }
@@ -122,7 +145,12 @@ export default function AdminTenantDirectoryPage() {
         limit: data.limit || 20,
       });
     } catch {
-      toast.error('Không tải được danh sách dòng họ.');
+      setBannerState({
+        type: 'error',
+        mode: 'inline',
+        title: 'Không tải được danh sách dòng họ',
+        message: 'Không tải được danh sách dòng họ từ máy chủ.',
+      });
       setResult({ items: [], total: 0, pages: 1, page: 1 });
     } finally {
       setLoading(false);
@@ -148,6 +176,18 @@ export default function AdminTenantDirectoryPage() {
         <TenantHeader tenant={sessionTenant} subtitle="Quản trị dòng họ" />
 
         <div className="px-4 pt-5 sm:px-6">
+          {bannerState && (
+            <div className="mb-4">
+              <PersistentMessageBanner
+                type={bannerState.type}
+                mode={bannerState.mode}
+                title={bannerState.title}
+                message={bannerState.message}
+                onClose={() => setBannerState(null)}
+              />
+            </div>
+          )}
+
           <h1 className="text-2xl font-black tracking-tight text-slate-800">
             Danh sách dòng họ
           </h1>

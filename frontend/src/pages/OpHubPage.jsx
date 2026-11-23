@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/OpHubPage.jsx
- * DATETIME   : 2026-10-27T08:20:00+07:00
- * VERSION    : 1.7.4-MOT-MO-TRANG
+ * DATETIME   : 2026-11-23T16:30:00+07:00
+ * VERSION    : 1.8.0-ISO29148-RPOP-NO-TOAST
  * DESCRIPTION: Hub /op. DU_BI / chưa đủ field → /op/base-profile.
  *              Không gọi /me/profile khi member chưa CHINH_THUC.
  *              C1: thêm mục việc «Khai năm đời» — không đổi form hồ sơ.
@@ -12,8 +12,8 @@
 
 import { useEffect, useMemo, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
 import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
+import PersistentMessageBanner from '../components/common/PersistentMessageBanner.jsx';
 import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
 import TenantHeader from '../components/shell/TenantHeader.jsx';
@@ -252,6 +252,9 @@ export default function MemberProfilePage() {
   /** Trạng thái đang lưu thành tựu */
   const [savingAch, setSavingAch] = useState(false);
 
+  /** Thông báo bền vững thay thế toast */
+  const [bannerState, setBannerState] = useState(null);
+
   // --- Các hàm tiện ích ngắn trong component ---
   
   /** Hàm hỗ trợ cập nhật 1 trường dữ liệu trong state form */
@@ -356,7 +359,12 @@ export default function MemberProfilePage() {
         // Tải danh sách thành tựu
         if (!cancelled) setAchievements(bundle.achievements || []);
       } catch (e) {
-        toast.error(e.response?.data?.message || 'Không tải được hồ sơ.');
+        setBannerState({
+          type: 'error',
+          mode: 'inline',
+          title: 'Không tải được hồ sơ',
+          message: e.response?.data?.message || 'Không tải được hồ sơ.',
+        });
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -409,11 +417,21 @@ export default function MemberProfilePage() {
           { field_group: 'BIRTH_DATE', visibility: form.privacy_BIRTH_DATE },
         ],
       });
-      toast.success('Đã lưu hồ sơ dòng họ.');
+      setBannerState({
+        type: 'success',
+        mode: 'inline',
+        title: 'Đã lưu hồ sơ dòng họ',
+        message: 'Thông tin hồ sơ của bác đã được cập nhật thành công.',
+      });
       // Nếu đang sửa tiểu sử thì chuyển sang giao diện đọc toàn bộ tiểu sử
       if (section === 'bio') setSection('bio_read');
     } catch (e) {
-      toast.error(e.response?.data?.message || 'Không lưu được hồ sơ.');
+      setBannerState({
+        type: 'error',
+        mode: 'inline',
+        title: 'Không lưu được hồ sơ',
+        message: e.response?.data?.message || 'Không lưu được hồ sơ.',
+      });
     } finally {
       setSaving(false);
     }
@@ -439,6 +457,16 @@ export default function MemberProfilePage() {
         </div>
       ) : (
         <form onSubmit={onSubmit} className="flex flex-1 flex-col gap-4 px-4 py-4 pb-10">
+          {bannerState && (
+            <PersistentMessageBanner
+              type={bannerState.type}
+              mode={bannerState.mode}
+              title={bannerState.title}
+              message={bannerState.message}
+              onClose={() => setBannerState(null)}
+            />
+          )}
+
           {/* BANNER TÓM TẮT THÔNG TIN THÀNH VIÊN */}
           <section className="rounded-3xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex gap-4">
@@ -707,24 +735,44 @@ export default function MemberProfilePage() {
                 onCancel={() => setAchDraft({ ...EMPTY_ACHIEVEMENT })}
                 onSave={async (payload) => {
                   if (!payload.title || !payload.achieved_year) {
-                    toast.error('Cần tiêu đề và năm.');
+                    setBannerState({
+                      type: 'warning',
+                      mode: 'inline',
+                      title: 'Thiếu thông tin bắt buộc',
+                      message: 'Bác vui lòng nhập tiêu đề và năm đạt thành tích.',
+                    });
                     return;
                   }
                   setSavingAch(true);
                   try {
                     if (achDraft.id) {
                       await apiClient.patch(`/me/achievements/${achDraft.id}`, payload);
-                      toast.success('Đã lưu thành tích.');
+                      setBannerState({
+                        type: 'success',
+                        mode: 'inline',
+                        title: 'Đã lưu thành tích',
+                        message: 'Nội dung thành tích đã được cập nhật.',
+                      });
                     } else {
                       await apiClient.post('/me/achievements', payload);
-                      toast.success('Đã thêm thành tích.');
+                      setBannerState({
+                        type: 'success',
+                        mode: 'inline',
+                        title: 'Đã thêm thành tích',
+                        message: 'Thành tích mới đã được lưu vào hồ sơ.',
+                      });
                     }
                     const ach = await apiClient.get('/me/achievements');
                     setAchievements(ach.data?.data?.items || []);
                     setAchDraft({ ...EMPTY_ACHIEVEMENT });
                     setSection('ach_read');
                   } catch (e) {
-                    toast.error(e.response?.data?.message || 'Không lưu được thành tích.');
+                    setBannerState({
+                      type: 'error',
+                      mode: 'inline',
+                      title: 'Không lưu được thành tích',
+                      message: e.response?.data?.message || 'Không lưu được thành tích.',
+                    });
                   } finally {
                     setSavingAch(false);
                   }
@@ -751,9 +799,19 @@ export default function MemberProfilePage() {
                   try {
                     await apiClient.delete(`/me/achievements/${row.id}`);
                     setAchievements((prev) => prev.filter((x) => x.id !== row.id));
-                    toast.success('Đã xóa thành tích.');
+                    setBannerState({
+                      type: 'success',
+                      mode: 'inline',
+                      title: 'Đã xóa thành tích',
+                      message: 'Thành tích đã được gỡ khỏi hồ sơ.',
+                    });
                   } catch (e) {
-                    toast.error(e.response?.data?.message || 'Không xóa được.');
+                    setBannerState({
+                      type: 'error',
+                      mode: 'inline',
+                      title: 'Không xóa được thành tích',
+                      message: e.response?.data?.message || 'Không xóa được.',
+                    });
                   }
                 }}
               />

@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/features/membership/api/membershipApi.js
- * DATETIME    : 2026-11-14T11:15:00+07:00
- * VERSION     : 1.4.0-MULTIHOME-UAT-BUG4-ELIGIBILITY
+ * DATETIME    : 2026-11-23T15:50:00+07:00
+ * VERSION     : 1.5.0-ISO29148-UAT-BUG12
  * DESCRIPTION : HTTP Client cho phân hệ Membership & Multi-Home (C1 & C1-S).
  *               - checkEligibility -> GET /membership/eligibility?tenantId=...
  *               - getMyClans -> GET /auth/available-clans
@@ -28,6 +28,11 @@
 import apiClient from '../../../lib/apiClient';
 
 export const membershipApi = {
+  getFounderPrefill: async () => {
+    const response = await apiClient.get('/membership/founder-prefill');
+    return response.data?.data ?? null;
+  },
+
   checkEligibility: async (tenantId) => {
     const response = await apiClient.get('/membership/eligibility', {
       params: { tenantId },

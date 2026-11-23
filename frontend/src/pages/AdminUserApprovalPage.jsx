@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH       : frontend/src/pages/AdminUserApprovalPage.jsx
- * DATETIME   : 2026-11-23T07:48:00+07:00
- * VERSION    : 25.7.0-ISO29148-UAT-IMP8-FOOTER-NAV
+ * DATETIME   : 2026-11-23T16:30:00+07:00
+ * VERSION    : 25.8.0-ISO29148-RPOP-NO-TOAST
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0 Lát 4] Trang danh sách & điều phối xét duyệt hồ sơ Admin:
  *   + Gắn 4 nhãn phân loại hồ sơ: [NHẬN NGƯỜI TRÊN CÂY - EM], [KHAI BÁO MỚI - 21 TRƯỜNG],
@@ -22,7 +22,6 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { toast } from 'sonner';
 import { 
   Search, 
   SlidersHorizontal, 
@@ -322,17 +321,26 @@ const AdminUserApprovalPage = () => {
         'Không thể tải danh sách tài khoản theo bộ lọc.';
 
       if (code === 'TENANT_NOT_ACTIVATED') {
-        toast.error(
-          msg ||
-            'Dòng họ đang tạm ngưng hoặc chưa kích hoạt. Vui lòng hoàn thiện thông tin dòng họ trước khi duyệt thành viên.'
-        );
-        // Optional: đưa CLAN_ADMIN về trang chính thay vì kẹt màn hình trống
-        // navigate('/tree');
+        setBannerState({
+          type: 'warning',
+          mode: 'inline',
+          title: 'Dòng họ chưa kích hoạt chính thức',
+          message:
+            msg ||
+            'Dòng họ đang tạm ngưng hoặc chưa kích hoạt. Vui lòng hoàn thiện thông tin dòng họ trước khi duyệt thành viên.',
+          correlationId: 'Không có',
+        });
         setUsersList([]);
         return;
       }
 
-      toast.error(msg);
+      setBannerState({
+        type: 'error',
+        mode: 'inline',
+        title: 'Không thể tải danh sách hồ sơ',
+        message: msg,
+        correlationId: 'Không có',
+      });
     } finally {
       setLoading(false);
     }

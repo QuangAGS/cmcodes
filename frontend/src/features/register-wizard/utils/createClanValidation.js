@@ -1,7 +1,7 @@
 /**
  * PATH       : src/features/register-wizard/utils/createClanValidation.js
- * DATETIME   : 2026-11-23T06:35:00+07:00
- * VERSION    : 2.4.1-ISO29148-UAT-BUG11
+ * DATETIME   : 2026-11-23T15:50:00+07:00
+ * VERSION    : 2.5.0-ISO29148-UAT-BUG12
  * DESCRIPTION:
  * - selectedSlug trở thành optional vì backend tự sinh slug.
  * - [2.3.0]: Bổ sung elder_name & elder_phone (Người cao niên >= 60 tuổi xác minh
@@ -29,7 +29,8 @@ export const createClanSchema = z.object({
   // --- KHỐI 2: ĐỐI SOÁT NHÂN THÂN ---
   temp_full_name: safeString.refine((val) => val !== null && val.length > 0, 'Họ tên quản trị viên là bắt buộc'),
 
-  temp_father_name: safeString.refine((val) => val !== null && val.length > 0, 'Tên cha/mẹ là bắt buộc'),
+  temp_father_name: safeString.refine((val) => val !== null && val.length > 0, 'Họ và tên Cha là bắt buộc'),
+  temp_mother_name: safeString.refine((val) => val !== null && val.length > 0, 'Họ và tên Mẹ là bắt buộc'),
 
   temp_grandfather_name: safeString.optional(),
 

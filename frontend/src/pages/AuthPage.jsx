@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/pages/AuthPage.jsx
- * DATETIME    : 2026-11-14T22:45:00+07:00
- * VERSION     : 24.8.0-UAT-BUG8-REVISION-NOTE-DISPLAY
+ * DATETIME    : 2026-11-23T16:30:00+07:00
+ * VERSION     : 24.9.0-ISO29148-RPOP-NO-TOAST
  * DESCRIPTION : Trang xác thực (Login / Register / Forgot / Reset).
  *               - Giữ redirect sau login.
  *               - 423 ACCOUNT_CHO_DUYET (canEdit === true): nạp caseMetadata.registration_profile
@@ -28,7 +28,7 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
+import PersistentMessageBanner from '../components/common/PersistentMessageBanner.jsx';
 
 import { useAuth } from '../context/AuthContext.jsx';
 import {
@@ -106,6 +106,7 @@ export default function AuthPage() {
   const [view, setView] = useState('login');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pendingFormData, setPendingFormData] = useState(null);
+  const [bannerState, setBannerState] = useState(null);
 
   const [loginMessage, setLoginMessage] = useState('');
   const [loginMessageType, setLoginMessageType] = useState('error');
@@ -179,10 +180,16 @@ export default function AuthPage() {
     setIsSubmitting(true);
 
     try {
+      setBannerState(null);
       setReentryContext(null);
       setView('waiting');
     } catch (err) {
-      toast.error(err?.message || 'Không thể xử lý');
+      setBannerState({
+        type: 'error',
+        mode: 'inline',
+        title: 'Chưa thể chuyển sang màn hình rà soát',
+        message: err?.message || 'Không thể xử lý hồ sơ lúc này.',
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -201,21 +208,37 @@ export default function AuthPage() {
 
   const handleConfirmSubmit = async (confirmedData) => {
     if (typeof register !== 'function') {
-      toast.error('Luồng đăng ký chưa được nối. AuthContext chưa export register.');
+      setBannerState({
+        type: 'error',
+        mode: 'inline',
+        title: 'Lỗi cấu hình đăng ký',
+        message: 'Luồng đăng ký chưa được nối. AuthContext chưa export register.',
+      });
       return;
     }
 
+    setBannerState(null);
     setIsSubmitting(true);
 
     try {
       await register(confirmedData || pendingFormData);
-      toast.success('Hồ sơ đã được gửi thành công!');
       setRegisterRevisionMode(false);
+      setBannerState(null);
       setView('result');
     } catch (err) {
       const safeMessage =
         extractBackendMessage(err) || 'Gửi hồ sơ thất bại. Bác vui lòng thử lại.';
-      toast.error(safeMessage);
+      const correlationId =
+        err?.response?.headers?.['x-correlation-id'] ||
+        err?.response?.data?.correlationId ||
+        'Không có';
+      setBannerState({
+        type: 'error',
+        mode: 'inline',
+        title: 'Gửi hồ sơ chưa thành công',
+        message: safeMessage,
+        correlationId,
+      });
       speakError?.(safeMessage);
     } finally {
       setIsSubmitting(false);
@@ -250,7 +273,7 @@ export default function AuthPage() {
         }
 
         const successMessage = 'Chào mừng bạn trở lại!';
-        toast.success(successMessage);
+        setLoginSuccessMessage(successMessage);
         if (typeof speak === 'function') speak(successMessage, { rate: 0.82 });
         else speakError?.(successMessage);
 
@@ -341,6 +364,19 @@ export default function AuthPage() {
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md bg-white rounded-3xl shadow-xl border border-gray-200 p-6 sm:p-8">
+        {bannerState && (
+          <div className="mb-4">
+            <PersistentMessageBanner
+              type={bannerState.type}
+              mode={bannerState.mode}
+              title={bannerState.title}
+              message={bannerState.message}
+              correlationId={bannerState.correlationId}
+              onClose={() => setBannerState(null)}
+            />
+          </div>
+        )}
+
         {view === 'login' && (
           <LoginForm
             onSubmitLogin={handleLoginSubmit}

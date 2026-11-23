@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/pages/WaitingPage.jsx
- * DATETIME    : 2026-11-22T23:10:00+07:00
- * VERSION     : EGAL-25.x R3-ISO29148-UAT-IMP6-CLAN-SETUP
+ * DATETIME    : 2026-11-23T15:50:00+07:00
+ * VERSION     : EGAL-25.x R3-ISO29148-UAT-BUG12
  * DESCRIPTION :
  * - EGAL-6.5 Step 4: TRUE REVIEW PAGE.
  * - Hiển thị đầy đủ effective submission data trước khi gửi (C2 Claim EM / 21 trường / CLAN_SETUP).
@@ -209,7 +209,8 @@ const WaitingPage = ({
             ['Họ và tên', displayValue(regProfile.full_name || data.temp_full_name)],
             ['Giới tính', genderLabel],
             ...(regProfile.alias ? [['Tên tự / Tên hiệu', regProfile.alias]] : []),
-            ['Tên cha/mẹ', displayValue(regProfile.father_name || data.temp_father_name)],
+            ['Họ và tên Cha', displayValue(regProfile.father_name || data.temp_father_name)],
+            ['Họ và tên Mẹ', displayValue(regProfile.mother_name || data.temp_mother_name)],
             ['Năm sinh', displayValue(regProfile.birth_year || data.temp_birth_year)],
             ['Quan hệ', relationshipLabel],
           ],
@@ -404,6 +405,7 @@ const WaitingPage = ({
       clanSlug,
       temp_full_name,
       temp_father_name,
+      temp_mother_name,
       temp_grandfather_name,
       temp_birth_year,
       temp_relationship,

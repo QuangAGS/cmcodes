@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : src/modules/membership/membership.service.js
- * DATETIME   : 2026-11-22T23:10:00+07:00
- * VERSION    : 1.6.0-ISO29148-UAT-IMP6-SANDBOX
+ * DATETIME   : 2026-11-23T15:50:00+07:00
+ * VERSION    : 1.7.0-ISO29148-UAT-BUG12
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0 Lát 3] Service xử lý trọn vẹn luồng Multi-Home C1
  *   (Gia nhập dòng họ khác) & C1-S (Lập dòng họ mới):
@@ -73,6 +73,7 @@ const {
   assertCanCreateNewClan,
   buildSandboxInitialConfigs,
 } = require('../tenants/sandboxLifecycle.service');
+const { upsertAddress } = require('../profile/profile.service.js');
 
 const VALID_LINK_TYPES = new Set([
   'PRIMARY_PATERNAL',
@@ -119,6 +120,11 @@ function makeHttpError(status, code, message) {
   return err;
 }
 
+function isTechnicalUserCode(val) {
+  const s = String(val || '').trim();
+  return !s || /^\d{4,10}_[0-9a-f]{6,8}$/i.test(s);
+}
+
 function normalizeMultiHomeProfile(payload, user) {
   const rawProfile =
     payload?.registration_profile && typeof payload.registration_profile === 'object'
@@ -128,14 +134,17 @@ function normalizeMultiHomeProfile(payload, user) {
   const claimedMemberId =
     payload?.claimed_member_id || rawProfile.claimed_member_id || undefined;
 
-  return validateRegistrationProfile({
-    ...rawProfile,
-    full_name:
-      rawProfile.full_name ||
+  const candidateName = String(
+    rawProfile.full_name ||
       payload?.full_name ||
       payload?.temp_full_name ||
-      user?.name ||
-      'Thành viên mới',
+      ''
+  ).trim();
+  const safeUserFallback = !isTechnicalUserCode(user?.name) ? user.name : '';
+
+  return validateRegistrationProfile({
+    ...rawProfile,
+    full_name: candidateName || safeUserFallback || 'Thành viên mới',
     gender: rawProfile.gender || payload?.gender || 'NAM',
     birth_year:
       rawProfile.birth_year !== undefined && rawProfile.birth_year !== ''
@@ -600,11 +609,81 @@ const membershipService = {
       phone: user.phone || null,
     });
 
+    // [UAT-Bug 12] Kế thừa nhân thân EEU từ default tenant nếu Client gửi thiếu
+    let defaultMemberInfo = null;
+    try {
+      const mSel = {
+        full_name: true,
+        alias: true,
+        gender: true,
+        birth_year: true,
+        father: { select: { full_name: true } },
+        mother: { select: { full_name: true } },
+        currentAddress: { select: { full_address: true } },
+        residences: {
+          where: { is_current: true, deleted_at: null },
+          take: 1,
+          include: { addresses: { select: { full_address: true } } },
+        },
+        parentages_as_child: {
+          where: { deleted_at: null, review_status: 'ACCEPTED' },
+          include: { parent: { select: { full_name: true, gender: true } } },
+        },
+      };
+      const defaultLink =
+        (await basePrisma.user_member_links.findFirst({
+          where: { user_id: userId, is_default: true, status: 'DA_DUYET', deleted_at: null },
+          include: { member: { select: mSel } },
+        })) ||
+        (await basePrisma.user_member_links.findFirst({
+          where: { user_id: userId, status: 'DA_DUYET', deleted_at: null },
+          include: { member: { select: mSel } },
+        }));
+      if (defaultLink?.member) defaultMemberInfo = defaultLink.member;
+    } catch (_) {
+      /* best-effort */
+    }
+
+    const inputRp =
+      payload.registration_profile && typeof payload.registration_profile === 'object'
+        ? payload.registration_profile
+        : {};
+    const rawCandidateName = String(
+      inputRp.full_name || payload.full_name || payload.temp_full_name || ''
+    ).trim();
+    const resolvedFounderName =
+      !isTechnicalUserCode(rawCandidateName)
+        ? rawCandidateName
+        : defaultMemberInfo?.full_name || rawCandidateName || user.name;
+
+    const pList = Array.isArray(defaultMemberInfo?.parentages_as_child)
+      ? defaultMemberInfo.parentages_as_child
+      : [];
+    const fallbackFather =
+      defaultMemberInfo?.father?.full_name ||
+      pList.find((p) => p?.parent?.gender === 'NAM')?.parent?.full_name ||
+      undefined;
+    const fallbackMother =
+      defaultMemberInfo?.mother?.full_name ||
+      pList.find((p) => p?.parent?.gender === 'NU')?.parent?.full_name ||
+      undefined;
+    const fallbackAddr =
+      defaultMemberInfo?.currentAddress?.full_address ||
+      defaultMemberInfo?.residences?.[0]?.addresses?.full_address ||
+      undefined;
+
     const validatedProfile = normalizeMultiHomeProfile(
       {
         ...payload,
         registration_profile: {
-          ...(payload.registration_profile || {}),
+          ...inputRp,
+          full_name: resolvedFounderName,
+          alias: inputRp.alias || defaultMemberInfo?.alias || undefined,
+          gender: inputRp.gender || defaultMemberInfo?.gender || 'NAM',
+          birth_year: inputRp.birth_year || defaultMemberInfo?.birth_year || undefined,
+          father_name: inputRp.father_name || fallbackFather,
+          mother_name: inputRp.mother_name || fallbackMother,
+          address: inputRp.address || fallbackAddr,
           claim_mode: 'CLAN_SETUP',
           generation: 1,
           member_role: 'TRUONG_HO',
@@ -1017,6 +1096,61 @@ const membershipService = {
             resolvedMemberId = newMember.id;
             createdNewMember = true;
 
+            // [UAT-Bug 12] Vật chất hóa & dùng chung bản ghi addresses trong tenant mới
+            try {
+              let resAddrId = null;
+              let originAddrId = null;
+              if (profile.address && String(profile.address).trim()) {
+                const resAddr = await upsertAddress(tx, targetTenantId, actorId, {
+                  country_code: 'VN',
+                  full_address: String(profile.address).trim(),
+                });
+                if (resAddr?.id) {
+                  resAddrId = resAddr.id;
+                  await tx.member_residences.create({
+                    data: {
+                      tenant_id: targetTenantId,
+                      member_id: newMember.id,
+                      address_id: resAddr.id,
+                      kind: 'RESIDENCE',
+                      is_current: true,
+                      changed_by: actorId,
+                    },
+                  });
+                }
+              }
+              if (profile.birth_place && String(profile.birth_place).trim()) {
+                const origAddr = await upsertAddress(tx, targetTenantId, actorId, {
+                  country_code: 'VN',
+                  full_address: String(profile.birth_place).trim(),
+                });
+                if (origAddr?.id) {
+                  originAddrId = origAddr.id;
+                  await tx.member_residences.create({
+                    data: {
+                      tenant_id: targetTenantId,
+                      member_id: newMember.id,
+                      address_id: origAddr.id,
+                      kind: 'ORIGIN',
+                      is_current: false,
+                      changed_by: actorId,
+                    },
+                  });
+                }
+              }
+              if (resAddrId || originAddrId) {
+                await tx.members.update({
+                  where: { id: newMember.id },
+                  data: {
+                    ...(resAddrId ? { current_address_id: resAddrId } : {}),
+                    ...(originAddrId ? { origin_address_id: originAddrId } : {}),
+                  },
+                });
+              }
+            } catch (addrErr) {
+              console.error('[MULTIHOME_APPROVAL][SHARED_ADDRESS]', addrErr.message || addrErr);
+            }
+
             await auditService.logAction(
               'THEM_MOI',
               'members',
@@ -1079,7 +1213,7 @@ const membershipService = {
             approvedBy: actorId,
           });
 
-          // Nếu là C1-S: Kích hoạt Tenant B sang HOAT_DONG + cờ isSandbox = true
+          // Nếu là C1-S: Kích hoạt Tenant B sang HOAT_DONG + cờ isSandbox = true + dùng chung origin_address_id
           if (isClanSetup && openCase.tenants && openCase.tenants.status === 'CHO_DUYET') {
             const currentSc =
               openCase.tenants.social_configs &&
@@ -1087,11 +1221,30 @@ const membershipService = {
                 ? openCase.tenants.social_configs
                 : {};
 
+            let clanOriginAddressId = null;
+            const rawClanOrigin = String(
+              profile.clan_origin_place || profile.birth_place || ''
+            ).trim();
+            if (rawClanOrigin) {
+              try {
+                const clanOriginAddr = await upsertAddress(tx, targetTenantId, actorId, {
+                  country_code: 'VN',
+                  full_address: rawClanOrigin,
+                });
+                if (clanOriginAddr?.id) {
+                  clanOriginAddressId = clanOriginAddr.id;
+                }
+              } catch (_) {
+                /* optional shared address */
+              }
+            }
+
             await tx.tenants.update({
               where: { id: targetTenantId },
               data: {
                 status: 'HOAT_DONG',
                 social_configs: buildSandboxInitialConfigs(currentSc, now),
+                ...(clanOriginAddressId ? { origin_address_id: clanOriginAddressId } : {}),
                 changed_by: actorId,
               },
             });
@@ -1639,6 +1792,78 @@ const membershipService = {
       submittedAt: targetCase.submitted_at || targetCase.created_at,
       caseMetadata: meta,
       registration_profile: meta.registration_profile || null,
+    };
+  },
+
+  /**
+   * [UAT-Bug 12] Trích xuất thông tin nhân thân cá nhân của EEU từ default tenant
+   * để điền sẵn vào Card "2. Hồ sơ người sáng lập (Trưởng họ)" (trừ Nguyên quán/Quê gốc).
+   */
+  getFounderPrefillData: async (userId) => {
+    const memberSelect = {
+      full_name: true,
+      alias: true,
+      gender: true,
+      birth_year: true,
+      father: { select: { full_name: true } },
+      mother: { select: { full_name: true } },
+      currentAddress: { select: { full_address: true } },
+      residences: {
+        where: { is_current: true, deleted_at: null },
+        take: 1,
+        include: { addresses: { select: { full_address: true } } },
+      },
+      parentages_as_child: {
+        where: { deleted_at: null, review_status: 'ACCEPTED' },
+        include: {
+          parent: { select: { full_name: true, gender: true } },
+        },
+      },
+    };
+
+    let targetLink = await basePrisma.user_member_links.findFirst({
+      where: { user_id: userId, is_default: true, status: 'DA_DUYET', deleted_at: null },
+      include: {
+        member: { select: memberSelect },
+        tenant: { select: { name: true } },
+      },
+    });
+
+    if (!targetLink) {
+      targetLink = await basePrisma.user_member_links.findFirst({
+        where: { user_id: userId, status: 'DA_DUYET', deleted_at: null },
+        include: {
+          member: { select: memberSelect },
+          tenant: { select: { name: true } },
+        },
+      });
+    }
+
+    if (!targetLink || !targetLink.member) {
+      return null;
+    }
+
+    const m = targetLink.member;
+    const parentages = Array.isArray(m.parentages_as_child) ? m.parentages_as_child : [];
+    const fatherFromParentage =
+      parentages.find((p) => p?.parent?.gender === 'NAM')?.parent?.full_name || null;
+    const motherFromParentage =
+      parentages.find((p) => p?.parent?.gender === 'NU')?.parent?.full_name || null;
+
+    const currentAddrText =
+      m.currentAddress?.full_address ||
+      m.residences?.[0]?.addresses?.full_address ||
+      null;
+
+    return {
+      defaultTenantName: targetLink.tenant?.name || 'Dòng họ hiện tại',
+      full_name: !isTechnicalUserCode(m.full_name) ? m.full_name : null,
+      alias: m.alias || null,
+      gender: m.gender || 'NAM',
+      birth_year: m.birth_year || null,
+      father_name: m.father?.full_name || fatherFromParentage || null,
+      mother_name: m.mother?.full_name || motherFromParentage || null,
+      current_address: currentAddrText,
     };
   },
 };

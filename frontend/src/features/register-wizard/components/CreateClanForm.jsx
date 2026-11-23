@@ -1,8 +1,8 @@
 /**
  * PATH       : frontend/src/features/register-wizard/components/CreateClanForm.jsx
  * OLD PATH   : src/features/auth/components/CreateClanForm.jsx
- * DATETIME   : 2026-11-23T06:58:00+07:00
- * VERSION    : 24.14.0-ISO29148-UAT-IMP7-NAME-CHECK
+ * DATETIME   : 2026-11-23T15:50:00+07:00
+ * VERSION    : 24.15.0-ISO29148-UAT-BUG12
  * DESCRIPTION:
  * PURPOSE
  * - Create a new clan registration flow.
@@ -225,6 +225,7 @@ const normalizeCreateDraft = (data) => {
 
   const resolvedFullName = data.temp_full_name ?? rp.full_name;
   const resolvedFatherName = data.temp_father_name ?? rp.father_name;
+  const resolvedMotherName = data.temp_mother_name ?? rp.mother_name;
   const resolvedBirthYear = data.temp_birth_year ?? rp.birth_year;
   const resolvedRelationship =
     data.temp_relationship ?? rp.temp_relationship ?? rp.child_type;
@@ -250,6 +251,8 @@ const normalizeCreateDraft = (data) => {
       resolvedFullName != null ? String(resolvedFullName) : '',
     temp_father_name:
       resolvedFatherName != null ? String(resolvedFatherName) : '',
+    temp_mother_name:
+      resolvedMotherName != null ? String(resolvedMotherName) : '',
     temp_birth_year:
       resolvedBirthYear != null && resolvedBirthYear !== ''
         ? String(resolvedBirthYear)
@@ -1017,6 +1020,7 @@ const CreateClanForm = ({
 
         temp_full_name: { zone: 'personalInfo', ref: personalInfoRef },
         temp_father_name: { zone: 'personalInfo', ref: personalInfoRef },
+        temp_mother_name: { zone: 'personalInfo', ref: personalInfoRef },
         temp_birth_year: { zone: 'personalInfo', ref: personalInfoRef },
         temp_relationship: { zone: 'personalInfo', ref: personalInfoRef },
         temp_note: { zone: 'personalInfo', ref: personalInfoRef },
@@ -1244,6 +1248,7 @@ const CreateClanForm = ({
       const personalInfoOk =
         !!values?.temp_full_name?.trim?.() &&
         !!values?.temp_father_name?.trim?.() &&
+        !!values?.temp_mother_name?.trim?.() &&
         !!values?.temp_relationship &&
         !!values?.temp_note?.trim?.();
 
@@ -1369,6 +1374,7 @@ const CreateClanForm = ({
       !!values?.description?.trim?.() &&
       !!values?.temp_full_name?.trim?.() &&
       !!values?.temp_father_name?.trim?.() &&
+      !!values?.temp_mother_name?.trim?.() &&
       !!values?.temp_relationship &&
       !!values?.temp_note?.trim?.() &&
       !!String(setupPurpose || '').trim() &&
@@ -1390,6 +1396,7 @@ const CreateClanForm = ({
       [
         'temp_full_name',
         'temp_father_name',
+        'temp_mother_name',
         'temp_relationship',
         'temp_note',
       ].includes(gateTarget?.field)
@@ -1425,6 +1432,7 @@ const CreateClanForm = ({
     if (
       !values?.temp_full_name?.trim?.() ||
       !values?.temp_father_name?.trim?.() ||
+      !values?.temp_mother_name?.trim?.() ||
       !values?.temp_relationship ||
       !values?.temp_note?.trim?.()
     ) {
@@ -1476,6 +1484,9 @@ const CreateClanForm = ({
     latestValues.temp_full_name = String(latestValues.temp_full_name || '').trim();
     latestValues.temp_father_name = String(
       latestValues.temp_father_name || ''
+    ).trim();
+    latestValues.temp_mother_name = String(
+      latestValues.temp_mother_name || ''
     ).trim();
     latestValues.temp_birth_year =
       latestValues.temp_birth_year != null && latestValues.temp_birth_year !== ''
@@ -1532,8 +1543,15 @@ const CreateClanForm = ({
     if (!latestValues?.temp_father_name?.trim?.()) {
       routeFieldError(
         'temp_father_name',
-        'Bác vui lòng nhập tên cha hoặc mẹ để đối chiếu.',
-        //'personalInfo'
+        'Bác vui lòng nhập Họ và tên Cha.'
+      );
+      return;
+    }
+
+    if (!latestValues?.temp_mother_name?.trim?.()) {
+      routeFieldError(
+        'temp_mother_name',
+        'Bác vui lòng nhập Họ và tên Mẹ.'
       );
       return;
     }
@@ -1744,6 +1762,7 @@ const CreateClanForm = ({
         'description',
         'temp_full_name',
         'temp_father_name',
+        'temp_mother_name',
         'temp_relationship',
         'temp_note',
         'phone',
@@ -1763,6 +1782,7 @@ const CreateClanForm = ({
           'description',
           'temp_full_name',
           'temp_father_name',
+          'temp_mother_name',
           'temp_birth_year',
           'temp_relationship',
           'temp_note',
@@ -1846,6 +1866,7 @@ const CreateClanForm = ({
       birth_place: String(founderBirthPlace || '').trim() || undefined,
       address: String(founderAddress || '').trim() || undefined,
       father_name: latestValues.temp_father_name || undefined,
+      mother_name: latestValues.temp_mother_name || undefined,
       setup_purpose: cleanSetupPurpose,
       known_generations: cleanKnownGenerations,
       earliest_ancestor_name: cleanEarliestAncestor,
@@ -2303,7 +2324,7 @@ const CreateClanForm = ({
 
                   <div className="space-y-1">
                     <label className={uiSystem.label}>
-                      Tên cha/mẹ <span className="text-rose-500">*</span>
+                      Họ và tên Cha <span className="text-rose-500">*</span>
                     </label>
                     <input
                       {...register('temp_father_name', {
@@ -2313,13 +2334,38 @@ const CreateClanForm = ({
                         },
                       })}
                       onFocus={() => guidedFlow.goToField('personalInfo')}
-                      className={uiSystem.input}
-                      placeholder="Tên cha hoặc mẹ"
+                      className={`${uiSystem.input} ${
+                        attentionField === 'temp_father_name' ? 'border-rose-500 ring-2 ring-rose-200' : ''
+                      }`}
+                      placeholder="Nhập họ và tên Cha"
                     />
-
                     {errors.temp_father_name && (
                       <p className="text-xs font-bold text-rose-600">
                         {errors.temp_father_name.message}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="space-y-1">
+                    <label className={uiSystem.label}>
+                      Họ và tên Mẹ <span className="text-rose-500">*</span>
+                    </label>
+                    <input
+                      {...register('temp_mother_name', {
+                        onChange: () => {
+                          invalidateRuntimeForField('temp_mother_name');
+                          clearAttentionForField('temp_mother_name');
+                        },
+                      })}
+                      onFocus={() => guidedFlow.goToField('personalInfo')}
+                      className={`${uiSystem.input} ${
+                        attentionField === 'temp_mother_name' ? 'border-rose-500 ring-2 ring-rose-200' : ''
+                      }`}
+                      placeholder="Nhập họ và tên Mẹ"
+                    />
+                    {errors.temp_mother_name && (
+                      <p className="text-xs font-bold text-rose-600">
+                        {errors.temp_mother_name.message}
                       </p>
                     )}
                   </div>

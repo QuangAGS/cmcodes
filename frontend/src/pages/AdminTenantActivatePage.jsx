@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/AdminTenantActivatePage.jsx
- * DATETIME   : 2026-11-23T06:13:00+07:00
- * VERSION    : 1.5.0-ISO29148-UAT-IMP6-SANDBOX
+ * DATETIME   : 2026-11-23T16:30:00+07:00
+ * VERSION    : 1.6.0-ISO29148-RPOP-NO-TOAST
  * DESCRIPTION:
  * - OP-2 Final: Xác nhận kích hoạt tenant (TAM_NGUNG -> HOAT_DONG) và
  *   kết thúc giai đoạn dựng cây ban đầu (Sandbox -> Vận hành chính thức).
@@ -10,7 +10,7 @@
 
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { toast } from 'sonner';
+import PersistentMessageBanner from '../components/common/PersistentMessageBanner.jsx';
 import {
   Building2,
   Loader2,
@@ -38,6 +38,7 @@ const AdminTenantActivatePage = () => {
   const [done, setDone] = useState(false);
   const [tenantInfo, setTenantInfo] = useState(null);
   const [fetching, setFetching] = useState(true);
+  const [bannerState, setBannerState] = useState(null);
 
   const isSystemAdmin = user?.role === 'SYSTEM_ADMIN';
   const isClanAdmin = user?.role === 'CLAN_ADMIN';
@@ -64,7 +65,14 @@ const AdminTenantActivatePage = () => {
         const data = res.data?.data || res.data;
         if (!cancelled) setTenantInfo(data);
       } catch {
-        if (!cancelled) toast.error('Không tải được thông tin dòng họ.');
+        if (!cancelled) {
+          setBannerState({
+            type: 'error',
+            mode: 'inline',
+            title: 'Không tải được thông tin dòng họ',
+            message: 'Vui lòng tải lại trang hoặc kiểm tra kết nối mạng.',
+          });
+        }
       } finally {
         if (!cancelled) setFetching(false);
       }
@@ -76,19 +84,35 @@ const AdminTenantActivatePage = () => {
 
   const handleActivate = async () => {
     if (!tenantId) return;
+    setBannerState(null);
     setLoading(true);
     try {
       await apiClient.post(`/tenants/${tenantId}/activate`);
       setDone(true);
-      toast.success('Đã kích hoạt dòng họ.');
-      setTimeout(() => {
-        logout();
-        navigate('/auth', { replace: true });
-      }, 1500);
+      setBannerState({
+        type: 'success',
+        mode: 'inline',
+        title: 'Đã kích hoạt dòng họ thành công',
+        message:
+          'Dòng họ đã chuyển sang trạng thái Hoạt động chính thức. Vui lòng đăng nhập lại để áp dụng quyền vận hành.',
+        actionButton: (
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="min-h-[48px] h-12 rounded-xl bg-emerald-700 px-4 text-base font-bold text-white whitespace-nowrap hover:bg-emerald-800 transition"
+          >
+            Đăng nhập lại ngay
+          </button>
+        ),
+      });
     } catch (e) {
-      toast.error(
-        e?.response?.data?.message || 'Không kích hoạt được. Thử lại.'
-      );
+      setBannerState({
+        type: 'error',
+        mode: 'inline',
+        title: 'Không kích hoạt được dòng họ',
+        message:
+          e?.response?.data?.message || 'Không kích hoạt được. Bác vui lòng thử lại.',
+      });
     } finally {
       setLoading(false);
     }
@@ -183,6 +207,25 @@ const AdminTenantActivatePage = () => {
           <ArrowLeft className="h-4 w-4" />
           Quay lại
         </button>
+
+        {bannerState && (
+          <div className="mb-4">
+            <PersistentMessageBanner
+              type={bannerState.type}
+              mode={bannerState.mode}
+              title={bannerState.title}
+              message={bannerState.message}
+              actionButton={bannerState.actionButton}
+              onClose={() => {
+                if (bannerState.type === 'success') {
+                  handleLogout();
+                } else {
+                  setBannerState(null);
+                }
+              }}
+            />
+          </div>
+        )}
 
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <div className="flex justify-center">

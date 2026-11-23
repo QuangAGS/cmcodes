@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : src/modules/membership/membership.routes.js
- * DATETIME   : 2026-11-14T11:15:00+07:00
- * VERSION    : 1.2.0-MULTIHOME-UAT-BUG4-PROACTIVE-CHECK
+ * DATETIME   : 2026-11-23T15:50:00+07:00
+ * VERSION    : 1.3.0-ISO29148-UAT-BUG12
  * DESCRIPTION:
  * - Routes cho luồng C1 & C1-S theo AMEND-RP-OP-2026-02-FE-V1.5.0:
  *   + GET  /api/membership/eligibility
@@ -28,6 +28,7 @@ const express = require('express');
 const router = express.Router();
 
 const membershipController = require('./membership.controller');
+const membershipService = require('./membership.service');
 const { verifyToken, checkRole } = require('../../middlewares/auth.middleware');
 const { asyncHandler } = require('../../shared/errors');
 const {
@@ -46,6 +47,15 @@ const ADMIN_ROLES = [
 
 router.get('/eligibility', verifyToken, asyncHandler(membershipController.checkEligibility));
 router.get('/status', verifyToken, asyncHandler(membershipController.getStatus));
+router.get(
+  '/founder-prefill',
+  verifyToken,
+  asyncHandler(async (req, res) => {
+    const actorId = req.user.userId || req.user.id;
+    const data = await membershipService.getFounderPrefillData(actorId);
+    res.status(200).json({ success: true, status: 'success', data });
+  })
+);
 
 router.post(
   '/cases',

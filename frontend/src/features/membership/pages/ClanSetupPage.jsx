@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/features/membership/pages/ClanSetupPage.jsx
- * DATETIME    : 2026-11-23T06:58:00+07:00
- * VERSION     : 2.3.0-ISO29148-UAT-IMP7-NAME-CHECK
+ * DATETIME    : 2026-11-23T16:20:00+07:00
+ * VERSION     : 2.4.2-ISO29148-UAT-BUG14
  * DESCRIPTION : Trang Lập dòng họ mới cho người dùng đã có tài khoản (Luồng C1-S):
  *               - Nâng cấp Mức 2:
  *                 1. Trình bày chuẩn Mobile-first bằng CollapsibleDetailCard +
@@ -27,15 +27,13 @@ import {
   CheckCircle2,
   Loader2,
   ArrowLeft,
-  AlertCircle,
   Phone,
   Eye,
 } from 'lucide-react';
-import { toast } from 'sonner';
-
 import { useAuth } from '../../../context/AuthContext';
 import { membershipApi } from '../api/membershipApi';
 import CollapsibleDetailCard from '../../../components/common/CollapsibleDetailCard.jsx';
+import PersistentMessageBanner from '../../../components/common/PersistentMessageBanner.jsx';
 import KeyValueDetailTable from '../../../components/common/KeyValueDetailTable.jsx';
 import AudioHelpButton from '../../elder-doctrine/components/AudioHelpButton.jsx';
 import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx';
@@ -72,13 +70,15 @@ export const ClanSetupPage = () => {
 
   const [clanName, setClanName] = useState('');
   const [description, setDescription] = useState('');
-  const [fullName, setFullName] = useState(user?.name || '');
+  const [fullName, setFullName] = useState('');
   const [alias, setAlias] = useState('');
   const [gender, setGender] = useState('NAM');
   const [birthYear, setBirthYear] = useState('');
   const [birthPlace, setBirthPlace] = useState('');
   const [address, setAddress] = useState('');
   const [fatherName, setFatherName] = useState('');
+  const [motherName, setMotherName] = useState('');
+  const [prefillTenantName, setPrefillTenantName] = useState('');
   const [setupPurpose, setSetupPurpose] = useState('');
   const [knownGenerations, setKnownGenerations] = useState('');
   const [earliestAncestorName, setEarliestAncestorName] = useState('');
@@ -105,6 +105,7 @@ export const ClanSetupPage = () => {
   const [loadingRevision, setLoadingRevision] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [submitBanner, setSubmitBanner] = useState(null);
   const [revisionFeedback, setRevisionFeedback] = useState('');
 
   const checkDuplicateClanName = useCallback(async (rawName, { force = false } = {}) => {
@@ -148,9 +149,31 @@ export const ClanSetupPage = () => {
   );
 
   useEffect(() => {
-    if (!isRevisionMode || !caseId) return;
-
     let cancelled = false;
+
+    if (!isRevisionMode) {
+      membershipApi
+        .getFounderPrefill()
+        .then((prefillData) => {
+          if (cancelled || !prefillData) return;
+          setPrefillTenantName(prefillData.defaultTenantName || '');
+          if (prefillData.full_name) setFullName(prefillData.full_name);
+          if (prefillData.alias) setAlias(prefillData.alias);
+          if (prefillData.gender) setGender(prefillData.gender);
+          if (prefillData.birth_year) setBirthYear(String(prefillData.birth_year));
+          if (prefillData.father_name) setFatherName(prefillData.father_name);
+          if (prefillData.mother_name) setMotherName(prefillData.mother_name);
+          if (prefillData.current_address) setAddress(prefillData.current_address);
+        })
+        .catch(() => {
+          /* best-effort prefill */
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (!caseId) return undefined;
     setLoadingRevision(true);
     membershipApi
       .getMembershipStatus({ caseId })
@@ -173,6 +196,7 @@ export const ClanSetupPage = () => {
         if (rp.birth_place) setBirthPlace(rp.birth_place);
         if (rp.address) setAddress(rp.address);
         if (rp.father_name) setFatherName(rp.father_name);
+        if (rp.mother_name) setMotherName(rp.mother_name);
         if (rp.setup_purpose) setSetupPurpose(rp.setup_purpose);
         if (rp.known_generations) setKnownGenerations(rp.known_generations);
         if (rp.earliest_ancestor_name) {
@@ -208,6 +232,7 @@ export const ClanSetupPage = () => {
     const cleanDesc = String(description || '').trim();
     const cleanFullName = String(fullName || '').trim();
     const cleanFatherName = String(fatherName || '').trim();
+    const cleanMotherName = String(motherName || '').trim();
     const cleanSetupPurpose = String(setupPurpose || '').trim();
     const cleanKnownGenerations = String(knownGenerations || '').trim();
     const cleanEarliestAncestor = String(earliestAncestorName || '').trim();
@@ -238,7 +263,13 @@ export const ClanSetupPage = () => {
     if (!cleanFatherName) {
       return {
         valid: false,
-        message: 'Bác vui lòng nhập tên cha hoặc mẹ để đối chiếu.',
+        message: 'Bác vui lòng nhập họ và tên Cha để đối chiếu huyết thống.',
+      };
+    }
+    if (!cleanMotherName) {
+      return {
+        valid: false,
+        message: 'Bác vui lòng nhập họ và tên Mẹ để đối chiếu huyết thống.',
       };
     }
     if (cleanBirthYear && !/^\d{4}$/.test(cleanBirthYear)) {
@@ -326,6 +357,7 @@ export const ClanSetupPage = () => {
           birth_place: String(birthPlace || '').trim() || undefined,
           address: String(address || '').trim() || undefined,
           father_name: cleanFatherName,
+          mother_name: cleanMotherName,
           setup_purpose: cleanSetupPurpose,
           known_generations: cleanKnownGenerations,
           earliest_ancestor_name: cleanEarliestAncestor,
@@ -360,6 +392,7 @@ export const ClanSetupPage = () => {
 
   const handleFinalSubmit = async () => {
     setErrorMsg('');
+    setSubmitBanner(null);
     const check = validateAndBuildDraft();
     if (!check.valid) {
       setErrorMsg(check.message);
@@ -378,12 +411,8 @@ export const ClanSetupPage = () => {
       let res;
       if (isRevisionMode && caseId) {
         res = await membershipApi.submitRevision(caseId, check.payload);
-        toast.success('Đã gửi lại hồ sơ bổ sung lập dòng họ!');
       } else {
         res = await membershipApi.submitClanSetup(check.payload);
-        toast.success(
-          'Đã gửi hồ sơ lập dòng họ mới! Chờ Hệ thống Trung tâm phê duyệt.'
-        );
       }
 
       if (typeof refreshContext === 'function') {
@@ -391,18 +420,32 @@ export const ClanSetupPage = () => {
       }
 
       const targetCaseId = res?.data?.caseId || caseId || '';
-      navigate(
-        targetCaseId
-          ? `/membership/status?caseId=${encodeURIComponent(targetCaseId)}`
-          : '/membership/status'
-      );
+      const createdSlug = res?.data?.slug || '';
+      const statusUrl = targetCaseId
+        ? `/membership/status?caseId=${encodeURIComponent(targetCaseId)}`
+        : '/membership/status';
+
+      setSubmitBanner({
+        type: 'success',
+        mode: 'inline',
+        title: isRevisionMode
+          ? 'Đã gửi lại hồ sơ bổ sung lập dòng họ'
+          : 'Đã gửi hồ sơ lập dòng họ mới thành công',
+        message: isRevisionMode
+          ? `Hồ sơ bổ sung cho dòng họ "${String(clanName).trim()}" đã được tiếp nhận. Hệ thống Trung tâm sẽ thẩm định lại và phản hồi cho bác.`
+          : `Hồ sơ thành lập dòng họ "${String(clanName).trim()}"${
+              createdSlug ? ` (Mã họ dự kiến: ${createdSlug})` : ''
+            } đã được tiếp nhận và đang chờ Hệ thống Trung tâm phê duyệt.`,
+        correlationId: res?.data?.correlationId || 'Không có',
+        statusUrl,
+      });
+      window.scrollTo?.({ top: 0, behavior: 'smooth' });
     } catch (err) {
       console.error('[ClanSetupPage] Submit error:', err);
       const msg =
         err?.response?.data?.message ||
         'Gửi hồ sơ lập dòng họ thất bại. Bác vui lòng thử lại.';
       setErrorMsg(msg);
-      toast.error(msg);
     } finally {
       setIsSubmitting(false);
     }
@@ -415,6 +458,7 @@ export const ClanSetupPage = () => {
   const isFounderSectionComplete =
     String(fullName || '').trim().length > 0 &&
     String(fatherName || '').trim().length > 0 &&
+    String(motherName || '').trim().length > 0 &&
     String(note || '').trim().length >= 10;
 
   const isElderSectionComplete =
@@ -479,7 +523,7 @@ export const ClanSetupPage = () => {
           <AudioHelpButton
             text={
               stepMode === 'REVIEW'
-                ? 'Bác vui lòng kiểm tra lại toàn bộ thông tin dòng họ mới, hồ sơ Trưởng họ và người cao niên xác minh. Nếu đã đúng, bác tích vào ô xác nhận bên dưới rồi bấm Gửi hồ sơ lập dòng họ mới.'
+                ? 'Bác vui lòng kiểm tra lại toàn bộ thông tin dòng họ mới, hồ sơ Trưởng họ và người cao niên xác minh. Nếu đã đúng, bác tích vào ô xác nhận bên dưới rồi bấm Gửi hồ sơ.'
                 : 'Bác điền đầy đủ thông tin dòng họ cần thành lập, thông tin Trưởng họ sáng lập và người cao niên từ 60 tuổi trở lên trong họ để Hệ thống Trung tâm gọi điện xác minh trước khi phê duyệt.'
             }
             label="Nghe hướng dẫn"
@@ -505,14 +549,34 @@ export const ClanSetupPage = () => {
           </div>
         )}
 
+        {submitBanner && (
+          <PersistentMessageBanner
+            type={submitBanner.type}
+            mode={submitBanner.mode}
+            title={submitBanner.title}
+            message={submitBanner.message}
+            correlationId={submitBanner.correlationId}
+            actionButton={
+              <button
+                type="button"
+                onClick={() => navigate(submitBanner.statusUrl)}
+                className="min-h-[48px] h-12 rounded-xl bg-emerald-700 px-4 text-base font-bold text-white whitespace-nowrap hover:bg-emerald-800 transition"
+              >
+                Xem trạng thái hồ sơ
+              </button>
+            }
+            onClose={() => navigate(submitBanner.statusUrl)}
+          />
+        )}
+
         {errorMsg && (
-          <div
-            role="alert"
-            className="flex items-start gap-2.5 rounded-2xl border border-rose-300 bg-rose-50 p-4 text-base font-bold text-rose-800"
-          >
-            <AlertCircle size={20} className="mt-0.5 shrink-0" />
-            <span>{errorMsg}</span>
-          </div>
+          <PersistentMessageBanner
+            type="error"
+            mode="inline"
+            title="Chưa thể hoàn tất thao tác"
+            message={errorMsg}
+            onClose={() => setErrorMsg('')}
+          />
         )}
 
         {stepMode === 'REVIEW' ? (
@@ -559,8 +623,12 @@ export const ClanSetupPage = () => {
                     value: GENDER_LABELS[gender] || 'Nam',
                   },
                   {
-                    label: 'Họ tên Cha / Mẹ',
+                    label: 'Họ và tên Cha',
                     value: String(fatherName).trim(),
+                  },
+                  {
+                    label: 'Họ và tên Mẹ',
+                    value: String(motherName).trim(),
                   },
                   ...(birthYear
                     ? [{ label: 'Năm sinh', value: String(birthYear).trim() }]
@@ -674,19 +742,19 @@ export const ClanSetupPage = () => {
             <div className="flex flex-col sm:flex-row gap-3 pt-2">
               <button
                 type="button"
-                disabled={isSubmitting}
+                disabled={isSubmitting || Boolean(submitBanner)}
                 onClick={() => setStepMode('EDIT')}
-                className="min-h-[48px] h-12 rounded-xl border border-slate-300 bg-white px-5 text-base font-bold text-slate-800 whitespace-nowrap hover:bg-slate-50 sm:flex-1"
+                className="min-h-[48px] h-12 min-w-0 rounded-xl border border-slate-300 bg-white px-4 text-base font-bold text-slate-800 whitespace-nowrap hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 sm:flex-1"
               >
                 Quay lại chỉnh sửa
               </button>
 
               <button
                 type="button"
-                disabled={isSubmitting || !reviewConfirmed}
+                disabled={isSubmitting || !reviewConfirmed || Boolean(submitBanner)}
                 onClick={handleFinalSubmit}
-                className={`min-h-[48px] h-12 rounded-xl px-5 text-base font-bold text-white whitespace-nowrap inline-flex items-center justify-center gap-2 sm:flex-[1.5] transition ${
-                  isSubmitting || !reviewConfirmed
+                className={`min-h-[48px] h-12 min-w-0 rounded-xl px-5 text-base font-bold text-white whitespace-nowrap inline-flex items-center justify-center gap-2 sm:flex-[1.2] transition ${
+                  isSubmitting || !reviewConfirmed || Boolean(submitBanner)
                     ? 'cursor-not-allowed bg-slate-300 text-slate-600'
                     : 'bg-emerald-600 hover:bg-emerald-700 shadow-md'
                 }`}
@@ -694,16 +762,12 @@ export const ClanSetupPage = () => {
                 {isSubmitting ? (
                   <>
                     <Loader2 size={20} className="animate-spin" />
-                    <span>Đang gửi hồ sơ...</span>
+                    <span>Đang gửi...</span>
                   </>
                 ) : (
                   <>
                     <CheckCircle2 size={20} />
-                    <span>
-                      {isRevisionMode
-                        ? 'Gửi lại hồ sơ lập dòng họ'
-                        : 'Gửi hồ sơ lập dòng họ mới'}
-                    </span>
+                    <span>{isRevisionMode ? 'Gửi lại hồ sơ' : 'Gửi hồ sơ'}</span>
                   </>
                 )}
               </button>
@@ -779,6 +843,12 @@ export const ClanSetupPage = () => {
               disabled={isSubmitting}
             >
               <div className="space-y-4">
+                {prefillTenantName && (
+                  <p className="rounded-xl border border-blue-200 bg-blue-50/70 p-3 text-base font-normal text-blue-950">
+                    Thông tin cá nhân bên dưới được điền sẵn từ hồ sơ của bác tại dòng họ{' '}
+                    <strong className="font-bold">{prefillTenantName}</strong>. Bác vui lòng nhập Nguyên quán / Quê gốc của dòng họ mới và lời nhắn.
+                  </p>
+                )}
                 <div>
                   <label className={labelClass}>
                     Họ và tên Trưởng họ{' '}
@@ -839,15 +909,28 @@ export const ClanSetupPage = () => {
 
                 <div>
                   <label className={labelClass}>
-                    Họ tên Cha / Mẹ{' '}
-                    <span className="font-bold text-rose-600">*</span>
+                    Họ và tên Cha <span className="font-bold text-rose-600">*</span>
                   </label>
                   <input
                     type="text"
                     disabled={isSubmitting}
                     value={fatherName}
                     onChange={(e) => setFatherName(e.target.value)}
-                    placeholder="Nhập họ tên đầy đủ của cha hoặc mẹ"
+                    placeholder="Nhập họ tên đầy đủ của Cha"
+                    className={inputClass}
+                  />
+                </div>
+
+                <div>
+                  <label className={labelClass}>
+                    Họ và tên Mẹ <span className="font-bold text-rose-600">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    disabled={isSubmitting}
+                    value={motherName}
+                    onChange={(e) => setMotherName(e.target.value)}
+                    placeholder="Nhập họ tên đầy đủ của Mẹ"
                     className={inputClass}
                   />
                 </div>

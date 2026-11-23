@@ -1,7 +1,7 @@
 /**
  * PATH       : src/features/onboarding/components/BaseProfileForm.jsx
- * DATETIME   : 2026-08-17T21:10:00+07:00
- * VERSION    : 1.0.1-FE-OP-B1-UI2
+ * DATETIME   : 2026-11-23T16:30:00+07:00
+ * VERSION    : 1.1.0-ISO29148-RPOP-NO-TOAST
  * DESCRIPTION:
  * - Form Hồ sơ cơ sở OP (MEMBER_PROMOTE).
  * - Zod + react-hook-form; labels opFieldLabels; Elder zones + FormErrorSpeaker.
@@ -16,10 +16,10 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Loader2 } from 'lucide-react';
-import { toast } from 'sonner';
 
 import apiClient from '../../../lib/apiClient.js';
 import AttentionZone from '../../../components/AttentionZone.jsx';
+import PersistentMessageBanner from '../../../components/common/PersistentMessageBanner.jsx';
 import AudioHelpButton from '../../elder-doctrine/components/AudioHelpButton.jsx';
 import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx';
 import FormErrorSpeaker from '../../elder-doctrine/components/FormErrorSpeaker.jsx';
@@ -133,6 +133,7 @@ export default function BaseProfileForm({
   const memberId = myOpData?.primary?.id;
   const caseId = myOpData?.case?.id;
   const [formError, setFormError] = useState('');
+  const [bannerState, setBannerState] = useState(null);
   const [speakerErrors, setSpeakerErrors] = useState({});
 
   const {
@@ -188,15 +189,26 @@ export default function BaseProfileForm({
     const first = Object.values(formErrors)[0];
     const msg = first?.message || 'Vui lòng kiểm tra lại thông tin đã nhập.';
     setFormError(msg);
-    toast.error(msg);
+    setBannerState({
+      type: 'error',
+      mode: 'inline',
+      title: 'Thông tin chưa hợp lệ',
+      message: msg,
+    });
     console.warn('[BaseProfileForm] validation', formErrors);
   };
 
   const onSaveDraft = handleSubmit(async (values) => {
     setFormError('');
+    setBannerState(null);
     try {
       await saveMember(values);
-      toast.success(OP_BASE_PROFILE_TOAST.draftSaved);
+      setBannerState({
+        type: 'success',
+        mode: 'inline',
+        title: 'Đã lưu nháp hồ sơ cơ sở',
+        message: OP_BASE_PROFILE_TOAST.draftSaved,
+      });
       onSuccessDraft?.();
     } catch (err) {
       console.error(
@@ -209,12 +221,18 @@ export default function BaseProfileForm({
           ? 'Không tìm thấy hồ sơ thành viên.'
           : mapApiError(err);
       setFormError(msg);
-      toast.error(msg);
+      setBannerState({
+        type: 'error',
+        mode: 'inline',
+        title: 'Chưa lưu được bản nháp',
+        message: msg,
+      });
     }
   }, onInvalid);
 
   const onSubmitForReview = handleSubmit(async (values) => {
     setFormError('');
+    setBannerState(null);
     try {
       await saveMember(values);
 
@@ -222,7 +240,12 @@ export default function BaseProfileForm({
         const msg =
           'Không tìm thấy hồ sơ xét duyệt. Vui lòng quay lại danh mục.';
         setFormError(msg);
-        toast.error(msg);
+        setBannerState({
+          type: 'error',
+          mode: 'inline',
+          title: 'Thiếu mã hồ sơ xét duyệt',
+          message: msg,
+        });
         return;
       }
 
@@ -237,12 +260,22 @@ export default function BaseProfileForm({
         const msg =
           mapApiError(submitErr) || OP_BASE_PROFILE_TOAST.submitFailed;
         setFormError(msg);
-        toast.error(msg);
+        setBannerState({
+          type: 'error',
+          mode: 'inline',
+          title: 'Gửi duyệt hồ sơ thất bại',
+          message: msg,
+        });
         onSuccessDraft?.();
         return;
       }
 
-      toast.success(OP_BASE_PROFILE_TOAST.submitted);
+      setBannerState({
+        type: 'success',
+        mode: 'inline',
+        title: 'Đã gửi duyệt hồ sơ cơ sở',
+        message: OP_BASE_PROFILE_TOAST.submitted,
+      });
       onSuccessSubmit?.();
     } catch (err) {
       console.error(
@@ -255,7 +288,12 @@ export default function BaseProfileForm({
           ? 'Không tìm thấy hồ sơ thành viên.'
           : mapApiError(err);
       setFormError(msg);
-      toast.error(msg);
+      setBannerState({
+        type: 'error',
+        mode: 'inline',
+        title: 'Chưa thể gửi duyệt hồ sơ',
+        message: msg,
+      });
     }
   }, onInvalid);
 
@@ -277,15 +315,17 @@ export default function BaseProfileForm({
         size="md"
       />
 
-      {formError ? (
-        <AttentionZone
-          active
-          priority="high"
-          className="rounded-3xl border p-4 text-sm"
-          recoveryKey="op-base-profile-error"
-        >
-          {formError}
-        </AttentionZone>
+      {bannerState ? (
+        <PersistentMessageBanner
+          type={bannerState.type}
+          mode={bannerState.mode}
+          title={bannerState.title}
+          message={bannerState.message}
+          onClose={() => {
+            setBannerState(null);
+            setFormError('');
+          }}
+        />
       ) : null}
 
       {/* Khối thông tin cơ bản */}

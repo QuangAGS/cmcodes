@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH       : frontend/src/features/admin/components/UserApprovalForm.jsx
- * DATETIME   : 2026-11-23T06:13:00+07:00
- * VERSION    : 15.4.0-ISO29148-UAT-IMP6-CLAN-SETUP
+ * DATETIME   : 2026-11-23T15:50:00+07:00
+ * VERSION    : 15.5.0-ISO29148-UAT-BUG12
  * DESCRIPTION:
  * - [UAT-IMP5 2026-11-21]:
  *   1. Bổ sung Card chuyên biệt "1. Thông tin Người giới thiệu trong họ" hiển thị
@@ -391,6 +391,7 @@ const UserApprovalForm = ({
       regProfile.full_name || snapshot.full_name || userCore.name,
       'Chưa khai báo'
     );
+    const isTechnicalApplicantName = /^\d{4,10}_[0-9a-f]{6,8}$/i.test(applicantName);
     const applicantAlias = cleanStr(regProfile.alias || snapshot.alias);
     const birthDateText =
       [
@@ -510,10 +511,17 @@ const UserApprovalForm = ({
             { label: 'Giới tính', value: genderLabel },
             { label: 'Năm sinh', value: birthDateText },
             {
-              label: 'Họ tên Cha / Mẹ',
+              label: 'Họ và tên Cha',
               value: cleanStr(
                 regProfile.father_name || snapshot.father_name,
-                'Chưa rõ'
+                'Chưa khai báo'
+              ),
+            },
+            {
+              label: 'Họ và tên Mẹ',
+              value: cleanStr(
+                regProfile.mother_name || snapshot.mother_name,
+                'Chưa khai báo'
               ),
             },
             { label: 'Quan hệ với họ tộc', value: resolvedRelationshipDisplay },
@@ -526,6 +534,43 @@ const UserApprovalForm = ({
               ? [{ label: 'Địa chỉ cư trú hiện tại', value: addressText }]
               : []),
           ],
+          extraContent: (() => {
+            const fName = cleanStr(regProfile.father_name || snapshot.father_name);
+            const mName = cleanStr(regProfile.mother_name || snapshot.mother_name);
+            const appSurname = applicantName.split(/\s+/)[0]?.toLowerCase() || '';
+            const fSurname = fName.split(/\s+/)[0]?.toLowerCase() || '';
+            const mSurname = mName.split(/\s+/)[0]?.toLowerCase() || '';
+            const hasSurnameMismatch =
+              !isTechnicalApplicantName &&
+              Boolean(appSurname) &&
+              Boolean(fSurname) &&
+              Boolean(mSurname) &&
+              appSurname !== fSurname &&
+              appSurname !== mSurname;
+
+            if (!isTechnicalApplicantName && !hasSurnameMismatch) return null;
+
+            return (
+              <div className="space-y-2.5">
+                {isTechnicalApplicantName && (
+                  <div className="flex items-start gap-2 rounded-xl border border-rose-300 bg-rose-50 p-3 text-base font-bold text-rose-800">
+                    <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+                    <span>
+                      Cảnh báo: Họ tên Trưởng họ đang hiển thị dưới dạng mã định danh nội bộ ({applicantName}). Quản trị viên nên bấm &ldquo;Yêu cầu bổ sung&rdquo; để ứng viên cập nhật họ tên thật.
+                    </span>
+                  </div>
+                )}
+                {hasSurnameMismatch && (
+                  <div className="flex items-start gap-2 rounded-xl border-2 border-amber-300 bg-amber-50 p-3 text-base font-semibold text-amber-950">
+                    <AlertTriangle size={18} className="mt-0.5 shrink-0 text-amber-700" />
+                    <span>
+                      <strong>Cảnh báo đối chiếu huyết thống:</strong> Họ của người sáng lập (<strong>{applicantName.split(/\s+/)[0]}</strong>) không trùng với họ của Cha (<strong>{fName.split(/\s+/)[0]}</strong>) lẫn họ của Mẹ (<strong>{mName.split(/\s+/)[0]}</strong>). Đề nghị điều tra, xác minh kỹ trước khi phê duyệt.
+                    </span>
+                  </div>
+                )}
+              </div>
+            );
+          })(),
         },
         {
           id: 'offline_verifier',

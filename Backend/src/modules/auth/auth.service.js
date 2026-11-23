@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/auth/auth.service.js
- * DATETIME   : 2026-11-22T23:10:00+07:00
- * VERSION    : 20.13.0-ISO29148-UAT-IMP6-SANDBOX
+ * DATETIME   : 2026-11-23T15:50:00+07:00
+ * VERSION    : 20.14.0-ISO29148-UAT-BUG12
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0] Lát 0 + Lát 3 Multi-Home SSOT:
  *   + Lát 0 (C2 & C2-S): registerUser tạo users (CHO_DUYET) + onboarding_cases.metadata trong 1 TX atomic;
@@ -61,6 +61,7 @@ const {
   evaluateTenantSandboxLifecycle,
   computeSandboxLifecycleInfo,
 } = require('../tenants/sandboxLifecycle.service');
+const { upsertAddress } = require('../profile/profile.service.js');
 
 const VALID_MEMBER_GENDERS = new Set(['NAM', 'NU', 'KHAC']);
 const VALID_MEMBER_ROLES = new Set([
@@ -2638,6 +2639,61 @@ const authService = {
             resolvedMemberId = newMember.id;
             createdNewMember = true;
 
+            // [UAT-Bug 12] Vật chất hóa & dùng chung bản ghi addresses trong tenant mới
+            try {
+              let resAddrId = null;
+              let originAddrId = null;
+              if (profile.address && String(profile.address).trim()) {
+                const resAddr = await upsertAddress(tx, effectiveTargetTenantId, actorId, {
+                  country_code: 'VN',
+                  full_address: String(profile.address).trim(),
+                });
+                if (resAddr?.id) {
+                  resAddrId = resAddr.id;
+                  await tx.member_residences.create({
+                    data: {
+                      tenant_id: effectiveTargetTenantId,
+                      member_id: newMember.id,
+                      address_id: resAddr.id,
+                      kind: 'RESIDENCE',
+                      is_current: true,
+                      changed_by: actorId,
+                    },
+                  });
+                }
+              }
+              if (profile.birth_place && String(profile.birth_place).trim()) {
+                const origAddr = await upsertAddress(tx, effectiveTargetTenantId, actorId, {
+                  country_code: 'VN',
+                  full_address: String(profile.birth_place).trim(),
+                });
+                if (origAddr?.id) {
+                  originAddrId = origAddr.id;
+                  await tx.member_residences.create({
+                    data: {
+                      tenant_id: effectiveTargetTenantId,
+                      member_id: newMember.id,
+                      address_id: origAddr.id,
+                      kind: 'ORIGIN',
+                      is_current: false,
+                      changed_by: actorId,
+                    },
+                  });
+                }
+              }
+              if (resAddrId || originAddrId) {
+                await tx.members.update({
+                  where: { id: newMember.id },
+                  data: {
+                    ...(resAddrId ? { current_address_id: resAddrId } : {}),
+                    ...(originAddrId ? { origin_address_id: originAddrId } : {}),
+                  },
+                });
+              }
+            } catch (addrErr) {
+              console.error('[USER_APPROVAL][SHARED_ADDRESS]', addrErr.message || addrErr);
+            }
+
             await auditService.logAction(
               'THEM_MOI',
               'members',
@@ -2753,11 +2809,32 @@ const authService = {
               ? effectiveTargetTenant.social_configs
               : {};
 
+          let clanOriginAddressId = null;
+          if (isClanSetup) {
+            const rawClanOrigin = String(
+              profile.clan_origin_place || profile.birth_place || ''
+            ).trim();
+            if (rawClanOrigin) {
+              try {
+                const clanOriginAddr = await upsertAddress(tx, effectiveTargetTenantId, actorId, {
+                  country_code: 'VN',
+                  full_address: rawClanOrigin,
+                });
+                if (clanOriginAddr?.id) {
+                  clanOriginAddressId = clanOriginAddr.id;
+                }
+              } catch (_) {
+                /* optional shared address */
+              }
+            }
+          }
+
           updatedTenantData = await tx.tenants.update({
             where: { id: effectiveTargetTenantId },
             data: {
               status: 'HOAT_DONG',
               social_configs: buildSandboxInitialConfigs(currentSc, new Date()),
+              ...(clanOriginAddressId ? { origin_address_id: clanOriginAddressId } : {}),
               changed_by: actorId,
             },
           });

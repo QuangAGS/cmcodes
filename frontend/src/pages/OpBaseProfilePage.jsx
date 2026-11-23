@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/OpBaseProfilePage.jsx
- * DATETIME   : 2026-08-24T10:45:00+07:00
- * VERSION    : 1.2.0-FOOTER
+ * DATETIME   : 2026-11-23T16:30:00+07:00
+ * VERSION    : 1.3.0-ISO29148-RPOP-NO-TOAST
  * DESCRIPTION:
  * - Shell /op/base-profile + TenantHeader + AppFooterNav.
  * - load my-op → BaseProfileForm.
@@ -9,7 +9,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { toast } from 'sonner';
 
 import { useAuth } from '../context/AuthContext.jsx';
 import apiClient from '../lib/apiClient.js';
