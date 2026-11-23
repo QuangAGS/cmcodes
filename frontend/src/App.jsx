@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/App.jsx
- * DATETIME    : 2026-11-20T07:00:00+07:00
- * VERSION     : 3.7.0-PHASE2-SPRINT-FE3
+ * DATETIME    : 2026-11-23T17:35:00+07:00
+ * VERSION     : 3.8.0-ISO29148-UAT-IMP9
  * DESCRIPTION : Định tuyến ứng dụng Gia Phả Số chuẩn AMEND-RP-OP-2026-02 V1.5.0
  *               & IMPL-PLAN-FE-PHASE2-V1.8-ISO29148:
  *               - AdminProtectedRoute: Thẩm định quyền theo activeContext.roleInTenant
@@ -126,10 +126,12 @@ const AppLayout = ({ children }) => {
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900">
       <SandboxModeBanner />
-      <header className="sticky top-0 z-40 bg-white border-b border-gray-200 shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <span className="text-lg font-bold text-slate-800">Gia Phả Số</span>
+      <header className="sticky top-0 z-40 bg-white border-b border-slate-200 shadow-sm">
+        <div className="max-w-7xl mx-auto px-3 sm:px-4 min-h-[64px] py-1.5 flex items-center justify-between gap-2">
+          <div className="flex items-center shrink-0">
+            <span className="text-base sm:text-lg font-black tracking-tight text-slate-800 whitespace-nowrap">
+              Gia Phả Số
+            </span>
           </div>
           <HeaderClanSwitcher />
         </div>
