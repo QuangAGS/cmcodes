@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/tenants/tenant.routes.js
- * DATETIME   : 2026-11-22T18:10:00+07:00
- * VERSION    : 1.9.0-ISO29148-UAT-IMP5-RULES
+ * DATETIME   : 2026-11-23T06:58:00+07:00
+ * VERSION    : 1.11.0-ISO29148-UAT-IMP7-NAME-CHECK
  * DESCRIPTION:
  * - GET/PATCH /me — cài đặt dòng họ (CLAN_ADMIN / SYSTEM_ADMIN).
  * - PATCH /:id/settings — SYSTEM_ADMIN sửa tenant bất kỳ.
@@ -37,6 +37,20 @@ function actorFromReq(req) {
 
 // --- PUBLIC ---
 router.get('/search', tenantCtrl.search);
+
+// --- PUBLIC check duplicate clan name (UAT-IMP7 soft warning) ---
+router.get(
+  '/check-name',
+  asyncHandler(async (req, res) => {
+    const rawName = String(req.query.name || req.query.q || '').trim();
+    const data = await tenantService.checkClanNameAvailability(rawName);
+    res.status(200).json({
+      success: true,
+      status: 'success',
+      data,
+    });
+  })
+);
 
 // --- SETTINGS (trước /:id) ---
 router.get(
@@ -225,6 +239,51 @@ router.post(
     res.status(200).json({
       status: 'success',
       message: 'Dòng họ đã được kích hoạt thành công.',
+      data: result,
+    });
+  })
+);
+
+router.post(
+  '/:id/sandbox/extend',
+  verifyToken,
+  checkRole(['SYSTEM_ADMIN']),
+  asyncHandler(async (req, res) => {
+    const tenantId = req.params.id;
+    const actor = actorFromReq(req);
+    const { extraDays = 15, note = '' } = req.body || {};
+    const result = await tenantService.extendTenantSandbox(
+      tenantId,
+      actor,
+      extraDays,
+      note
+    );
+    res.status(200).json({
+      success: true,
+      status: 'success',
+      message: 'Đã gia hạn thời gian dùng thử Sandbox.',
+      data: result,
+    });
+  })
+);
+
+router.post(
+  '/:id/sandbox/cleanup',
+  verifyToken,
+  checkRole(['SYSTEM_ADMIN']),
+  asyncHandler(async (req, res) => {
+    const tenantId = req.params.id;
+    const actor = actorFromReq(req);
+    const { note = '' } = req.body || {};
+    const result = await tenantService.closeAndCleanSandboxTenant(
+      tenantId,
+      actor,
+      note
+    );
+    res.status(200).json({
+      success: true,
+      status: 'success',
+      message: 'Đã đóng dòng họ (NGUNG_HAN) và dọn dẹp dữ liệu dùng thử.',
       data: result,
     });
   })

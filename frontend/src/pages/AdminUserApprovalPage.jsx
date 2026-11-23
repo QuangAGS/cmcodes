@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH       : frontend/src/pages/AdminUserApprovalPage.jsx
- * DATETIME   : 2026-11-22T21:50:00+07:00
- * VERSION    : 25.6.0-ISO29148-UAT-BUG10-STATUS
+ * DATETIME   : 2026-11-23T07:48:00+07:00
+ * VERSION    : 25.7.0-ISO29148-UAT-IMP8-FOOTER-NAV
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0 Lát 4] Trang danh sách & điều phối xét duyệt hồ sơ Admin:
  *   + Gắn 4 nhãn phân loại hồ sơ: [NHẬN NGƯỜI TRÊN CÂY - EM], [KHAI BÁO MỚI - 21 TRƯỜNG],
@@ -144,7 +144,11 @@ const AdminUserApprovalPage = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const sessionTenant = resolveTenant(currentUser);
-  const footerNav = resolveFooterNav(currentUser, { pageKey: 'admin-approval' });
+  const footerNav = resolveFooterNav(currentUser, {
+    pageKey: 'admin-approval',
+    backTo: '/admin',
+    showBack: true,
+  });
   const handleLogout = () => {
     logout();
     navigate('/auth', { replace: true });

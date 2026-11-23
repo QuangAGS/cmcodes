@@ -1,7 +1,7 @@
 /**
  * PATH       : src/features/register-wizard/utils/createClanValidation.js
- * DATETIME   : 2026-11-22T15:15:00+07:00
- * VERSION    : 2.3.0-ISO29148-CLAN-SETUP-M2
+ * DATETIME   : 2026-11-23T06:35:00+07:00
+ * VERSION    : 2.4.1-ISO29148-UAT-BUG11
  * DESCRIPTION:
  * - selectedSlug trở thành optional vì backend tự sinh slug.
  * - [2.3.0]: Bổ sung elder_name & elder_phone (Người cao niên >= 60 tuổi xác minh
@@ -47,11 +47,29 @@ export const createClanSchema = z.object({
   temp_address: safeString.optional(),
 
   temp_note: safeString.refine(
-    (val) => val !== null && val.length > 10,
-    'Lời nhắn tới Ban quản trị là bắt buộc'
+    (val) => val !== null && val.length >= 10,
+    'Lời nhắn tới Ban quản trị bắt buộc phải từ 10 ký tự trở lên'
   ),
 
-  // --- KHỐI 2B: NGƯỜI CAO NIÊN XÁC MINH NGOẠI TUYẾN (ARCH-06) ---
+  // --- KHỐI 2B: THẨM ĐỊNH KHỞI TẠO DÒNG HỌ (ARCH-06 UAT-IMP6 / UAT-BUG11) ---
+  setup_purpose: z.preprocess(
+    (val) => (val === '' || val === null ? undefined : val),
+    z
+      .enum(['FAMILY_START', 'CLAN_DIGITIZE', 'FAMILY_CONNECT', 'OTHER'], {
+        message: 'Vui lòng chọn mục đích khởi tạo dòng họ hợp lệ.',
+      })
+      .optional()
+  ),
+  known_generations: z.preprocess(
+    (val) => (val === '' || val === null ? undefined : val),
+    z
+      .enum(['1_2', '3_4', '5_PLUS'], {
+        message: 'Vui lòng chọn phạm vi số đời dự kiến hợp lệ.',
+      })
+      .optional()
+  ),
+  earliest_ancestor_name: safeString.optional(),
+  clan_origin_place: safeString.optional(),
   elder_name: safeString.optional(),
   elder_phone: safeString.optional(),
 

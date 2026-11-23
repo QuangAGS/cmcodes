@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : frontend/src/features/onboarding/components/RulesAgreementCard.jsx
- * DATETIME   : 2026-11-22T18:10:00+07:00
- * VERSION    : 1.0.0-ISO29148-UAT-IMP5-RULES
+ * DATETIME   : 2026-11-22T23:10:00+07:00
+ * VERSION    : 1.1.0-ISO29148-UAT-IMP6-SANDBOX
  * DESCRIPTION:
  * - Card cam kết tuân thủ Nội quy chung của nền tảng & Nội quy từng Dòng họ
  *   dùng chung cho cả MEMBER_JOIN (C1 & C2) và CLAN_SETUP (C1-S & C2-S)
@@ -147,7 +147,7 @@ export default function RulesAgreementCard({
   }, [title, isClanSetup, clanName, rulesPayload.clanRules]);
 
   const checkboxLabel = isClanSetup
-    ? `Tôi đã đọc kỹ và cam kết tuân thủ nghiêm túc Nội quy chung của nền tảng, chịu trách nhiệm về tính xác thực của dòng họ${clanName ? ` "${clanName}"` : ''} mới thành lập.`
+    ? `Tôi đã đọc kỹ và cam kết tuân thủ nghiêm túc Nội quy chung của nền tảng, chính sách dùng thử 30 ngày Sandbox và chịu trách nhiệm về tính xác thực của dòng họ${clanName ? ` "${clanName}"` : ''} mới thành lập.`
     : `Tôi đã đọc kỹ và cam kết tuân thủ nghiêm túc Nội quy chung của nền tảng cùng Nội quy của dòng họ${clanName ? ` "${clanName}"` : ''}.`;
 
   return (

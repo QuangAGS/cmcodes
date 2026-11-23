@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : src/modules/membership/membership.service.js
- * DATETIME   : 2026-11-22T18:10:00+07:00
- * VERSION    : 1.5.0-ISO29148-UAT-IMP5-RULES
+ * DATETIME   : 2026-11-22T23:10:00+07:00
+ * VERSION    : 1.6.0-ISO29148-UAT-IMP6-SANDBOX
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0 Lát 3] Service xử lý trọn vẹn luồng Multi-Home C1
  *   (Gia nhập dòng họ khác) & C1-S (Lập dòng họ mới):
@@ -69,6 +69,10 @@ const { onboardingProactiveDefenseService } = require('../onboarding/onboardingP
 const {
   onboardingConsentAndRulesService,
 } = require('../onboarding/onboardingConsentAndRules.service');
+const {
+  assertCanCreateNewClan,
+  buildSandboxInitialConfigs,
+} = require('../tenants/sandboxLifecycle.service');
 
 const VALID_LINK_TYPES = new Set([
   'PRIMARY_PATERNAL',
@@ -591,6 +595,11 @@ const membershipService = {
       throw makeHttpError(403, 'USER_BLOCKED', 'Tài khoản hiện không thể thực hiện thao tác này.');
     }
 
+    await assertCanCreateNewClan(basePrisma, {
+      userId,
+      phone: user.phone || null,
+    });
+
     const validatedProfile = normalizeMultiHomeProfile(
       {
         ...payload,
@@ -1082,13 +1091,39 @@ const membershipService = {
               where: { id: targetTenantId },
               data: {
                 status: 'HOAT_DONG',
-                social_configs: {
-                  ...currentSc,
-                  isSandbox: true,
-                },
+                social_configs: buildSandboxInitialConfigs(currentSc, now),
                 changed_by: actorId,
               },
             });
+
+            if (profile.clan_origin_place || profile.earliest_ancestor_name) {
+              try {
+                await tx.clan_profiles.upsert({
+                  where: { tenant_id: targetTenantId },
+                  update: {
+                    ...(profile.clan_origin_place
+                      ? { origin_summary: String(profile.clan_origin_place).trim() }
+                      : {}),
+                    ...(profile.earliest_ancestor_name
+                      ? { progenitor_summary: String(profile.earliest_ancestor_name).trim() }
+                      : {}),
+                    changed_by: actorId,
+                  },
+                  create: {
+                    tenant_id: targetTenantId,
+                    origin_summary: profile.clan_origin_place
+                      ? String(profile.clan_origin_place).trim()
+                      : null,
+                    progenitor_summary: profile.earliest_ancestor_name
+                      ? String(profile.earliest_ancestor_name).trim()
+                      : null,
+                    changed_by: actorId,
+                  },
+                });
+              } catch (_) {
+                /* optional seed */
+              }
+            }
           }
 
           // [FUNC-10] Chuyển trạng thái APPROVED & vô hiệu hóa đồng bộ toàn bộ token

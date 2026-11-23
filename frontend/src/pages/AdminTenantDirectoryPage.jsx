@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/AdminTenantDirectoryPage.jsx
- * DATETIME   : 2026-11-22T15:15:00+07:00
- * VERSION    : 1.1.0-ISO29148-CLAN-SETUP-M2
+ * DATETIME   : 2026-11-23T06:13:00+07:00
+ * VERSION    : 1.2.0-ISO29148-UAT-IMP6-SANDBOX
  * DESCRIPTION:
  * SYS Tenant Directory. pageKey=admin, Home=/.
  * - Hiển thị trạng thái dựng cây ban đầu (Sandbox) vs Vận hành chính thức.
@@ -63,7 +63,41 @@ export default function AdminTenantDirectoryPage() {
   const [status, setStatus] = useState('');
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [actionBusyId, setActionBusyId] = useState('');
+  const [confirmCleanupId, setConfirmCleanupId] = useState('');
   const [result, setResult] = useState({ items: [], total: 0, pages: 1, page: 1 });
+
+  const handleExtendSandbox = async (tenantItem, extraDays = 15) => {
+    try {
+      setActionBusyId(tenantItem.id);
+      await apiClient.post(`/tenants/${tenantItem.id}/sandbox/extend`, {
+        extraDays,
+        note: `SYSTEM_ADMIN gia hạn Sandbox thêm ${extraDays} ngày`,
+      });
+      toast.success(`Đã gia hạn Sandbox thêm ${extraDays} ngày cho ${tenantItem.name}.`);
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.message || 'Gia hạn Sandbox thất bại.');
+    } finally {
+      setActionBusyId('');
+    }
+  };
+
+  const handleCloseAndCleanSandbox = async (tenantItem) => {
+    try {
+      setActionBusyId(tenantItem.id);
+      await apiClient.post(`/tenants/${tenantItem.id}/sandbox/cleanup`, {
+        note: 'SYSTEM_ADMIN đóng và dọn dữ liệu dòng họ dùng thử',
+      });
+      toast.success(`Đã đóng (NGUNG_HAN) và dọn dữ liệu dùng thử của ${tenantItem.name}.`);
+      setConfirmCleanupId('');
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.message || 'Dọn dữ liệu dòng họ thất bại.');
+    } finally {
+      setActionBusyId('');
+    }
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -183,9 +217,29 @@ export default function AdminTenantDirectoryPage() {
                 const isSandbox = Boolean(
                   t.isSandbox || t.social_configs?.isSandbox
                 );
+                const sbInfo = t.sandboxInfo || {};
                 const canActivate =
                   t.status === 'TAM_NGUNG' ||
                   (t.status === 'HOAT_DONG' && isSandbox);
+                const isBusy = actionBusyId === t.id;
+                const isConfirmingClean = confirmCleanupId === t.id;
+
+                let sandboxSubLabel = '';
+                if (t.status === 'HOAT_DONG' && isSandbox) {
+                  sandboxSubLabel =
+                    sbInfo.daysRemaining != null
+                      ? sbInfo.daysRemaining > 0
+                        ? `Sandbox — Còn ${sbInfo.daysRemaining} ngày dùng thử`
+                        : 'Sandbox — Đã đến hạn chuyển Tạm ngưng'
+                      : 'Đang dựng cây (Sandbox 30 ngày)';
+                } else if (t.status === 'TAM_NGUNG' && isSandbox) {
+                  sandboxSubLabel =
+                    sbInfo.bufferDaysRemaining != null
+                      ? sbInfo.bufferDaysRemaining > 0
+                        ? `Đệm Tạm ngưng — Còn ${sbInfo.bufferDaysRemaining} ngày trước khi dọn`
+                        : 'Đệm Tạm ngưng — Đã đến hạn dọn dữ liệu'
+                      : 'Đang trong 30 ngày đệm Tạm ngưng';
+                }
 
                 return (
                   <div
@@ -228,6 +282,12 @@ export default function AdminTenantDirectoryPage() {
                       </div>
                     </div>
 
+                    {sandboxSubLabel ? (
+                      <p className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs font-bold text-amber-950">
+                        {sandboxSubLabel}
+                      </p>
+                    ) : null}
+
                     {t.description ? (
                       <p className="text-sm text-slate-600 line-clamp-2">
                         {t.description}
@@ -237,6 +297,7 @@ export default function AdminTenantDirectoryPage() {
                     <div className="flex flex-wrap gap-2">
                       <button
                         type="button"
+                        disabled={isBusy}
                         onClick={() =>
                           navigate(`/admin/tenant/settings?tenant_id=${t.id}`)
                         }
@@ -258,6 +319,7 @@ export default function AdminTenantDirectoryPage() {
                       {canActivate ? (
                         <button
                           type="button"
+                          disabled={isBusy}
                           onClick={() =>
                             navigate(`/admin/tenant/activate?tenantId=${t.id}`)
                           }
@@ -267,6 +329,58 @@ export default function AdminTenantDirectoryPage() {
                         </button>
                       ) : null}
                     </div>
+
+                    {isSandbox && (t.status === 'HOAT_DONG' || t.status === 'TAM_NGUNG') && (
+                      <div className="space-y-2 border-t border-slate-100 pt-2.5">
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => handleExtendSandbox(t, 15)}
+                            className="min-h-[48px] flex-1 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-sm font-bold text-indigo-800 hover:bg-indigo-100 disabled:opacity-50"
+                          >
+                            Gia hạn +15 ngày
+                          </button>
+
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() =>
+                              setConfirmCleanupId(isConfirmingClean ? '' : t.id)
+                            }
+                            className="min-h-[48px] flex-1 rounded-xl border border-rose-200 bg-rose-50 px-3 text-sm font-bold text-rose-800 hover:bg-rose-100 disabled:opacity-50"
+                          >
+                            Đóng &amp; Dọn dữ liệu
+                          </button>
+                        </div>
+
+                        {isConfirmingClean && (
+                          <div className="rounded-xl border-2 border-rose-300 bg-rose-50 p-3 space-y-2">
+                            <p className="text-xs font-bold text-rose-900">
+                              Cảnh báo: Thao tác này sẽ chuyển dòng họ sang NGUNG_HAN và xóa cứng toàn bộ dữ liệu dùng thử (không thể khôi phục).
+                            </p>
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => setConfirmCleanupId('')}
+                                className="min-h-[44px] flex-1 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700"
+                              >
+                                Hủy
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isBusy}
+                                onClick={() => handleCloseAndCleanSandbox(t)}
+                                className="min-h-[44px] flex-1 rounded-xl bg-rose-600 px-3 text-xs font-bold text-white hover:bg-rose-700"
+                              >
+                                {isBusy ? 'Đang dọn...' : 'Xác nhận xóa vĩnh viễn'}
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 );
               })}

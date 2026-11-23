@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/pages/WaitingPage.jsx
- * DATETIME    : 2026-11-22T18:10:00+07:00
- * VERSION     : EGAL-25.x R3-ISO29148-UAT-IMP5-RULES
+ * DATETIME    : 2026-11-22T23:10:00+07:00
+ * VERSION     : EGAL-25.x R3-ISO29148-UAT-IMP6-CLAN-SETUP
  * DESCRIPTION :
  * - EGAL-6.5 Step 4: TRUE REVIEW PAGE.
  * - Hiển thị đầy đủ effective submission data trước khi gửi (C2 Claim EM / 21 trường / CLAN_SETUP).
@@ -42,6 +42,10 @@ import CollapsibleDetailCard from '../components/common/CollapsibleDetailCard.js
 import KeyValueDetailTable from '../components/common/KeyValueDetailTable.jsx';
 import ZoneVoiceButton from '../features/elder-doctrine/components/ZoneVoiceButton.jsx';
 import { resolveVerificationPrompts } from '../features/membership/components/ClaimMemberWizard.jsx';
+import {
+  SETUP_PURPOSE_LABELS,
+  KNOWN_GENERATIONS_LABELS,
+} from '../features/onboarding/constants/platformRulesCatalog.js';
 
 const RELATIONSHIP_LABELS = {
   CON_DE: 'Con đẻ',
@@ -146,6 +150,20 @@ const WaitingPage = ({
     regProfile.elder_phone || data.elder_phone,
     ''
   );
+  const setupPurposeCode = regProfile.setup_purpose || data.setup_purpose || '';
+  const setupPurposeDisplay =
+    SETUP_PURPOSE_LABELS[setupPurposeCode] || displayValue(setupPurposeCode, '');
+  const knownGenCode = regProfile.known_generations || data.known_generations || '';
+  const knownGenDisplay =
+    KNOWN_GENERATIONS_LABELS[knownGenCode] || displayValue(knownGenCode, '');
+  const earliestAncestorDisplay = displayValue(
+    regProfile.earliest_ancestor_name || data.earliest_ancestor_name,
+    ''
+  );
+  const clanOriginPlaceDisplay = displayValue(
+    regProfile.clan_origin_place || data.clan_origin_place,
+    ''
+  );
 
   const reviewTitle = 'Rà soát hồ sơ';
   const reviewInstruction = isNewClan
@@ -204,13 +222,19 @@ const WaitingPage = ({
         {
           id: 'elder-verifier',
           icon: ShieldCheck,
-          title: '3. Người cao niên (>= 60 tuổi) xác minh',
-          voiceText: elderNameDisplay
-            ? `Người cao niên xác minh: ${elderNameDisplay}, số điện thoại ${elderPhoneDisplay}.`
-            : 'Chưa khai báo người cao niên xác minh.',
+          title: '3. Thông tin thẩm định khởi tạo dòng họ',
+          voiceText: `Mục đích tạo dòng họ: ${setupPurposeDisplay}. Vị tiền nhân cao nhất: ${earliestAncestorDisplay}. Địa bàn gốc: ${clanOriginPlaceDisplay}.`,
           rows: [
-            ['Họ tên người cao niên', displayValue(elderNameDisplay)],
-            ['Số điện thoại liên hệ', displayValue(elderPhoneDisplay)],
+            ['Mục đích khởi tạo', displayValue(setupPurposeDisplay)],
+            ['Số đời dự kiến', displayValue(knownGenDisplay)],
+            ['Vị tiền nhân cao nhất', displayValue(earliestAncestorDisplay)],
+            ['Địa bàn gốc / Cư trú', displayValue(clanOriginPlaceDisplay)],
+            ...(elderNameDisplay
+              ? [['Người thân tham chiếu', elderNameDisplay]]
+              : []),
+            ...(elderPhoneDisplay
+              ? [['SĐT tham chiếu', elderPhoneDisplay]]
+              : []),
           ],
         },
         {
@@ -369,7 +393,7 @@ const WaitingPage = ({
         rows: [['Mật khẩu', maskPassword(data.password)]],
       },
     ];
-  }, [data, isNewClan, relationshipLabel, regProfile, referrerNameDisplay, referrerPhoneDisplay, elderNameDisplay, elderPhoneDisplay]);
+  }, [data, isNewClan, relationshipLabel, regProfile, referrerNameDisplay, referrerPhoneDisplay, elderNameDisplay, elderPhoneDisplay, setupPurposeDisplay, knownGenDisplay, earliestAncestorDisplay, clanOriginPlaceDisplay]);
 
   const handleConfirm = () => {
     if (!reviewChecked) return;

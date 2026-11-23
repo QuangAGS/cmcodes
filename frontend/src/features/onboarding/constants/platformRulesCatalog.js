@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : frontend/src/features/onboarding/constants/platformRulesCatalog.js
- * DATETIME   : 2026-11-22T18:10:00+07:00
- * VERSION    : 1.0.0-ISO29148-UAT-IMP5-RULES
+ * DATETIME   : 2026-11-22T23:10:00+07:00
+ * VERSION    : 1.1.0-ISO29148-UAT-IMP6-SANDBOX
  * DESCRIPTION:
  * - Bộ Nội quy chung chuẩn của nền tảng Gia Phả Số & quy ước Nội quy từng Dòng họ
  *   phục vụ bước cam kết bắt buộc trước khi gửi hồ sơ MEMBER_JOIN & CLAN_SETUP
@@ -43,8 +43,50 @@ export const PLATFORM_GENERAL_RULES_TEXT = PLATFORM_GENERAL_ARTICLES.map(
 export const DEFAULT_CLAN_RULES_FALLBACK =
   'Dòng họ hiện áp dụng theo Nội quy chung của nền tảng Gia Phả Số và Gia pháp truyền thống do Ban Quản trị / Hội đồng gia tộc điều hành.';
 
+export const SETUP_PURPOSE_OPTIONS = [
+  {
+    value: 'FAMILY_START',
+    label: 'Lập phả từ gia đình nhỏ (từ cha mẹ / bản thân)',
+  },
+  {
+    value: 'CLAN_DIGITIZE',
+    label: 'Số hóa gia phả dòng họ đã có tư liệu',
+  },
+  {
+    value: 'FAMILY_CONNECT',
+    label: 'Kết nối họ hàng nội / ngoại ở xa',
+  },
+  {
+    value: 'OTHER',
+    label: 'Mục đích khác (nêu rõ ở lời nhắn)',
+  },
+];
+
+export const KNOWN_GENERATIONS_OPTIONS = [
+  {
+    value: '1_2',
+    label: '1 – 2 đời (Gia đình hiện tại: Cha/Mẹ – Con cái)',
+  },
+  {
+    value: '3_4',
+    label: '3 – 4 đời (Từ Ông/Bà hoặc Cụ trở xuống)',
+  },
+  {
+    value: '5_PLUS',
+    label: 'Từ 5 đời trở lên (Gia phả nhiều đời)',
+  },
+];
+
+export const SETUP_PURPOSE_LABELS = Object.fromEntries(
+  SETUP_PURPOSE_OPTIONS.map((o) => [o.value, o.label])
+);
+
+export const KNOWN_GENERATIONS_LABELS = Object.fromEntries(
+  KNOWN_GENERATIONS_OPTIONS.map((o) => [o.value, o.label])
+);
+
 export const CLAN_FOUNDER_COMMITMENT_TEXT =
-  'Với tư cách người sáng lập (Trưởng họ), tôi cam kết chịu trách nhiệm về tính chính danh của dòng họ mới thành lập, quản trị dữ liệu thành viên đúng tôn ti, bảo mật thông tin gia phả và sớm ban hành Nội quy riêng của dòng họ sau khi kích hoạt.';
+  'Với tư cách người sáng lập (Trưởng họ), tôi cam kết chịu trách nhiệm về tính chính danh của dòng họ mới thành lập, quản trị dữ liệu thành viên đúng tôn ti, bảo mật thông tin gia phả và sớm ban hành Nội quy riêng của dòng họ sau khi kích hoạt. Tôi hiểu rằng dòng họ mới sẽ được mở dùng thử miễn phí trong 30 ngày (Sandbox); sau 30 ngày nếu chưa hoàn tất đóng góp duy trì hạ tầng để kích hoạt chính thức, hệ thống sẽ chuyển sang 30 ngày đệm Tạm ngưng (TAM_NGUNG) trước khi đóng vĩnh viễn (NGUNG_HAN) và dọn dẹp dữ liệu dùng thử.';
 
 export function composeAgreedRulesSnapshot({
   mode = 'MEMBER_JOIN',

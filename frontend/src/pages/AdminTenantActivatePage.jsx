@@ -1,7 +1,7 @@
 /**
  * PATH       : src/pages/AdminTenantActivatePage.jsx
- * DATETIME   : 2026-11-22T15:15:00+07:00
- * VERSION    : 1.4.0-ISO29148-CLAN-SETUP-M2
+ * DATETIME   : 2026-11-23T06:13:00+07:00
+ * VERSION    : 1.5.0-ISO29148-UAT-IMP6-SANDBOX
  * DESCRIPTION:
  * - OP-2 Final: Xác nhận kích hoạt tenant (TAM_NGUNG -> HOAT_DONG) và
  *   kết thúc giai đoạn dựng cây ban đầu (Sandbox -> Vận hành chính thức).
@@ -215,10 +215,12 @@ const AdminTenantActivatePage = () => {
             </div>
           ) : null}
 
-          <p className="mt-4 text-center text-sm leading-relaxed text-slate-500">
+          <p className="mt-4 text-center text-base leading-relaxed text-slate-600">
             {done
-              ? 'Hệ thống sẽ yêu cầu bạn đăng nhập lại để áp dụng trạng thái mới.'
-              : 'Hành động này sẽ chuyển dòng họ sang trạng thái Hoạt động và không thể hoàn tác dễ dàng.'}
+              ? 'Hệ thống sẽ yêu cầu bạn đăng nhập lại để áp dụng trạng thái vận hành chính thức.'
+              : isTenantInSandbox
+                ? 'Xác nhận hoàn tất giai đoạn dùng thử Sandbox (30 ngày) và chuyển dòng họ sang vận hành chính thức (HOAT_DONG) để mở toàn bộ tính năng mời thành viên.'
+                : 'Hành động này sẽ chuyển dòng họ từ Tạm ngưng sang trạng thái Hoạt động chính thức.'}
           </p>
 
           {!done ? (

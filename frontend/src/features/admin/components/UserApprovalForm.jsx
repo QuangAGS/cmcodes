@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH       : frontend/src/features/admin/components/UserApprovalForm.jsx
- * DATETIME   : 2026-11-22T21:50:00+07:00
- * VERSION    : 15.3.0-ISO29148-UAT-BUG10-STATUS
+ * DATETIME   : 2026-11-23T06:13:00+07:00
+ * VERSION    : 15.4.0-ISO29148-UAT-IMP6-CLAN-SETUP
  * DESCRIPTION:
  * - [UAT-IMP5 2026-11-21]:
  *   1. Bổ sung Card chuyên biệt "1. Thông tin Người giới thiệu trong họ" hiển thị
@@ -27,11 +27,16 @@
  * - 2026-11-21T17:30:00+07:00 (v15.0.0-ISO29148-UAT-IMP5):
  *   + Thêm Card Người giới thiệu + Tra cứu nhanh sổ họ.
  *   + Chuẩn hóa Card 2 dòng / 3 cột + Checkbox khẳng định kiểm soát từng Card + Approval Gate.
+ * - 2026-11-23T06:13:00+07:00 (v15.4.0-ISO29148-UAT-IMP6-CLAN-SETUP):
+ *   + Cập nhật Card 3 của CLAN_SETUP hiển thị 4 thông tin thẩm định khởi tạo dòng họ
+ *     (setup_purpose, known_generations, earliest_ancestor_name, clan_origin_place) +
+ *     người thân tham chiếu tùy chọn (bãi bỏ cảnh báo thiếu người >= 60 tuổi).
+ *   + Bổ sung cảnh báo đối chiếu tự động tên dòng họ trùng trên Card 1.
  * =============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Save,
   X,
@@ -46,7 +51,12 @@ import {
 import CollapsibleDetailCard from '../../../components/common/CollapsibleDetailCard.jsx';
 import KeyValueDetailTable from '../../../components/common/KeyValueDetailTable.jsx';
 import ZoneVoiceButton from '../../elder-doctrine/components/ZoneVoiceButton.jsx';
+import apiClient from '../../../lib/apiClient.js';
 import { resolveVerificationPrompts } from '../../membership/components/ClaimMemberWizard.jsx';
+import {
+  SETUP_PURPOSE_LABELS,
+  KNOWN_GENERATIONS_LABELS,
+} from '../../onboarding/constants/platformRulesCatalog.js';
 
 const GENDER_LABELS = {
   NAM: 'Nam',
@@ -296,6 +306,7 @@ const UserApprovalForm = ({
   // Trạng thái tích khẳng định đã xem & kiểm soát từng nhóm thông tin [UAT-IMP5 Mục 2]
   const [verifiedCards, setVerifiedCards] = useState({});
   const [showRawJson, setShowRawJson] = useState(false);
+  const [duplicateClanMatches, setDuplicateClanMatches] = useState([]);
   const [confirmFinalStep2, setConfirmFinalStep2] = useState(false);
   const [localValidationMsg, setLocalValidationMsg] = useState('');
 
@@ -310,6 +321,35 @@ const UserApprovalForm = ({
     newTenantStatus: tenant?.status || 'CHO_DUYET',
     isFinalRejection: false,
   });
+
+  useEffect(() => {
+    if (!isClanSetupCase) {
+      setDuplicateClanMatches([]);
+      return undefined;
+    }
+    const targetName = cleanStr(
+      tenant?.name || tenant?.clan_name || snapshot.clanName,
+      ''
+    );
+    if (!targetName || targetName.length < 2) return undefined;
+
+    let cancelled = false;
+    apiClient
+      .get('/tenants', { params: { q: targetName, page: 1, limit: 10 } })
+      .then((res) => {
+        if (cancelled) return;
+        const items = res.data?.data?.items || res.data?.items || [];
+        const others = items.filter((t) => t && t.id !== tenant?.id);
+        setDuplicateClanMatches(others);
+      })
+      .catch(() => {
+        if (!cancelled) setDuplicateClanMatches([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isClanSetupCase, tenant?.id, tenant?.name, tenant?.clan_name, snapshot.clanName]);
 
   const toggleCardVerification = (cardKey, checked) => {
     setVerifiedCards((prev) => ({
@@ -421,8 +461,25 @@ const UserApprovalForm = ({
           extraContent: (
             <div className="space-y-2.5">
               <div className="rounded-xl border border-indigo-100 bg-indigo-50/70 p-3 text-base font-normal text-indigo-950">
-                Khi SYSTEM_ADMIN bấm <strong>Phê duyệt hồ sơ</strong> bên dưới, dòng họ sẽ tự động mở ở <strong>Chế độ khởi tạo dữ liệu ban đầu (Sandbox)</strong> để Trưởng họ dựng cây phả hệ gốc.
+                Khi SYSTEM_ADMIN bấm <strong>Phê duyệt hồ sơ</strong> bên dưới, dòng họ sẽ tự động mở ở <strong>Chế độ dùng thử 30 ngày (Sandbox)</strong> để Trưởng họ dựng cây phả hệ gốc.
               </div>
+              {duplicateClanMatches.length > 0 && (
+                <div
+                  role="alert"
+                  className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3 text-base text-amber-950 space-y-1"
+                >
+                  <p className="font-bold text-amber-900">
+                    Cảnh báo đối chiếu tự động: Phát hiện {duplicateClanMatches.length} dòng họ có tên tương tự trên hệ thống:
+                  </p>
+                  <ul className="list-disc pl-5 text-sm font-semibold">
+                    {duplicateClanMatches.slice(0, 3).map((m) => (
+                      <li key={m.id}>
+                        {m.name} ({m.slug || 'Chưa mã'} — {m.status})
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
               {typeof onOpenClanLookup === 'function' && (
                 <button
                   type="button"
@@ -472,43 +529,66 @@ const UserApprovalForm = ({
         },
         {
           id: 'offline_verifier',
-          shortLabel: 'Mục 3 (Người xác minh)',
-          title: '3. Người giới thiệu / Cao niên xác minh',
-          voiceText: `Mục 3: Người cao niên xác minh hoặc người giới thiệu: ${elderName || 'Chưa khai báo'}.`,
+          shortLabel: 'Mục 3 (Thẩm định lập họ)',
+          title: '3. Thông tin thẩm định khởi tạo dòng họ',
+          voiceText: `Mục 3: Thông tin thẩm định khởi tạo dòng họ. Vị tiền nhân cao nhất: ${cleanStr(regProfile.earliest_ancestor_name || snapshot.earliest_ancestor_name, 'Chưa khai báo')}. Địa bàn gốc: ${cleanStr(regProfile.clan_origin_place || snapshot.clan_origin_place, 'Chưa khai báo')}.`,
           confirmLabel:
-            'Tôi đã liên hệ xác minh và khẳng định đã kiểm soát nhóm thông tin này.',
+            'Tôi đã kiểm tra thông tin thẩm định khởi tạo dòng họ và khẳng định đã kiểm soát nhóm thông tin này.',
           rows: [
             {
-              label: 'Họ tên người xác minh',
-              value: elderName || 'Chưa khai báo',
+              label: 'Mục đích khởi tạo',
+              value:
+                SETUP_PURPOSE_LABELS[
+                  regProfile.setup_purpose || snapshot.setup_purpose
+                ] ||
+                cleanStr(
+                  regProfile.setup_purpose || snapshot.setup_purpose,
+                  'Chưa khai báo'
+                ),
             },
             {
-              label: 'Số điện thoại liên hệ',
-              value: elderPhone || 'Chưa khai báo',
+              label: 'Số đời dự kiến',
+              value:
+                KNOWN_GENERATIONS_LABELS[
+                  regProfile.known_generations || snapshot.known_generations
+                ] ||
+                cleanStr(
+                  regProfile.known_generations || snapshot.known_generations,
+                  'Chưa khai báo'
+                ),
             },
+            {
+              label: 'Vị tiền nhân cao nhất',
+              value: cleanStr(
+                regProfile.earliest_ancestor_name ||
+                  snapshot.earliest_ancestor_name,
+                'Chưa khai báo'
+              ),
+            },
+            {
+              label: 'Địa bàn gốc / Cư trú',
+              value: cleanStr(
+                regProfile.clan_origin_place || snapshot.clan_origin_place,
+                'Chưa khai báo'
+              ),
+            },
+            ...(elderName
+              ? [{ label: 'Người thân tham chiếu', value: elderName }]
+              : []),
+            ...(elderPhone
+              ? [{ label: 'SĐT tham chiếu', value: elderPhone }]
+              : []),
           ],
           notes: [],
-          extraContent: (
-            <div className="space-y-2.5">
-              {!elderName && !elderPhone && (
-                <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-base font-semibold text-rose-800">
-                  <AlertTriangle size={18} className="mt-0.5 shrink-0" />
-                  <span>
-                    Hồ sơ chưa khai báo người cao niên (&ge; 60 tuổi) xác minh ngoại tuyến. SA có thể bấm &ldquo;Yêu cầu bổ sung&rdquo; để Trưởng họ cung cấp.
-                  </span>
-                </div>
-              )}
-              {elderPhone && (
-                <a
-                  href={`tel:${elderPhone.replace(/\s+/g, '')}`}
-                  className="min-h-[48px] h-12 w-full inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 text-base font-bold text-emerald-900 whitespace-nowrap hover:bg-emerald-100"
-                >
-                  <Phone size={18} />
-                  <span>Gọi điện xác minh ({elderPhone})</span>
-                </a>
-              )}
-            </div>
-          ),
+          extraContent: elderPhone ? (
+            <a
+              href={`tel:${elderPhone.replace(/\s+/g, '')}`}
+              className="min-h-[48px] h-12 w-full inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 text-base font-bold text-emerald-900 whitespace-nowrap hover:bg-emerald-100"
+            >
+              <Phone size={18} />
+              <span>Gọi điện người thân tham chiếu ({elderPhone})</span>
+            </a>
+          ) : null,
         },
         {
           id: 'contact_note',
@@ -824,7 +904,7 @@ const UserApprovalForm = ({
     resolvedRelationshipDisplay,
     referrerName,
     referrerPhone,
-    formState.newTenantStatus,
+    duplicateClanMatches,
     onOpenClanLookup,
   ]);
 

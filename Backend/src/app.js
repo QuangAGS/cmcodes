@@ -1,7 +1,7 @@
 /**
  * PATH       : src/app.js
- * DATETIME   : 2026-11-20T17:30:00+07:00
- * VERSION    : 21.10.0-UAT-BUG5-CORS-FIX
+ * DATETIME   : 2026-11-22T23:10:00+07:00
+ * VERSION    : 21.11.0-ISO29148-UAT-IMP6-SANDBOX
  * DESCRIPTION:
  * - [21.10.0-UAT-BUG5-CORS-FIX] Bổ sung X-Turnstile-Token và X-Correlation-Id
  *   vào allowedHeaders và exposedHeaders của cấu hình CORS để sửa lỗi UAT Bug 5
@@ -215,5 +215,24 @@ app.use((req, res, next) => {
 // Thay thế handler 500 mù trước đây.
 // ─────────────────────────────────────────────────────────────
 app.use(createGlobalErrorHandler({ legacy: true }));
+
+// [UAT-IMP6] Quét tự động vòng đời Sandbox 30 ngày + 30 ngày đệm TAM_NGUNG
+if (process.env.NODE_ENV !== 'test') {
+  const sandboxLifecycleWorker = require('./jobs/sandboxLifecycle.worker');
+  const SANDBOX_SWEEP_INTERVAL_MS = 6 * 60 * 60 * 1000; // 6 giờ / lần
+  const startupTimer = setTimeout(() => {
+    sandboxLifecycleWorker.runOnce().catch((err) => {
+      console.error('[sandboxLifecycleWorker][startup]', err.message || err);
+    });
+  }, 30 * 1000);
+  if (typeof startupTimer.unref === 'function') startupTimer.unref();
+
+  const periodicTimer = setInterval(() => {
+    sandboxLifecycleWorker.runOnce().catch((err) => {
+      console.error('[sandboxLifecycleWorker][interval]', err.message || err);
+    });
+  }, SANDBOX_SWEEP_INTERVAL_MS);
+  if (typeof periodicTimer.unref === 'function') periodicTimer.unref();
+}
 
 module.exports = app;

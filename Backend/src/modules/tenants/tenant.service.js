@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/tenants/tenant.service.js
- * DATETIME   : 2026-11-22T15:15:00+07:00
- * VERSION    : 1.3.0-ISO29148-CLAN-SETUP-M2
+ * DATETIME   : 2026-11-23T07:26:00+07:00
+ * VERSION    : 1.5.1-ISO29148-UAT-IMP7-NAME-CHECK
  * DESCRIPTION:
  * - OP-2 activateTenant (giữ nguyên).
  * - Tenant settings (ADMIN): name, slogan, description, theme_color, logo_url.
@@ -10,7 +10,7 @@
 
 'use strict';
 
-const { prisma } = require('../../lib/prisma.js');
+const { prisma, basePrisma } = require('../../lib/prisma.js');
 const {
   sysFindFirstTenant,
   sysUpdateTenant,
@@ -21,6 +21,11 @@ const businessLogger = require('../../services/ledger.service');
 const auditService = require('../../services/audit.service');
 const { createError } = require('../../shared/errors');
 const { ERROR_CODES } = require('../../shared/errors/codes');
+const {
+  computeSandboxLifecycleInfo,
+  extendTenantSandbox,
+  closeAndCleanSandboxTenant,
+} = require('./sandboxLifecycle.service');
 
 const SETTINGS_SELECT = {
   id: true,
@@ -119,10 +124,12 @@ async function getTenantSettings(tenantId, actor) {
       ? tenant.social_configs
       : {};
 
+  const sandboxInfo = computeSandboxLifecycleInfo(tenant);
   return {
     ...tenant,
     logo_icon: cfg.logo_icon || null,
     isSandbox: Boolean(cfg.isSandbox),
+    sandboxInfo,
   };
 }
 
@@ -422,14 +429,19 @@ async function activateTenant(tenantId, actor) {
       );
     }
 
+    const nextSc = {
+      ...currentSc,
+      isSandbox: false,
+      activatedAt: new Date().toISOString(),
+    };
+    delete nextSc.sandboxSuspendedAt;
+    delete nextSc.sandboxCleanupDueAt;
+
     const updated = await tx.tenants.update({
       where: { id: tenantId },
       data: {
         status: 'HOAT_DONG',
-        social_configs: {
-          ...currentSc,
-          isSandbox: false,
-        },
+        social_configs: nextSc,
         changed_by: actor.id,
         updated_at: new Date(),
       },
@@ -553,9 +565,11 @@ async function listTenantsDirectory(actor, query = {}) {
       t.social_configs && typeof t.social_configs === 'object'
         ? t.social_configs
         : {};
+    const sandboxInfo = computeSandboxLifecycleInfo(t);
     return {
       ...t,
       isSandbox: Boolean(sc.isSandbox),
+      sandboxInfo,
     };
   });
 
@@ -568,9 +582,72 @@ async function listTenantsDirectory(actor, query = {}) {
   };
 }
 
+/**
+ * [UAT-IMP7] Kiểm tra mềm trùng tên dòng họ (không khóa cứng DB):
+ * Trả về danh sách các dòng họ HOAT_DONG / CHO_DUYET / TAM_NGUNG trùng hoặc gần giống tên
+ * kèm mã họ (slug) và địa bàn gốc (origin_summary) để gợi ý người dùng gia nhập
+ * hoặc đặt tên phân biệt (VD: "Nguyễn Tộc - Chi 2 Thái Bình").
+ */
+async function checkClanNameAvailability(rawName) {
+  const cleanName = String(rawName || '').trim().replace(/\s+/g, ' ');
+  if (cleanName.length < 2) {
+    return {
+      query: cleanName,
+      exactMatch: false,
+      count: 0,
+      matches: [],
+    };
+  }
+
+  const rows = await basePrisma.tenants.findMany({
+    where: {
+      deleted_at: null,
+      status: { in: ['HOAT_DONG', 'CHO_DUYET', 'TAM_NGUNG'] },
+      name: { contains: cleanName, mode: 'insensitive' },
+    },
+    orderBy: [{ status: 'asc' }, { created_at: 'asc' }],
+    take: 5,
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+      status: true,
+      description: true,
+      clan_profiles: {
+        where: { deleted_at: null },
+        select: { origin_summary: true },
+      },
+    },
+  });
+
+  const normalizedQuery = cleanName.toLowerCase();
+  const matches = rows.map((t) => ({
+    id: t.id,
+    name: t.name,
+    slug: t.slug || '',
+    status: t.status,
+    description: t.description || null,
+    originSummary: t.clan_profiles?.origin_summary || null,
+  }));
+
+  const exactMatch = matches.some(
+    (m) => String(m.name || '').trim().replace(/\s+/g, ' ').toLowerCase() === normalizedQuery
+  );
+
+  return {
+    query: cleanName,
+    exactMatch,
+    count: matches.length,
+    matches,
+  };
+}
+
 module.exports = {
   activateTenant,
   getTenantSettings,
   updateTenantSettings,
   listTenantsDirectory,
+  extendTenantSandbox,
+  closeAndCleanSandboxTenant,
+  checkClanNameAvailability,
 };

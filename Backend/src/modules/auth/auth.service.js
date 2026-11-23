@@ -1,7 +1,7 @@
 /**
  * PATH       : src/modules/auth/auth.service.js
- * DATETIME   : 2026-11-22T21:50:00+07:00
- * VERSION    : 20.12.0-ISO29148-UAT-BUG10-STATUS
+ * DATETIME   : 2026-11-22T23:10:00+07:00
+ * VERSION    : 20.13.0-ISO29148-UAT-IMP6-SANDBOX
  * DESCRIPTION:
  * - [AMEND-RP-OP-2026-02 V1.5.0] Lát 0 + Lát 3 Multi-Home SSOT:
  *   + Lát 0 (C2 & C2-S): registerUser tạo users (CHO_DUYET) + onboarding_cases.metadata trong 1 TX atomic;
@@ -55,6 +55,12 @@ const { validateRegistrationProfile } = require('./registrationValidator');
 const {
   onboardingConsentAndRulesService,
 } = require('../onboarding/onboardingConsentAndRules.service');
+const {
+  assertCanCreateNewClan,
+  buildSandboxInitialConfigs,
+  evaluateTenantSandboxLifecycle,
+  computeSandboxLifecycleInfo,
+} = require('../tenants/sandboxLifecycle.service');
 
 const VALID_MEMBER_GENDERS = new Set(['NAM', 'NU', 'KHAC']);
 const VALID_MEMBER_ROLES = new Set([
@@ -152,6 +158,10 @@ function normalizeIncomingRegistrationProfile(payload, logIdentifier) {
         : undefined,
     elder_name: userData.elder_name || undefined,
     elder_phone: userData.elder_phone || undefined,
+    setup_purpose: userData.setup_purpose || undefined,
+    known_generations: userData.known_generations || undefined,
+    earliest_ancestor_name: userData.earliest_ancestor_name || undefined,
+    clan_origin_place: userData.clan_origin_place || undefined,
     child_type: userData.child_type || undefined,
     temp_relationship: userData.temp_relationship || undefined,
     claim_mode: userData.claim_mode || undefined,
@@ -600,11 +610,20 @@ const authService = {
     const effectiveRole = activeLink?.role_in_tenant || user.role;
     const tenantStatus = effectiveTenantObj?.status || null;
 
+    if (activeTenantId && effectiveRole === 'CLAN_ADMIN') {
+      try {
+        await evaluateTenantSandboxLifecycle(activeTenantId);
+      } catch (sbErr) {
+        console.error('[LOGIN][SANDBOX_EVAL]', sbErr.message || sbErr);
+      }
+    }
+
     const sc =
       effectiveTenantObj?.social_configs &&
       typeof effectiveTenantObj.social_configs === 'object'
         ? effectiveTenantObj.social_configs
         : {};
+    const sandboxInfo = computeSandboxLifecycleInfo(effectiveTenantObj);
     const isSandbox = Boolean(sc.isSandbox);
 
     const token = jwt.sign(
@@ -636,6 +655,7 @@ const authService = {
           logo_icon: sc.logo_icon || null,
           status: effectiveTenantObj.status || tenantStatus,
           isSandbox,
+          sandboxInfo,
         }
       : activeTenantId
         ? {
@@ -841,6 +861,11 @@ const authService = {
     let transactionResult = null;
 
     const validatedProfile = normalizeIncomingRegistrationProfile(payload, logIdentifier);
+
+    if (isNewClan) {
+      await assertCanCreateNewClan(basePrisma, { phone: logIdentifier });
+    }
+
     const hashedPassword = await bcrypt.hash(userData.password, 10);
 
     try {
@@ -2010,6 +2035,10 @@ const authService = {
               referrer_phone: profile.referrer_phone || profile.referrer_info?.phone || null,
               elder_name: profile.elder_name || null,
               elder_phone: profile.elder_phone || null,
+              setup_purpose: profile.setup_purpose || null,
+              known_generations: profile.known_generations || null,
+              earliest_ancestor_name: profile.earliest_ancestor_name || null,
+              clan_origin_place: profile.clan_origin_place || null,
               proof_documents: profile.proof_documents || [],
               social_profiles: profile.social_profiles || {},
               registration_reason: 'Nộp đơn gia nhập tộc hệ',
@@ -2213,6 +2242,10 @@ const authService = {
               referrer_phone: profile.referrer_phone || profile.referrer_info?.phone || null,
               elder_name: profile.elder_name || null,
               elder_phone: profile.elder_phone || null,
+              setup_purpose: profile.setup_purpose || null,
+              known_generations: profile.known_generations || null,
+              earliest_ancestor_name: profile.earliest_ancestor_name || null,
+              clan_origin_place: profile.clan_origin_place || null,
               proof_documents: profile.proof_documents || [],
               social_profiles: profile.social_profiles || {},
               registration_reason: isClanSetup
@@ -2724,13 +2757,39 @@ const authService = {
             where: { id: effectiveTargetTenantId },
             data: {
               status: 'HOAT_DONG',
-              social_configs: {
-                ...currentSc,
-                isSandbox: true,
-              },
+              social_configs: buildSandboxInitialConfigs(currentSc, new Date()),
               changed_by: actorId,
             },
           });
+
+          if (isClanSetup && (profile.clan_origin_place || profile.earliest_ancestor_name)) {
+            try {
+              await tx.clan_profiles.upsert({
+                where: { tenant_id: effectiveTargetTenantId },
+                update: {
+                  ...(profile.clan_origin_place
+                    ? { origin_summary: String(profile.clan_origin_place).trim() }
+                    : {}),
+                  ...(profile.earliest_ancestor_name
+                    ? { progenitor_summary: String(profile.earliest_ancestor_name).trim() }
+                    : {}),
+                  changed_by: actorId,
+                },
+                create: {
+                  tenant_id: effectiveTargetTenantId,
+                  origin_summary: profile.clan_origin_place
+                    ? String(profile.clan_origin_place).trim()
+                    : null,
+                  progenitor_summary: profile.earliest_ancestor_name
+                    ? String(profile.earliest_ancestor_name).trim()
+                    : null,
+                  changed_by: actorId,
+                },
+              });
+            } catch (_) {
+              /* optional seed */
+            }
+          }
         }
 
         if (

@@ -1,8 +1,8 @@
 /**
  * ============================================================================
  * PATH       : src/modules/auth/registrationValidator.js
- * DATETIME   : 2026-11-22T18:10:00+07:00
- * VERSION    : 1.6.0-ISO29148-UAT-IMP5-RULES
+ * DATETIME   : 2026-11-22T23:10:00+07:00
+ * VERSION    : 1.7.0-ISO29148-UAT-IMP6-CLAN-SETUP
  * DESCRIPTION:
  * - Căn cứ: AMEND-RP-OP-2026-01-V1.1 & UAT-IMP4 / UAT-IMP5 / UAT-Bug 8.
  * - [1.2.0]: Bổ sung pattern regex cho email, phone và claimed_member_id (UUID v4)
@@ -105,6 +105,18 @@ const REGISTRATION_SCHEMA = {
     enum: ['CLAIM_EM', 'NEW_PROFILE_21', 'CLAN_SETUP'],
   },
   claim_verification: { type: 'object', required: false },
+  setup_purpose: {
+    type: 'string',
+    required: false,
+    enum: ['FAMILY_START', 'CLAN_DIGITIZE', 'FAMILY_CONNECT', 'OTHER'],
+  },
+  known_generations: {
+    type: 'string',
+    required: false,
+    enum: ['1_2', '3_4', '5_PLUS'],
+  },
+  earliest_ancestor_name: { type: 'string', required: false, max: 120 },
+  clan_origin_place: { type: 'string', required: false, max: 200 },
   agreed_rules: { type: 'boolean', required: false },
   agreed_rules_snapshot: { type: 'string', required: false, max: 30000 },
   agreed_tos_version: { type: 'string', required: false, max: 20 },
