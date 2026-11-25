@@ -93,6 +93,10 @@ model tenants {
   evidence_links                 evidence_links[]
   user_member_links              user_member_links[]
 
+  // ----- model tenants (BỔ SUNG relation) -----
+  small_trees                  small_trees[]
+  member_generation_assertions member_generation_assertions[]
+
   @@index([origin_address_id], map: "idx_tenant_origin_addr")
   @@index([name(ops: raw("gin_trgm_ops"))], map: "trgm_idx_tenants_name", type: Gin)
   @@map("tenants")
@@ -765,7 +769,19 @@ model members {
   /// 18-Nov-2026-Before AMEND-RP-OP-2026-03-BASELINE 
   onboarding_cases_as_referrer onboarding_cases[] @relation("OnboardingCaseReferrer")
 
+  // ----- model members (BỔ SUNG) -----
+  // Entity Resolution: member này đã được merge vào member đích
+  merged_into_id String?   @db.VarChar(36)
+  merged_into    members?  @relation("members_merged_into", fields: [merged_into_id], references: [id], onDelete: NoAction, onUpdate: NoAction, map: "fk_members_merged_into")
+  merged_members members[] @relation("members_merged_into")
+
+  // Relations Phase 1
+  small_trees_created   small_trees[]                  @relation("small_trees_created_by_member")
+  small_trees_rooted    small_trees[]                  @relation("small_trees_root_member")
+  generation_assertions member_generation_assertions[]
+
   @@unique([id, tenant_id], name: "id_tenant_id") ///Phục vụ MUTATE
+  @@index([tenant_id, merged_into_id], map: "idx_members_tenant_merged_into")
   @@index([tenant_id], map: "idx_members_tenant")
   @@index([branch_id], map: "idx_member_branch")
   @@index([current_address_id], map: "idx_member_current_addr")
@@ -855,6 +871,9 @@ model users {
   proposals_reviewed                                                  proposals[]                      @relation("ProposalReviewer")
   member_residences                                                   member_residences[]
   parentages                                                          parentages[]
+
+  // ----- model users (BỔ SUNG relation) -----
+  small_trees_owned small_trees[] @relation("small_trees_owner_user")
 
   // =========================================================================
   // MULTI-HOME RELATIONS
@@ -1508,6 +1527,10 @@ model parentages {
   modifier        users?     @relation(fields: [changed_by], references: [id], onDelete: NoAction)
   primaryCitation citations? @relation(fields: [primary_citation_id], references: [id], onDelete: SetNull)
 
+  // ----- model parentages (BỔ SUNG) -----
+  // Dữ liệu phụ trên cạnh (ví dụ: relative_level tạm, flag từ Path B, ...)
+  metadata Json? @default("{}")
+
   @@unique([tenant_id, parent_id, child_id, relationship_type, review_status], map: "uq_parentage_assertion")
   @@index([tenant_id, child_id, review_status, is_selected_for_lineage], map: "idx_parentage_tree_lookup")
   @@index([parent_id])
@@ -1533,6 +1556,12 @@ model sources {
 
   tenants   tenants     @relation(fields: [tenant_id], references: [id], onDelete: Restrict)
   citations citations[]
+
+  // ----- model sources (BỔ SUNG) -----
+  // Offset so với canonical generation của root member.
+  // Phase 1: chỉ dùng để hiển thị cảnh báo mềm trên Admin Wizard, không tự gắn DISPUTED.
+  root_generation_offset Int                            @default(0)
+  generation_assertions  member_generation_assertions[]
 
   @@index([tenant_id])
   @@map("sources")
@@ -1616,6 +1645,10 @@ model user_member_links {
   member   members    @relation(fields: [member_id], references: [id], onDelete: Cascade, map: "fk_uml_member")
   proposal proposals? @relation(fields: [proposal_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_uml_proposal")
 
+  // ----- model user_member_links (BỔ SUNG) -----
+  // Thời điểm user đã hoàn thành bước pre-MFO (nếu có)
+  pre_mfo_completed_at DateTime? @db.Timestamptz(6)
+
   ///Khóa ràng buộc nghiệp vụ Multi-Home
   @@unique([user_id, tenant_id], map: "uq_uml_user_tenant")
   @@unique([user_id, member_id], map: "uq_uml_user_member")
@@ -1633,7 +1666,85 @@ model user_member_links {
   @@map("user_member_links")
 }
 
-/// Enums list ==========================================================
+// =============================================================================
+// PHASE 1 — MFO & ENTITY RESOLUTION (Multi-Source Generation)
+// Tạo mới: small_trees, member_generation_assertions + 2 enum
+// Bổ sung: các field + relation vào models hiện có
+// =============================================================================
+
+// -----------------------------------------------------------------------------
+// TẠO MỚI: Bảng small_trees (Path B — Cây nhỏ do user đóng góp)
+// Mỗi lần ghép cây nhỏ tạo một nguồn USER_CONTRIBUTION riêng.
+// citation_id của assertions gắn với small_tree_id.
+// -----------------------------------------------------------------------------
+model small_trees {
+  id                   String            @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  tenant_id            String            @db.VarChar(36)
+  owner_user_id        String            @db.VarChar(36)
+  created_by_member_id String?           @db.VarChar(36)
+  root_member_id       String            @db.VarChar(36)
+  is_admin_owned       Boolean           @default(false)
+  status               small_tree_status @default(CHO_GHEP)
+  created_at           DateTime?         @default(now()) @db.Timestamptz(6)
+  updated_at           DateTime?         @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at           DateTime?         @db.Timestamptz(6)
+
+  tenants           tenants  @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_small_trees_tenant")
+  owner_user        users    @relation("small_trees_owner_user", fields: [owner_user_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_small_trees_owner_user")
+  created_by_member members? @relation("small_trees_created_by_member", fields: [created_by_member_id], references: [id], onDelete: SetNull, onUpdate: NoAction, map: "fk_small_trees_creator_member")
+  root_member       members  @relation("small_trees_root_member", fields: [root_member_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_small_trees_root_member")
+
+  @@index([tenant_id, status], map: "idx_small_trees_tenant_status")
+  @@index([owner_user_id], map: "idx_small_trees_owner_user")
+  @@index([root_member_id], map: "idx_small_trees_root_member")
+  @@index([deleted_at], map: "idx_small_trees_deleted_at")
+  @@map("small_trees")
+}
+
+// -----------------------------------------------------------------------------
+// TẠO MỚI: Bảng member_generation_assertions (Tầng 2 — Đời theo nguồn)
+// Lưu claimed_generation của một member theo từng source.
+// Không bao giờ bị ghi đè bởi Generation Recomputation.
+// citation_id: "SYS_CIT::DEFAULT" | "SYS_CIT::CONFLICT_MERGE::<source_assertion_id>" | small_tree_id (Path B)
+// -----------------------------------------------------------------------------
+model member_generation_assertions {
+  id                 String           @id @default(dbgenerated("(gen_random_uuid())::text")) @db.VarChar(36)
+  tenant_id          String           @db.VarChar(36)
+  member_id          String           @db.VarChar(36)
+  source_id          String           @db.VarChar(36)
+  citation_id        String           @default("SYS_CIT::DEFAULT") @db.VarChar(191)
+  claimed_generation Int
+  status             assertion_status @default(ACTIVE)
+  note               String?          @db.VarChar(500)
+  created_at         DateTime?        @default(now()) @db.Timestamptz(6)
+  updated_at         DateTime?        @default(now()) @updatedAt @db.Timestamptz(6)
+  deleted_at         DateTime?        @db.Timestamptz(6)
+
+  tenants tenants @relation(fields: [tenant_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_mga_tenant")
+  members members @relation(fields: [member_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_mga_member")
+  sources sources @relation(fields: [source_id], references: [id], onDelete: Restrict, onUpdate: NoAction, map: "fk_mga_source")
+
+  @@unique([tenant_id, member_id, source_id, citation_id], map: "uq_mga_tenant_member_source_citation")
+  @@index([tenant_id, member_id], map: "idx_mga_tenant_member")
+  @@index([source_id], map: "idx_mga_source")
+  @@index([deleted_at], map: "idx_mga_deleted_at")
+  @@map("member_generation_assertions")
+}
+
+// -----------------------------------------------------------------------------
+// TẠO MỚI: Enums
+// -----------------------------------------------------------------------------
+enum small_tree_status {
+  CHO_GHEP
+  DA_GHEP
+  HUY
+}
+
+enum assertion_status {
+  ACTIVE
+  SUPERSEDED
+  DISPUTED
+}
 
 enum user_member_link_status {
   DRAFT /// Chế độ Onboarding Sandbox (chỉ truy cập MFO 5L và Profile)
@@ -2025,6 +2136,12 @@ enum business_process_type {
   MFO_RESULT_REJECT
   MFO_MEMBER_CREATE
   MFO_SPOUSE_ATTACH
+
+  // ----- MERGE TREE (BỔ SUNG) -----
+  MFO_SMALL_TREE_CREATE
+  ENTITY_RESOLUTION_MERGE
+  GENERATION_RECOMPUTE
+  GENERATION_RECOMPUTE_FAILED
 }
 
 enum process_status_type {
