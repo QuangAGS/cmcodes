@@ -6,6 +6,9 @@
  * - [AMEND-RP-OP-2026-02 V1.2] Lát 2/7:
  *   + Gắn assertActiveLink vào các thao tác trình, duyệt, trả sửa, bác bỏ Cửa 1 & Cửa 2.
  *   + Bảo vệ toàn vẹn tiến trình phả đồ MFO không bị thao túng bởi phiên bị thu hồi quyền.
+ * CHANGE LOGS:
+ * - [CHANGE-LOG-2026-02 V1.0] Lát 2/7:
+ *   + Thêm middleware assertActiveLink vào các endpoint cần thiết.
  */
 
 'use strict';
@@ -13,6 +16,9 @@
 const express = require('express');
 const router = express.Router();
 const mfoController = require('./mfo.controller');
+const {
+  canonicalMemberRedirectMiddleware,
+} = require('../../middlewares/canonical-member-redirect.middleware');
 const {
   verifyToken,
   checkRole,
@@ -26,8 +32,8 @@ const ADMIN = ['CLAN_ADMIN', 'SYSTEM_ADMIN'];
 // =============================================================================
 // 1. NHÓM API TRUY VẤN CÂY PHẢ HỆ & FULL-SET (CANVAS 5L) - READ-ONLY
 // =============================================================================
-router.get('/origins/:originId/tree', verifyToken, checkRole(READ), mfoController.getOriginTree);
-router.get('/origins/:originId/full-set', verifyToken, checkRole(READ), mfoController.getFullMfoSet);
+router.get('/origins/:originId/tree', verifyToken, checkRole(READ), canonicalMemberRedirectMiddleware({ paramNames: ['originId', 'targetMemberId', 'id'] }), mfoController.getOriginTree);
+router.get('/origins/:originId/full-set', verifyToken, checkRole(READ), canonicalMemberRedirectMiddleware({ paramNames: ['originId', 'targetMemberId', 'id'] }), mfoController.getFullMfoSet);
 
 // =============================================================================
 // 2. NHÓM API DANH SÁCH & BẢN NHÁP (DRAFT - STAGING)

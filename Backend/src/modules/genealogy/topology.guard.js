@@ -1,12 +1,14 @@
 /**
  * PATH       : backend/src/modules/genealogy/topology.guard.js
- * DATETIME   : 2026-11-02T11:25:00+07:00
- * VERSION    : 1.2.0-FAST-NEW-CHILD
+ * DATETIME   : 2026-11-25T13:32:00+07:00
+ * VERSION    : 1.3.0-MULTI-OCCURRENCE-HARDENED
  * DESCRIPTION:
- * - Tối ưu hóa Cycle Detection: Thêm cờ isNewChild vào assertNoCycle.
- * - Bỏ qua CTE SQL đệ quy khi isNewChild === true, chỉ duyệt DFS RAM (0ms).
- * - Con sẵn có (isNewChild === false) giữ nguyên 100% kiểm tra CTE SQL fail-closed.
- * - Bọc mutation quan hệ bằng PostgreSQL Advisory Lock (transaction-scoped, 3s timeout).
+ * - Giữ pg_advisory_xact_lock (transaction-scoped, 3s timeout, fail-closed).
+ * - Kiểm tra chu trình nội bộ trong bộ nhớ (assertNoInternalCycle) và fail-closed (assertNoCycle).
+ * - Mở rộng wouldCreateCycleInDb để quét mọi cạnh review_status = 'ACCEPTED' (bỏ lọc
+ *   is_selected_for_lineage = true) nhằm bao phủ Multiple Occurrences và tránh bỏ sót chu trình.
+ * CHANGE LOGS:
+ *   - 1.3.0: Cập nhật logic kiểm tra chu trình để bao phủ Multiple Occurrences.
  */
 
 'use strict';
@@ -91,6 +93,8 @@ function assertNoInternalCycle(edges = []) {
 
 /**
  * Kiểm tra xem việc thêm cạnh parent → child có tạo chu trình đối với dữ liệu DB hay không.
+ * Quét toàn bộ cạnh có review_status = 'ACCEPTED' và deleted_at IS NULL (không giới hạn
+ * is_selected_for_lineage = true) để bao phủ đầy đủ Multiple Occurrences.
  */
 async function wouldCreateCycleInDb(tx, tenantId, parentId, childId, maxDepth = 100) {
   if (!parentId || !childId) return false;
@@ -107,7 +111,6 @@ async function wouldCreateCycleInDb(tx, tenantId, parentId, childId, maxDepth = 
       WHERE p.tenant_id = ${tenantId}
         AND p.child_id = ${parentId}
         AND p.review_status = 'ACCEPTED'
-        AND p.is_selected_for_lineage = true
         AND p.deleted_at IS NULL
 
       UNION ALL
@@ -121,7 +124,6 @@ async function wouldCreateCycleInDb(tx, tenantId, parentId, childId, maxDepth = 
       INNER JOIN ancestor_path ap ON next_p.child_id = ap.parent_id
       WHERE next_p.tenant_id = ${tenantId}
         AND next_p.review_status = 'ACCEPTED'
-        AND next_p.is_selected_for_lineage = true
         AND next_p.deleted_at IS NULL
         AND ap.depth < ${maxDepth}
         AND NOT (next_p.parent_id::text = ANY(ap.path))
@@ -136,9 +138,9 @@ async function wouldCreateCycleInDb(tx, tenantId, parentId, childId, maxDepth = 
 }
 
 /**
- * Kiểm tra chu trình kết hợp:
- * - isNewChild === true: Chỉ duyệt DFS trong bộ nhớ (pendingEdges), KHÔNG gọi SQL CTE.
- * - isNewChild === false: Duyệt DFS bộ nhớ + gọi SQL CTE đối chiếu DB.
+ * Kiểm tra chu trình kết hợp (fail-closed):
+ * - Luôn kiểm tra tự trỏ chính mình và chu trình trong pendingEdges (bao gồm cả cạnh hiện tại).
+ * - Kiểm tra chu trình đối với mọi cạnh ACCEPTED trong DB (bao phủ Multiple Occurrences).
  */
 async function assertNoCycle(tx, { tenantId, parentId, childId, pendingEdges = [], isNewChild = false }) {
   if (!parentId || !childId) return;
@@ -150,18 +152,9 @@ async function assertNoCycle(tx, { tenantId, parentId, childId, pendingEdges = [
     throw err;
   }
 
-  // 1. Kiểm tra đối với pendingEdges trong bộ nhớ RAM (tốn 0ms)
-  if (pendingEdges.length > 0) {
-    const combinedEdges = [...pendingEdges, { parentId, childId }];
-    assertNoInternalCycle(combinedEdges);
-  }
+  const combinedEdges = [...pendingEdges, { parentId, childId }];
+  assertNoInternalCycle(combinedEdges);
 
-  // 2. Con mới hoàn toàn không thể có mặt trong DB -> Bỏ qua truy vấn SQL CTE
-  if (isNewChild === true) {
-    return;
-  }
-
-  // 3. Con sẵn có: chạy SQL đệ quy kiểm tra DB
   const cycleInDb = await wouldCreateCycleInDb(tx, tenantId, parentId, childId);
   if (cycleInDb) {
     const err = new Error(
@@ -169,7 +162,7 @@ async function assertNoCycle(tx, { tenantId, parentId, childId, pendingEdges = [
     );
     err.code = 'TOPOLOGY_CYCLE_DETECTED';
     err.statusCode = 422;
-    err.details = { parentId, childId, tenantId };
+    err.details = { parentId, childId, tenantId, isNewChild: Boolean(isNewChild) };
     throw err;
   }
 }

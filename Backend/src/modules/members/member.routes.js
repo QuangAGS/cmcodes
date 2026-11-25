@@ -25,6 +25,7 @@ const {
   assertActiveLink,
 } = require('../../middlewares/auth.middleware');
 const { createInAppSearchGuard } = require('../../services/logicRateLimiter.service');
+const { canonicalMemberRedirectMiddleware } = require('../../middlewares/canonical-member-redirect.middleware');
 
 const ADMIN_AND_STEWARD_ROLES = [
   'SYSTEM_ADMIN',
@@ -38,7 +39,7 @@ const ADMIN_AND_STEWARD_ROLES = [
 // ==================== READ ROUTES (KHÔNG BẮT BUỘC assertActiveLink) ====================
 router.get('/stats/summary', verifyToken, memberController.getStats);
 router.get('/tree/:branchId', verifyToken, memberController.getMemberTree);
-router.get('/focal-tree/:id', verifyToken, memberController.getFocalTree);
+router.get('/focal-tree/:id', verifyToken, canonicalMemberRedirectMiddleware({ paramNames: ['id'] }), memberController.getFocalTree);
 router.get(
   '/names',
   verifyToken,
@@ -56,8 +57,8 @@ router.get(
   }),
   memberController.getAll
 );
-router.get('/:id/profile', verifyToken, memberController.getProfile);
-router.get('/:id', verifyToken, memberController.getById);
+router.get('/:id/profile', verifyToken, canonicalMemberRedirectMiddleware({ paramNames: ['id'] }), memberController.getProfile);
+router.get('/:id', verifyToken, canonicalMemberRedirectMiddleware({ paramNames: ['id'] }), memberController.getById);
 
 // ==================== HEAVY-WRITE ROUTES (BẮT BUỘC assertActiveLink) ====================
 router.patch(

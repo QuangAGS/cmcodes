@@ -1,22 +1,23 @@
 /**
- * PATH       : Backend/src/modules/genealogy/parentage.mapper.js
- * DATETIME   : 2026-11-02T15:10:00+07:00
- * VERSION    : 1.1.0-PRODUCTION-READY
+ * PATH       : src/modules/genealogy/parentage.mapper.js
+ * DATETIME   : 2026-11-25T13:47:00+07:00
+ * VERSION    : 1.2.0-SUPERSEDED-SAFE-DUAL-WRITE
  * DESCRIPTION:
- * - Service Mapper dùng chung cho dual-write parentages ngoài MFO.
- * - Tự động acquireTopologyLock + assertNoCycle (hỗ trợ isNewChild bỏ qua CTE SQL).
- * - Hạ cờ cạnh cũ khi reassign hoặc xóa quan hệ, upsert cạnh mới.
- * - Tối ưu hóa: Bỏ findFirst khi isNewChild === true.
- * - Thu thập auditQueue để caller flush batch trong 1 round-trip.
+ * - Service Mapper dùng chung cho dual-write parentages bảo vệ OP/RP.
+ * - Tự động acquireTopologyLock + assertNoCycle (bao phủ Multiple Occurrences).
+ * - Xử lý SUPERSEDED an toàn trong 1 transaction, tránh đụng unique constraint
+ *   uq_parentage_assertion (tenant_id, parent_id, child_id, relationship_type, review_status).
+ * - Hỗ trợ metadata.relative_level trên cạnh parentages; không đụng member_generation_assertions.
+ * CHANGE LOGS:
+ *   - 1.0.0: Tách riêng mapper parentages, dual-write, lock + assertNoCycle.
+ *   - 1.1.0: Thêm metadata.relative_level trên cạnh parentages.
+ *   - 1.2.0: Thêm dual-write audit_logs cho parentages (CAP_NHAT / THEM_MOI).
  */
 
 'use strict';
 
 const { acquireTopologyLock, assertNoCycle } = require('./topology.guard.js');
 
-/**
- * Ánh xạ child_type → relationship_type (đồng bộ với mfo.gate2.js)
- */
 function mapChildTypeToParentageType(childType) {
   switch (childType) {
     case 'CON_NUOI':
@@ -33,53 +34,157 @@ function mapChildTypeToParentageType(childType) {
   }
 }
 
-/**
- * Hạ cờ is_selected_for_lineage của các cạnh cũ của một child.
- * Ghi audit cho từng cạnh bị hạ.
- */
-async function lowerOldParentages(tx, { tenantId, childId, actorId, correlationId, ticketId, auditQueue }) {
+async function supersedeOldParentages(tx, {
+  tenantId,
+  childId,
+  keepParentIds = [],
+  actorId,
+  correlationId,
+  ticketId,
+  auditQueue,
+}) {
+  const keepSet = new Set((keepParentIds || []).filter(Boolean));
+
   const olds = await tx.parentages.findMany({
     where: {
       tenant_id: tenantId,
       child_id: childId,
-      is_selected_for_lineage: true,
+      review_status: 'ACCEPTED',
       deleted_at: null,
     },
-    select: { id: true, parent_id: true, union_id: true },
-  });
-
-  if (olds.length === 0) return;
-
-  await tx.parentages.updateMany({
-    where: { id: { in: olds.map((p) => p.id) } },
-    data: {
-      is_selected_for_lineage: false,
-      changed_by: actorId,
+    select: {
+      id: true,
+      parent_id: true,
+      relationship_type: true,
+      union_id: true,
+      review_status: true,
+      is_selected_for_lineage: true,
+      metadata: true,
     },
   });
 
-  for (const old of olds) {
+  const targets = olds.filter((p) => !keepSet.has(p.parent_id));
+  if (targets.length === 0) return [];
+
+  const supersededRows = [];
+
+  for (const old of targets) {
+    const existingSuperseded = await tx.parentages.findFirst({
+      where: {
+        tenant_id: tenantId,
+        parent_id: old.parent_id,
+        child_id: childId,
+        relationship_type: old.relationship_type,
+        review_status: 'SUPERSEDED',
+      },
+      select: { id: true },
+    });
+
+    if (existingSuperseded) {
+      const retired = await tx.parentages.update({
+        where: { id: old.id },
+        data: {
+          is_selected_for_lineage: false,
+          deleted_at: new Date(),
+          changed_by: actorId || null,
+          note: `Thay thế bởi quan hệ mới; bản ghi SUPERSEDED đã tồn tại (${ticketId || 'OP'})`,
+        },
+      });
+      supersededRows.push(retired);
+
+      auditQueue.push({
+        tableName: 'parentages',
+        recordId: retired.id,
+        action: 'CAP_NHAT',
+        tenantId,
+        changedBy: actorId || null,
+        correlationId: correlationId || null,
+        oldData: {
+          id: old.id,
+          parent_id: old.parent_id,
+          review_status: old.review_status,
+          is_selected_for_lineage: old.is_selected_for_lineage,
+        },
+        newData: {
+          id: retired.id,
+          parent_id: retired.parent_id,
+          review_status: old.review_status,
+          is_selected_for_lineage: false,
+          superseded_by_existing_id: existingSuperseded.id,
+        },
+        changeReason: `Chuyển tiếp SUPERSEDED an toàn (Context: ${ticketId || 'OP'})`,
+      });
+      continue;
+    }
+
+    const updated = await tx.parentages.update({
+      where: { id: old.id },
+      data: {
+        review_status: 'SUPERSEDED',
+        is_selected_for_lineage: false,
+        changed_by: actorId || null,
+        note: `Đánh dấu SUPERSEDED khi cập nhật quan hệ phụ mẫu (Context: ${ticketId || 'OP'})`,
+      },
+    });
+    supersededRows.push(updated);
+
     auditQueue.push({
       tableName: 'parentages',
-      recordId: old.id,
+      recordId: updated.id,
       action: 'CAP_NHAT',
       tenantId,
-      changedBy: actorId,
-      correlationId,
-      oldData: { id: old.id, parent_id: old.parent_id, is_selected_for_lineage: true },
-      newData: { id: old.id, parent_id: old.parent_id, is_selected_for_lineage: false },
-      changeReason: `Hạ cờ cạnh cũ (Ticket/Context: ${ticketId || 'OP'})`,
+      changedBy: actorId || null,
+      correlationId: correlationId || null,
+      oldData: {
+        id: old.id,
+        parent_id: old.parent_id,
+        review_status: old.review_status,
+        is_selected_for_lineage: old.is_selected_for_lineage,
+      },
+      newData: {
+        id: updated.id,
+        parent_id: updated.parent_id,
+        review_status: 'SUPERSEDED',
+        is_selected_for_lineage: false,
+      },
+      changeReason: `Đánh dấu SUPERSEDED cạnh cũ (Context: ${ticketId || 'OP'})`,
     });
   }
+
+  return supersededRows;
 }
 
-/**
- * Upsert một cạnh parentage có tối ưu cho isNewChild.
- */
-async function upsertParentage(tx, { tenantId, parentId, childId, relationshipType, unionId, actorId, correlationId, ticketId, isNewChild = false, auditQueue }) {
+async function lowerOldParentages(tx, params) {
+  return supersedeOldParentages(tx, params);
+}
+
+function buildEdgeMetadata(existingMetadata, relativeLevel, extra = {}) {
+  const base =
+    existingMetadata && typeof existingMetadata === 'object' && !Array.isArray(existingMetadata)
+      ? { ...existingMetadata }
+      : {};
+  if (relativeLevel != null) {
+    base.relative_level = Number(relativeLevel);
+  }
+  return { ...base, ...extra };
+}
+
+async function upsertParentage(tx, {
+  tenantId,
+  parentId,
+  childId,
+  relationshipType,
+  unionId,
+  actorId,
+  correlationId,
+  ticketId,
+  isNewChild = false,
+  relativeLevel = null,
+  metadataExtra = {},
+  auditQueue,
+}) {
   if (!parentId || !childId || parentId === childId) return null;
 
-  // Nếu không phải con mới, kiểm tra quan hệ hiện có để cập nhật
   if (!isNewChild) {
     const existing = await tx.parentages.findFirst({
       where: {
@@ -90,16 +195,24 @@ async function upsertParentage(tx, { tenantId, parentId, childId, relationshipTy
         review_status: 'ACCEPTED',
         deleted_at: null,
       },
-      select: { id: true, union_id: true, is_selected_for_lineage: true },
+      select: {
+        id: true,
+        union_id: true,
+        is_selected_for_lineage: true,
+        metadata: true,
+      },
     });
 
     if (existing) {
+      const nextMetadata = buildEdgeMetadata(existing.metadata, relativeLevel, metadataExtra);
       const updated = await tx.parentages.update({
         where: { id: existing.id },
         data: {
           union_id: unionId || null,
+          review_status: 'ACCEPTED',
           is_selected_for_lineage: true,
-          changed_by: actorId,
+          metadata: nextMetadata,
+          changed_by: actorId || null,
           deleted_at: null,
           note: `Cập nhật từ Mapper (Context: ${ticketId || 'OP'})`,
         },
@@ -110,10 +223,20 @@ async function upsertParentage(tx, { tenantId, parentId, childId, relationshipTy
         recordId: updated.id,
         action: 'CAP_NHAT',
         tenantId,
-        changedBy: actorId,
-        correlationId,
-        oldData: { id: existing.id, union_id: existing.union_id, is_selected_for_lineage: existing.is_selected_for_lineage },
-        newData: { id: updated.id, union_id: updated.union_id, is_selected_for_lineage: true },
+        changedBy: actorId || null,
+        correlationId: correlationId || null,
+        oldData: {
+          id: existing.id,
+          union_id: existing.union_id,
+          is_selected_for_lineage: existing.is_selected_for_lineage,
+          metadata: existing.metadata,
+        },
+        newData: {
+          id: updated.id,
+          union_id: updated.union_id,
+          is_selected_for_lineage: true,
+          metadata: nextMetadata,
+        },
         changeReason: `Cập nhật quan hệ phụ mẫu (Context: ${ticketId || 'OP'})`,
       });
 
@@ -121,7 +244,7 @@ async function upsertParentage(tx, { tenantId, parentId, childId, relationshipTy
     }
   }
 
-  // Con mới hoặc quan hệ chưa có: tạo mới trực tiếp
+  const initialMetadata = buildEdgeMetadata({}, relativeLevel, metadataExtra);
   const created = await tx.parentages.create({
     data: {
       tenant_id: tenantId,
@@ -131,8 +254,9 @@ async function upsertParentage(tx, { tenantId, parentId, childId, relationshipTy
       union_id: unionId || null,
       review_status: 'ACCEPTED',
       is_selected_for_lineage: true,
+      metadata: initialMetadata,
       note: `Ghi nhận từ Mapper (Context: ${ticketId || 'OP'})`,
-      changed_by: actorId,
+      changed_by: actorId || null,
     },
   });
 
@@ -141,8 +265,8 @@ async function upsertParentage(tx, { tenantId, parentId, childId, relationshipTy
     recordId: created.id,
     action: 'THEM_MOI',
     tenantId,
-    changedBy: actorId,
-    correlationId,
+    changedBy: actorId || null,
+    correlationId: correlationId || null,
     oldData: null,
     newData: {
       id: created.id,
@@ -150,7 +274,9 @@ async function upsertParentage(tx, { tenantId, parentId, childId, relationshipTy
       child_id: created.child_id,
       relationship_type: created.relationship_type,
       union_id: created.union_id,
+      review_status: 'ACCEPTED',
       is_selected_for_lineage: true,
+      metadata: initialMetadata,
     },
     changeReason: `Tạo quan hệ phụ mẫu (Context: ${ticketId || 'OP'})`,
   });
@@ -158,10 +284,6 @@ async function upsertParentage(tx, { tenantId, parentId, childId, relationshipTy
   return created;
 }
 
-/**
- * Đồng bộ parentages cho một child.
- * Gọi trong transaction, sau khi đã ghi members.father_id / mother_id.
- */
 async function syncMemberParentages(tx, {
   tenantId,
   childId,
@@ -172,6 +294,8 @@ async function syncMemberParentages(tx, {
   actorId,
   correlationId = null,
   isNewChild = false,
+  relativeLevel = null,
+  metadataExtra = {},
   auditQueue = [],
   pendingEdges = [],
   ticketId = null,
@@ -180,40 +304,63 @@ async function syncMemberParentages(tx, {
 
   await acquireTopologyLock(tx, tenantId);
 
-  const relationshipType = mapChildTypeToParentageType(childType);
   const skip = ['CON_DAU', 'CON_RE'].includes(childType);
-
   if (skip) return;
 
-  // Nếu là reassign (không phải con mới sinh), hạ cờ cạnh cũ trước
+  const relationshipType = mapChildTypeToParentageType(childType);
+  const nextParents = [fatherId, motherId].filter(Boolean);
+
   if (!isNewChild) {
-    await lowerOldParentages(tx, { tenantId, childId, actorId, correlationId, ticketId, auditQueue });
+    await supersedeOldParentages(tx, {
+      tenantId,
+      childId,
+      keepParentIds: nextParents,
+      actorId,
+      correlationId,
+      ticketId,
+      auditQueue,
+    });
   }
 
   if (fatherId) {
-    // Đã truyền chính xác cờ isNewChild vào assertNoCycle
     await assertNoCycle(tx, { tenantId, parentId: fatherId, childId, pendingEdges, isNewChild });
     await upsertParentage(tx, {
-      tenantId, parentId: fatherId, childId, relationshipType, unionId,
-      actorId, correlationId, ticketId, isNewChild, auditQueue,
+      tenantId,
+      parentId: fatherId,
+      childId,
+      relationshipType,
+      unionId,
+      actorId,
+      correlationId,
+      ticketId,
+      isNewChild,
+      relativeLevel,
+      metadataExtra,
+      auditQueue,
     });
     pendingEdges.push({ parentId: fatherId, childId });
   }
 
   if (motherId) {
-    // Đã truyền chính xác cờ isNewChild vào assertNoCycle
     await assertNoCycle(tx, { tenantId, parentId: motherId, childId, pendingEdges, isNewChild });
     await upsertParentage(tx, {
-      tenantId, parentId: motherId, childId, relationshipType, unionId,
-      actorId, correlationId, ticketId, isNewChild, auditQueue,
+      tenantId,
+      parentId: motherId,
+      childId,
+      relationshipType,
+      unionId,
+      actorId,
+      correlationId,
+      ticketId,
+      isNewChild,
+      relativeLevel,
+      metadataExtra,
+      auditQueue,
     });
     pendingEdges.push({ parentId: motherId, childId });
   }
 }
 
-/**
- * Helper flush toàn bộ auditQueue của mapper trong 1 round-trip
- */
 async function flushParentageAudit(tx, auditQueue = []) {
   if (!Array.isArray(auditQueue) || auditQueue.length === 0) return;
 
@@ -236,6 +383,7 @@ async function flushParentageAudit(tx, auditQueue = []) {
 
 module.exports = {
   mapChildTypeToParentageType,
+  supersedeOldParentages,
   lowerOldParentages,
   upsertParentage,
   syncMemberParentages,

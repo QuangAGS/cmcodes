@@ -1,13 +1,14 @@
 /**
- * PATH       : backend/src/modules/mfo/mfo.gate2.js
- * DATETIME   : 2026-11-02T11:25:00+07:00
- * VERSION    : 1.7.0-SCOPED-CACHE-BYPASS-CYCLE
+ * PATH       : src/modules/mfo/mfo.gate2.js
+ * DATETIME   : 2026-11-25T13:47:00+07:00
+ * VERSION    : 1.8.0-SUPERSEDED-CREATOR-HARDENED
  * DESCRIPTION:
- * - Tối ưu hóa triệt để load_cache_ms: Thu hẹp query nạp cache theo danh sách IDs thực tế liên quan
- *   trong tờ trình thay vì findMany cả dòng họ, kéo giảm từ 515ms xuống < 50ms.
- * - Tối ưu hóa dual_write_new_children_ms: Kết hợp assertNoCycle (bỏ CTE SQL cho con mới) và bỏ findFirst
- *   thừa trong upsertParentageFast, kéo giảm từ 859ms xuống < 250ms.
- * - Bảo tồn 100% logic Canvas ReactFlow, SRPF Engine, quan hệ hôn phối marriages, và child_type mapping.
+ * - Giữ tối ưu load_cache_ms & dual_write_new_children_ms + bảo vệ OP/RP.
+ * - Gán created_by_member_id đầy đủ cho members/spouses tạo mới khi có thông tin actorMemberId.
+ * - Xử lý SUPERSEDED an toàn trong cùng 1 transaction khi gán lại con sẵn có (assigned_children),
+ *   tránh lỗi unique uq_parentage_assertion.
+ * CHANGe LOGS:
+ *   - 1.8.0: Cập nhật logic xử lý SUPERSEDED an toàn khi gán lại con sẵn có.
  */
 'use strict';
 
@@ -82,7 +83,131 @@ function mapChildTypeToParentageType(childType) {
   }
 }
 
-async function upsertParentageFast(tx, { tenantId, parentId, childId, relationshipType, unionId, actorId, ticketId, correlationId, isNewChild = false, auditQueue }) {
+async function resolveActorMemberId(tx, { tenantId, actorId, proposal }) {
+  if (proposal && proposal.created_by_member_id) {
+    return proposal.created_by_member_id;
+  }
+  if (proposal && proposal.payload && proposal.payload.created_by_member_id) {
+    return proposal.payload.created_by_member_id;
+  }
+  if (!actorId) return null;
+
+  if (typeof tx.user_member_links?.findFirst === 'function') {
+    const link = await tx.user_member_links.findFirst({
+      where: {
+        tenant_id: tenantId,
+        user_id: actorId,
+        deleted_at: null,
+      },
+      orderBy: [{ is_default: 'desc' }, { created_at: 'asc' }],
+      select: { member_id: true },
+    });
+    if (link?.member_id) return link.member_id;
+  }
+
+  if (typeof tx.users?.findUnique === 'function') {
+    const user = await tx.users.findUnique({
+      where: { id: actorId },
+      select: { member_id: true },
+    });
+    if (user?.member_id) return user.member_id;
+  }
+
+  return null;
+}
+
+async function supersedeChildEdgesSafely(tx, {
+  tenantId,
+  childId,
+  keepParentIds,
+  actorId,
+  ticketId,
+  correlationId,
+  auditQueue,
+}) {
+  const keepSet = new Set((keepParentIds || []).filter(Boolean));
+  const oldActiveParentages = await tx.parentages.findMany({
+    where: {
+      tenant_id: tenantId,
+      child_id: childId,
+      review_status: 'ACCEPTED',
+      deleted_at: null,
+    },
+    select: { id: true, parent_id: true, relationship_type: true, union_id: true, is_selected_for_lineage: true },
+  });
+
+  const targets = oldActiveParentages.filter((p) => !keepSet.has(p.parent_id));
+  for (const oldP of targets) {
+    const existingSuperseded = await tx.parentages.findFirst({
+      where: {
+        tenant_id: tenantId,
+        parent_id: oldP.parent_id,
+        child_id: childId,
+        relationship_type: oldP.relationship_type,
+        review_status: 'SUPERSEDED',
+      },
+      select: { id: true },
+    });
+
+    if (existingSuperseded) {
+      await tx.parentages.update({
+        where: { id: oldP.id },
+        data: {
+          is_selected_for_lineage: false,
+          deleted_at: new Date(),
+          changed_by: actorId,
+          note: `Hạ cờ cạnh cũ; bản ghi SUPERSEDED đã có qua MFO Gate 2 (Ticket #${ticketId})`,
+        },
+      });
+    } else {
+      await tx.parentages.update({
+        where: { id: oldP.id },
+        data: {
+          review_status: 'SUPERSEDED',
+          is_selected_for_lineage: false,
+          changed_by: actorId,
+          note: `Chuyển SUPERSEDED khi gán con vào hôn phối mới qua MFO Gate 2 (Ticket #${ticketId})`,
+        },
+      });
+    }
+
+    auditQueue.push({
+      tableName: 'parentages',
+      recordId: oldP.id,
+      action: 'CAP_NHAT',
+      tenantId,
+      changedBy: actorId,
+      correlationId,
+      oldData: {
+        id: oldP.id,
+        parent_id: oldP.parent_id,
+        review_status: 'ACCEPTED',
+        is_selected_for_lineage: oldP.is_selected_for_lineage,
+      },
+      newData: {
+        id: oldP.id,
+        parent_id: oldP.parent_id,
+        review_status: existingSuperseded ? 'ACCEPTED' : 'SUPERSEDED',
+        is_selected_for_lineage: false,
+      },
+      changeReason: `Hạ cờ/SUPERSEDED nhánh cũ khi gán con qua MFO Gate 2 (Ticket #${ticketId})`,
+    });
+  }
+}
+
+async function upsertParentageFast(tx, {
+  tenantId,
+  parentId,
+  childId,
+  relationshipType,
+  unionId,
+  actorId,
+  ticketId,
+  correlationId,
+  isNewChild = false,
+  relativeLevel = null,
+  auditQueue,
+}) {
   if (!parentId || !childId || parentId === childId) return null;
 
   if (!isNewChild) {
@@ -95,15 +220,20 @@ async function upsertParentageFast(tx, { tenantId, parentId, childId, relationsh
         review_status: 'ACCEPTED',
         deleted_at: null,
       },
-      select: { id: true, union_id: true, is_selected_for_lineage: true },
+      select: { id: true, union_id: true, is_selected_for_lineage: true, metadata: true },
     });
 
     if (existing) {
+      const nextMetadata = {
+        ...(existing.metadata && typeof existing.metadata === 'object' ? existing.metadata : {}),
+        ...(relativeLevel != null ? { relative_level: Number(relativeLevel) } : {}),
+      };
       const updated = await tx.parentages.update({
         where: { id: existing.id },
         data: {
           union_id: unionId || null,
           is_selected_for_lineage: true,
+          metadata: nextMetadata,
           changed_by: actorId,
           deleted_at: null,
           note: `Cập nhật từ SRPF Gate 2 (Ticket: ${ticketId || 'N/A'})`,
@@ -118,7 +248,7 @@ async function upsertParentageFast(tx, { tenantId, parentId, childId, relationsh
         changedBy: actorId,
         correlationId,
         oldData: { id: existing.id, union_id: existing.union_id, is_selected_for_lineage: existing.is_selected_for_lineage },
-        newData: { id: updated.id, union_id: updated.union_id, is_selected_for_lineage: true },
+        newData: { id: updated.id, union_id: updated.union_id, is_selected_for_lineage: true, metadata: nextMetadata },
         changeReason: `Cập nhật quan hệ phụ mẫu qua duyệt MFO Gate 2 (Ticket #${ticketId})`,
       });
 
@@ -126,6 +256,7 @@ async function upsertParentageFast(tx, { tenantId, parentId, childId, relationsh
     }
   }
 
+  const createdMetadata = relativeLevel != null ? { relative_level: Number(relativeLevel) } : {};
   const created = await tx.parentages.create({
     data: {
       tenant_id: tenantId,
@@ -135,6 +266,7 @@ async function upsertParentageFast(tx, { tenantId, parentId, childId, relationsh
       union_id: unionId || null,
       review_status: 'ACCEPTED',
       is_selected_for_lineage: true,
+      metadata: createdMetadata,
       note: `Ghi nhận từ SRPF Gate 2 (Ticket: ${ticketId || 'N/A'})`,
       changed_by: actorId,
     },
@@ -155,6 +287,7 @@ async function upsertParentageFast(tx, { tenantId, parentId, childId, relationsh
       relationship_type: created.relationship_type,
       union_id: created.union_id,
       is_selected_for_lineage: true,
+      metadata: createdMetadata,
     },
     changeReason: `Tạo quan hệ phụ mẫu mới qua duyệt MFO Gate 2 (Ticket #${ticketId})`,
   });
@@ -171,10 +304,11 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
   const auditQueue = [];
   const pendingEdges = [];
 
-  // 1. Topology Lock: transaction-scoped, timeout 3s, fail-closed
   const t0 = Date.now();
   await acquireTopologyLock(tx, tenantId);
   timings.lock_ms = Date.now() - t0;
+
+  const creatorMemberId = await resolveActorMemberId(tx, { tenantId, actorId, proposal });
 
   const { staging, delta } = layerOf(proposal.payload);
   const children = (Array.isArray(delta.draft_children) ? delta.draft_children : [])
@@ -194,12 +328,10 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
     }
   }
 
-  // 2. NẠP CACHE THU HẸP (Chỉ nạp các thành viên và hôn nhân liên quan trong tờ trình)
   const t1 = Date.now();
   const targetMemberIds = new Set();
   const targetUnionIds = new Set();
 
-  // Gom các parentIds từ con mới
   for (const c of children) {
     const pid = ownerIdOf(c.parent_node_id, new Map());
     if (pid && !pid.startsWith('draft-child-')) targetMemberIds.add(pid);
@@ -212,14 +344,12 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
     }
   }
 
-  // Gom từ spouses
   for (const s of spouses) {
     const oid = ownerIdOf(s.owner_node_id, new Map());
     if (oid && !oid.startsWith('draft-child-')) targetMemberIds.add(oid);
     if (s.union_id && !s.union_id.startsWith('union-draft-')) targetUnionIds.add(s.union_id);
   }
 
-  // Gom từ assigned_children
   for (const a of assigned) {
     if (a.member_id) targetMemberIds.add(a.member_id);
     if (a.union_id && !a.union_id.startsWith('union-draft-')) targetUnionIds.add(a.union_id);
@@ -235,7 +365,7 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
         deleted_at: null,
         ...(memberIdList.length > 0 ? { id: { in: memberIdList } } : {}),
       },
-      select: { id: true, full_name: true, gender: true, generation: true, father_id: true, mother_id: true, parent_union_id: true, sibling_seq: true }
+      select: { id: true, full_name: true, gender: true, generation: true, father_id: true, mother_id: true, parent_union_id: true, sibling_seq: true },
     }),
     tx.marriages.findMany({
       where: {
@@ -243,8 +373,8 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
         deleted_at: null,
         ...(unionIdList.length > 0 ? { id: { in: unionIdList } } : {}),
       },
-      select: { id: true, husband_id: true, wife_id: true }
-    })
+      select: { id: true, husband_id: true, wife_id: true },
+    }),
   ]);
   timings.load_cache_ms = Date.now() - t1;
 
@@ -296,10 +426,10 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
     return marriage;
   };
 
-  // 3. TẠO CÁC PHỐI NGẪU VÀ HÔN PHỐI TRƯỚC
   const t2 = Date.now();
   for (const spouse of spouses) {
     const smp = staging[spouse.union_id] || {};
+    const spouseCreatorMemberId = smp.created_by_member_id || creatorMemberId || null;
     const created = await tx.members.create({
       data: {
         tenant_id: tenantId,
@@ -311,6 +441,8 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
         status: 'CHINH_THUC',
         is_alive: smp.is_alive !== false,
         birth_year: smp.birth_year || smp.partner_birth_year || null,
+        created_by: actorId || null,
+        created_by_member_id: spouseCreatorMemberId,
         changed_by: actorId,
       },
     });
@@ -331,6 +463,7 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
         gender: created.gender,
         is_clan: created.is_clan,
         status: created.status,
+        created_by_member_id: created.created_by_member_id,
       },
       changeReason: `Tạo phối ngẫu mới từ duyệt MFO Gate 2 (Ticket #${ticketId})`,
     });
@@ -341,12 +474,11 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
   }
   timings.create_nodes_marriages_ms = Date.now() - t2;
 
-  // 4. GỘP CREATE + TỐI ƯU HÓA CYCLE CHECK CHO CON MỚI (isNewChild: true)
   const t3 = Date.now();
   for (const child of children) {
     const smp = staging[child.id] || {};
     const parentId = ownerIdOf(child.parent_node_id, memberMap);
-    
+
     if (!parentId) fail('Thiếu người đời trên để tính đời.', 422, 'MFO_GENERATION_REQUIRED');
     const parent = memberCache.get(parentId);
     const generation = generationAfter(parent);
@@ -382,6 +514,7 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
     refuseIfOnBook(existingMembers, { fullName: smp.full_name, fatherId, motherId });
 
     const childType = smp.child_type || 'CON_DE';
+    const childCreatorMemberId = smp.created_by_member_id || creatorMemberId || null;
 
     const created = await tx.members.create({
       data: {
@@ -403,6 +536,8 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
         father_id: fatherId,
         mother_id: motherId,
         note: smp.is_anonymous ? '[UM] Khuyết danh tạo bởi MFO 5L' : (smp.note || null),
+        created_by: actorId || null,
+        created_by_member_id: childCreatorMemberId,
         changed_by: actorId,
       },
     });
@@ -430,11 +565,11 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
         mother_id: created.mother_id,
         parent_union_id: created.parent_union_id,
         child_type: created.child_type,
+        created_by_member_id: created.created_by_member_id,
       },
       changeReason: `Tạo thành viên mới từ duyệt MFO Gate 2 (Ticket #${ticketId})`,
     });
 
-    // Dual-write với isNewChild: true để bỏ qua câu đệ quy CTE SQL
     if (!['CON_DAU', 'CON_RE'].includes(childType)) {
       const parentageType = mapChildTypeToParentageType(childType);
 
@@ -450,6 +585,7 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
           ticketId,
           correlationId,
           isNewChild: true,
+          relativeLevel: child.depth != null ? Number(child.depth) : 1,
           auditQueue,
         });
         pendingEdges.push({ parentId: fatherId, childId });
@@ -467,6 +603,7 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
           ticketId,
           correlationId,
           isNewChild: true,
+          relativeLevel: child.depth != null ? Number(child.depth) : 1,
           auditQueue,
         });
         pendingEdges.push({ parentId: motherId, childId });
@@ -481,7 +618,6 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
   }
   timings.dual_write_new_children_ms = Date.now() - t3;
 
-  // 5. CẬP NHẬT CON ĐÃ CÓ TRÊN SỔ (ASSIGNED_CHILDREN) - BẮT BUỘC CHẠY CTE
   const t4 = Date.now();
   for (const row of assigned) {
     const unionId = marriageMap.get(row.union_id) || null;
@@ -491,41 +627,15 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
     const motherId = marriage && marriage.wife_id ? marriage.wife_id : null;
     const oldMemberData = memberCache.get(row.member_id);
 
-    const oldActiveParentages = await tx.parentages.findMany({
-      where: {
-        tenant_id: tenantId,
-        child_id: row.member_id,
-        is_selected_for_lineage: true,
-        deleted_at: null,
-      },
-      select: { id: true, parent_id: true, union_id: true },
+    await supersedeChildEdgesSafely(tx, {
+      tenantId,
+      childId: row.member_id,
+      keepParentIds: [fatherId, motherId],
+      actorId,
+      ticketId,
+      correlationId,
+      auditQueue,
     });
-
-    if (oldActiveParentages.length > 0) {
-      await tx.parentages.updateMany({
-        where: {
-          id: { in: oldActiveParentages.map((p) => p.id) },
-        },
-        data: {
-          is_selected_for_lineage: false,
-          changed_by: actorId,
-        },
-      });
-
-      for (const oldP of oldActiveParentages) {
-        auditQueue.push({
-          tableName: 'parentages',
-          recordId: oldP.id,
-          action: 'CAP_NHAT',
-          tenantId,
-          changedBy: actorId,
-          correlationId,
-          oldData: { id: oldP.id, parent_id: oldP.parent_id, is_selected_for_lineage: true },
-          newData: { id: oldP.id, parent_id: oldP.parent_id, is_selected_for_lineage: false },
-          changeReason: `Hạ cờ nhánh cũ khi gán con vào hôn phối mới qua MFO Gate 2 (Ticket #${ticketId})`,
-        });
-      }
-    }
 
     const updatedMember = await tx.members.update({
       where: { id: row.member_id },
@@ -600,7 +710,6 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
   }
   timings.assigned_children_ms = Date.now() - t4;
 
-  // 6. GHI AUDIT BATCH TRONG 1 ROUND-TRIP
   const t5 = Date.now();
   if (auditQueue.length > 0) {
     if (typeof tx.audit_logs?.createMany === 'function') {
@@ -629,7 +738,6 @@ async function executeGate2DbMutation(tx, { tenantId, actorId, proposal }) {
     }
   }
   timings.audit_flush_ms = Date.now() - t5;
-
   timings.total_gate2_ms = Date.now() - tStart;
 
   console.info('[PERF_GATE2_BREAKDOWN]', {

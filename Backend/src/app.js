@@ -34,6 +34,8 @@ const correlationMiddleware = require('./middlewares/correlation.middleware');
 // IMPORT ROUTES & MIDDLEWARES
 const branchRoutes = require('./modules/members/branch.routes');
 const mfoRoutes = require('./modules/mfo/mfo.routes');
+const entityResolutionRoutes = require('./modules/genealogy/entity-resolution.routes');
+const smallTreesRoutes = require('./modules/small-trees/small-trees.routes');
 const memberRoutes = require('./modules/members/member.routes');
 const addressRoutes = require('./modules/interactions/address.routes');
 const worshipRoutes = require('./modules/worship/worship.routes');
@@ -176,6 +178,8 @@ app.use('/api/auth/register', loginRateLimiter);
 app.use('/api/members', memberRoutes);
 app.use('/api/branches', branchRoutes);
 app.use('/api/mfo', mfoRoutes);
+app.use('/api/entity-resolution', entityResolutionRoutes);
+app.use('/api/small-trees', smallTreesRoutes);
 app.use('/api/addresses', addressRoutes);
 app.use('/api/worships', worshipRoutes);
 app.use('/api/tenants', tenantRoutes);
