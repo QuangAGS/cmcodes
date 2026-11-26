@@ -1,8 +1,8 @@
 /**
  * =============================================================================
  * PATH        : frontend/src/App.jsx
- * DATETIME    : 2026-11-23T17:35:00+07:00
- * VERSION     : 3.9.0-FE-PHASE-1-INTEGRATED 
+ * DATETIME    : 2026-11-26T11:40:00+07:00
+ * VERSION     : 3.9.1-FE-PHASE-1-INTEGRATED
  * DESCRIPTION : Định tuyến ứng dụng Gia Phả Số chuẩn AMEND-RP-OP-2026-02 V1.5.0
  *               & IMPL-PLAN-FE-PHASE2-V1.8-ISO29148:
  *               - AdminProtectedRoute: Thẩm định quyền theo activeContext.roleInTenant
@@ -13,23 +13,14 @@
  *               - [Sprint FE-3, FUNC-01, FUNC-10] Đăng ký route công khai 1 lần dùng
  *                 /onboarding/beneficiary-consent và /onboarding/beneficiary-consent/:token
  *                 cho BeneficiaryConsentPage.jsx.
- * =============================================================================
- * CHANGELOGS: 
- * - 2026-11-11T18:00:00+07:00 (v3.5.0-APP-SELECT-TENANT-REMOVED-FINAL):
- *   + Gỡ SelectTenantPage, thẩm định quyền Admin theo roleInTenant.
- * - 2026-11-13T11:05:00+07:00 (v3.6.0-MULTIHOME-AMEND02-V15-LAT3):
- *   + Import ClanSetupPage và gắn route /membership/setup bọc bởi OpProtectedRoute.
- * - 2026-11-20T07:00:00+07:00 (v3.7.0-PHASE2-SPRINT-FE3):
- *   + Import lazy BeneficiaryConsentPage và đăng ký route /onboarding/beneficiary-consent.
- * - 2026-11-23T17:35:00+07:00 (v3.8.0-ISO29148-UAT-IMP9):
- *   + Bổ sung AdminProtectedRoute: thẩm định quyền dựa trên activeContext.roleInTenant.
- *   + Mount HeaderClanSwitcher và SandboxModeBanner trên AppLayout.
+ *               - Gắn QueryClientProvider cho @tanstack/react-query và chuẩn hóa comment JSX.
  * =============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
 
 import React, { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'sonner';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { OpProtectedRoute } from './components/routes/OpProtectedRoute.jsx';
@@ -42,7 +33,7 @@ import { ClaimMemberPage } from './features/membership/pages/ClaimMemberPage';
 import { MembershipStatusPage } from './features/membership/pages/MembershipStatusPage';
 import { ClanSetupPage } from './features/membership/pages/ClanSetupPage';
 
-//Entitiy Resolution & Small Trees intergrated
+// --- Entity Resolution & Small Trees integrated ---
 import { EntityResolutionWizardPage } from './features/mfo/entity-resolution/EntityResolutionWizardPage';
 import { SmallTreesPage } from './features/mfo/small-trees/SmallTreesPage';
 
@@ -75,6 +66,15 @@ const DocumentUploadPage = lazy(() => import('./pages/DocumentUploadPage.jsx'));
 const BioFileUploadPage = lazy(() => import('./pages/BioFileUploadPage.jsx'));
 const AdminMemberVitalPage = lazy(() => import('./pages/AdminMemberVitalPage.jsx'));
 const AdminBranchesPage = lazy(() => import('./pages/AdminBranchesPage.jsx'));
+
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 const ADMIN_ROLES = new Set([
   'SYSTEM_ADMIN',
@@ -306,6 +306,7 @@ const AppRouter = () => {
             </OpProtectedRoute>
           }
         />
+
         {/* Entity Resolution Wizard & Small Trees integrated */}
         <Route
           path="/admin/entity-resolution"
@@ -464,19 +465,21 @@ const AppRouter = () => {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <MfoAlarmHost />
-      <Toaster
-        position="top-center"
-        richColors
-        closeButton
-        toastOptions={{ style: { borderRadius: '20px', padding: '16px' } }}
-      />
-      <BrowserRouter>
-        <AppLayout>
-          <AppRouter />
-        </AppLayout>
-      </BrowserRouter>
-    </AuthProvider>
+    <QueryClientProvider client={queryClient}>
+      <AuthProvider>
+        <MfoAlarmHost />
+        <Toaster
+          position="top-center"
+          richColors
+          closeButton
+          toastOptions={{ style: { borderRadius: '20px', padding: '16px' } }}
+        />
+        <BrowserRouter>
+          <AppLayout>
+            <AppRouter />
+          </AppLayout>
+        </BrowserRouter>
+      </AuthProvider>
+    </QueryClientProvider>
   );
 }
