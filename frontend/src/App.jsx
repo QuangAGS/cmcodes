@@ -2,7 +2,7 @@
  * =============================================================================
  * PATH        : frontend/src/App.jsx
  * DATETIME    : 2026-11-23T17:35:00+07:00
- * VERSION     : 3.8.0-ISO29148-UAT-IMP9
+ * VERSION     : 3.9.0-FE-PHASE-1-INTEGRATED 
  * DESCRIPTION : Định tuyến ứng dụng Gia Phả Số chuẩn AMEND-RP-OP-2026-02 V1.5.0
  *               & IMPL-PLAN-FE-PHASE2-V1.8-ISO29148:
  *               - AdminProtectedRoute: Thẩm định quyền theo activeContext.roleInTenant
@@ -14,13 +14,16 @@
  *                 /onboarding/beneficiary-consent và /onboarding/beneficiary-consent/:token
  *                 cho BeneficiaryConsentPage.jsx.
  * =============================================================================
- * CHANGELOGS:
+ * CHANGELOGS: 
  * - 2026-11-11T18:00:00+07:00 (v3.5.0-APP-SELECT-TENANT-REMOVED-FINAL):
  *   + Gỡ SelectTenantPage, thẩm định quyền Admin theo roleInTenant.
  * - 2026-11-13T11:05:00+07:00 (v3.6.0-MULTIHOME-AMEND02-V15-LAT3):
  *   + Import ClanSetupPage và gắn route /membership/setup bọc bởi OpProtectedRoute.
  * - 2026-11-20T07:00:00+07:00 (v3.7.0-PHASE2-SPRINT-FE3):
  *   + Import lazy BeneficiaryConsentPage và đăng ký route /onboarding/beneficiary-consent.
+ * - 2026-11-23T17:35:00+07:00 (v3.8.0-ISO29148-UAT-IMP9):
+ *   + Bổ sung AdminProtectedRoute: thẩm định quyền dựa trên activeContext.roleInTenant.
+ *   + Mount HeaderClanSwitcher và SandboxModeBanner trên AppLayout.
  * =============================================================================
  * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
@@ -38,6 +41,10 @@ import MfoAlarmHost from './features/mfo/components/MfoAlarmHost.jsx';
 import { ClaimMemberPage } from './features/membership/pages/ClaimMemberPage';
 import { MembershipStatusPage } from './features/membership/pages/MembershipStatusPage';
 import { ClanSetupPage } from './features/membership/pages/ClanSetupPage';
+
+//Entitiy Resolution & Small Trees intergrated
+import { EntityResolutionWizardPage } from './features/mfo/entity-resolution/EntityResolutionWizardPage';
+import { SmallTreesPage } from './features/mfo/small-trees/SmallTreesPage';
 
 // --- Lazy pages ---
 const HomePage = lazy(() => import('./pages/HomePage.jsx'));
@@ -296,6 +303,25 @@ const AppRouter = () => {
           element={
             <OpProtectedRoute>
               <OpMfoPlanPage />
+            </OpProtectedRoute>
+          }
+        />
+        {/* Entity Resolution Wizard & Small Trees integrated */}
+        <Route
+          path="/admin/entity-resolution"
+          element={
+            <AdminProtectedRoute>
+              <EntityResolutionWizardPage />
+            </AdminProtectedRoute>
+          }
+        />
+
+        {/* --- Thêm vào nhóm OP routes --- */}
+        <Route
+          path="/op/mfo/small-trees"
+          element={
+            <OpProtectedRoute>
+              <SmallTreesPage />
             </OpProtectedRoute>
           }
         />

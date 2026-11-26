@@ -5,6 +5,8 @@
  * DESCRIPTION:
  * - Banner hiển thị khi có canonical redirect (thay vì tự động điều hướng).
  * - Người dùng bấm nút để chuyển đến hồ sơ chuẩn.
+ * CHANGE LOGS:
+ * - FE-03: thêm banner canonical redirect.
  * QX: Tuân thủ chặt chẽ Q1–Q4. Không phỏng đoán.
  */
 

@@ -6,6 +6,9 @@
  * - Panel ghép Small Tree.
  * - Phân quyền: chỉ Admin ghép; Admin hoặc owner được hủy.
  * - Cập nhật trạng thái cục bộ sau thao tác.
+ * 
+ * CHANGE LOGS:
+ * - FE-02: thêm SmallTreeMergePanel.
  * QX: Tuân thủ chặt chẽ Q1–Q4. Không phỏng đoán.
  */
 

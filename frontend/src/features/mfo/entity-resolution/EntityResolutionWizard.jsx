@@ -6,6 +6,9 @@
  * - Component chính cho Admin Wizard Entity Resolution.
  * - Cho phép chọn 2 member, preview, hiển thị soft warning + conflict, thực thi merge.
  * - Dùng component FE-04.
+ * 
+ * CHANGE LOGS:
+ * - FE-01: thêm component EntityResolutionWizard.
  * QX: Tuân thủ chặt chẽ Q1–Q4. Không phỏng đoán.
  */
 

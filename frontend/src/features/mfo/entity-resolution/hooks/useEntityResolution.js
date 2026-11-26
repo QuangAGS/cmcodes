@@ -5,6 +5,9 @@
  * DESCRIPTION:
  * - Hooks cho Entity Resolution (preview, merge).
  * - Dùng react-query.
+ * 
+ * CHANGE LOGS:
+ * - FE-01: thêm hooks useEntityResolution. 
  * QX: Tuân thủ chặt chẽ Q1–Q4. Không phỏng đoán.
  */
 

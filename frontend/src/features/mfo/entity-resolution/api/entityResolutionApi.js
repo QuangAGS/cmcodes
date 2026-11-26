@@ -5,6 +5,8 @@
  * DESCRIPTION:
  * - API client cho Entity Resolution (preview, merge, wizard-summary).
  * - Dùng apiClient chung.
+ * CHANGE LOGS:
+ * - FE-01: thêm api client cho entity resolution.
  * QX: Tuân thủ chặt chẽ Q1–Q4. Không phỏng đoán.
  */
 

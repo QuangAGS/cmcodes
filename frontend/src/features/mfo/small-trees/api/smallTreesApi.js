@@ -5,6 +5,9 @@
  * DESCRIPTION:
  * - API client cho Small Trees (list, pending, create, merge, status, get by id).
  * - Dùng apiClient chung.
+ * 
+ * CHANGE LOGS:
+ * - FE-02: thêm smallTreesApi. 
  * QX: Tuân thủ chặt chẽ Q1–Q4. Không phỏng đoán.
  */
 

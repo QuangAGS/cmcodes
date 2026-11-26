@@ -6,6 +6,9 @@
  * - Form tạo Small Tree mới.
  * - tenantId và ownerUserId lấy từ context (truyền qua props).
  * - citation_id do BE gắn khi ghép.
+ * 
+ * CHANGE LOGS:
+ * - FE-02: thêm CreateSmallTreeForm.
  * QX: Tuân thủ chặt chẽ Q1–Q4. Không phỏng đoán.
  */
 

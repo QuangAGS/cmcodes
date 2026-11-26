@@ -6,6 +6,9 @@
  * - Hook xử lý canonical redirect khi response có _canonicalRedirect.
  * - Chỉ xử lý một lần cho mỗi redirect.to trong cùng phiên.
  * - Nên gắn một lần ở cấp page để tránh toast trùng.
+ * 
+ * CHANGE LOGS:
+ * - FE-03: thêm hook useCanonicalRedirect.
  * QX: Tuân thủ chặt chẽ Q1–Q4. Không phỏng đoán.
  */
 

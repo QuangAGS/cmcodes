@@ -5,6 +5,9 @@
  * DESCRIPTION:
  * - Danh sách Small Trees với lọc theo trạng thái.
  * - Hỗ trợ lọc CHO_GHEP.
+ * 
+ * CHANGE LOGS:
+ * - FE-02: thêm SmallTreesList.
  * QX: Tuân thủ chặt chẽ Q1–Q4. Không phỏng đoán.
  */
 

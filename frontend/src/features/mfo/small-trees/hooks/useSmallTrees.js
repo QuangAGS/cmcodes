@@ -5,6 +5,9 @@
  * DESCRIPTION:
  * - Hooks cho Small Trees.
  * - Dùng react-query.
+ * 
+ * CHANGE LOGS:
+ * - FE-02: thêm useSmallTrees.
  * QX: Tuân thủ chặt chẽ Q1–Q4. Không phỏng đoán.
  */
 

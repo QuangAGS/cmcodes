@@ -1,30 +1,31 @@
 /**
  * PATH       : features/mfo/entity-resolution/EntityResolutionWizardPage.jsx
- * DATETIME   : 2026-11-26T08:00:00+07:00
- * VERSION    : 1.0.0-FE01
+ * DATETIME   : 2026-11-26T09:10:00+07:00
+ * VERSION    : 1.1.0-FE01-INTEGRATED
  * DESCRIPTION:
- * - Page wrapper cho Entity Resolution Wizard.
- * - Cần bọc bằng AdminProtectedRoute ở App.jsx.
- * - Lấy tenantId từ AuthContext / tenant context.
- * QX: Tuân thủ chặt chẽ Q1–Q4. Không phỏng đoán.
+ * - Page Entity Resolution Wizard đã nối AuthContext.
+ * - Lấy tenantId từ activeContext.activeTenantId.
+ * CHANGE LOGS:
+ * - FE-01: thêm page EntityResolutionWizardPage.
+ * QX: Tuân thủ chặt chẽ Q1–Q4.
  */
 
 import React from 'react';
+import { useAuth } from '../../../context/AuthContext';
 import { EntityResolutionWizard } from './EntityResolutionWizard';
-// import { useAuth } from '../../../context/AuthContext'; // Điều chỉnh path khi gắn vào repo
 
 export function EntityResolutionWizardPage() {
-  // Khi tích hợp vào repo:
-  // const { activeContext } = useAuth();
-  // const tenantId = activeContext?.tenantId || activeContext?.tenant_id || null;
+  const { activeContext, loading } = useAuth();
+  const tenantId = activeContext?.activeTenantId || null;
 
-  // Placeholder an toàn: không truyền tenantId giả
-  const tenantId = undefined;
+  if (loading) {
+    return <div className="p-4 text-sm text-slate-500">Đang tải...</div>;
+  }
 
   if (!tenantId) {
     return (
       <div className="max-w-3xl mx-auto p-4 text-sm text-amber-700">
-        Chưa có tenantId. Cần nối AuthContext / tenant context trước khi sử dụng Wizard.
+        Chưa chọn dòng họ. Vui lòng chọn dòng họ trước khi sử dụng Wizard.
       </div>
     );
   }
